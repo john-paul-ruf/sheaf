@@ -1,11 +1,16 @@
-# Idea — Spreadsheet Enhancer
+# Idea — Sheaf
+
+> *Your spreadsheet, as an app on your phone.*
 
 ## One-Sentence Summary
 
-Spreadsheet Enhancer is a serverless app generator that turns a spreadsheet
-workbook into an installable, offline, phone-native relational application for
-anyone who maintains a spreadsheet and wishes it were just an app on their
-phone.
+Sheaf is a serverless app generator that turns a spreadsheet workbook into an
+installable, offline, phone-native relational application for anyone who
+maintains a spreadsheet and wishes it were just an app on their phone.
+
+A **sheaf** is a bundle of sheets bound together — which is both what a
+workbook is and what the app library is. The name carries the product; the
+tagline carries the search.
 
 The framing sentence, for anyone who needs the shape in three seconds:
 
@@ -87,8 +92,11 @@ not that data never leaves the device — it is that **the data is never
 readable by anyone but you.** Everything that syncs is end-to-end encrypted
 with keys that exist only on the user's own devices, and it travels over
 substrate the user already owns: an encrypted bundle file they can put
-anywhere, a folder in their own iCloud or Drive or Dropbox, or a direct
-device-to-device connection when both are open. That yields multi-device sync,
+anywhere, a folder in their own Google Drive, Dropbox, or OneDrive, or a
+direct device-to-device connection when both are present. Apple offers no
+third-party web API for iCloud Drive, so iCloud remains an upload source but
+never an automatic sync substrate — a limitation the product states plainly
+rather than letting users assume otherwise. That yields multi-device sync,
 real backup, and the ability to hand an app to a colleague — with nothing to
 run, nothing to pay for, and no third party who can read a single row.
 
@@ -145,7 +153,12 @@ are first-class rather than a dashboard afterthought.
    from inside the app, forever.
 7. **Live formula engine** — computed columns, table metrics, and standalone
    dashboard values, translated off cell addresses, recalculating on edit and
-   editable by the user.
+   editable by the user. Clock-volatile functions (`TODAY`, `NOW`) stay live
+   and are never stored, so they can never conflict; nondeterministic ones
+   (`RAND` and family) are frozen at import, because a value that differs per
+   device would break reconciliation. A formula using an unsupported function
+   keeps its imported value, shows its original text for rewriting, and leaves
+   newly created rows **empty and flagged rather than silently zero**.
 8. **Relational tables with navigable relationships** — tap a customer, see
    their orders.
 9. **Full CRUD with mobile-native input** — right keyboard per type, native
@@ -185,9 +198,16 @@ deferred feature; the vision above is specified complete.
   re-uploading a macro-free copy.
 - **Not a multi-tenant SaaS.** No accounts, no server-side identity, no
   administrative backend, no subscription infrastructure.
-- **Not a hosted collaborative document.** Sharing happens via encrypted
-  device-to-device sync, not a live hosted session. No presence cursors, no
-  comment threads, no server-mediated co-editing.
+- **Not a hosted collaborative document.** Sharing happens by handing someone
+  access to an encrypted store — a shared storage folder or a bundle file plus
+  a key — not by joining a live hosted session. No presence cursors, no comment
+  threads, no server-mediated co-editing.
+- **Not a permissions system.** Because there is no identity infrastructure,
+  everyone holding an app's key holds the same access. There are no read-only
+  shares, and removing someone means rotating the key for everyone, which stops
+  their future access but cannot reach into their device and delete what they
+  already hold. The product says this in those words rather than implying a
+  revoke button does more than it does.
 - **Not linked to the original file.** Import is deliberate and explicit. The
   product never watches, re-reads, or writes back to the source file on disk or
   in cloud storage. Bringing in a newer version is always a user-initiated
@@ -213,19 +233,33 @@ To be resolved during the `requirements` phase.
   single sheet: detected and split, or one-table-per-sheet as a hard rule?
 - **Sharing semantics.** Does a shared app sync bidirectionally with the
   recipient, or is there a read-only share as well? Can the sender revoke?
-- **Key management.** How does the encryption key reach a second device — QR,
-  passphrase, recovery code? What is the honest answer when a user loses every
-  device and the key with them?
-- **Cloud provider priority.** Which of iCloud, Google Drive, Dropbox, and
-  OneDrive are supported as sync substrate, and in what order?
 - **Scale ceiling.** What is the largest workbook the product commits to
   handling on a phone — in rows, sheets, and megabytes — and what does it do at
   the boundary?
-- **Volatile functions.** `TODAY()`, `NOW()`, `RAND()` and similar: evaluated
-  live on every render, frozen at import, or user-selectable per column?
-- **Unsupported functions.** When a formula uses a function outside the
-  supported set, is the column preserved as a frozen value, flagged for the
-  user to rewrite, or both?
-- **Product name.** *Spreadsheet Enhancer* describes a transformation rather
-  than a result, and the product's own framing sentence is considerably
-  stronger than its name. Worth revisiting before anything is branded.
+
+### Settled during the idea phase
+
+Recorded here so later phases don't relitigate them.
+
+- **Encryption is mandatory wherever a backup leaves the device.** An
+  unreadable-by-anyone-but-you guarantee is the product's core claim, and an
+  unencrypted blob in someone's Drive would forfeit it outright.
+- **Symmetric keys only, no public-key infrastructure.** One key per app,
+  reaching a second device by QR pairing and recoverable by a written code, with
+  an optional passphrase wrap. Sharing is delegated to the storage provider's
+  own folder sharing rather than to a trust model the product would have to
+  build and maintain.
+- **Cloud substrate, in order:** encrypted bundle file, Google Drive, Dropbox,
+  OneDrive, and a picked local folder on desktop. iCloud Drive is excluded, for
+  the reasons given in the Vision.
+- **No secrets, no API keys, no paid infrastructure.** The site is a public
+  static deploy from a public repository. Provider integration uses public
+  OAuth client identifiers with PKCE and app-folder-scoped permissions, held in
+  build-time configuration that a fork can supply for itself.
+- **Peer-to-peer sync is an accelerator, never the guarantee.** In-person
+  pairing works with no infrastructure at all. Remote peer connections are
+  best-effort, because a guaranteed relay would require credentials the project
+  cannot publish. The cloud folder is always the reliable path.
+- **Formula fidelity policy** — as recorded in Key Features 7.
+- **Product name** — *Sheaf*, with *"Your spreadsheet, as an app on your
+  phone"* carrying the descriptive and search burden.
