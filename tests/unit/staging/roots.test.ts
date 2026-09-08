@@ -32,7 +32,11 @@ import {
   type StoredRecordV1,
 } from "../../../src/import/staging/roots.js";
 import { DEFAULT_APP_THEME } from "../../../src/import/staging/theme.js";
-import { textValue } from "../../../src/domain/model/values.js";
+import {
+  MIN_EPOCH_DAY,
+  dateValue,
+  textValue,
+} from "../../../src/domain/model/values.js";
 
 const id = <K extends Parameters<typeof asDomainId>[0]>(kind: K, seed: number) =>
   asDomainId(
@@ -97,6 +101,40 @@ describe("record pages", () => {
       /512 KiB/,
     );
     expect(PAGE_MAX_DECODED_BYTES).toBe(524_288);
+  });
+
+  it("round-trips a date before 1970 — epoch days are signed", () => {
+    // The encoder writes the negative integer faithfully; a nonnegative-only
+    // reader would make this page one the app wrote and cannot open again.
+    const older = {
+      ...record(10),
+      values: [{ fieldId: FIELD, value: dateValue(-1_826) }],
+    };
+    const encoded = encodeRecordPage({ pageVersion: 1, records: [older] });
+
+    expect(decodeRecordPage(encoded).records[0]?.values[0]?.value).toEqual({
+      kind: "date",
+      epochDay: -1_826,
+    });
+    expect(encodeRecordPage(decodeRecordPage(encoded))).toEqual(encoded);
+  });
+
+  it("refuses an epoch day below the representable range", () => {
+    // Signed does not mean unbounded: the decoder holds the same range
+    // `dateValue()` enforces, so a page cannot smuggle in a date the domain
+    // would refuse to author.
+    const beyond = {
+      ...record(10),
+      values: [
+        {
+          fieldId: FIELD,
+          value: { kind: "date", epochDay: MIN_EPOCH_DAY - 1 } as const,
+        },
+      ],
+    };
+    expect(() =>
+      decodeRecordPage(encodeRecordPage({ pageVersion: 1, records: [beyond] })),
+    ).toThrow(CodecError);
   });
 
   it("preserves the three absent states as three different facts", () => {

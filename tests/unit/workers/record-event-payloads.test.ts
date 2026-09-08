@@ -239,14 +239,14 @@ describe("the record-event payload codec", () => {
   });
 
   /**
-   * A **known limit, not a property**: `epochDay` is signed in the domain
-   * (`MIN_EPOCH_DAY` is -100,000,000) but M23's `decodeCellValue` reads it with
-   * the nonnegative-integer reader, so a date before 1970-01-01 encodes and then
-   * cannot be read back. It is recorded here rather than worked around, because
-   * the same decoder reads checkpoint record pages: an imported CSV holding an
-   * older date promotes and then cannot be opened again. The correction belongs
-   * to `src/import/staging/roots.ts` (S04's lease) and is named in this
-   * session's handoff; when it lands, this expectation flips to `.not.toThrow`.
+   * `epochDay` is signed in the domain (`MIN_EPOCH_DAY` is -100,000,000) and
+   * canonical CBOR carries a negative integer correctly, so a date before
+   * 1970-01-01 must survive the round trip. It was once a recorded limit —
+   * M23's `decodeCellValue` read the day with the nonnegative-integer reader —
+   * and that mattered beyond this codec: the same decoder reads checkpoint
+   * record pages, so an imported CSV holding an older date promoted and then
+   * could not be opened again. The correction landed in
+   * `src/import/staging/roots.ts`; this case now holds it.
    */
   it("records the pre-1970 date limit this codec inherits from M23", () => {
     const older: F02DomainEventV1 = {
@@ -265,7 +265,15 @@ describe("the record-event payload codec", () => {
     };
     // Encoding is fine — canonical CBOR carries a negative integer correctly.
     expect(() => encodeRecordEventPayload(older)).not.toThrow();
-    expect(() => roundTrip(older)).toThrow(/epoch day is negative/);
+    expect(() => roundTrip(older)).not.toThrow();
+
+    const back = roundTrip(older);
+    if (back.kind !== "record.created") {
+      throw new Error("expected record.created");
+    }
+    expect([...back.payload.record.values.values()]).toEqual([
+      { kind: "date", epochDay: -1_826 },
+    ]);
   });
 
   it("hashes a record over its authored state, stably", () => {

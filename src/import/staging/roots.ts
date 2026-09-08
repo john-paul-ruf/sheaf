@@ -34,7 +34,11 @@ import type {
 } from "../../domain/model/ids.js";
 import type { AppThemeV1 } from "../../domain/model/events.js";
 import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../../domain/model/schema.js";
-import type { CellValueV1 } from "../../domain/model/values.js";
+import {
+  MAX_EPOCH_DAY,
+  MIN_EPOCH_DAY,
+  type CellValueV1,
+} from "../../domain/model/values.js";
 import type { FrontierEntryV1 } from "../../migrations/004_event_format_v1.js";
 import {
   decodeCanonical,
@@ -50,6 +54,7 @@ import {
   count,
   exactKeys,
   field,
+  integer,
   integerOrNull,
   list,
   nfcText,
@@ -113,6 +118,22 @@ const CELL_KINDS = Object.freeze([
   "invalid-preserved",
 ] as const);
 
+/**
+ * Epoch days are **signed** — a date before 1970-01-01 is an ordinary date, and
+ * canonical CBOR writes its negative integer faithfully. Reading it back with
+ * the nonnegative reader would make every pre-1970 date a page this decoder
+ * wrote and cannot open, so the signed reader is used and the range is the same
+ * one `dateValue()` enforces (`values.ts`): what the domain refuses to author,
+ * the decoder refuses to admit.
+ */
+const epochDay = (value: DecodedValue): number => {
+  const decoded = integer(value, "an epoch day");
+  if (decoded < MIN_EPOCH_DAY || decoded > MAX_EPOCH_DAY) {
+    throw new CodecError("an epoch day is outside the representable range");
+  }
+  return decoded;
+};
+
 export function decodeCellValue(value: DecodedValue): CellValueV1 {
   const map = asMap(value, "a cell value");
   const kind = oneOf(field(map, "kind"), CELL_KINDS, "a cell value kind");
@@ -123,7 +144,7 @@ export function decodeCellValue(value: DecodedValue): CellValueV1 {
     case "decimal":
       return { kind, decimal: text(field(map, "decimal"), "a decimal") };
     case "date":
-      return { kind, epochDay: Number(count(field(map, "epochDay"), "an epoch day")) };
+      return { kind, epochDay: epochDay(field(map, "epochDay")) };
     case "boolean":
       return { kind, boolean: boolean(field(map, "boolean"), "a boolean") };
     case "enum":
