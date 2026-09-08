@@ -191,6 +191,142 @@ export interface ApplyReviewEditRequestV1 {
   readonly edit: ReviewEditWireV1;
 }
 
+/**
+ * One cell value on the wire (CA-12, D28).
+ *
+ * The mapping to the domain is pinned here and implemented once, in the data
+ * worker's wire→domain boundary:
+ *
+ * | wire                            | domain                       |
+ * |---------------------------------|------------------------------|
+ * | `{kind:"text", text}`           | `text`, NFC-normalized here  |
+ * | `{kind:"number", decimal}`      | `decimal` (canonical string) |
+ * | `{kind:"boolean", boolean}`     | `boolean`                    |
+ * | `{kind:"option", optionId}`     | `enum`                       |
+ * | `{kind:"date", epochDay}`       | `date` (signed epoch day)    |
+ * | `{kind:"blank"}`                | `blank`                      |
+ * | `{kind:"missing"}`              | `missing`                    |
+ * | `{kind:"invalid", sourceText}`  | `invalid-preserved` (read)   |
+ * | `{kind:"reference", recordId}`  | `reference` (read; F03)      |
+ *
+ * **A number is a string.** There are no floats anywhere in Sheaf's value
+ * domain, so a decimal crosses as the exact text that was authored; a JSON
+ * number would round `10.50` into a different value on the way past.
+ *
+ * **The three absent states stay three.** `missing` (never given a value),
+ * `blank` (deliberately cleared), and `invalid` (an imported value preserved
+ * verbatim and flagged) are distinct kinds, because collapsing any two of them
+ * would lose what a person needs to see (FR-4).
+ *
+ * **`invalid` and `reference` are read-only by type.** {@link AuthoredCellWireValueV1}
+ * excludes them, and every write request is typed by that union — so a client
+ * cannot author a preserved-invalid value, which only an import can produce,
+ * and cannot author a reference F02 has no producer for (D25).
+ */
+export type CellWireValueV1 =
+  | { readonly kind: "text"; readonly text: string }
+  /** Canonical decimal text: no exponent, no float, exact as authored. */
+  | { readonly kind: "number"; readonly decimal: string }
+  | { readonly kind: "boolean"; readonly boolean: boolean }
+  | { readonly kind: "option"; readonly optionId: string }
+  | { readonly kind: "date"; readonly epochDay: number }
+  | { readonly kind: "blank" }
+  | { readonly kind: "missing" }
+  /** The source text an import kept rather than coerced (FR-4/FR-6). */
+  | { readonly kind: "invalid"; readonly sourceText: string }
+  | { readonly kind: "reference"; readonly recordId: string };
+
+export type AuthoredCellWireValueV1 = Exclude<
+  CellWireValueV1,
+  { readonly kind: "invalid" } | { readonly kind: "reference" }
+>;
+
+export interface CellWireEntryV1 {
+  readonly fieldId: string;
+  readonly value: CellWireValueV1;
+}
+
+export interface AuthoredCellWireEntryV1 {
+  readonly fieldId: string;
+  readonly value: AuthoredCellWireValueV1;
+}
+
+export interface OpenAppRequestV1 {
+  readonly kind: "openApp";
+  readonly appId: string;
+}
+
+export interface CloseAppRequestV1 {
+  readonly kind: "closeApp";
+  readonly appId: string;
+}
+
+/**
+ * Records the moment an app was opened. It updates a cache in the catalog and
+ * authors **no event**: database.md § Events that do not exist rules out a
+ * last-opened event, so this is an operational write and nothing more.
+ */
+export interface NoteAppOpenedRequestV1 {
+  readonly kind: "noteAppOpened";
+  readonly appId: string;
+}
+
+export interface QueryRecordsRequestV1 {
+  readonly kind: "queryRecords";
+  readonly appId: string;
+  readonly tableId: string;
+  /** The previous page's `nextCursor`; absent starts at the beginning. */
+  readonly cursor?: number | null;
+  readonly limit?: number;
+  /** Absent or blank browses the table; text searches within it. */
+  readonly search?: string | null;
+}
+
+export interface GetRecordRequestV1 {
+  readonly kind: "getRecord";
+  readonly appId: string;
+  readonly recordId: string;
+}
+
+export interface CreateRecordRequestV1 {
+  readonly kind: "createRecord";
+  readonly appId: string;
+  readonly tableId: string;
+  readonly values: readonly AuthoredCellWireEntryV1[];
+}
+
+export interface PatchRecordRequestV1 {
+  readonly kind: "patchRecord";
+  readonly appId: string;
+  readonly recordId: string;
+  readonly changes: readonly AuthoredCellWireEntryV1[];
+}
+
+export interface DeleteRecordRequestV1 {
+  readonly kind: "deleteRecord";
+  readonly appId: string;
+  readonly recordId: string;
+}
+
+export interface RestoreRecordRequestV1 {
+  readonly kind: "restoreRecord";
+  readonly appId: string;
+  readonly recordId: string;
+}
+
+export interface ChangeHistoryCursorWireV1 {
+  readonly wallTimeMs: number;
+  readonly logicalCounter: number;
+  readonly eventId: string;
+}
+
+export interface GetChangeHistoryRequestV1 {
+  readonly kind: "getChangeHistory";
+  readonly appId: string;
+  readonly cursor?: ChangeHistoryCursorWireV1 | null;
+  readonly limit?: number;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -208,7 +344,17 @@ export type DataWorkerRequestV1 =
   | ApplyReviewEditRequestV1
   | PromoteImportRequestV1
   | ListLibraryRequestV1
-  | CancelImportStageRequestV1;
+  | CancelImportStageRequestV1
+  | OpenAppRequestV1
+  | CloseAppRequestV1
+  | NoteAppOpenedRequestV1
+  | QueryRecordsRequestV1
+  | GetRecordRequestV1
+  | CreateRecordRequestV1
+  | PatchRecordRequestV1
+  | DeleteRecordRequestV1
+  | RestoreRecordRequestV1
+  | GetChangeHistoryRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -620,6 +766,219 @@ export interface CancelImportStageResponseV1 {
   readonly receipt: ImportCleanupReceiptViewV1;
 }
 
+// --- the open app -----------------------------------------------------------
+
+/** The field types a schema may declare; `reference` has no F02 producer (D25). */
+export type FieldTypeWireV1 =
+  | ProposedFieldTypeWireV1
+  | { readonly kind: "reference" };
+
+/**
+ * The six semantic theme tokens (design.md § Per-app theming contract). Safety
+ * colours — danger, warning, success, focus — are system-owned and are absent
+ * here on purpose: a per-app theme cannot make them ambiguous.
+ */
+export type AppThemeTokenWireV1 =
+  | "app-ink"
+  | "app-canvas"
+  | "app-surface"
+  | "app-primary"
+  | "app-accent"
+  | "app-muted";
+
+export interface AppThemeWireV1 {
+  readonly themeKey: string;
+  readonly tokens: Readonly<Record<AppThemeTokenWireV1, string>>;
+}
+
+export interface AppEnumOptionViewV1 {
+  readonly optionId: string;
+  readonly label: string;
+  readonly optionOrdinal: number;
+  readonly isActive: boolean;
+}
+
+export interface AppFieldViewV1 {
+  readonly fieldId: string;
+  readonly displayName: string;
+  readonly fieldOrdinal: number;
+  readonly type: FieldTypeWireV1;
+  readonly isRequired: boolean;
+  readonly isActive: boolean;
+  /** Empty for every field that is not an enum. */
+  readonly enumOptions: readonly AppEnumOptionViewV1[];
+}
+
+export interface AppTableViewV1 {
+  readonly tableId: string;
+  readonly displayName: string;
+  readonly tableOrdinal: number;
+  readonly recordCount: number;
+  /** Always `true`: this count is `count(*)` over the hydrated table (CA-14). */
+  readonly isRecordCountExact: true;
+  readonly fields: readonly AppFieldViewV1[];
+}
+
+/**
+ * One opened app, as the page may know it: schema, table list, and counts.
+ * There is no record content here — records arrive through `queryRecords`, a
+ * page at a time, so opening an app never puts a whole table in the page.
+ */
+export interface AppSessionViewV1 {
+  readonly appId: string;
+  readonly displayName: string;
+  readonly theme: AppThemeWireV1;
+  readonly schemaRevision: number;
+  readonly createdAtEpochMs: number;
+  readonly lastOpenedAtEpochMs: number | null;
+  /** True while the app has no durable home — the persistent scratch fact. */
+  readonly isScratch: boolean;
+  /** Commits this device holds that no durable home has (CA-09). */
+  readonly deviceOnlyChangeCount: number;
+  readonly tables: readonly AppTableViewV1[];
+}
+
+export interface OpenAppResponseV1 {
+  readonly kind: "openApp";
+  /** Null when no app carries this id — removed, purged, or never (CA-12). */
+  readonly session: AppSessionViewV1 | null;
+}
+
+export interface CloseAppResponseV1 {
+  readonly kind: "closeApp";
+  /** Closing an app that is not open is the same request already answered. */
+  readonly closed: true;
+}
+
+export interface NoteAppOpenedResponseV1 {
+  readonly kind: "noteAppOpened";
+  /** Null when no app carries this id; nothing was written. */
+  readonly lastOpenedAtEpochMs: number | null;
+}
+
+export interface RecordIssueViewV1 {
+  /** Null for a whole-record issue. */
+  readonly fieldId: string | null;
+  readonly kind: string;
+  readonly severity: "warning" | "blocking";
+  /** Structured; the user-language sentence is a view model's (M37). */
+  readonly messageKey: string;
+  readonly messageParameters: Readonly<
+    Record<string, string | number | boolean>
+  >;
+}
+
+export interface RecordSummaryViewV1 {
+  readonly recordId: string;
+  readonly tableId: string;
+  readonly recordRevision: number;
+  /** Pass back as `cursor`; a row key, never an offset. */
+  readonly cursor: number;
+  /**
+   * The complete authored state, including the values with no typed lane —
+   * which is what makes a preserved invalid value visible to the person who
+   * has to fix it (FR-6).
+   */
+  readonly values: readonly CellWireEntryV1[];
+  readonly blockingIssueCount: number;
+  readonly warningIssueCount: number;
+}
+
+export interface RecordDetailViewV1 extends RecordSummaryViewV1 {
+  readonly createdCommitId: string;
+  readonly updatedCommitId: string;
+  readonly issues: readonly RecordIssueViewV1[];
+  /** The fields the projection could index; the rest are authored-only. */
+  readonly indexedFieldIds: readonly string[];
+}
+
+export type RecordScopeWireV1 =
+  | { readonly kind: "table" }
+  | { readonly kind: "search"; readonly text: string };
+
+export interface RecordPageViewV1 {
+  readonly tableId: string;
+  /** What was actually looked at — the sentence an empty state needs. */
+  readonly scope: RecordScopeWireV1;
+  readonly records: readonly RecordSummaryViewV1[];
+  readonly hasMore: boolean;
+  readonly nextCursor: number | null;
+  /** Live records in the whole table, exact. A search does not narrow it. */
+  readonly totalCount: number;
+  readonly isTotalExact: true;
+}
+
+export interface QueryRecordsResponseV1 {
+  readonly kind: "queryRecords";
+  /** Null when the app or the table is not there (CA-12 idempotent read). */
+  readonly page: RecordPageViewV1 | null;
+}
+
+export interface GetRecordResponseV1 {
+  readonly kind: "getRecord";
+  /** Null when no record carries this id — deleted, or never. */
+  readonly record: RecordDetailViewV1 | null;
+}
+
+export interface CommandReceiptViewV1 {
+  readonly recordId: string;
+  readonly tableId: string;
+  readonly recordRevision: number;
+  /** Null when the command was a truthful no-op and wrote nothing. */
+  readonly commitId: string | null;
+  readonly headRevision: number | null;
+}
+
+/** The whole report, so a surface can name every field at fault (D23). */
+export interface ValidationReportViewV1 {
+  readonly isValid: false;
+  readonly issues: readonly RecordIssueViewV1[];
+}
+
+/**
+ * A write's outcome. A refusal is a **result**, never a `DataWorkerErrorV1`:
+ * the error kinds stay closed and mechanical, and a person who typed something
+ * the schema will not take needs the fields named, not a category (D23/CA-04).
+ */
+export type RecordCommandOutcomeV1 =
+  | { readonly outcome: "accepted"; readonly receipt: CommandReceiptViewV1 }
+  | { readonly outcome: "rejected"; readonly report: ValidationReportViewV1 }
+  | {
+      readonly outcome: "unknown-subject";
+      readonly subject: "app" | "table" | "record" | "deleted-record";
+    };
+
+export type CreateRecordResponseV1 = { readonly kind: "createRecord" } & RecordCommandOutcomeV1;
+export type PatchRecordResponseV1 = { readonly kind: "patchRecord" } & RecordCommandOutcomeV1;
+export type DeleteRecordResponseV1 = { readonly kind: "deleteRecord" } & RecordCommandOutcomeV1;
+export type RestoreRecordResponseV1 = { readonly kind: "restoreRecord" } & RecordCommandOutcomeV1;
+
+export interface ChangeHistoryEntryViewV1 {
+  readonly eventId: string;
+  readonly commitId: string;
+  readonly eventKind: string;
+  readonly subjectKind: string;
+  readonly subjectId: string;
+  readonly wallTimeMs: number;
+  readonly logicalCounter: number;
+  readonly recordRevision: number | null;
+  /** Which fields moved. The values themselves stay out of a log listing. */
+  readonly changedFieldIds: readonly string[];
+  /** True when this entry records a delete that still carries its payload. */
+  readonly isRestorable: boolean;
+}
+
+export interface ChangeHistoryPageViewV1 {
+  readonly entries: readonly ChangeHistoryEntryViewV1[];
+  readonly hasMore: boolean;
+  readonly nextCursor: ChangeHistoryCursorWireV1 | null;
+}
+
+export interface GetChangeHistoryResponseV1 {
+  readonly kind: "getChangeHistory";
+  readonly page: ChangeHistoryPageViewV1 | null;
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -637,7 +996,17 @@ export type DataWorkerResponseV1 =
   | ApplyReviewEditResponseV1
   | PromoteImportResponseV1
   | ListLibraryResponseV1
-  | CancelImportStageResponseV1;
+  | CancelImportStageResponseV1
+  | OpenAppResponseV1
+  | CloseAppResponseV1
+  | NoteAppOpenedResponseV1
+  | QueryRecordsResponseV1
+  | GetRecordResponseV1
+  | CreateRecordResponseV1
+  | PatchRecordResponseV1
+  | DeleteRecordResponseV1
+  | RestoreRecordResponseV1
+  | GetChangeHistoryResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

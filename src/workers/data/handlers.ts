@@ -70,8 +70,11 @@ import type { LocalBootstrapRowV1 } from "../../migrations/001_local_store_v1.js
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
 import {
   createImportHandlers,
+  envelopeCryptoAdapter,
+  envelopeStoreAdapter,
   type ImportSessionContextV1,
 } from "./import-handlers.js";
+import { createRecordHandlers } from "./record-handlers.js";
 import {
   isIdleTimeoutMinutesV1,
   type DataWorkerRequestV1,
@@ -128,6 +131,19 @@ export function createDataWorkerHandler(
     entropy: deps.entropy,
     clock: deps.clock,
     getContext: () => importContext(requireUnlocked()),
+  });
+  // The app tier composes the same store and crypto adapters the import tier
+  // uses; one worker, one database owner, one set of keys.
+  const records = createRecordHandlers({
+    clock: deps.clock,
+    entropy: deps.entropy,
+    ports: {
+      store: envelopeStoreAdapter,
+      crypto: envelopeCryptoAdapter,
+      entropy: deps.entropy,
+    },
+    getContext: () => importContext(requireUnlocked()),
+    commitCatalog: (next) => commitCatalog(next),
   });
 
   const now = (): number => deps.clock.nowEpochMs();
@@ -245,6 +261,29 @@ export function createDataWorkerHandler(
       sealCatalog: (catalog, logicalRevision) =>
         sealCatalog(catalog, state.root, logicalRevision),
     };
+  }
+
+  /**
+   * Commits a replacement catalog on its own — the shape an operational write
+   * needs (`noteAppOpened`). It authors no event: database.md § Events that do
+   * not exist rules a last-opened event out, so the fact lives in this cache
+   * and the transaction that moves it carries nothing else.
+   */
+  async function commitCatalog(next: LocalCatalogV1): Promise<void> {
+    const state = requireUnlocked();
+    const revision = state.transactionRevision + 1;
+    const sealed = await sealCatalog(next, state.root, revision);
+    const committed = await commitEnvelopes({
+      expectedRevision: state.transactionRevision,
+      expectedWriterEpoch: state.writerEpoch,
+      addFrames: [sealed.frame],
+      bootstrapPatch: { catalogStorageId: sealed.storageId },
+    });
+    session.update({
+      catalog: next,
+      catalogStorageId: sealed.storageId,
+      transactionRevision: committed,
+    });
   }
 
   function view(state: UnlockedState): UnlockedSessionViewV1 {
@@ -431,6 +470,11 @@ export function createDataWorkerHandler(
   // --- CAP-03 -------------------------------------------------------------
 
   function lock(): DataWorkerResponseV1 {
+    // Every open projection holds plaintext. Locking destroys them and every
+    // app key with them, so nothing can be answered until a fresh `openApp`
+    // hydrates again (invariant 3).
+    records.disposeAll();
+    imports.dispose();
     session.lock();
     return { kind: "lock", status: { state: "locked" } };
   }
@@ -589,23 +633,29 @@ export function createDataWorkerHandler(
     const row = await requireBootstrap();
     const catalog = await readCatalog(row, root);
     return {
-      inventory: inventoryOf(catalog),
+      inventory: await inventoryOf(catalog, root),
       token: inventoryToken(catalog, row.transactionRevision),
       catalog,
       row,
     };
   }
 
-  function inventoryOf(catalog: LocalCatalogV1): ResetInventoryViewV1 {
+  /**
+   * CA-09/CAP-18. Both facts are now real: the name is the app's own, and the
+   * device-only change count is recomputed from that app's **decrypted head
+   * frontier** — never from the catalog's render cache, which is exactly what
+   * check 7 forbids as authority for a destructive action.
+   */
+  async function inventoryOf(
+    catalog: LocalCatalogV1,
+    root: LocalRootKeyHandle,
+  ): Promise<ResetInventoryViewV1> {
+    const counts = await records.deviceOnlyChangeCounts(root, catalog);
     return {
-      // CA-09/CAP-18: the name is now the app's own, not its opaque id. The
-      // device-only change count still needs the decrypted head's frontier,
-      // which S05 supplies; until then it is the honest zero of a list with
-      // no apps in it, and the surface says "none", never "unknown" (FR-23).
       apps: catalog.apps.map((app) => ({
         appId: app.appId,
         displayName: app.displayName,
-        deviceOnlyChangeCount: 0,
+        deviceOnlyChangeCount: counts.get(app.appId) ?? 0,
       })),
       appCount: catalog.apps.length,
       homeCount: catalog.homes.length,
@@ -628,13 +678,19 @@ export function createDataWorkerHandler(
         BigInt(catalog.catalogRevision),
         // The name is part of the token because the confirmation shows it: a
         // rename between enumerate and confirm must invalidate the token, not
-        // purge under a name the user never read. With `apps: []` — every
-        // catalog F01 could write — the encoding is unchanged.
+        // purge under a name the user never read. The head pointer is part of
+        // it for the same reason and covers the *count* the confirmation
+        // shows — every commit repoints the entry at a new head envelope, so a
+        // change made between enumerate and confirm invalidates the token
+        // without this call having to re-read a head to notice. With
+        // `apps: []` — every catalog F01 could write — the encoding is
+        // unchanged.
         catalog.apps.map((app) => [
           app.appId,
           app.locality,
           app.homeId ?? "",
           app.displayName,
+          app.appHeadStorageId ?? "",
         ]),
         catalog.homes.map((home) => [home.homeId, home.kind]),
       ]),
@@ -736,6 +792,26 @@ export function createDataWorkerHandler(
           return imports.listLibrary();
         case "cancelImportStage":
           return imports.cancelImportStage(request);
+        case "openApp":
+          return records.openApp(request);
+        case "closeApp":
+          return Promise.resolve(records.closeApp(request));
+        case "noteAppOpened":
+          return records.noteAppOpened(request);
+        case "queryRecords":
+          return records.queryRecords(request);
+        case "getRecord":
+          return records.getRecord(request);
+        case "createRecord":
+          return records.createRecord(request);
+        case "patchRecord":
+          return records.patchRecord(request);
+        case "deleteRecord":
+          return records.deleteRecord(request);
+        case "restoreRecord":
+          return records.restoreRecord(request);
+        case "getChangeHistory":
+          return records.getChangeHistory(request);
         default: {
           const unreachable: never = request;
           void unreachable;
@@ -744,6 +820,7 @@ export function createDataWorkerHandler(
       }
     },
     dispose(): void {
+      records.disposeAll();
       imports.dispose();
       session.lock();
       closeLocalDatabase();
