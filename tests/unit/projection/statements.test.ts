@@ -26,6 +26,7 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   DELETE_ENUM_OPTIONS_FOR_FIELD: 1,
   INSERT_VALIDATION_RULE: 8,
   INSERT_RECORD: 6,
+  SELECT_LAST_INSERT_ROWID: 0,
   UPDATE_RECORD: 4,
   DELETE_RECORD: 1,
   INSERT_CELL: 10,
@@ -124,16 +125,26 @@ describe("search text", () => {
   it("keeps a person's words as words, not as query syntax", () => {
     expect(statements.toFtsMatchQuery("ada")).toBe('"ada"*');
     expect(statements.toFtsMatchQuery("  ada lovelace ")).toBe(
-      '"ada lovelace"*',
+      '"ada" AND "lovelace"*',
     );
-    // Operators, wildcards, and column filters are matched, not obeyed.
+    // Operators, wildcards, and column filters are words to match, not syntax
+    // to obey — and each quoted term is a single token, never a phrase, which
+    // `detail=column` could not answer.
     expect(statements.toFtsMatchQuery('ada OR "x" NEAR* a:b -c')).toBe(
-      '"ada OR ""x"" NEAR* a:b -c"*',
+      '"ada" AND "OR" AND "x" AND "NEAR" AND "a" AND "b" AND "c"*',
     );
+    expect(statements.toFtsMatchQuery("o'brien")).toBe('"o" AND "brien"*');
   });
 
-  it("answers empty text with no query rather than matching everything", () => {
+  it("answers text with no words with no query, rather than matching everything", () => {
     expect(statements.toFtsMatchQuery("")).toBeNull();
     expect(statements.toFtsMatchQuery("   ")).toBeNull();
+    expect(statements.toFtsMatchQuery("* -")).toBeNull();
+  });
+
+  it("keeps letters and digits from every script", () => {
+    expect(statements.toFtsMatchQuery("naïve 42 東京")).toBe(
+      '"naïve" AND "42" AND "東京"*',
+    );
   });
 });

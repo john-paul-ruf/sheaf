@@ -65,6 +65,8 @@ import {
   type DecodedKey,
   type DecodedValue,
 } from "../codecs/canonical-cbor.js";
+import { sortFrontier } from "../codecs/event-commit.js";
+import type { FrontierEntryV1 } from "../../migrations/004_event_format_v1.js";
 import type { ProjectionChangeSummaryV1 } from "./types.js";
 
 type CborMap = Map<string, CborValue>;
@@ -451,6 +453,35 @@ export function decodeChangeSummary(
         ? null
         : asDomainId("commit", asBytes(createdCommitId, "createdCommitId")),
   };
+}
+
+/**
+ * `projection_meta.frontier_cbor`: the applied per-device frontier. M09 owns
+ * the ordering rule — sorted by device, no device twice — so the sort is its
+ * `sortFrontier` rather than a second implementation of the same invariant.
+ */
+export function encodeFrontier(
+  entries: readonly FrontierEntryV1[],
+): Uint8Array {
+  return encodeCanonical(
+    sortFrontier(entries).map(
+      (entry) =>
+        new Map<string, CborValue>([
+          ["commitSequence", entry.commitSequence],
+          ["deviceId", entry.deviceId],
+        ]),
+    ),
+  );
+}
+
+export function decodeFrontier(bytes: Uint8Array): readonly FrontierEntryV1[] {
+  return asArray(decodeCanonical(bytes), "frontier").map((entry) => {
+    const map = asMap(entry, "frontier entry");
+    return {
+      deviceId: readBytes(map, "deviceId"),
+      commitSequence: readInteger(map, "commitSequence"),
+    };
+  });
 }
 
 /** The closed issue kinds, shared with migration 005's `record_issues` CHECK. */

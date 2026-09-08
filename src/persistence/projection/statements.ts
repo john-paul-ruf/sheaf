@@ -105,6 +105,9 @@ INSERT INTO records (
   authored_cbor
 ) VALUES (?, ?, ?, ?, ?, ?);`;
 
+/** The key SQLite just assigned; `record_pk` is the join and FTS row key. */
+export const SELECT_LAST_INSERT_ROWID = "SELECT last_insert_rowid();";
+
 export const UPDATE_RECORD = `
 UPDATE records
    SET record_revision = ?, updated_commit_id = ?, authored_cbor = ?
@@ -221,17 +224,17 @@ SELECT ${RECORD_SUMMARY_COLUMNS}
  */
 export const SEARCH_RECORDS_FIRST = `
 SELECT ${RECORD_SUMMARY_COLUMNS}
-  FROM record_search AS s
-  JOIN records AS r ON r.record_pk = s.rowid
- WHERE s MATCH ? AND r.table_id = ?
+  FROM record_search
+  JOIN records AS r ON r.record_pk = record_search.rowid
+ WHERE record_search MATCH ? AND r.table_id = ?
  ORDER BY r.record_pk
  LIMIT ?;`;
 
 export const SEARCH_RECORDS_AFTER = `
 SELECT ${RECORD_SUMMARY_COLUMNS}
-  FROM record_search AS s
-  JOIN records AS r ON r.record_pk = s.rowid
- WHERE s MATCH ? AND r.table_id = ? AND r.record_pk > ?
+  FROM record_search
+  JOIN records AS r ON r.record_pk = record_search.rowid
+ WHERE record_search MATCH ? AND r.table_id = ? AND r.record_pk > ?
  ORDER BY r.record_pk
  LIMIT ?;`;
 
@@ -297,17 +300,29 @@ export const SELECT_SEARCH_ROWIDS = `
 SELECT rowid FROM record_search WHERE record_search MATCH ?;`;
 
 /**
- * Turns a person's search text into one FTS5 phrase, so their words stay words:
- * an embedded quote, `*`, `-`, `:`, `NEAR`, or `OR` is data to match, never
- * query syntax. The trailing `*` makes the last word a prefix, which is what
- * the index's `prefix='2 3'` configuration is for and what search-as-you-type
- * needs. Empty or whitespace-only text yields `null` — a caller answers it with
- * an empty result rather than by matching everything.
+ * Turns a person's search text into an FTS5 query in which their words stay
+ * words: `*`, `-`, `:`, `NEAR`, `OR`, and a stray quote are things to match, not
+ * syntax to obey.
+ *
+ * Each word becomes one quoted term and the terms are joined with an explicit
+ * `AND`. Two details force that shape rather than the more obvious quoted
+ * phrase: migration 005 creates `record_search` with `detail=column`, which
+ * stores no positions and therefore **cannot answer a phrase query at all**;
+ * and juxtaposed terms in FTS5 *are* a phrase, so the `AND` has to be written.
+ * Splitting on non-alphanumeric characters mirrors the `unicode61` tokenizer,
+ * so each quoted term is exactly one token and never a phrase in disguise.
+ *
+ * The last word carries a `*`, which is what the index's `prefix='2 3'`
+ * configuration is for and what search-as-you-type needs. Text with no word
+ * characters yields `null`, and a caller answers that with an empty result
+ * rather than by matching everything.
  */
 export function toFtsMatchQuery(text: string): string | null {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
+  const words = text.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 0);
+  if (words.length === 0) {
     return null;
   }
-  return `"${trimmed.replaceAll('"', '""')}"*`;
+  return words
+    .map((word, index) => `"${word}"${index === words.length - 1 ? "*" : ""}`)
+    .join(" AND ");
 }
