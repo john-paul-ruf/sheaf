@@ -25,6 +25,7 @@ import {
 import {
   preflightFile,
   streamFacts,
+  streamSource,
   type PreflightOutcomeForRunV1,
 } from "./import/parse-session.js";
 import { isDelimitedSniff } from "../import/preflight/preflight.js";
@@ -129,13 +130,26 @@ async function proceed(): Promise<void> {
   run.streaming = false;
 
   switch (result.outcome) {
-    case "completed":
+    case "completed": {
+      // The facts are staged; now the bytes they came from, so the accepted
+      // import can be re-exported and re-compared against its source (D21).
+      const retained = await streamSource({
+        source: outcome.source,
+        port,
+        startSeq: result.batchesSent,
+        cancellation: { get aborted(): boolean { return run.cancelled; } },
+      });
+      if (!retained.ok) {
+        emit({ kind: "failed", reason: "stage-rejected" });
+        return;
+      }
       emit({
         kind: "completed",
         rowCount: result.rowsSoFar,
         batchesSent: result.batchesSent,
       });
       return;
+    }
     case "cancelled":
       emit({ kind: "cancelled", batchesSent: result.batchesSent });
       return;

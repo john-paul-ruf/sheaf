@@ -385,6 +385,303 @@ export async function runImport(
   }, options);
 }
 
+/**
+ * Opens the app's durable roots straight out of IndexedDB, using the app key
+ * from the catalog — so CA-11's assertions read the *stored bytes* rather than
+ * anything the worker chose to report about them.
+ */
+export async function readAppRoots(
+  page: Page,
+  passphrase: string,
+): Promise<AppRootsReport> {
+  return page.evaluate(async (secret): Promise<AppRootsReport> => {
+    const harness = window.__sheafHarness;
+    const [bytes, envelope, keys, kdf, store, catalog, roots, head, events, commit] =
+      await Promise.all([
+        harness.module<typeof import("../../../src/domain/model/bytes.js")>(
+          "/src/domain/model/bytes.ts",
+        ),
+        harness.module<typeof import("../../../src/crypto/envelope.js")>(
+          "/src/crypto/envelope.ts",
+        ),
+        harness.module<typeof import("../../../src/crypto/keys.js")>(
+          "/src/crypto/keys.ts",
+        ),
+        harness.module<typeof import("../../../src/crypto/kdf.js")>(
+          "/src/crypto/kdf.ts",
+        ),
+        harness.module<typeof import("../../../src/persistence/envelope-store/read.js")>(
+          "/src/persistence/envelope-store/read.ts",
+        ),
+        harness.module<typeof import("../../../src/workers/data/catalog.js")>(
+          "/src/workers/data/catalog.ts",
+        ),
+        harness.module<typeof import("../../../src/import/staging/roots.js")>(
+          "/src/import/staging/roots.ts",
+        ),
+        harness.module<typeof import("../../../src/persistence/envelope-store/bootstrap.js")>(
+          "/src/persistence/envelope-store/bootstrap.ts",
+        ),
+        harness.module<typeof import("../../../src/persistence/codecs/envelope-frame.js")>(
+          "/src/persistence/codecs/envelope-frame.ts",
+        ),
+        harness.module<typeof import("../../../src/persistence/codecs/event-commit.js")>(
+          "/src/persistence/codecs/event-commit.ts",
+        ),
+      ]);
+    const hash = await harness.module<typeof import("../../../src/crypto/hash.js")>(
+      "/src/crypto/hash.ts",
+    );
+
+    const row = await head.readBootstrap();
+    if (row === undefined) {
+      throw new Error("no bootstrap row");
+    }
+    const wrappingKey = await kdf.deriveWrappingKeyFromPassphrase(
+      secret,
+      row.passphraseKdf,
+    );
+    const root = await keys.unwrapRoot(row.passphraseWrappedRoot, wrappingKey);
+
+    const catalogFrame = await store.getEnvelope(
+      bytes.decodeStorageId16(row.catalogStorageId),
+    );
+    const decodedCatalog = catalog.decodeLocalCatalog(
+      (
+        await envelope.decryptEnvelope(
+          catalogFrame as NonNullable<typeof catalogFrame>,
+          "local.catalog",
+          root,
+          "local.catalog",
+        )
+      ).payload,
+    );
+
+    const entry = decodedCatalog.apps[0];
+    if (entry === undefined || entry.wrappedAppKey === null) {
+      return { hasApp: false } as AppRootsReport;
+    }
+
+    // The app key: sealed under the local root, carried as transport bytes.
+    const appKeyBytes = (
+      await envelope.decryptEnvelope(
+        events.parseEnvelopeTransport(entry.wrappedAppKey),
+        "local.catalog",
+        root,
+        "local.catalog",
+      )
+    ).payload;
+    const appKey = keys.createSecretKey(appKeyBytes, "envelope");
+
+    const open = async (storageId: string, scope: string, kind: string) => {
+      const frame = await store.getEnvelope(bytes.decodeStorageId16(storageId));
+      if (frame === undefined) {
+        throw new Error(`missing root ${storageId}`);
+      }
+      return (
+        await envelope.decryptEnvelope(
+          frame,
+          scope as Parameters<typeof envelope.decryptEnvelope>[1],
+          appKey,
+          kind as Parameters<typeof envelope.decryptEnvelope>[3],
+        )
+      ).payload;
+    };
+
+    const decodedHead = roots.decodeAppHead(
+      await open(entry.appHeadStorageId as string, "app.head", "app.head"),
+    );
+    const checkpointBytes = await open(
+      decodedHead.checkpoint.storageId,
+      "app.checkpoint",
+      "app.checkpoint-manifest",
+    );
+    const checkpoint = roots.decodeCheckpointManifest(checkpointBytes);
+
+    // `semanticSha256` is recomputed here from the manifest's own body, so a
+    // manifest whose hash did not describe it would fail.
+    const recomputedCheckpoint = await hash.sha256(
+      roots.encodeCheckpointBody({
+        manifestVersion: checkpoint.manifestVersion,
+        appId: checkpoint.appId,
+        schemaRevision: checkpoint.schemaRevision,
+        frontier: checkpoint.frontier,
+        appState: checkpoint.appState,
+        tables: checkpoint.tables,
+        enumOptions: checkpoint.enumOptions,
+        sheetSnapshots: checkpoint.sheetSnapshots,
+        recordPages: checkpoint.recordPages,
+      }),
+    );
+    const recomputedHead = await hash.sha256(
+      roots.encodeAppHeadBody({
+        headVersion: decodedHead.headVersion,
+        appId: decodedHead.appId,
+        headRevision: decodedHead.headRevision,
+        schemaRevision: decodedHead.schemaRevision,
+        checkpoint: decodedHead.checkpoint,
+        eventSegments: decodedHead.eventSegments,
+        frontier: decodedHead.frontier,
+        baselinePages: decodedHead.baselinePages,
+        conflictPages: decodedHead.conflictPages,
+        auditPages: decodedHead.auditPages,
+        sourceManifests: decodedHead.sourceManifests,
+        snapshotManifests: decodedHead.snapshotManifests,
+        retainedRoots: decodedHead.retainedRoots,
+      }),
+    );
+
+    const hex = (value: Uint8Array): string =>
+      [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+    // Every record page, decoded, so the sort order and caps are read off the
+    // stored bytes.
+    const pages = [];
+    for (const ref of checkpoint.recordPages) {
+      const page = roots.decodeRecordPage(
+        await open(ref.storageId, "app.records", "app.record-page"),
+      );
+      pages.push({
+        declaredCount: ref.decodedCount,
+        actualCount: page.records.length,
+        declaredBytes: ref.decodedByteLength,
+        keys: page.records.map((record) => hex(record.tableId) + hex(record.recordId)),
+      });
+    }
+
+    // The promotion commit, and its chain.
+    const segment = commit.decodeEventSegment(
+      await open(
+        decodedHead.eventSegments[0]?.storageId as string,
+        "app.events",
+        "app.event-segment",
+      ),
+    );
+    let chainOk = true;
+    try {
+      await commit.verifyCommitChain(segment.commits, hash.sha256);
+    } catch {
+      chainOk = false;
+    }
+
+    const baseline = roots.decodeBaselinePage(
+      await open(
+        decodedHead.baselinePages[0]?.storageId as string,
+        "app.baselines",
+        "app.baseline-page",
+      ),
+    );
+
+    keys.destroySecretKey(appKey);
+    keys.destroySecretKey(root);
+    keys.destroySecretKey(wrappingKey);
+
+    return {
+      hasApp: true,
+      entry: {
+        appId: entry.appId,
+        displayName: entry.displayName,
+        accentId: entry.identity.accentId,
+        glyph: entry.identity.glyph,
+        rowCountCache: entry.rowCountCache,
+        tableCount: entry.tableCount,
+        locality: entry.locality,
+        homeId: entry.homeId,
+        lastOpenedAtEpochMs: entry.lastOpenedAtEpochMs,
+      },
+      workflowCount: decodedCatalog.activeWorkflowStorageIds.length,
+      ticketCount: decodedCatalog.cleanupTicketStorageIds.length,
+      head: {
+        headRevision: Number(decodedHead.headRevision),
+        schemaRevision: Number(decodedHead.schemaRevision),
+        eventSegmentCount: decodedHead.eventSegments.length,
+        baselinePageCount: decodedHead.baselinePages.length,
+        conflictPageCount: decodedHead.conflictPages.length,
+        auditPageCount: decodedHead.auditPages.length,
+        sourceManifestCount: decodedHead.sourceManifests.length,
+        snapshotManifestCount: decodedHead.snapshotManifests.length,
+        retainedRootCount: decodedHead.retainedRoots.length,
+        semanticMatches: hex(decodedHead.semanticSha256) === hex(recomputedHead),
+      },
+      checkpoint: {
+        semanticMatches:
+          hex(checkpoint.semanticSha256) === hex(recomputedCheckpoint),
+        tableCount: checkpoint.tables.length,
+        fieldCount: checkpoint.tables[0]?.fields.length ?? 0,
+        enumOptionCount: checkpoint.enumOptions.length,
+        sheetSnapshotCount: checkpoint.sheetSnapshots.length,
+        appName: checkpoint.appState.displayName,
+        themeKey: checkpoint.appState.theme.themeKey,
+        themeTokens: checkpoint.appState.theme.tokens,
+        pages,
+      },
+      commit: {
+        chainOk,
+        commitCount: segment.commits.length,
+        eventClass: segment.commits[0]?.eventClass ?? "",
+        schemaRevisionBefore: Number(segment.commits[0]?.schemaRevisionBefore ?? -1),
+        schemaRevisionAfter: Number(segment.commits[0]?.schemaRevisionAfter ?? -1),
+        eventKinds: (segment.commits[0]?.events ?? []).map((entry) => entry.kind),
+      },
+      baselineEntryCount: baseline.entries.length,
+    };
+  }, passphrase);
+}
+
+export interface AppRootsReport {
+  readonly hasApp: boolean;
+  readonly entry: {
+    readonly appId: string;
+    readonly displayName: string;
+    readonly accentId: string;
+    readonly glyph: string;
+    readonly rowCountCache: number | null;
+    readonly tableCount: number;
+    readonly locality: string;
+    readonly homeId: string | null;
+    readonly lastOpenedAtEpochMs: number | null;
+  };
+  readonly workflowCount: number;
+  readonly ticketCount: number;
+  readonly head: {
+    readonly headRevision: number;
+    readonly schemaRevision: number;
+    readonly eventSegmentCount: number;
+    readonly baselinePageCount: number;
+    readonly conflictPageCount: number;
+    readonly auditPageCount: number;
+    readonly sourceManifestCount: number;
+    readonly snapshotManifestCount: number;
+    readonly retainedRootCount: number;
+    readonly semanticMatches: boolean;
+  };
+  readonly checkpoint: {
+    readonly semanticMatches: boolean;
+    readonly tableCount: number;
+    readonly fieldCount: number;
+    readonly enumOptionCount: number;
+    readonly sheetSnapshotCount: number;
+    readonly appName: string;
+    readonly themeKey: string;
+    readonly themeTokens: Record<string, string>;
+    readonly pages: readonly {
+      readonly declaredCount: number;
+      readonly actualCount: number;
+      readonly declaredBytes: number;
+      readonly keys: readonly string[];
+    }[];
+  };
+  readonly commit: {
+    readonly chainOk: boolean;
+    readonly commitCount: number;
+    readonly eventClass: string;
+    readonly schemaRevisionBefore: number;
+    readonly schemaRevisionAfter: number;
+    readonly eventKinds: readonly string[];
+  };
+  readonly baselineEntryCount: number;
+}
+
 /** Ends the runtime and deletes the origin's database between tests. */
 export async function teardown(page: Page): Promise<void> {
   await page.evaluate(async () => {

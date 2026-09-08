@@ -30,6 +30,7 @@ import {
   getEnvelope,
   getEnvelopesByRevision,
 } from "../../persistence/envelope-store/read.js";
+import type { ClockPort } from "../../application/ports/clock.js";
 import type { EntropyPort } from "../../application/ports/entropy.js";
 import type {
   EnvelopeCryptoPort,
@@ -55,9 +56,18 @@ import type {
 } from "../../migrations/003_envelope_format_v1.js";
 import {
   cancelImportStage,
+  encodeCleanupTicket,
+  processCleanupTickets,
   sweepStaleImports,
   type CleanupReceiptV1,
 } from "../../import/staging/cleanup.js";
+import { promoteImport as promoteStagedImport } from "../../import/staging/promotion.js";
+import {
+  decodeDomainId,
+  encodeDomainId,
+  type AppId,
+  type DeviceId,
+} from "../../domain/model/ids.js";
 import {
   createImportStage,
   readImportStage,
@@ -89,6 +99,7 @@ import {
 import type {
   ApplyReviewEditRequestV1,
   BeginImportStageRequestV1,
+  PromoteImportRequestV1,
   CancelImportStageRequestV1,
   DataWorkerResponseV1,
   GetImportStageRequestV1,
@@ -96,7 +107,11 @@ import type {
   RunInferenceRequestV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
-import type { LocalCatalogV1 } from "./catalog.js";
+import {
+  isAppAccentIdV1,
+  type LocalCatalogAppEntryV1,
+  type LocalCatalogV1,
+} from "./catalog.js";
 
 /** What the composer supplies: the live session, and how to reseal a catalog. */
 export interface ImportSessionContextV1 {
@@ -258,6 +273,61 @@ class SessionCatalogPort implements StagingCatalogPort {
     return sealed;
   }
 
+  /**
+   * Seals the catalog promotion needs: the new app entry added, the staging
+   * workflow reference dropped, and the temporaries' cleanup ticket named —
+   * one catalog, so one transaction can carry all three.
+   */
+  async sealWithAppEntry(input: {
+    readonly appId: AppId;
+    readonly displayName: string;
+    readonly accentId: string;
+    readonly glyph: string;
+    readonly createdAtEpochMs: number;
+    readonly rowCount: number;
+    readonly tableCount: number;
+    readonly wrappedAppKey: Uint8Array;
+    readonly appHeadStorageId: string;
+    readonly removeWorkflowStorageId: string;
+    readonly addCleanupTicketStorageId: string;
+    readonly logicalRevision: number;
+  }): Promise<SealedCatalogV1> {
+    if (!isAppAccentIdV1(input.accentId)) {
+      throw new DataWorkerCommandError("internal");
+    }
+    const entry: LocalCatalogAppEntryV1 = {
+      appId: encodeDomainId(input.appId),
+      // Scratch: no durable home until F05 gives the user one (D26).
+      locality: "present",
+      wrappedAppKey: input.wrappedAppKey,
+      appHeadStorageId: input.appHeadStorageId,
+      homeId: null,
+      scratchReminder: null,
+      displayName: input.displayName,
+      identity: { accentId: input.accentId, glyph: input.glyph },
+      createdAtEpochMs: input.createdAtEpochMs,
+      lastOpenedAtEpochMs: null,
+      rowCountCache: input.rowCount,
+      tableCount: input.tableCount,
+    };
+
+    const next: LocalCatalogV1 = {
+      ...this.#catalog,
+      catalogRevision: this.#catalog.catalogRevision + 1,
+      apps: [...this.#catalog.apps, entry],
+      activeWorkflowStorageIds: this.#catalog.activeWorkflowStorageIds.filter(
+        (id) => id !== input.removeWorkflowStorageId,
+      ),
+      cleanupTicketStorageIds: [
+        ...this.#catalog.cleanupTicketStorageIds,
+        input.addCleanupTicketStorageId,
+      ],
+    };
+    const sealed = await this.context.sealCatalog(next, input.logicalRevision);
+    this.#pending = { catalog: next, storageId: sealed.storageId };
+    return sealed;
+  }
+
   adopt(catalogStorageId: string, transactionRevision: number): void {
     const pending = this.#pending;
     if (pending === undefined || pending.storageId !== catalogStorageId) {
@@ -314,6 +384,7 @@ function preflightFrom(
 
 export interface ImportHandlerDependenciesV1 {
   readonly entropy: EntropyPort;
+  readonly clock: ClockPort;
   /**
    * The live unlocked session, read fresh each time. The channel receiver runs
    * *between* requests — a batch arrives when the parser sends it, not when
@@ -341,6 +412,10 @@ export interface ImportHandlersV1 {
     request: GetImportStageRequestV1,
   ): Promise<DataWorkerResponseV1>;
   runInference(request: RunInferenceRequestV1): Promise<DataWorkerResponseV1>;
+  promoteImport(
+    request: PromoteImportRequestV1,
+  ): Promise<DataWorkerResponseV1>;
+  listLibrary(): Promise<DataWorkerResponseV1>;
   applyReviewEdit(
     request: ApplyReviewEditRequestV1,
   ): Promise<DataWorkerResponseV1>;
@@ -378,6 +453,13 @@ export function createImportHandlers(
   const portsFor = (
     catalogPort: StagingCatalogPort,
   ): StagingPortsV1 => ({ store, crypto, catalog: catalogPort, entropy: deps.entropy });
+
+  /**
+   * The device the catalog was created with. Promotion's commit is authored by
+   * this device, and its frontier names it.
+   */
+  const deviceIdOf = (context: ImportSessionContextV1): DeviceId =>
+    decodeDomainId("device", context.catalog.deviceId);
 
   /**
    * Every stage rewrite moves the workflow envelope, so every writer has to
@@ -450,6 +532,63 @@ export function createImportHandlers(
   }
 
   /**
+   * Commits one retained source slice and only then acks it. Source chunks are
+   * **retained** on promotion, unlike fact chunks: they are the original file
+   * the app promises to keep (D21).
+   */
+  async function commitSourceChunk(
+    stageId: string,
+    sequence: number,
+    bytes: Uint8Array,
+  ): Promise<void> {
+    const opened = await loadStage(stageId);
+    if (opened === undefined) {
+      throw new DataWorkerCommandError("integrity");
+    }
+    const { catalogPort, context, loaded } = opened;
+
+    const revision = catalogPort.expectation().transactionRevision + 1;
+    const storageId = asStorageId16(deps.entropy.randomBytes(STORAGE_ID_BYTES));
+    const frame = await crypto.seal({
+      scope: "app.source-chunk",
+      storageId,
+      logicalRevision: BigInt(revision),
+      payloadKind: "app.source-chunk",
+      payload: bytes,
+      // Already-compressed or high-entropy source bytes gain nothing from a
+      // second pass; the padding bucket is what hides the size either way.
+      compression: "none",
+      key: loaded.provisionalKey,
+    });
+    const chunkStorageId = encodeStorageId16(storageId);
+
+    const next: ImportStageV1 = {
+      ...loaded.stage,
+      stageRevision: loaded.stage.stageRevision + 1,
+      sourceChunks: [
+        ...loaded.stage.sourceChunks,
+        {
+          storageId: chunkStorageId,
+          sequence,
+          decodedByteLength: bytes.byteLength,
+          sha256: await crypto.sha256(bytes),
+        },
+      ],
+      retainedStorageIds: [...loaded.stage.retainedStorageIds, chunkStorageId],
+    };
+
+    const written = await writeImportStage(
+      portsFor(catalogPort),
+      context.localRoot,
+      loaded,
+      next,
+      { addFrames: [frame] },
+    );
+    crypto.destroyKey(loaded.provisionalKey);
+    rememberWorkflow(stageId, written.loaded.workflowStorageId);
+  }
+
+  /**
    * Commits one batch and only then acks it (CA-10, invariant 1). The chunk
    * bytes are S03's own canonical mapping — `factStreamItemToCanonicalValue`
    * then `encodeCanonical` — never re-derived here, so a staged fact and a
@@ -457,7 +596,7 @@ export function createImportHandlers(
    */
   async function commitBatch(
     stageId: string,
-    seq: number,
+    ackedSeq: number,
     item: WorkbookFactStreamItemV1,
   ): Promise<void> {
     const opened = await loadStage(stageId);
@@ -505,7 +644,7 @@ export function createImportHandlers(
         phase: isSummary ? "inferring" : "parsing",
         rowsSoFar,
         batchesCommitted: loaded.stage.progress.batchesCommitted + 1,
-        ackedBatchSeq: seq,
+        ackedBatchSeq: ackedSeq,
       },
       status: isSummary ? "staged" : "staging",
     };
@@ -549,23 +688,28 @@ export function createImportHandlers(
         return;
       }
 
-      const { seq, batch } = message;
+      const inbound = message;
       state.queue = state.queue.then(async () => {
         if (state.closed) {
           return;
         }
         try {
-          await commitBatch(stageId, seq, batch);
-          // Inference runs in this worker over the facts it accumulates while
-          // staging (D17); the stage stays authoritative for what is durable.
-          state.facts.push(batch);
-          port.postMessage(stageAck(seq));
+          if (inbound.kind === "source") {
+            await commitSourceChunk(stageId, inbound.sequence, inbound.bytes);
+          } else {
+            await commitBatch(stageId, inbound.seq, inbound.batch);
+            // Inference runs in this worker over the facts it accumulates
+            // while staging (D17); the stage stays authoritative for what is
+            // durable.
+            state.facts.push(inbound.batch);
+          }
+          port.postMessage(stageAck(inbound.seq));
         } catch {
           // Commit-before-ack: a batch that did not land is never acked, and
           // the parser stops rather than streaming into a stage that cannot
           // hold it.
           state.closed = true;
-          port.postMessage(stageNack(seq));
+          port.postMessage(stageNack(inbound.seq));
         }
       });
     };
@@ -740,6 +884,121 @@ export function createImportHandlers(
         outcome: "applied",
         proposal: result.proposal,
       };
+    },
+
+    /**
+     * Promotion, and the cleanup that follows it. The four-step order lives in
+     * M23; what happens here is the composition — the catalog surgery, the app
+     * key wrap, and the ticket drain that finishes the temporaries the same
+     * cancellation would have collected.
+     */
+    async promoteImport(
+      request: PromoteImportRequestV1,
+    ): Promise<DataWorkerResponseV1> {
+      const name = request.acceptedName.trim();
+      if (name.length === 0) {
+        throw new DataWorkerCommandError("malformed-request");
+      }
+      const opened = await loadStage(request.stageId);
+      if (opened === undefined) {
+        throw new DataWorkerCommandError("integrity");
+      }
+      const { context, catalogPort, loaded } = opened;
+      const facts = channels.get(request.stageId)?.facts ?? [];
+
+      const result = await promoteStagedImport(
+        {
+          ports: portsFor(catalogPort),
+          clock: deps.clock,
+          localRoot: context.localRoot,
+          commitCatalog: (input) => catalogPort.sealWithAppEntry(input),
+          sealCleanupTicket: (input) =>
+            crypto.seal({
+              scope: "local.cleanup",
+              storageId: input.storageId,
+              logicalRevision: BigInt(input.logicalRevision),
+              payloadKind: "local.cleanup-ticket",
+              payload: encodeCleanupTicket({
+                ticketVersion: 1,
+                ticketId: input.ticketId,
+                reason: "import-promoted",
+                storageIds: [...input.storageIds].sort(),
+                cursor: 0,
+                createdAtRevision: input.logicalRevision,
+              }),
+              compression: "deflate-raw-v1",
+              key: context.localRoot,
+            }),
+        },
+        {
+          loaded,
+          facts,
+          sourceChunks: loaded.stage.sourceChunks.map((chunk) => ({
+            storageId: chunk.storageId,
+            sequence: chunk.sequence,
+            decodedByteLength: chunk.decodedByteLength,
+            sha256: chunk.sha256,
+          })),
+          acceptedName: name,
+          deviceId: deviceIdOf(context),
+        },
+      );
+
+      if (result.kind === "rejected") {
+        // Nothing was written, so the stage is exactly as it was and the user
+        // can fix the review and try again (D23).
+        crypto.destroyKey(loaded.provisionalKey);
+        return {
+          kind: "promoteImport",
+          outcome: "rejected",
+          reason: result.reason,
+          issues: (result.report?.issues ?? []).map((issue) => ({
+            fieldId: issue.fieldId === null ? null : encodeDomainId(issue.fieldId),
+            kind: issue.kind,
+            severity: issue.severity,
+            messageKey: issue.messageKey,
+          })),
+        };
+      }
+
+      // The provisional key *became* the app key; the handle is released here
+      // because the durable copy now lives wrapped in the catalog entry.
+      crypto.destroyKey(loaded.provisionalKey);
+      closeChannel(request.stageId);
+      active.delete(request.stageId);
+
+      // Step 3 ticketed the temporaries; finish them before answering, so the
+      // receipt the surface renders is true rather than pending.
+      await processCleanupTickets(portsFor(catalogPort), context.localRoot);
+
+      return {
+        kind: "promoteImport",
+        outcome: "promoted",
+        appId: encodeDomainId(result.receipt.appId),
+        rowCount: result.receipt.rowCount,
+        tableCount: result.receipt.tableCount,
+        flaggedRecordCount: result.receipt.flaggedRecordCount,
+      };
+    },
+
+    listLibrary(): Promise<DataWorkerResponseV1> {
+      const context = deps.getContext();
+      return Promise.resolve({
+        kind: "listLibrary",
+        apps: context.catalog.apps.map((app) => ({
+          appId: app.appId,
+          displayName: app.displayName,
+          accentId: app.identity.accentId,
+          glyph: app.identity.glyph,
+          createdAtEpochMs: app.createdAtEpochMs,
+          lastOpenedAtEpochMs: app.lastOpenedAtEpochMs,
+          rowCountCache: app.rowCountCache,
+          tableCount: app.tableCount,
+          // No home means scratch — the persistent fact the tile states
+          // truthfully until F05 gives the user somewhere to put it (D26).
+          isScratch: app.homeId === null,
+        })),
+      });
     },
 
     async cancelImportStage(

@@ -525,7 +525,7 @@ export function stageWithReviewEdit(
  * workflow reads the durable copy rather than keeping a plaintext one alive
  * in worker memory between commits.
  */
-async function readProvisionalKeyBytes(
+export async function readProvisionalKeyBytes(
   ports: StagingPortsV1,
   localRoot: EnvelopeKeyRefV1,
   workflowStorageId: string,

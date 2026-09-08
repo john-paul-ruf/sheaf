@@ -45,7 +45,23 @@ export interface StageAbortMessageV1 {
   readonly reason: "cancelled" | "failed";
 }
 
-export type StageChannelInboundV1 = StageBatchMessageV1 | StageAbortMessageV1;
+/**
+ * import worker → data worker: a slice of the original file, to be retained
+ * (D21). It rides the same channel and is acked the same way, so the source
+ * is as backpressured and as durable-before-ack as the facts are.
+ */
+export interface StageSourceMessageV1 {
+  readonly channelVersion: typeof STAGE_CHANNEL_VERSION;
+  readonly kind: "source";
+  readonly seq: number;
+  readonly sequence: number;
+  readonly bytes: Uint8Array;
+}
+
+export type StageChannelInboundV1 =
+  | StageBatchMessageV1
+  | StageSourceMessageV1
+  | StageAbortMessageV1;
 
 /** data worker → import worker. Sent only after the batch is durable. */
 export interface StageAckMessageV1 {
@@ -83,6 +99,13 @@ export function isStageChannelInboundV1(
   if (value["kind"] === "batch") {
     return Number.isSafeInteger(value["seq"]) && isRecord(value["batch"]);
   }
+  if (value["kind"] === "source") {
+    return (
+      Number.isSafeInteger(value["seq"]) &&
+      Number.isSafeInteger(value["sequence"]) &&
+      value["bytes"] instanceof Uint8Array
+    );
+  }
   return (
     value["kind"] === "abort" &&
     (value["reason"] === "cancelled" || value["reason"] === "failed")
@@ -107,6 +130,18 @@ export const stageBatch = (
   kind: "batch",
   seq,
   batch,
+});
+
+export const stageSource = (
+  seq: number,
+  sequence: number,
+  bytes: Uint8Array,
+): StageSourceMessageV1 => ({
+  channelVersion: STAGE_CHANNEL_VERSION,
+  kind: "source",
+  seq,
+  sequence,
+  bytes,
 });
 
 export const stageAbort = (

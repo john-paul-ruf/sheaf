@@ -140,6 +140,16 @@ export interface GetImportStageRequestV1 {
   readonly stageId: string;
 }
 
+export interface PromoteImportRequestV1 {
+  readonly kind: "promoteImport";
+  readonly stageId: string;
+  readonly acceptedName: string;
+}
+
+export interface ListLibraryRequestV1 {
+  readonly kind: "listLibrary";
+}
+
 export interface CancelImportStageRequestV1 {
   readonly kind: "cancelImportStage";
   readonly stageId: string;
@@ -196,6 +206,8 @@ export type DataWorkerRequestV1 =
   | GetImportStageRequestV1
   | RunInferenceRequestV1
   | ApplyReviewEditRequestV1
+  | PromoteImportRequestV1
+  | ListLibraryRequestV1
   | CancelImportStageRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
@@ -552,6 +564,57 @@ export type ApplyReviewEditResponseV1 =
       readonly reason: string;
     };
 
+/**
+ * A library tile's facts (CA-09/CAP-14). Counts are the catalog's cache and
+ * are rendered, never trusted for a destructive action: removal and reset
+ * recompute from the decrypted head (check 7).
+ */
+export interface LibraryAppV1 {
+  readonly appId: string;
+  readonly displayName: string;
+  readonly accentId: string;
+  readonly glyph: string;
+  readonly createdAtEpochMs: number;
+  readonly lastOpenedAtEpochMs: number | null;
+  readonly rowCountCache: number | null;
+  readonly tableCount: number;
+  /** `true` while the app has no durable home — the persistent scratch fact. */
+  readonly isScratch: boolean;
+}
+
+export interface ListLibraryResponseV1 {
+  readonly kind: "listLibrary";
+  readonly apps: readonly LibraryAppV1[];
+}
+
+/**
+ * Promotion answers with the new app, or with a typed refusal the review
+ * screen can act on (D23). A refusal wrote nothing: there is no half-app to
+ * withdraw, which is the "no partial app" guarantee stated as a return type.
+ */
+export type PromoteImportResponseV1 =
+  | {
+      readonly kind: "promoteImport";
+      readonly outcome: "promoted";
+      readonly appId: string;
+      readonly rowCount: number;
+      readonly tableCount: number;
+      /** Rows kept and flagged rather than refused (FR-4/FR-6). */
+      readonly flaggedRecordCount: number;
+    }
+  | {
+      readonly kind: "promoteImport";
+      readonly outcome: "rejected";
+      readonly reason: string;
+      /** The whole report, so the surface can name every field at fault. */
+      readonly issues: readonly {
+        readonly fieldId: string | null;
+        readonly kind: string;
+        readonly severity: "warning" | "blocking";
+        readonly messageKey: string;
+      }[];
+    };
+
 export interface CancelImportStageResponseV1 {
   readonly kind: "cancelImportStage";
   readonly receipt: ImportCleanupReceiptViewV1;
@@ -572,6 +635,8 @@ export type DataWorkerResponseV1 =
   | GetImportStageResponseV1
   | RunInferenceResponseV1
   | ApplyReviewEditResponseV1
+  | PromoteImportResponseV1
+  | ListLibraryResponseV1
   | CancelImportStageResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */

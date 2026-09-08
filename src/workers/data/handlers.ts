@@ -126,6 +126,7 @@ export function createDataWorkerHandler(
   const session = new WorkerSession();
   const imports = createImportHandlers({
     entropy: deps.entropy,
+    clock: deps.clock,
     getContext: () => importContext(requireUnlocked()),
   });
 
@@ -729,6 +730,10 @@ export function createDataWorkerHandler(
           return imports.runInference(request);
         case "applyReviewEdit":
           return imports.applyReviewEdit(request);
+        case "promoteImport":
+          return imports.promoteImport(request);
+        case "listLibrary":
+          return imports.listLibrary();
         case "cancelImportStage":
           return imports.cancelImportStage(request);
         default: {

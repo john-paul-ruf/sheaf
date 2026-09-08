@@ -17,10 +17,13 @@ import {
   PASSPHRASE,
   command,
   installFixture,
+  readAppRoots,
+  readStore,
   runImport,
   start,
   teardown,
 } from "./runtime.js";
+import { DEFAULT_APP_THEME } from "../../../src/import/staging/theme.js";
 
 const JOURNEY_TIMEOUT_MS = 180_000;
 
@@ -238,4 +241,258 @@ test("an impossible edit is a typed result, not an error, and changes nothing", 
     throw new Error("expected the staged proposal");
   }
   expect(after.response.proposal).toEqual(before.response.proposal);
+});
+
+test("the whole worker-tier journey: import, review, create app, restart", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const stageId = await stagedDemo(page);
+  const beforeStore = await readStore(page);
+
+  await command(page, { kind: "runInference", stageId });
+
+  // The two edits the demo turns on: rename a field, and override a type.
+  const renamed = await command(page, {
+    kind: "applyReviewEdit",
+    stageId,
+    edit: { kind: "rename-field", columnIndex: 0, fieldName: "Location" },
+  });
+  if (!renamed.ok || renamed.response.kind !== "applyReviewEdit") {
+    throw new Error("expected an edit result");
+  }
+  expect(renamed.response.outcome).toBe("applied");
+
+  const overridden = await command(page, {
+    kind: "applyReviewEdit",
+    stageId,
+    edit: { kind: "override-type", columnIndex: 0, type: { kind: "text" } },
+  });
+  if (!overridden.ok || overridden.response.kind !== "applyReviewEdit") {
+    throw new Error("expected an edit result");
+  }
+  expect(overridden.response.outcome).toBe("applied");
+
+  // --- Create app ----------------------------------------------------------
+  const promoted = await command(page, {
+    kind: "promoteImport",
+    stageId,
+    acceptedName: "Field Log",
+  });
+  if (
+    !promoted.ok ||
+    promoted.response.kind !== "promoteImport" ||
+    promoted.response.outcome !== "promoted"
+  ) {
+    throw new Error("expected the promotion to succeed");
+  }
+  expect(promoted.response.rowCount).toBe(40);
+  expect(promoted.response.tableCount).toBe(1);
+  // FR-4/FR-6: the currency column's one bad value is kept and flagged, not
+  // refused and not coerced.
+  expect(promoted.response.flaggedRecordCount).toBeGreaterThan(0);
+
+  // --- CA-11: the durable roots, read straight out of storage --------------
+  const roots = await readAppRoots(page, PASSPHRASE);
+  expect(roots.hasApp).toBe(true);
+
+  // CA-09's catalog entry.
+  expect(roots.entry.displayName).toBe("Field Log");
+  expect(roots.entry.glyph).toBe("FL");
+  expect(roots.entry.rowCountCache).toBe(40);
+  expect(roots.entry.tableCount).toBe(1);
+  expect(roots.entry.locality).toBe("present");
+  // Scratch: no home until F05 (D26), and never opened yet.
+  expect(roots.entry.homeId).toBeNull();
+  expect(roots.entry.lastOpenedAtEpochMs).toBeNull();
+
+  // The staging workflow is gone and its temporaries were swept.
+  expect(roots.workflowCount).toBe(0);
+  expect(roots.ticketCount).toBe(0);
+
+  // The head: every root present, the absent ones explicitly empty.
+  expect(roots.head.headRevision).toBe(1);
+  expect(roots.head.schemaRevision).toBe(1);
+  expect(roots.head.eventSegmentCount).toBe(1);
+  expect(roots.head.baselinePageCount).toBe(1);
+  expect(roots.head.sourceManifestCount).toBe(1);
+  expect(roots.head.snapshotManifestCount).toBe(1);
+  expect(roots.head.conflictPageCount).toBe(0);
+  expect(roots.head.auditPageCount).toBe(0);
+  expect(roots.head.retainedRootCount).toBe(0);
+  expect(roots.head.semanticMatches).toBe(true);
+
+  // The checkpoint: schema, snapshot, theme, and the record pages.
+  expect(roots.checkpoint.semanticMatches).toBe(true);
+  expect(roots.checkpoint.appName).toBe("Field Log");
+  expect(roots.checkpoint.tableCount).toBe(1);
+  expect(roots.checkpoint.fieldCount).toBe(9);
+  expect(roots.checkpoint.enumOptionCount).toBeGreaterThan(0);
+  expect(roots.checkpoint.sheetSnapshotCount).toBe(1);
+
+  // D29: the theme root is present and decodable, and it is M40's palette.
+  expect(roots.checkpoint.themeKey).toBe(DEFAULT_APP_THEME.themeKey);
+  expect(roots.checkpoint.themeTokens).toEqual(DEFAULT_APP_THEME.tokens);
+
+  // Page caps and sort order, read off the stored pages.
+  const allKeys = roots.checkpoint.pages.flatMap((page) => page.keys);
+  expect(allKeys).toHaveLength(40);
+  expect([...allKeys].sort()).toEqual(allKeys);
+  for (const page of roots.checkpoint.pages) {
+    expect(page.actualCount).toBe(page.declaredCount);
+    expect(page.declaredCount).toBeLessThanOrEqual(1024);
+    expect(page.declaredBytes).toBeLessThanOrEqual(524_288);
+  }
+
+  // The original-import baseline holds every accepted row (F06 needs it).
+  expect(roots.baselineEntryCount).toBe(40);
+
+  // The promotion commit: one import-class commit, schema 0 → 1, carrying the
+  // schema-establishing events. The rows are in the checkpoint, not here.
+  expect(roots.commit.chainOk).toBe(true);
+  expect(roots.commit.commitCount).toBe(1);
+  expect(roots.commit.eventClass).toBe("import");
+  expect(roots.commit.schemaRevisionBefore).toBe(0);
+  expect(roots.commit.schemaRevisionAfter).toBe(1);
+  expect(roots.commit.eventKinds).not.toContain("record.created");
+  expect(roots.commit.eventKinds[0]).toBe("app.created");
+  expect(roots.commit.eventKinds).toContain("table.created");
+  expect(roots.commit.eventKinds.filter((kind) => kind === "field.created"))
+    .toHaveLength(9);
+  expect(roots.commit.eventKinds).toContain("enum.changed");
+  // Two statements were edited; each becomes one recorded decision.
+  expect(
+    roots.commit.eventKinds.filter(
+      (kind) => kind === "inference-decision.recorded",
+    ),
+  ).toHaveLength(2);
+  expect(roots.commit.eventKinds.at(-1)).toBe("import.accepted");
+
+  expect((await readStore(page)).transactionRevision).toBeGreaterThan(
+    beforeStore.transactionRevision as number,
+  );
+
+  // --- restart: a new page context, a new worker, an unlock ----------------
+  await page.evaluate(() => {
+    window.__sheafApp?.dispose();
+  });
+  await page.goto("/harness.html");
+  await start(page);
+  const unlocked = await command(page, { kind: "unlock", passphrase: PASSPHRASE });
+  expect(unlocked.ok).toBe(true);
+
+  const library = await command(page, { kind: "listLibrary" });
+  if (!library.ok || library.response.kind !== "listLibrary") {
+    throw new Error("expected a library listing");
+  }
+  expect(library.response.apps).toHaveLength(1);
+  const tile = library.response.apps[0];
+  expect(tile?.displayName).toBe("Field Log");
+  expect(tile?.rowCountCache).toBe(40);
+  expect(tile?.tableCount).toBe(1);
+  expect(tile?.glyph).toBe("FL");
+  expect(tile?.isScratch).toBe(true);
+});
+
+test("a refused promotion is a typed result and leaves nothing behind", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await start(page);
+  const created = await command(page, { kind: "setup", passphrase: PASSPHRASE });
+  expect(created.ok).toBe(true);
+
+  // An empty file stages fine and infers a zero-field proposal (S03), which
+  // is a real proposal that cannot become an app. That is the honest way to
+  // reach a validator refusal: nothing here forges a stage.
+  await installFixture(page, "delimited/empty.csv", "empty.csv");
+  const run = await runImport(page);
+  expect(run.events.some((event) => event.kind === "completed")).toBe(true);
+  const stageId = run.stageId as string;
+
+  const inferred = await command(page, { kind: "runInference", stageId });
+  if (!inferred.ok || inferred.response.kind !== "runInference") {
+    throw new Error("expected a proposal");
+  }
+  expect(inferred.response.proposal.table.fields).toEqual([]);
+
+  const before = await readStore(page);
+  const promoted = await command(page, {
+    kind: "promoteImport",
+    stageId,
+    acceptedName: "Nothing At All",
+  });
+
+  // D23: the refusal crosses as a **result**, not an error kind, so the review
+  // screen can say what is wrong instead of rendering a failure.
+  expect(promoted.ok).toBe(true);
+  if (!promoted.ok || promoted.response.kind !== "promoteImport") {
+    throw new Error("expected a promotion result");
+  }
+  expect(promoted.response.outcome).toBe("rejected");
+  if (promoted.response.outcome !== "rejected") {
+    throw new Error("expected a rejection");
+  }
+  expect(promoted.response.reason).toBe("empty-table");
+
+  // Step 1 refused, so step 3 never ran: nothing at all was written.
+  const after = await readStore(page);
+  expect(after.transactionRevision).toBe(before.transactionRevision);
+  expect(after.envelopes).toHaveLength(before.envelopes.length);
+
+  const status = await command(page, { kind: "getStatus" });
+  if (!status.ok || status.response.kind !== "getStatus") {
+    throw new Error("expected a status");
+  }
+  expect(
+    status.response.status.state === "unlocked" && status.response.status.appCount,
+  ).toBe(0);
+
+  const library = await command(page, { kind: "listLibrary" });
+  if (!library.ok || library.response.kind !== "listLibrary") {
+    throw new Error("expected a library listing");
+  }
+  expect(library.response.apps).toEqual([]);
+
+  // The stage survives the refusal, so the user can fix the review — and
+  // cancelling it still leaves the store exactly as it started.
+  const stage = await command(page, { kind: "getImportStage", stageId });
+  if (!stage.ok || stage.response.kind !== "getImportStage") {
+    throw new Error("expected a stage view");
+  }
+  expect(stage.response.stage).not.toBeNull();
+
+  const receipt = await command(page, { kind: "cancelImportStage", stageId });
+  if (!receipt.ok || receipt.response.kind !== "cancelImportStage") {
+    throw new Error("expected a cleanup receipt");
+  }
+  expect(receipt.response.receipt.completed).toBe(true);
+  const cleaned = await readStore(page);
+  const catalogsWritten =
+    (cleaned.transactionRevision as number) - (before.transactionRevision as number);
+  expect(cleaned.envelopes.length).toBe(
+    before.envelopes.length + catalogsWritten - 3,
+  );
+});
+
+test("an empty accepted name is refused before anything is built", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const stageId = await stagedDemo(page);
+  await command(page, { kind: "runInference", stageId });
+
+  const before = await readStore(page);
+  const promoted = await command(page, {
+    kind: "promoteImport",
+    stageId,
+    acceptedName: "   ",
+  });
+
+  // A name that is only whitespace is a malformed request, not a review
+  // finding: there is nothing on the screen for the user to reconsider.
+  expect(promoted.ok).toBe(false);
+  const after = await readStore(page);
+  expect(after.transactionRevision).toBe(before.transactionRevision);
+  expect(after.envelopes).toHaveLength(before.envelopes.length);
 });

@@ -35,8 +35,10 @@ import {
   isStageChannelOutboundV1,
   stageAbort,
   stageBatch,
+  stageSource,
   type StageChannelOutboundV1,
 } from "../protocol/stage-channel.js";
+import { MAX_SLICE_BYTES } from "../../import/source/source.js";
 import type {
   ImportWorkerEventV1,
   ImportWorkerPhaseV1,
@@ -203,4 +205,41 @@ export async function streamFacts(
 
   emit(progress("done", rowsSoFar, seq));
   return { outcome: "completed", batchesSent: seq, rowsSoFar };
+}
+
+/**
+ * Streams the original file for retention (D21), in slices no larger than the
+ * source's own 1 MiB read bound — so the file is never in memory whole here
+ * either. Acked like a batch, for the same reason: the data worker commits
+ * each slice before asking for the next.
+ */
+export async function streamSource(
+  input: {
+    readonly source: RandomAccessSource;
+    readonly port: MessagePort;
+    readonly startSeq: number;
+    readonly cancellation: CancellationTokenV1;
+  },
+): Promise<{ readonly ok: boolean; readonly nextSeq: number }> {
+  const { source, port, cancellation } = input;
+  let seq = input.startSeq;
+  let sequence = 0;
+
+  for (let offset = 0; offset < source.byteLength; offset += MAX_SLICE_BYTES) {
+    if (cancellation.aborted) {
+      return { ok: false, nextSeq: seq };
+    }
+    const bytes = await source.slice(
+      offset,
+      Math.min(MAX_SLICE_BYTES, source.byteLength - offset),
+    );
+    const pending = awaitAck(port, seq);
+    port.postMessage(stageSource(seq, sequence, bytes));
+    if (!(await pending).ok) {
+      return { ok: false, nextSeq: seq };
+    }
+    seq += 1;
+    sequence += 1;
+  }
+  return { ok: true, nextSeq: seq };
 }
