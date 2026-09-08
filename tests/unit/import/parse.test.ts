@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { encodeCanonical } from "../../../src/persistence/codecs/canonical-cbor.js";
+import {
+  decodeCanonical,
+  encodeCanonical,
+} from "../../../src/persistence/codecs/canonical-cbor.js";
+import { asDomainId } from "../../../src/domain/model/ids.js";
+import {
+  BLANK_VALUE,
+  booleanValue,
+  dateValue,
+  decimalValue,
+  enumValue,
+  invalidPreservedValue,
+  MISSING_VALUE,
+  referenceValue,
+  textValue,
+  type CellValueV1,
+} from "../../../src/domain/model/values.js";
 import { CodecError } from "../../../src/domain/model/errors.js";
 import {
   factStreamItemToCanonicalValue,
@@ -281,6 +297,38 @@ describe("CA-10 — facts stage canonically (D28 parse half)", () => {
         const value = factStreamItemToCanonicalValue(item);
         expect(encodeCanonical(value), name).toEqual(encodeCanonical(value));
       }
+    }
+  });
+
+  it("maps every cell-value kind the shared vocabulary can carry", () => {
+    // Delimited files only ever emit text and absence, but F03's adapters emit
+    // the typed kinds into this same stream, so the mapping is total now
+    // rather than grown a case at a time later.
+    const id = asDomainId("option", new Uint8Array(16).fill(3));
+    const values: readonly CellValueV1[] = [
+      textValue("Ridgeway"),
+      decimalValue("1250.00"),
+      dateValue(20_514),
+      booleanValue(true),
+      enumValue(id),
+      referenceValue(asDomainId("record", new Uint8Array(16).fill(5))),
+      MISSING_VALUE,
+      BLANK_VALUE,
+      invalidPreservedValue("TBD"),
+    ];
+
+    for (const value of values) {
+      const bytes = encodeCanonical(
+        factStreamItemToCanonicalValue({
+          kind: "batch",
+          batchSeq: 0,
+          facts: [{ kind: "value", rowIndex: 0, columnIndex: 0, value }],
+        }),
+      );
+      expect(decodeCanonical(bytes), value.kind).toBeInstanceOf(Map);
+      expect(encodeCanonical(decodeCanonical(bytes) as never), value.kind).toEqual(
+        bytes,
+      );
     }
   });
 
