@@ -12,27 +12,34 @@ import styles from "./empty-library.module.css";
  * SCR-011 — the empty library (library-empty.html, STA-025, decision D5).
  *
  * There is no data here and no pretending there is: STA-025 requires no
- * fictional rows and one truthful next action. In F01 neither next action can
- * complete — import is F02, durable homes are F05/F06 — so both ship
- * **disabled with a stated reason** rather than enabled and dishonest.
+ * fictional rows and one truthful next action.
  *
- * `Button` refuses a disabled state without a text equivalent (CTL-014's
- * contract), which is why each reason token below has copy: the label is the
- * mock's, and the reason says which release supplies it without promising a
- * date or inventing a capability.
+ * **D5's successor (F02).** Import landed, so `choose-workbook` is enabled and
+ * goes somewhere; durable homes are still F05/F06, so that action keeps its
+ * reason token. `LibraryActionVm` is a union — the enabled variant carries a
+ * route `intent` and the disabled one carries a `reason`, and neither has the
+ * other's field — so this screen narrows on `action.enabled` and the compiler
+ * refuses a disabled control with no explanation (CTL-014, `ButtonProps`).
  */
 
 const DISABLED_REASON: Readonly<Record<LibraryActionReason, string>> =
   Object.freeze({
-    "import-not-available-in-this-release":
-      "Uploading a workbook is not available in this release.",
     "durable-homes-not-available-in-this-release":
       "Connecting a durable home is not available in this release.",
   });
 
+/**
+ * Where `upload-workbook` goes. S07 lands the real upload surface; until it
+ * does, CA-07's route guard answers an unknown hash truthfully rather than
+ * leaving a dead control here.
+ */
+const UPLOAD_ROUTE = "#/upload";
+
 export interface EmptyLibraryScreenProps {
   readonly vm: EmptyLibraryVm;
   readonly nav: SecurityNavigation;
+  /** Defaults to navigating to {@link UPLOAD_ROUTE} (the `window.print` idiom). */
+  readonly onChooseWorkbook?: () => void;
   /** Shell-level actions, e.g. locking this device. */
   readonly topBarActions?: ReactNode;
 }
@@ -40,8 +47,15 @@ export interface EmptyLibraryScreenProps {
 export function EmptyLibraryScreen({
   vm,
   nav,
+  onChooseWorkbook,
   topBarActions,
 }: EmptyLibraryScreenProps): ReactNode {
+  const chooseWorkbook =
+    onChooseWorkbook ??
+    ((): void => {
+      window.location.hash = UPLOAD_ROUTE;
+    });
+
   return (
     <UnlockedFrame
       announcement={vm.announcement}
@@ -73,16 +87,26 @@ export function EmptyLibraryScreen({
           </p>
 
           <div className={cx(styles["actions"])}>
-            {vm.actions.map((action, index) => (
-              <Button
-                disabledReason={DISABLED_REASON[action.reason]}
-                isDisabled
-                key={action.id}
-                tone={index === 0 ? "primary" : "secondary"}
-              >
-                {action.label}
-              </Button>
-            ))}
+            {vm.actions.map((action, index) =>
+              action.enabled ? (
+                <Button
+                  key={action.id}
+                  onPress={chooseWorkbook}
+                  tone={index === 0 ? "primary" : "secondary"}
+                >
+                  {action.label}
+                </Button>
+              ) : (
+                <Button
+                  disabledReason={DISABLED_REASON[action.reason]}
+                  isDisabled
+                  key={action.id}
+                  tone={index === 0 ? "primary" : "secondary"}
+                >
+                  {action.label}
+                </Button>
+              ),
+            )}
           </div>
         </section>
       </div>
