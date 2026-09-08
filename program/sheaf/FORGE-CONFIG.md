@@ -73,6 +73,24 @@ runs (never in any Mu `Owns`); untouched modules get fragments when first
 touched. A full 64-fragment build-out before code exists is deliberately
 avoided: it would duplicate the spec and immediately drift.
 
+**Arch fragment reconciliation (added after F01):** Jikijitsu's mid-run appends
+are deltas, stapled under a `<!-- {F_NAME} SESSION-NN -->` marker while sessions
+are in flight — correct for a running wave. At the end of a feature, Roshi
+merges each fragment's deltas into its head contract and removes the markers, so
+the fragment reads as one description of the module as it now stands. **The head
+contract is the authoritative statement; a delta that supersedes it is folded
+in, not left below it.** F01 produced four fragments whose head contract had
+been silently superseded by a delta (M32, M38, M51) or left carrying a defect
+already fixed (M42) — see `ROSHI-LOG.md` 2026-09-08.
+
+### F01 landed modules (git-verified at `2c0248a`)
+
+Nineteen modules exist in code: M01 (subset), M07 (subset: ClockPort +
+EntropyPort), M08, M09, M11, M32, M33 (`data.worker` only), M36, M37, M38, M39,
+M40, M41, M42 (SCR-011 only), M50, M51, M53, M54, M55. Everything else in the
+registry below is still planned. `src/migrations/` (M10) pre-exists and is
+DB-phase-owned.
+
 ### Domain (pure; no outward imports)
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
@@ -134,7 +152,13 @@ avoided: it would duplicate the spec and immediately drift.
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
 | M32 | Worker protocol | src/workers/protocol/ | Versioned typed RPC, cancellation, progress, transfer, error redaction | M01 (safe types) | messages.ts, client.ts |
-| M33 | Worker entries | src/workers/*.worker.ts | Per-worker composition: data (keys+DB+projection), import (parse), io (ciphertext+OAuth I/O), export (plaintext, no network) | M32 + composed app/infra per worker | data.worker.ts, import.worker.ts, io.worker.ts, export.worker.ts |
+| M33 | Worker entries | src/workers/*.worker.ts **+ src/workers/<name>/** (leasing unit: `src/workers/**` minus `protocol/`) | Per-worker composition: data (keys+DB+projection), import (parse), io (ciphertext+OAuth I/O), export (plaintext, no network) | M32 + composed app/infra per worker | data.worker.ts + data/{handlers,catalog,session}.ts (landed); import.worker.ts, io.worker.ts, export.worker.ts |
+
+> M33 path correction (Roshi, post-F01): the entry file is a composition root
+> only; every command body lives beside it in `src/workers/data/` so it is
+> unit-testable without spawning a worker. `src/workers/*.worker.ts` alone was
+> never the shipped leasing unit. Later worker entries should assume the same
+> shape.
 
 ### Application
 
@@ -189,12 +213,21 @@ avoided: it would duplicate the spec and immediately drift.
 
 ### Root manifests (owner-seam paths)
 
-`package.json`, `pnpm-lock.yaml`, `tsconfig*.json`, `vite.config.ts`,
-`vitest.config.ts`, `playwright.config.ts`, `index.html`, `public/` have no
-module ID. They are **owner-seam paths**: the scaffolding session owns them at
-creation; afterwards, changes ride in the session whose work requires them,
-listed explicitly in that session's `Owns`. Two concurrent sessions may never
-both lease a root manifest.
+`package.json`, `.npmrc`, `pnpm-lock.yaml`, `tsconfig*.json`, `vite.config.ts`,
+`vitest.config.ts`, `playwright.config.ts`, `eslint.config.js`, `index.html`,
+`src/vite-env.d.ts`, `public/` have no module ID. They are **owner-seam
+paths**: the scaffolding session owns them at creation; afterwards, changes ride
+in the session whose work requires them, listed explicitly in that session's
+`Owns`. Two concurrent sessions may never both lease a root manifest.
+
+**`harness.html` + `src/harness/**` are owner-seam paths too (D11, F01).** The
+browser-test harness is a second Vite rollup input and a *test-toolchain*
+artifact — no module ID, never a product surface, never imported by
+`src/main.tsx`. It resolves modules and workers by `import.meta.glob`, so new
+`src/**` files are reachable from built output without any later session editing
+a build input. Its build products (`harness.html`, `dist/assets/harness-*.js`,
+`dist/assets/probe.worker-*.js`, ~534 kB) must be excluded from the F08
+precache. Details in `arch/M55-entry.md`.
 
 ## Conventions
 
@@ -205,6 +238,13 @@ both lease a root manifest.
 - **Logging**: opaque IDs and redacted error classes only. Never a name, value, token, or key.
 - **Docs**: JSDoc on exported symbols stating the contract, not the implementation.
 - **Forbidden everywhere**: `eval`/`new Function`, `dangerouslySetInnerHTML`, runtime CDN loads, plaintext user data in any persistent store, key material outside worker memory.
+
+Added by Roshi after F01 (each crossed Vow 4's in-cycle recurrence bar — three
+or more distinct sessions in one feature cycle; instances cited):
+
+- **A dependency must-not ships as a test, not a review note.** Every module whose arch fragment states a forbidden import owns a `module-boundaries.test.ts` (or equivalent) asserting it mechanically. F01 grew five independently: `tests/unit/crypto/module-boundaries.test.ts` (M09 has no third-party import, S02), `tests/unit/ui/architecture.test.ts` (`src/ui/**` imports only `react` + `react-aria-components`, S03), `tests/unit/envelope-store/module-boundaries.test.ts` (Dexie confined to three files, S04), `tests/unit/workers/module-boundaries.test.ts` (`messages.ts` imports nothing, S05), `tests/unit/workflows/module-boundaries.test.ts` (M36/M37 import no React/crypto/persistence, S06). Two cross-lease violations were prevented by these tests rather than caught in review.
+- **Encode a must-not as a type or a runtime throw wherever the language allows it.** Precedents to follow: `ButtonProps` requires `disabledReason` when `isDisabled` (S03); `applyShellTheme` throws on a system-owned property (S03); the RPC union names no byte or key type at all, so key bytes are type-excluded rather than merely absent (S05); locked view models declare no inventory field, so a future writer cannot fill one (S06); `frameToRow` refuses a frame sealed at another revision (S04). Prefer this to a comment every time; state in the fragment which contract is type-held.
+- **Test filters take no bare `--`.** `pnpm test:browser <filter>` and `pnpm test:e2e <filter>` filter; `pnpm test:browser -- <filter>` silently runs the **whole** suite — the mirror image of a zero-selected run, and it passes vacuously. Observed and re-confirmed across S01, S05 and S06. (The Verification Commands table below still shows the `--` form for `pnpm test`; correcting that table is Jikijitsu's/Forge's, not Roshi's.)
 
 ## Verification Commands
 
@@ -256,7 +296,8 @@ needs real Dropbox/OneDrive test accounts, and is never a checkpoint gate.
 4. **Share/open-in is platform-conditional.** Chromium share-target only; WebKit gets the file picker and must not claim share-target status (approved clarification in architecture.md).
 5. **UI surfaces come from the design inventory.** A missing surface is a design-fill seam for Jikijitsu, never an invention. Mock Tailwind classes are reference only — production styling is CSS Modules + tokens.
 6. **Format versions come from `src/migrations/index.ts`** (`CURRENT_FORMAT_VERSIONS`). No session redeclares them; consume the export.
-7. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N.
+7. **A session's `Owns` glob is authoritative; its Files table is indicative.** A worker may create a file inside its lease that the plan did not name, provided it (a) names the file and the reason in its return, and (b) records it in the arch delta. This is not lease widening and needs no amendment. F01 saw it in four of seven sessions, each time for a real structural reason: `src/ui/primitives/class-names.ts` (S03), `src/workers/data/handlers.ts` (S05 — so commands are testable without a worker), `tests/unit/workflows/fakes.ts` + `module-boundaries.test.ts` (S06), `src/routes/app-runtime.tsx` + `src/ui/security/{frames,verdict}.tsx` (S07). Forge should size the Files table as a checklist of intent, not as a closed set. *(Added by Roshi after F01.)*
+8. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N.
 
 ## Genesis Sources
 
