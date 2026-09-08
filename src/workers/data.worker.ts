@@ -64,7 +64,10 @@ function reply(id: number, result: DataWorkerResultV1): void {
   scope.postMessage(message);
 }
 
-async function dispatch(data: unknown): Promise<void> {
+async function dispatch(
+  data: unknown,
+  ports: readonly MessagePort[],
+): Promise<void> {
   const envelope =
     typeof data === "object" && data !== null
       ? (data as Record<string, unknown>)
@@ -86,12 +89,18 @@ async function dispatch(data: unknown): Promise<void> {
   }
 
   try {
-    reply(id, { ok: true, response: await handler.handle(data.request) });
+    reply(id, {
+      ok: true,
+      response: await handler.handle(data.request, ports),
+    });
   } catch (cause) {
     reply(id, { ok: false, error: redactError(cause) });
   }
 }
 
 scope.addEventListener("message", (event: MessageEvent<unknown>) => {
-  void dispatch(event.data);
+  // A transferred `MessagePort` arrives here, never in the request body: the
+  // wire union names no port type at all (D17, and the byte-grep on
+  // `messages.ts` that pins it).
+  void dispatch(event.data, event.ports);
 });

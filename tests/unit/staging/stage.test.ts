@@ -283,6 +283,13 @@ describe("validateImportStage", () => {
     expect(() =>
       validateImportStage({ ...staged, sourceSha256: new Uint8Array(31) }),
     ).toThrow(/source digest must be 32 bytes/);
+    // Null is legal and is not a placeholder: it says the source has not been
+    // read through yet, which is a different fact from "the digest is zero".
+    expect(
+      decodeImportStage(
+        encodeImportStage({ ...staged, sourceSha256: null }),
+      ).sourceSha256,
+    ).toBeNull();
     expect(() =>
       validateImportStage({ ...staged, lineageId: new Uint8Array(15) }),
     ).toThrow(/lineage id must be 16 bytes/);

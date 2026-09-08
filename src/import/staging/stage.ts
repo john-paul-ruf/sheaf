@@ -151,7 +151,14 @@ export interface ImportStageV1 {
   readonly fileName: string;
   readonly detected: DetectedFormatV1;
   readonly contradiction: ExtensionContradictionV1 | null;
-  readonly sourceSha256: Uint8Array;
+  /**
+   * Null until the source has been read through. A bounded parse never holds
+   * the whole file (FR-3) and the platform offers no incremental SHA-256, so
+   * the digest is composed from the source chunks' own digests once they are
+   * all staged — and until then the honest value is "not known yet", never a
+   * placeholder that would later read as a real identity.
+   */
+  readonly sourceSha256: Uint8Array | null;
   readonly sourceByteLength: number;
   /** The safe metadata inventory and capacity estimate (database.md). */
   readonly preflight: PreflightReportV1;
@@ -220,7 +227,10 @@ export function validateImportStage(stage: ImportStageV1): ImportStageV1 {
   if (stage.lineageId.byteLength !== DOMAIN_ID_BYTE_LENGTH) {
     throw new CodecError("stage lineage id must be 16 bytes");
   }
-  if (stage.sourceSha256.byteLength !== SHA256_BYTES) {
+  if (
+    stage.sourceSha256 !== null &&
+    stage.sourceSha256.byteLength !== SHA256_BYTES
+  ) {
     throw new CodecError("stage source digest must be 32 bytes");
   }
   if (stage.fileName.length === 0) {
@@ -500,6 +510,13 @@ const decodePreflight = (value: DecodedValue): PreflightReportV1 => {
   };
 };
 
+const optionalBytes = (
+  value: DecodedValue,
+  length: number,
+  what: string,
+): Uint8Array | null =>
+  value === null ? null : bytesOfLength(value, length, what);
+
 const decodeChunk = (value: DecodedValue): StagedChunkRefV1 => {
   const map = exactKeys(
     asMap(value, "a chunk"),
@@ -568,7 +585,7 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
     fileName: text(field(map, "fileName"), "a file name"),
     detected: decodeDetected(field(map, "detected")),
     contradiction: decodeContradiction(field(map, "contradiction")),
-    sourceSha256: bytesOfLength(
+    sourceSha256: optionalBytes(
       field(map, "sourceSha256"),
       SHA256_BYTES,
       "a source digest",

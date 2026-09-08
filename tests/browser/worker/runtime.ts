@@ -16,6 +16,7 @@ import type {
   DataWorkerResponseV1,
 } from "../../../src/workers/protocol/messages.js";
 import type { AppRuntime } from "../../../src/bootstrap/app-bootstrap.js";
+import type { ImportWorkerEventV1 } from "../../../src/workers/protocol/import-messages.js";
 
 export const PASSPHRASE = "correct horse battery staple";
 export const BOOTSTRAP_MODULE = "/src/bootstrap/app-bootstrap.ts";
@@ -55,7 +56,21 @@ export const ENVELOPE_FIELDS = [
 declare global {
   interface Window {
     __sheafApp?: AppRuntime;
+    /** A workbook fixture, delivered node-side; see `installFixture`. */
+    __sheafFixture?: File;
+    /** The live import run, so a spec can drive and observe it. */
+    __sheafImport?: ImportRun;
   }
+}
+
+/** What a spec can see of one import run, accumulated in the page. */
+export interface ImportRun {
+  readonly events: ImportWorkerEventV1[];
+  /** Every `batchesAcked` value seen, in order — the backpressure trace. */
+  readonly ackTrace: number[];
+  stageId: string | null;
+  cancel(): void;
+  dispose(): void;
 }
 
 export type Outcome =
@@ -186,6 +201,188 @@ export async function readStore(page: Page): Promise<StoreState> {
       ),
     };
   });
+}
+
+// --- fixture delivery (PC-09) -----------------------------------------------
+
+/**
+ * Workbook fixtures live on disk, and `vite preview` serves only `dist/` while
+ * the harness resolves only `/src/**` — so a fixture cannot be fetched from
+ * the page. It is read node-side and handed across as a plain number array;
+ * Playwright's `page.evaluate` serializes that faithfully, where a `Uint8Array`
+ * argument is not guaranteed to survive the round trip.
+ *
+ * The page turns it back into a `File`, which is what the production picker
+ * would have produced — so the import worker receives exactly the type it does
+ * in the real flow. S05 reuses this pair.
+ */
+export async function fixtureBytes(
+  relativePath: string,
+): Promise<readonly number[]> {
+  const { readFile } = await import("node:fs/promises");
+  return [...new Uint8Array(await readFile(`tests/fixtures/workbooks/${relativePath}`))];
+}
+
+/** Installs a fixture as `window.__sheafFixture`, ready to be picked. */
+export async function installFixture(
+  page: Page,
+  relativePath: string,
+  fileName: string,
+): Promise<number> {
+  const bytes = await fixtureBytes(relativePath);
+  return page.evaluate(
+    ([content, name]) => {
+      const data = Uint8Array.from(content);
+      window.__sheafFixture = new File([data], name, { type: "text/csv" });
+      return data.byteLength;
+    },
+    [bytes, fileName] as [readonly number[], string],
+  );
+}
+
+/**
+ * Builds a delimited file in the page, for cases that need *volume* rather
+ * than fidelity — many batches, so backpressure and mid-parse cancellation
+ * have somewhere to happen. The corpus in `tests/fixtures/workbooks/` is S03's
+ * and stays untouched; its files are small by design.
+ */
+export async function installSyntheticFixture(
+  page: Page,
+  options: { readonly rows: number; readonly fileName?: string },
+): Promise<number> {
+  return page.evaluate((settings) => {
+    const lines = ["Site,Status,Amount,Recorded,Contact"];
+    for (let row = 0; row < settings.rows; row += 1) {
+      lines.push(
+        `Site ${row % 7},${row % 2 === 0 ? "Open" : "Closed"},${row}.50,2026-01-0${(row % 9) + 1},row${row}@example.test`,
+      );
+    }
+    const data = new TextEncoder().encode(`${lines.join("\n")}\n`);
+    window.__sheafFixture = new File([data], settings.fileName ?? "bulk.csv", {
+      type: "text/csv",
+    });
+    return data.byteLength;
+  }, options);
+}
+
+/**
+ * Drives one whole import run from the page, exactly as the M36 machine will:
+ * the page creates the `MessageChannel`, hands `port1` to the real import
+ * worker with `startImport` and `port2` to the real data worker with
+ * `beginImportStage`, then says `proceed`. Nothing here parses, encrypts, or
+ * touches a fact — that is the point of the shape.
+ *
+ * Returns once the run reaches a terminal event, or on timeout.
+ */
+export async function runImport(
+  page: Page,
+  options: { readonly cancelAfterBatches?: number; readonly timeoutMs?: number } = {},
+): Promise<{
+  readonly events: readonly ImportWorkerEventV1[];
+  readonly ackTrace: readonly number[];
+  readonly stageId: string | null;
+}> {
+  return page.evaluate(async (settings) => {
+    const app = window.__sheafApp;
+    const file = window.__sheafFixture;
+    if (app === undefined || file === undefined) {
+      throw new Error("the runtime or the fixture is missing");
+    }
+
+    const spawn = await window.__sheafHarness.module<
+      typeof import("../../../src/bootstrap/import-worker.js")
+    >("/src/bootstrap/import-worker.ts");
+    const client = spawn.createImportWorkerClient();
+
+    const events: ImportWorkerEventV1[] = [];
+    const ackTrace: number[] = [];
+    let stageId: string | null = null;
+
+    // The page owns the channel. It never reads from either port.
+    const channel = new MessageChannel();
+
+    const terminal = new Promise<void>((resolve) => {
+      client.on((event) => {
+        events.push(event);
+        if (event.kind === "progress") {
+          ackTrace.push(event.batchesAcked);
+          if (
+            settings.cancelAfterBatches !== undefined &&
+            event.batchesAcked >= settings.cancelAfterBatches
+          ) {
+            client.send({ kind: "cancelImport" });
+          }
+        }
+        if (
+          event.kind === "refused" ||
+          event.kind === "completed" ||
+          event.kind === "cancelled" ||
+          event.kind === "failed"
+        ) {
+          resolve();
+        }
+        if (event.kind === "preflight") {
+          void (async () => {
+            const response = await app.client.send(
+              {
+                kind: "beginImportStage",
+                fileName: file.name,
+                detected: {
+                  kind: "delimited",
+                  delimiter:
+                    event.detected.kind === "delimited"
+                      ? event.detected.delimiter
+                      : ",",
+                  encoding:
+                    event.detected.kind === "delimited"
+                      ? event.detected.encoding
+                      : "utf-8",
+                  bomByteLength:
+                    event.detected.kind === "delimited"
+                      ? event.detected.bomByteLength
+                      : 0,
+                  newline:
+                    event.detected.kind === "delimited"
+                      ? event.detected.newline
+                      : "lf",
+                },
+                preflight: {
+                  columnCount: event.report.columnCount,
+                  estimatedRowCount: event.report.estimatedRowCount,
+                  estimatedCellCount: event.report.estimatedCellCount,
+                  isEstimate: true,
+                  sampleRows: event.report.sampleRows.map((row) => [...row]),
+                  bytesSampled: event.report.bytesSampled,
+                  sourceByteLength: event.report.sourceByteLength,
+                },
+              },
+              // `port2` rides the transfer list. No response returns a port.
+              [channel.port2],
+            );
+            if (response.kind !== "beginImportStage") {
+              throw new Error("beginImportStage did not answer");
+            }
+            stageId = response.stageId;
+            client.send({ kind: "proceed", stageId: response.stageId });
+          })();
+        }
+      });
+    });
+
+    client.send({ kind: "startImport", file, fileName: file.name }, [
+      channel.port1,
+    ]);
+
+    await Promise.race([
+      terminal,
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, settings.timeoutMs ?? 60_000),
+      ),
+    ]);
+    client.dispose();
+
+    return { events, ackTrace, stageId };
+  }, options);
 }
 
 /** Ends the runtime and deletes the origin's database between tests. */

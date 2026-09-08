@@ -108,7 +108,14 @@ export interface DataWorkerDependencies {
 }
 
 export interface DataWorkerCommandHandler {
-  handle(request: DataWorkerRequestV1): Promise<DataWorkerResponseV1>;
+  /**
+   * `ports` are the `MessagePort`s the request's transfer list carried. Only
+   * `beginImportStage` uses one, and no response ever returns one (D17).
+   */
+  handle(
+    request: DataWorkerRequestV1,
+    ports?: readonly MessagePort[],
+  ): Promise<DataWorkerResponseV1>;
   /** Zeroizes keys and drops the database handle. */
   dispose(): void;
 }
@@ -117,7 +124,10 @@ export function createDataWorkerHandler(
   deps: DataWorkerDependencies,
 ): DataWorkerCommandHandler {
   const session = new WorkerSession();
-  const imports = createImportHandlers({ entropy: deps.entropy });
+  const imports = createImportHandlers({
+    entropy: deps.entropy,
+    getContext: () => importContext(requireUnlocked()),
+  });
 
   const now = (): number => deps.clock.nowEpochMs();
 
@@ -686,7 +696,10 @@ export function createDataWorkerHandler(
   }
 
   return {
-    async handle(request: DataWorkerRequestV1): Promise<DataWorkerResponseV1> {
+    async handle(
+      request: DataWorkerRequestV1,
+      ports: readonly MessagePort[] = [],
+    ): Promise<DataWorkerResponseV1> {
       switch (request.kind) {
         case "setup":
           return setup(request.passphrase);
@@ -709,15 +722,11 @@ export function createDataWorkerHandler(
         case "getStatus":
           return getStatus();
         case "beginImportStage":
-          return imports.beginImportStage(
-            importContext(requireUnlocked()),
-            request,
-          );
+          return imports.beginImportStage(request, ports);
+        case "getImportStage":
+          return imports.getImportStage(request);
         case "cancelImportStage":
-          return imports.cancelImportStage(
-            importContext(requireUnlocked()),
-            request,
-          );
+          return imports.cancelImportStage(request);
         default: {
           const unreachable: never = request;
           void unreachable;

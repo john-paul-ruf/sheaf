@@ -103,7 +103,6 @@ export interface CreateImportStageInputV1 {
   readonly detected: DetectedFormatV1;
   readonly contradiction: ExtensionContradictionV1 | null;
   readonly preflight: PreflightReportV1;
-  readonly sourceSha256: Uint8Array;
   readonly sourceByteLength: number;
   readonly selectedSheets: readonly string[];
 }
@@ -218,7 +217,8 @@ export async function createImportStage(
     fileName: input.fileName,
     detected: input.detected,
     contradiction: input.contradiction,
-    sourceSha256: input.sourceSha256,
+    // Not known yet: nothing has read the source through (see `stage.ts`).
+    sourceSha256: null,
     sourceByteLength: input.sourceByteLength,
     preflight: input.preflight,
     selectedSheets: input.selectedSheets,

@@ -65,7 +65,6 @@ const INPUT: CreateImportStageInputV1 = {
     sampleRows: [["Site", "Status"]],
     bytesSampled: 5469,
   },
-  sourceSha256: Uint8Array.from({ length: 32 }, (_u, index) => index),
   sourceByteLength: 5469,
   selectedSheets: ["Field Log Messy"],
 };

@@ -64,15 +64,32 @@ import {
   type StagingPortsV1,
 } from "../../import/staging/lifecycle.js";
 import type { PreflightReportV1 } from "../../import/preflight/preflight.js";
+import {
+  factStreamItemToCanonicalValue,
+  type WorkbookFactStreamItemV1,
+} from "../../import/formats/delimited/facts.js";
+import { encodeCanonical } from "../../persistence/codecs/canonical-cbor.js";
+import { asStorageId16, encodeStorageId16 } from "../../domain/model/bytes.js";
+import {
+  IMPORT_STAGE_PAYLOAD_KIND,
+  IMPORT_STAGE_SCOPE,
+  type ImportStageV1,
+} from "../../import/staging/stage.js";
+import { writeImportStage } from "../../import/staging/lifecycle.js";
+import {
+  isStageChannelInboundV1,
+  stageAck,
+  stageNack,
+} from "../protocol/stage-channel.js";
 import type {
   BeginImportStageRequestV1,
   CancelImportStageRequestV1,
   DataWorkerResponseV1,
+  GetImportStageRequestV1,
+  ImportStageViewV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
 import type { LocalCatalogV1 } from "./catalog.js";
-
-const SHA256_HEX_LENGTH = 64;
 
 /** What the composer supplies: the live session, and how to reseal a catalog. */
 export interface ImportSessionContextV1 {
@@ -253,18 +270,6 @@ class SessionCatalogPort implements StagingCatalogPort {
 
 // ------------------------------------------------------------------ handlers --
 
-const HEX = /^[0-9a-f]+$/;
-
-function decodeSha256Hex(hex: string): Uint8Array {
-  if (hex.length !== SHA256_HEX_LENGTH || !HEX.test(hex)) {
-    throw new DataWorkerCommandError("malformed-request");
-  }
-  return Uint8Array.from(
-    { length: SHA256_HEX_LENGTH / 2 },
-    (_unused, index) => Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16),
-  );
-}
-
 /**
  * Rebuilds S03's `PreflightReportV1` from the facts the page relayed. The
  * page cannot invent `isEstimate`: the wire type and this shape both pin it to
@@ -302,6 +307,14 @@ function preflightFrom(
 
 export interface ImportHandlerDependenciesV1 {
   readonly entropy: EntropyPort;
+  /**
+   * The live unlocked session, read fresh each time. The channel receiver runs
+   * *between* requests — a batch arrives when the parser sends it, not when
+   * the page asks — so it cannot be handed a context captured at dispatch.
+   * Throws `locked` once the session is gone, which is what stops a batch
+   * committing into a worker that has zeroized its key.
+   */
+  readonly getContext: () => ImportSessionContextV1;
   readonly store?: EnvelopeStorePort;
   readonly crypto?: EnvelopeCryptoPort;
 }
@@ -314,17 +327,32 @@ export interface ActiveStageV1 {
 
 export interface ImportHandlersV1 {
   beginImportStage(
-    context: ImportSessionContextV1,
     request: BeginImportStageRequestV1,
+    ports: readonly MessagePort[],
+  ): Promise<DataWorkerResponseV1>;
+  getImportStage(
+    request: GetImportStageRequestV1,
   ): Promise<DataWorkerResponseV1>;
   cancelImportStage(
-    context: ImportSessionContextV1,
     request: CancelImportStageRequestV1,
   ): Promise<DataWorkerResponseV1>;
   /** Runs before the library is reported, on every unlock (M23's contract). */
   sweep(context: ImportSessionContextV1): Promise<readonly CleanupReceiptV1[]>;
-  /** Forgets in-memory stage bookkeeping; called on lock. */
+  /** The facts accumulated while staging, for inference (D17). */
+  accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV1[];
+  /** Forgets in-memory stage bookkeeping and closes ports; called on lock. */
   dispose(): void;
+}
+
+const STORAGE_ID_BYTES = 16;
+
+/** One live channel and the facts it has delivered so far. */
+interface ChannelStateV1 {
+  readonly port: MessagePort;
+  facts: WorkbookFactStreamItemV1[];
+  /** Serialises batches: one commit at a time, in sequence order. */
+  queue: Promise<void>;
+  closed: boolean;
 }
 
 export function createImportHandlers(
@@ -334,6 +362,7 @@ export function createImportHandlers(
   const crypto = deps.crypto ?? envelopeCryptoAdapter;
   /** Stage id → workflow reference. Session memory only; never persisted. */
   const active = new Map<string, ActiveStageV1>();
+  const channels = new Map<string, ChannelStateV1>();
 
   const portsFor = (
     catalogPort: StagingCatalogPort,
@@ -352,9 +381,17 @@ export function createImportHandlers(
     stageId: string,
   ): Promise<string | undefined> {
     const remembered = active.get(stageId);
-    if (remembered !== undefined) {
+    if (
+      remembered !== undefined &&
+      catalogPort
+        .readRefs()
+        .activeWorkflowStorageIds.includes(remembered.workflowStorageId)
+    ) {
       return remembered.workflowStorageId;
     }
+    // The memo was stale or absent. The catalog is authoritative, so fall
+    // through to it rather than trusting session memory.
+    active.delete(stageId);
     for (const workflowStorageId of catalogPort.readRefs().activeWorkflowStorageIds) {
       const loaded = await readImportStage(
         portsFor(catalogPort),
@@ -366,17 +403,176 @@ export function createImportHandlers(
       }
       crypto.destroyKey(loaded.provisionalKey);
       if (loaded.stage.stageId === stageId) {
+        active.set(stageId, { stageId, workflowStorageId });
         return workflowStorageId;
       }
     }
     return undefined;
   }
 
+  /** Opens the stage a live id names, or `undefined` if it is gone. */
+  async function loadStage(stageId: string) {
+    const context = deps.getContext();
+    const catalogPort = new SessionCatalogPort(context);
+    const workflowStorageId = await findWorkflow(context, catalogPort, stageId);
+    if (workflowStorageId === undefined) {
+      return undefined;
+    }
+    const loaded = await readImportStage(
+      portsFor(catalogPort),
+      context.localRoot,
+      workflowStorageId,
+    );
+    return loaded === undefined
+      ? undefined
+      : { context, catalogPort, loaded };
+  }
+
+  /**
+   * Commits one batch and only then acks it (CA-10, invariant 1). The chunk
+   * bytes are S03's own canonical mapping — `factStreamItemToCanonicalValue`
+   * then `encodeCanonical` — never re-derived here, so a staged fact and a
+   * parsed fact are the same bytes.
+   */
+  async function commitBatch(
+    stageId: string,
+    seq: number,
+    item: WorkbookFactStreamItemV1,
+  ): Promise<void> {
+    const opened = await loadStage(stageId);
+    if (opened === undefined) {
+      throw new DataWorkerCommandError("integrity");
+    }
+    const { catalogPort, context, loaded } = opened;
+
+    const revision = catalogPort.expectation().transactionRevision + 1;
+    const payload = encodeCanonical(factStreamItemToCanonicalValue(item));
+    const storageId = asStorageId16(deps.entropy.randomBytes(STORAGE_ID_BYTES));
+    const chunkFrame = await crypto.seal({
+      scope: IMPORT_STAGE_SCOPE,
+      storageId,
+      logicalRevision: BigInt(revision),
+      payloadKind: IMPORT_STAGE_PAYLOAD_KIND,
+      payload,
+      compression: "deflate-raw-v1",
+      key: loaded.provisionalKey,
+    });
+    const chunkStorageId = encodeStorageId16(storageId);
+
+    const isSummary = item.kind === "summary";
+    const rowsSoFar = isSummary
+      ? item.rowCount
+      : loaded.stage.progress.rowsSoFar +
+        item.facts.filter((fact) => fact.kind === "row").length;
+
+    const next: ImportStageV1 = {
+      ...loaded.stage,
+      stageRevision: loaded.stage.stageRevision + 1,
+      factChunks: [
+        ...loaded.stage.factChunks,
+        {
+          storageId: chunkStorageId,
+          sequence: loaded.stage.factChunks.length,
+          decodedByteLength: payload.byteLength,
+          sha256: await crypto.sha256(payload),
+        },
+      ],
+      // Fact chunks are inference's working material, not the app's: they are
+      // ticketed at promotion, never retained (database.md § Import staging).
+      temporaryStorageIds: [...loaded.stage.temporaryStorageIds, chunkStorageId],
+      progress: {
+        phase: isSummary ? "inferring" : "parsing",
+        rowsSoFar,
+        batchesCommitted: loaded.stage.progress.batchesCommitted + 1,
+        ackedBatchSeq: seq,
+      },
+      status: isSummary ? "staged" : "staging",
+    };
+
+    const written = await writeImportStage(
+      portsFor(catalogPort),
+      context.localRoot,
+      loaded,
+      next,
+      { addFrames: [chunkFrame] },
+    );
+    crypto.destroyKey(loaded.provisionalKey);
+
+    // Every rewrite moves the workflow envelope, so the memo has to move with
+    // it. Without this the next batch would look up a storage id the same
+    // transaction just deleted.
+    active.set(stageId, {
+      stageId,
+      workflowStorageId: written.loaded.workflowStorageId,
+    });
+  }
+
+  /**
+   * Wires a channel port to a stage. Batches are handled one at a time through
+   * a promise chain: two concurrent commits would race the same optimistic
+   * revision, and the parser is waiting for each ack anyway.
+   */
+  function attachChannel(stageId: string, port: MessagePort): void {
+    const state: ChannelStateV1 = {
+      port,
+      facts: [],
+      queue: Promise.resolve(),
+      closed: false,
+    };
+    channels.set(stageId, state);
+
+    port.onmessage = (event: MessageEvent<unknown>): void => {
+      if (!isStageChannelInboundV1(event.data)) {
+        return;
+      }
+      const message = event.data;
+      if (message.kind === "abort") {
+        // The parse ended without a summary. Nothing is synthesised: the
+        // stage simply stops where its last committed batch left it, and the
+        // cancel command (or the unlock sweep) collects it.
+        state.closed = true;
+        return;
+      }
+
+      const { seq, batch } = message;
+      state.queue = state.queue.then(async () => {
+        if (state.closed) {
+          return;
+        }
+        try {
+          await commitBatch(stageId, seq, batch);
+          // Inference runs in this worker over the facts it accumulates while
+          // staging (D17); the stage stays authoritative for what is durable.
+          state.facts.push(batch);
+          port.postMessage(stageAck(seq));
+        } catch {
+          // Commit-before-ack: a batch that did not land is never acked, and
+          // the parser stops rather than streaming into a stage that cannot
+          // hold it.
+          state.closed = true;
+          port.postMessage(stageNack(seq));
+        }
+      });
+    };
+  }
+
+  function closeChannel(stageId: string): void {
+    const state = channels.get(stageId);
+    if (state === undefined) {
+      return;
+    }
+    state.closed = true;
+    state.port.onmessage = null;
+    state.port.close();
+    channels.delete(stageId);
+  }
+
   return {
     async beginImportStage(
-      context: ImportSessionContextV1,
       request: BeginImportStageRequestV1,
+      ports: readonly MessagePort[],
     ): Promise<DataWorkerResponseV1> {
+      const context = deps.getContext();
       if (request.detected.kind !== "delimited") {
         // Every other format is refused before a stage exists (FR-2): there is
         // nothing to clean up because nothing was created.
@@ -398,7 +594,6 @@ export function createImportHandlers(
           },
           contradiction: null,
           preflight: preflightFrom(request),
-          sourceSha256: decodeSha256Hex(request.sourceSha256Hex),
           sourceByteLength: request.preflight.sourceByteLength,
           selectedSheets: [request.fileName],
         },
@@ -407,21 +602,52 @@ export function createImportHandlers(
       // The provisional key stays sealed in its workflow envelope between
       // requests; the handle is released here so a lock cannot leave one live.
       crypto.destroyKey(created.loaded.provisionalKey);
-      active.set(created.loaded.stage.stageId, {
-        stageId: created.loaded.stage.stageId,
+      const stageId = created.loaded.stage.stageId;
+      active.set(stageId, {
+        stageId,
         workflowStorageId: created.loaded.workflowStorageId,
       });
 
-      return {
-        kind: "beginImportStage",
-        stageId: created.loaded.stage.stageId,
+      // `port2` arrived in this request's transfer list (D17). A response
+      // never carries one back, so this is the only moment a port crosses.
+      const [port] = ports;
+      if (port !== undefined) {
+        attachChannel(stageId, port);
+      }
+
+      return { kind: "beginImportStage", stageId };
+    },
+
+    async getImportStage(
+      request: GetImportStageRequestV1,
+    ): Promise<DataWorkerResponseV1> {
+      const opened = await loadStage(request.stageId);
+      if (opened === undefined) {
+        // Truthfully absent rather than an error: a swept or cancelled stage
+        // is gone, and "gone" is the answer the surface needs.
+        return { kind: "getImportStage", stage: null };
+      }
+      crypto.destroyKey(opened.loaded.provisionalKey);
+      const stage = opened.loaded.stage;
+      const view: ImportStageViewV1 = {
+        stageId: stage.stageId,
+        fileName: stage.fileName,
+        status: stage.status,
+        phase: stage.progress.phase,
+        rowsSoFar: stage.progress.rowsSoFar,
+        batchesCommitted: stage.progress.batchesCommitted,
+        ackedBatchSeq: stage.progress.ackedBatchSeq,
+        factChunkCount: stage.factChunks.length,
+        hasProposal: stage.proposal !== null,
       };
+      return { kind: "getImportStage", stage: view };
     },
 
     async cancelImportStage(
-      context: ImportSessionContextV1,
       request: CancelImportStageRequestV1,
     ): Promise<DataWorkerResponseV1> {
+      const context = deps.getContext();
+      closeChannel(request.stageId);
       const catalogPort = new SessionCatalogPort(context);
       const workflowStorageId = await findWorkflow(
         context,
@@ -471,10 +697,20 @@ export function createImportHandlers(
         return [];
       }
       active.clear();
+      for (const stageId of [...channels.keys()]) {
+        closeChannel(stageId);
+      }
       return sweepStaleImports(portsFor(catalogPort), context.localRoot);
     },
 
+    accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV1[] {
+      return channels.get(stageId)?.facts ?? [];
+    },
+
     dispose(): void {
+      for (const stageId of [...channels.keys()]) {
+        closeChannel(stageId);
+      }
       active.clear();
     },
   };

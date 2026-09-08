@@ -133,8 +133,11 @@ export interface BeginImportStageRequestV1 {
   readonly fileName: string;
   readonly detected: DetectedDelimitedV1;
   readonly preflight: ImportPreflightFactsV1;
-  /** SHA-256 of the source, as 64 lowercase hex characters — text, not bytes. */
-  readonly sourceSha256Hex: string;
+}
+
+export interface GetImportStageRequestV1 {
+  readonly kind: "getImportStage";
+  readonly stageId: string;
 }
 
 export interface CancelImportStageRequestV1 {
@@ -154,6 +157,7 @@ export type DataWorkerRequestV1 =
   | ResetReadableRequestV1
   | GetStatusRequestV1
   | BeginImportStageRequestV1
+  | GetImportStageRequestV1
   | CancelImportStageRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
@@ -295,6 +299,29 @@ export interface ImportCleanupReceiptViewV1 {
   readonly completed: true;
 }
 
+/**
+ * A stage's progress and terminal status. Counts only — no cell value, and no
+ * file content: the name is the one page-known fact the import flow may echo.
+ */
+export interface ImportStageViewV1 {
+  readonly stageId: string;
+  readonly fileName: string;
+  readonly status: string;
+  readonly phase: string;
+  readonly rowsSoFar: number;
+  /** Batches that are durable, which is the same as batches that were acked. */
+  readonly batchesCommitted: number;
+  readonly ackedBatchSeq: number | null;
+  readonly factChunkCount: number;
+  readonly hasProposal: boolean;
+}
+
+export interface GetImportStageResponseV1 {
+  readonly kind: "getImportStage";
+  /** Null when no live stage carries this id — swept, cancelled, or never. */
+  readonly stage: ImportStageViewV1 | null;
+}
+
 export interface CancelImportStageResponseV1 {
   readonly kind: "cancelImportStage";
   readonly receipt: ImportCleanupReceiptViewV1;
@@ -312,6 +339,7 @@ export type DataWorkerResponseV1 =
   | ResetReadableResponseV1
   | GetStatusResponseV1
   | BeginImportStageResponseV1
+  | GetImportStageResponseV1
   | CancelImportStageResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */

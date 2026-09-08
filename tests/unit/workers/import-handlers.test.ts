@@ -45,7 +45,6 @@ const BEGIN: BeginImportStageRequestV1 = {
     bytesSampled: 5469,
     sourceByteLength: 5469,
   },
-  sourceSha256Hex: "a".repeat(64),
 };
 
 let worker: TestHandler;
@@ -131,13 +130,10 @@ describe("beginImportStage", () => {
   );
 
   it(
-    "refuses a malformed digest or an empty file name",
+    "refuses an empty file name",
     async () => {
       await setup();
 
-      await expect(
-        worker.handler.handle({ ...BEGIN, sourceSha256Hex: "not-hex" }),
-      ).rejects.toThrow(DataWorkerCommandError);
       await expect(
         worker.handler.handle({ ...BEGIN, fileName: "" }),
       ).rejects.toThrow(DataWorkerCommandError);
