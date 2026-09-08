@@ -335,33 +335,22 @@ test("cancelling mid-parse stops the run and leaves the library alone", async ({
 });
 
 /**
- * CAP-11's receipt, which does not arrive — recorded as the defect it is.
+ * CAP-11's receipt (MOD-007), through the real entry.
  *
- * MOD-007 promises "no partial app remains", and SCR-022 may only print that
- * once the cleanup receipt is in hand. Cancelling mid-parse through the real
- * entry never produces one: `cancelImportStage` rejects with
- * `revision-conflict` every time — reproduced at 3,000 rows after 50 ms and at
- * 20,000 rows after 100 ms and 1.2 s — because `import.machine.ts` invokes the
- * cleanup as soon as the parser has been *told* to stop, while batches already
- * in flight are still being committed by the data worker.
+ * MOD-007 promises "no partial app remains", and SCR-022 may print that only
+ * once the cleanup receipt is in hand. This is the regression assertion for
+ * the ordering defect: the cleanup used to follow the *instruction* to stop
+ * the parser rather than the parser's report that it had, so
+ * `cancelImportStage` raced the batches still in flight and rejected with
+ * `revision-conflict` on every run — leaving `cleanup-unconfirmed`, which is
+ * precisely the state that may claim nothing.
  *
- * The **guarantee** holds: the test above proves the library is unchanged
- * before and after the unlock sweep, and the surface says only what it can —
- * `unconfirmed` is precisely the state MOD-007 forbids from claiming anything.
- * What is missing is the receipt that lets it claim something.
- *
- * Owner: `src/application/workflows/import.machine.ts` (M36) — `cancelling`
- * should await the parser's terminal event, bounded, before cleaning up; or
- * `src/workers/data/import-handlers.ts` (M33) — `cancelImportStage` should
- * retry once on `revision-conflict`. Neither is in SESSION-07's write set.
- *
- * This assertion stays exactly as CAP-11 requires it. When the owner lands the
- * fix, Playwright reports this test as "expected to fail but passed" and the
- * `test.fail()` comes out with it.
+ * `import.machine.ts`'s `cancelling.stopping` now waits for that report, and
+ * this is what proves it end to end: two real workers, a real channel, a real
+ * store, and the receipt arriving with a count.
  */
 test("cancelling reports its cleanup receipt (MOD-007)", async ({ page }) => {
   test.setTimeout(300_000);
-  test.fail(true, "CAP-11 receipt: cancelImportStage rejects revision-conflict");
 
   await cancelMidParse(page);
 

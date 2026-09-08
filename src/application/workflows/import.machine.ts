@@ -147,6 +147,18 @@ const EMPTY_PROGRESS: ImportProgressFactsV1 = Object.freeze({
 });
 
 /**
+ * How long a cancel waits for the parser to report that it has stopped before
+ * cleaning up anyway.
+ *
+ * The parser checks for a cancel at each batch boundary — 1024 facts — so it
+ * answers in well under a second on any device that could have started the
+ * import. The bound exists for the parser that never answers at all: a wedged
+ * worker must not strand the cancel, and the cleanup's own result is truthful
+ * either way.
+ */
+export const PARSER_STOP_TIMEOUT_MS = 5_000;
+
+/**
  * A name the user actually chose. The RPC refuses an empty accepted name, and
  * whitespace is not a choice, so the same trim decides both.
  */
@@ -545,8 +557,10 @@ export const importMachine = setup({
           {
             // A cancelled parse with no CANCEL of ours: the run ended without
             // a terminal summary, so there is nothing exact to infer from.
+            // This *is* the parser's terminal report, so there is nothing left
+            // to wait for and the cleanup starts at once.
             guard: ({ event }) => event.event.kind === "cancelled",
-            target: "cancelling",
+            target: "cancelling.cleaning",
           },
           {
             guard: ({ event }) => event.event.kind === "failed",
@@ -564,7 +578,9 @@ export const importMachine = setup({
 
     /** Inference runs in the data worker over the staged facts (D17). */
     inferring: {
-      on: { CANCEL: { target: "cancelling" } },
+      // Reachable only through the parser's `completed`, so nothing is still
+      // in flight and the cleanup needs no wait.
+      on: { CANCEL: { target: "cancelling.cleaning" } },
       invoke: {
         src: "runInference",
         input: ({ context }) => ({
@@ -623,7 +639,8 @@ export const importMachine = setup({
     /** SCR-023 (review.html). Nothing is accepted until "Create app". */
     reviewing: {
       initial: "deciding",
-      on: { CANCEL: { target: "cancelling" } },
+      // Reachable only after `inferring`, so the parser is long finished.
+      on: { CANCEL: { target: "cancelling.cleaning" } },
       states: {
         deciding: {
           always: { guard: "hasPendingEdit", target: "applyingEdit" },
@@ -752,27 +769,65 @@ export const importMachine = setup({
      * The user asked to stop. The parser is told first so no further row is
      * staged, and the machine then *waits* for the cleanup receipt: an
      * optimistic "cancelled" would claim a guarantee it has not yet been given.
+     *
+     * **Telling the parser to stop is not the same as it having stopped.**
+     * `cancelParse` crosses a worker boundary, and the batches the parser had
+     * already sent are still travelling down the channel to the data worker.
+     * Cleaning up while they land races them, and the store answers that race
+     * with `revision-conflict` — which is why every cancel through the real
+     * entry used to end `cleanup-unconfirmed` and MOD-007's "no partial app
+     * remains" was never printed (SESSION-07 CP4, reproduced 3/3 at 3,000 rows
+     * after 50 ms and at 20,000 rows after 100 ms and 1.2 s).
+     *
+     * So the cleanup follows the parser's *terminal event*, not the stop
+     * instruction. The states that already know the parser has finished — its
+     * own `cancelled` report, and a cancel from `inferring` or `reviewing`,
+     * both of which are only reachable after `completed` — enter
+     * {@link cleaning} directly and wait for nothing.
      */
     cancelling: {
       entry: "stopParsing",
-      invoke: {
-        src: "cleanUpStage",
-        input: ({ context }) => ({
-          services: context.services,
-          stageId: context.stageId as string,
-        }),
-        onDone: {
-          target: "cancelled",
-          actions: assign({
-            cleanupReceipt: ({ event }) => event.output.receipt,
-          }),
+      initial: "stopping",
+      states: {
+        /**
+         * Bounded, because a parser that never answers must not strand the
+         * cancel: after {@link PARSER_STOP_TIMEOUT_MS} the cleanup runs anyway
+         * and its own result — receipt or `cleanup-unconfirmed` — is still
+         * what the surface reports.
+         */
+        stopping: {
+          on: {
+            IMPORT_EVENT: {
+              guard: ({ event }) =>
+                event.event.kind === "cancelled" ||
+                event.event.kind === "completed" ||
+                event.event.kind === "failed",
+              target: "cleaning",
+            },
+          },
+          after: { [PARSER_STOP_TIMEOUT_MS]: { target: "cleaning" } },
         },
-        onError: {
-          target: "failed",
-          actions: assign({
-            failure: "cleanup-unconfirmed",
-            error: ({ event }) => toSecurityError(event.error),
-          }),
+        cleaning: {
+          invoke: {
+            src: "cleanUpStage",
+            input: ({ context }) => ({
+              services: context.services,
+              stageId: context.stageId as string,
+            }),
+            onDone: {
+              target: "#import.cancelled",
+              actions: assign({
+                cleanupReceipt: ({ event }) => event.output.receipt,
+              }),
+            },
+            onError: {
+              target: "#import.failed",
+              actions: assign({
+                failure: "cleanup-unconfirmed",
+                error: ({ event }) => toSecurityError(event.error),
+              }),
+            },
+          },
         },
       },
     },

@@ -7,12 +7,13 @@
  * terminal state leaves the parser running.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createActor } from "xstate";
 import {
   beginStageInput,
   importMachine,
   isChosenName,
+  PARSER_STOP_TIMEOUT_MS,
 } from "../../../src/application/workflows/import.machine.js";
 import type { ImportServices } from "../../../src/application/workflows/import-services.js";
 import {
@@ -213,6 +214,10 @@ describe("the import machine", () => {
 
     actor.send({ type: "CANCEL" });
     await settled();
+    // The cleanup follows the parser's terminal report, not the instruction
+    // to stop: batches already sent are still in flight until it arrives.
+    fake.emit({ kind: "cancelled", batchesSent: 1 });
+    await settled();
 
     expect(actor.getSnapshot().matches("cancelling")).toBe(true);
     expect(actor.getSnapshot().context.cleanupReceipt).toBeUndefined();
@@ -245,6 +250,7 @@ describe("the import machine", () => {
     });
     const actor = await toParsing(fake);
     actor.send({ type: "CANCEL" });
+    fake.emit({ kind: "cancelled", batchesSent: 1 });
     await settled();
 
     const snapshot = actor.getSnapshot();
@@ -258,6 +264,7 @@ describe("the import machine", () => {
     });
     const actor = await toParsing(fake);
     actor.send({ type: "CANCEL" });
+    fake.emit({ kind: "cancelled", batchesSent: 1 });
     await settled();
 
     const snapshot = actor.getSnapshot();
@@ -524,6 +531,7 @@ describe("the import machine", () => {
           const actor = await toParsing(fake);
           return async () => {
             actor.send({ type: "CANCEL" });
+            fake.emit({ kind: "cancelled", batchesSent: 1 });
             await settled();
           };
         },
@@ -583,6 +591,108 @@ describe("the import machine", () => {
     expect(snapshot.matches("detecting")).toBe(true);
     expect(snapshot.context.refusal).toBeUndefined();
     expect(snapshot.context.fileName).toBe(FILE_NAME);
+  });
+});
+
+/**
+ * The cancel ordering, as its own suite (SESSION-07 lease r2).
+ *
+ * The defect this pins was found by the CP4 e2e, not by a unit: cancelling
+ * mid-parse rejected `cancelImportStage` with `revision-conflict` on every
+ * run, so MOD-007's "no partial app remains" was never printed. The cause was
+ * an ordering one — the cleanup followed the *instruction* to stop the parser
+ * rather than the parser's report that it had — and ordering is exactly what a
+ * machine test can hold.
+ *
+ * The negative control is the first case: with no terminal event, `cleanStage`
+ * must not have been called at all. Without it the other two would pass
+ * against the old machine as well.
+ */
+describe("a cancel waits for the parser before it cleans up", () => {
+  it("does not touch the stage while the parser has not reported", async () => {
+    const fake = happyServices();
+    const actor = await toParsing(fake);
+
+    actor.send({ type: "CANCEL" });
+    await settled();
+
+    // The parser was told to stop...
+    expect(fake.names()).toContain("cancelParse");
+    // ...and nothing has been removed, because batches may still be landing.
+    expect(fake.names()).not.toContain("cancelStage");
+    expect(actor.getSnapshot().matches({ cancelling: "stopping" })).toBe(true);
+    expect(actor.getSnapshot().context.cleanupReceipt).toBeUndefined();
+  });
+
+  it.each([
+    { kind: "cancelled", batchesSent: 3 },
+    { kind: "completed", rowCount: 40, batchesSent: 3 },
+    { kind: "failed", reason: "parse-failed" },
+  ] as const)(
+    "cleans up once the parser reports $kind",
+    async (terminal) => {
+      const fake = happyServices();
+      const actor = await toParsing(fake);
+
+      actor.send({ type: "CANCEL" });
+      await settled();
+      expect(fake.names()).not.toContain("cancelStage");
+
+      fake.emit(terminal);
+      await settled();
+
+      expect(fake.names()).toContain("cancelStage");
+      const snapshot = actor.getSnapshot();
+      expect(snapshot.matches("cancelled")).toBe(true);
+      expect(snapshot.context.cleanupReceipt?.completed).toBe(true);
+    },
+  );
+
+  it("cleans up anyway when the parser never reports at all", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = happyServices();
+      const actor = start(fake);
+      actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+      fake.emit(preflightEvent());
+      actor.send({ type: "SET_APP_NAME", text: "Field Log" });
+      actor.send({ type: "SET_TABLE_NAME", text: "Visits" });
+      actor.send({ type: "CONTINUE" });
+      actor.send({ type: "START" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      actor.send({ type: "CANCEL" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.names()).not.toContain("cancelStage");
+
+      // One tick short of the bound, the machine is still waiting.
+      await vi.advanceTimersByTimeAsync(PARSER_STOP_TIMEOUT_MS - 1);
+      expect(fake.names()).not.toContain("cancelStage");
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.names()).toContain("cancelStage");
+      expect(actor.getSnapshot().matches("cancelled")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for nothing when the parser has already finished", async () => {
+    const fake = happyServices();
+    const actor = await toParsing(fake);
+    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    expect(actor.getSnapshot().matches({ reviewing: "deciding" })).toBe(true);
+
+    actor.send({ type: "CANCEL" });
+    await settled();
+
+    // `reviewing` is only reachable through `completed`, so there is no
+    // in-flight batch to wait for and the bound is never entered.
+    expect(fake.names()).toContain("cancelStage");
+    expect(actor.getSnapshot().matches("cancelled")).toBe(true);
   });
 });
 
