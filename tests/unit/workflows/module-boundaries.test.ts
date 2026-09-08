@@ -7,7 +7,7 @@
  * "this import can never appear", which no runtime assertion can establish.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -16,6 +16,13 @@ const source = (path: string): string =>
     fileURLToPath(new URL(`../../../${path}`, import.meta.url)),
     "utf8",
   );
+
+/** Every `.ts` actually in the directory — the list below must cover them all. */
+const filesIn = (directory: string): string[] =>
+  readdirSync(fileURLToPath(new URL(`../../../${directory}`, import.meta.url)))
+    .filter((name) => name.endsWith(".ts"))
+    .map((name) => `${directory}/${name}`)
+    .sort();
 
 const WORKFLOW_FILES = [
   "src/application/workflows/services.ts",
@@ -35,6 +42,7 @@ const VIEW_MODEL_FILES = [
   "src/application/view-models/security.ts",
   "src/application/view-models/library.ts",
   "src/application/view-models/import.ts",
+  "src/application/view-models/records.ts",
 ];
 
 /** Source with comments removed: a spec citation is not an import. */
@@ -54,6 +62,25 @@ function runtimeImports(text: string): string[] {
     .filter((match) => !/^\{\s*type\s/.test(match[1] ?? ""))
     .map((match) => match[2] ?? "");
 }
+
+/**
+ * A file added to either module and forgotten here would make every check
+ * below pass while proving nothing about it. The lists are therefore checked
+ * against the directories themselves.
+ */
+describe("the sweep covers both modules", () => {
+  it("names every file in src/application/workflows", () => {
+    expect([...WORKFLOW_FILES].sort()).toEqual(
+      filesIn("src/application/workflows"),
+    );
+  });
+
+  it("names every file in src/application/view-models", () => {
+    expect([...VIEW_MODEL_FILES].sort()).toEqual(
+      filesIn("src/application/view-models"),
+    );
+  });
+});
 
 describe("workflows (M36)", () => {
   it("import no React and no UI module", () => {
