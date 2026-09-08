@@ -247,6 +247,12 @@ deferred feature; the vision above is specified complete.
 - **Not network-dependent.** Connectivity is never required to launch, read,
   write, or search. The cloud is where data is kept durable, never where it is
   served from, and a signed-out or offline device is a fully working device.
+- **Not a peer-to-peer system.** No direct device-to-device connections, no
+  local-network discovery, no signalling, no relay. A relay that actually
+  worked would require credentials this project cannot publish, and the durable
+  home already serves every case peer sync was imagined for. Two devices reach
+  each other only by way of a durable home, and nothing is ever transferred
+  between them directly.
 - **Not a hosted collaborative document.** Sharing happens by handing someone
   access to an encrypted store — a shared storage folder or a bundle file plus
   a key — not by joining a live hosted session. No presence cursors, no comment
@@ -305,9 +311,6 @@ Recorded here so later phases don't relitigate them.
   build-time configuration that a fork can supply for itself. The OAuth client
   is published to production status from the outset, because refresh tokens
   issued by an app still in testing status expire in days.
-- **Peer-to-peer sync is optional and best-effort, never load-bearing.** No
-  feature depends on it, because a guaranteed relay would require credentials
-  the project cannot publish. The durable home is always the reliable path.
 - **Storage format is an append-only change log with periodic compaction** —
   so a save writes a delta rather than rewriting a workbook, and so
   reconciliation has the history it needs.
