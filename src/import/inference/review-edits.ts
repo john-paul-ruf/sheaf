@@ -33,6 +33,7 @@ import {
   type ProposedRowV1,
 } from "./infer.js";
 import {
+  EVIDENCE_EXAMPLE_LIMIT,
   inferenceStatement,
   statementIdOf,
   type InferenceStatementV1,
@@ -177,20 +178,44 @@ const setHeaderRow = (
       cells: row.cells,
     }));
 
-  const renamed = fields.map((field) =>
-    inferenceStatement("field-name", field.columnIndex, "rename-field", [
-      headerRow === null || field.isNameGenerated
-        ? { kind: "file-name", fileName: proposal.appName }
-        : {
-            kind: "header-text",
-            rowIndex: rowIndex ?? 0,
-            text: field.fieldName,
-          },
-    ]),
+  // Regenerated, not left standing: a statement whose evidence still described
+  // the old header would be the one thing a review screen must never show.
+  const regenerated = new Map(
+    fields
+      .map((field) =>
+        inferenceStatement("field-name", field.columnIndex, "rename-field", [
+          headerRow === null || field.isNameGenerated
+            ? { kind: "file-name", fileName: proposal.fileName }
+            : {
+                kind: "header-text",
+                rowIndex: rowIndex ?? 0,
+                text: field.fieldName,
+              },
+        ]),
+      )
+      .map((statement) => [statement.statementId, statement] as const),
   );
-  const renamedById = new Map(
-    renamed.map((statement) => [statement.statementId, statement]),
-  );
+  const discardedStatementId = statementIdOf("discarded-rows", null);
+  if (
+    proposal.statements.some(
+      (statement) => statement.statementId === discardedStatementId,
+    )
+  ) {
+    regenerated.set(
+      discardedStatementId,
+      inferenceStatement(
+        "discarded-rows",
+        null,
+        "set-header-row",
+        discardedRows.slice(0, EVIDENCE_EXAMPLE_LIMIT).map((row) => ({
+          kind: "row-shape" as const,
+          rowIndex: row.rowIndex,
+          cellCount: row.cells.length,
+          valueCount: row.cells.filter((cell) => cell !== "").length,
+        })),
+      ),
+    );
+  }
 
   return {
     kind: "applied",
@@ -203,7 +228,7 @@ const setHeaderRow = (
       rowCount: rowCountAfterHeaderMove(proposal, rowIndex),
       statements: markEdited(
         proposal.statements.map(
-          (statement) => renamedById.get(statement.statementId) ?? statement,
+          (statement) => regenerated.get(statement.statementId) ?? statement,
         ),
         statementIdOf("header-row", null),
       ),

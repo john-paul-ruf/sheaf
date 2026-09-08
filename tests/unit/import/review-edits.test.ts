@@ -93,6 +93,17 @@ describe("review edits", () => {
     expect(moved.discardedRowCount).toBe(4);
     expect(moved.table.fields[0]?.fieldName).toBe("1001");
     expect(dispositionOf(moved, "header-row")).toBe("edited");
+    // The discard evidence follows the header rather than describing the old one.
+    expect(
+      moved.statements.find((s) => s.statementId === "discarded-rows")?.evidence,
+    ).toEqual([
+      { kind: "row-shape", rowIndex: 0, cellCount: 1, valueCount: 1 },
+      { kind: "row-shape", rowIndex: 1, cellCount: 1, valueCount: 1 },
+      { kind: "row-shape", rowIndex: 2, cellCount: 1, valueCount: 0 },
+    ]);
+    expect(
+      moved.statements.find((s) => s.statementId === "field-name:0")?.evidence,
+    ).toEqual([{ kind: "header-text", rowIndex: 4, text: "1001" }]);
 
     const back = applied(moved, { kind: "set-header-row", rowIndex: 3 });
     expect(back.rowCount).toBe(40);

@@ -112,6 +112,8 @@ export interface ProposedTableV1 {
 }
 
 export interface ProposedAppV1 {
+  /** The file this came from — review evidence, and what a refusal would name. */
+  readonly fileName: string;
   readonly appName: string;
   readonly table: ProposedTableV1;
   /** Null when the file has no headings and every name was generated. */
@@ -754,6 +756,7 @@ export function inferProposal(
   }
 
   return {
+    fileName: context.fileName,
     appName: name,
     table: { tableName: name, fields },
     headerRowIndex,

@@ -59,6 +59,7 @@ describe("CA-16 — the demo fixture's proposal is pinned", () => {
     );
 
     expect({
+      fileName: proposal.fileName,
       appName: proposal.appName,
       tableName: proposal.table.tableName,
       headerRowIndex: proposal.headerRowIndex,
@@ -70,6 +71,7 @@ describe("CA-16 — the demo fixture's proposal is pinned", () => {
       fields: proposal.table.fields,
       diagnostics: proposal.diagnostics,
     }).toEqual({
+      fileName: "field-log-messy.csv",
       appName: "Field Log Messy",
       tableName: "Field Log Messy",
       headerRowIndex: 3,
