@@ -14,7 +14,10 @@
 
 import { probeCapabilities, type CapabilityReport } from "../platform/capabilities.js";
 import { DataWorkerClient } from "../workers/protocol/client.js";
-import type { UnlockedSessionViewV1 } from "../workers/protocol/messages.js";
+import type {
+  IdleTimeoutMinutesV1,
+  UnlockedSessionViewV1,
+} from "../workers/protocol/messages.js";
 
 export type { CapabilityReport };
 
@@ -35,6 +38,13 @@ export interface AppRuntime {
   /** Zeroizes in the worker, then terminates it. Safe to call twice. */
   lockNow(reason: LockReason): Promise<void>;
   onLock(listener: (reason: LockReason) => void): () => void;
+  /**
+   * Arms the idle re-lock. `0` disarms it, which is the product default
+   * (FR-22): the timer exists only when the user has chosen a timeout.
+   */
+  setIdleTimeout(minutes: IdleTimeoutMinutesV1): void;
+  /** Restarts the idle countdown. The surface calls this on real use. */
+  noteActivity(): void;
   dispose(): void;
 }
 
@@ -74,7 +84,26 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
     spawn: options.spawnWorker ?? spawnDataWorker,
   });
   const listeners = new Set<(reason: LockReason) => void>();
+  const teardown: (() => void)[] = [];
   let locked = false;
+  let idleTimeoutMs = 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearIdleTimer(): void {
+    if (idleTimer !== undefined) {
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  }
+
+  function restartIdleTimer(): void {
+    clearIdleTimer();
+    if (idleTimeoutMs > 0 && !locked) {
+      idleTimer = setTimeout(() => {
+        void app.lockNow("idle-timeout");
+      }, idleTimeoutMs);
+    }
+  }
 
   const app: AppRuntime = {
     client,
@@ -83,6 +112,7 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
         return;
       }
       locked = true;
+      clearIdleTimer();
       if (client.isRunning) {
         try {
           await client.send({ kind: "lock" });
@@ -102,11 +132,55 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
         listeners.delete(listener);
       };
     },
+    setIdleTimeout(minutes: IdleTimeoutMinutesV1): void {
+      idleTimeoutMs = minutes * 60_000;
+      restartIdleTimer();
+    },
+    noteActivity(): void {
+      restartIdleTimer();
+    },
     dispose(): void {
+      clearIdleTimer();
+      for (const remove of teardown.splice(0)) {
+        remove();
+      }
       listeners.clear();
       client.terminate();
     },
   };
 
+  installLifecycleHooks(app, teardown, restartIdleTimer);
   return { kind: "ready", report, app };
+}
+
+/**
+ * The relock hooks (CAP-03). `pagehide` is the one that matters: it is the
+ * last event a page reliably gets on navigation, tab close, and mobile app
+ * switching, so it is where "termination re-locks" actually happens.
+ * `visibilitychange` only restarts the idle countdown — hiding a tab is not
+ * itself a lock, because the idle timeout is off by default and a user who
+ * chose "off" must not be logged out for switching tabs.
+ */
+function installLifecycleHooks(
+  app: AppRuntime,
+  teardown: (() => void)[],
+  restartIdleTimer: () => void,
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const onPageHide = (): void => {
+    void app.lockNow("pagehide");
+  };
+  const onVisibilityChange = (): void => {
+    restartIdleTimer();
+  };
+
+  window.addEventListener("pagehide", onPageHide);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  teardown.push(() => {
+    window.removeEventListener("pagehide", onPageHide);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  });
 }

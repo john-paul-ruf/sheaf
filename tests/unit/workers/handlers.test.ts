@@ -8,6 +8,8 @@
  * or change the catalog".
  */
 
+// First import: the shim must be installed before `dexie` is evaluated (D8).
+import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LOCAL_STORE_V1 } from "../../../src/migrations/001_local_store_v1.js";
 import { DataWorkerCommandError } from "../../../src/workers/protocol/redact.js";
