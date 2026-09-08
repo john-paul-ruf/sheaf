@@ -161,6 +161,7 @@ function DefinePassphrase({
 
   return (
     <form
+      noValidate
       className={cx(styles["form"])}
       onSubmit={(event) => {
         event.preventDefault();

@@ -37,6 +37,17 @@ export async function openApp(page: Page, hash = ""): Promise<void> {
   });
 }
 
+/**
+ * Follows a hash route **without reloading**, which is the only way to deep
+ * link inside an unlocked session: a reload terminates the worker, and
+ * terminating the worker is what locking means (FR-22).
+ */
+export async function followHash(page: Page, hash: string): Promise<void> {
+  await page.evaluate((next) => {
+    window.location.hash = next;
+  }, hash);
+}
+
 /** Which approved surface is on screen right now. */
 export async function currentScreen(page: Page): Promise<string | null> {
   return page.locator("[data-screen]").first().getAttribute("data-screen");
@@ -111,6 +122,27 @@ export async function lockDevice(page: Page): Promise<void> {
   await expect(screen(page, "SCR-003")).toBeVisible({
     timeout: DERIVE_TIMEOUT_MS,
   });
+}
+
+/** Follows the shell to SCR-005 and waits for it. */
+export async function openSecuritySettings(page: Page): Promise<void> {
+  await followHash(page, "#/settings/security");
+  await expect(screen(page, "SCR-005")).toBeVisible();
+}
+
+/** CTL-038's trigger, whose text is the value the worker confirmed it stored. */
+export function idleTimeoutControl(page: Page): Locator {
+  return page.getByRole("button", { name: /Idle timeout/ });
+}
+
+/** Chooses an approved idle timeout and waits for the persisted value to land. */
+export async function selectIdleTimeout(
+  page: Page,
+  label: string,
+): Promise<void> {
+  await idleTimeoutControl(page).click();
+  await page.getByRole("option", { name: label, exact: true }).click();
+  await expect(idleTimeoutControl(page)).toContainText(label);
 }
 
 /** What the origin's database holds, read directly rather than through the store. */

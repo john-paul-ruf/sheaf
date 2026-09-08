@@ -24,6 +24,12 @@ import styles from "./security.module.css";
  *    order, which is the requirement as data — this file never picks one.
  * 3. **Compute a delay.** The countdown shows the worker's number. Nothing
  *    here says the wait outlives the app, because it does not (D4).
+ *
+ * Every form on the security surfaces is `noValidate`. CTL-023 marks a field
+ * invalid from a *typed refusal the worker sent*, and a natively-invalid field
+ * makes its form natively invalid — so the browser would silently swallow the
+ * next submit, which is the retry. Validation on these screens is the worker's;
+ * the browser must not get a veto over trying again.
  */
 
 const ROUTE_LABEL: Readonly<Record<UnlockRouteVm, string>> = Object.freeze({
@@ -72,6 +78,7 @@ export function UnlockScreen({
   return (
     <LockedFrame announcement={vm.announcement} headerAside="No network needed">
       <form
+        noValidate
         className={cx(styles["stack"])}
         data-screen="SCR-003"
         data-state={vm.state}

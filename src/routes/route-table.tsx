@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   HashRouter,
   Navigate,
@@ -10,12 +10,21 @@ import {
 import { useMachine } from "@xstate/react";
 import { selectEmptyLibraryVm } from "../application/view-models/library.js";
 import {
+  selectPassphraseChangeVm,
+  selectRecoveryVm,
+  selectResetVm,
+  selectRevealCodeVm,
+  selectSecuritySettingsVm,
   selectSetupVm,
   selectUnlockVm,
   selectWelcomeVm,
 } from "../application/view-models/security.js";
 import { setupMachine } from "../application/workflows/setup.machine.js";
 import { unlockMachine } from "../application/workflows/unlock.machine.js";
+import { recoveryMachine } from "../application/workflows/recovery.machine.js";
+import { passphraseChangeMachine } from "../application/workflows/passphrase-change.machine.js";
+import { revealCodeMachine } from "../application/workflows/reveal-code.machine.js";
+import { resetMachine } from "../application/workflows/reset.machine.js";
 import { sessionMachine } from "../application/workflows/session.machine.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
@@ -24,6 +33,12 @@ import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import type { SecurityNavigation } from "../ui/security/frames.js";
+import { PassphraseChangeScreen } from "../ui/security/passphrase-change-screen.js";
+import { RecoveryCodesScreen } from "../ui/security/recovery-codes-screen.js";
+import { RecoveryScreen } from "../ui/security/recovery-screen.js";
+import { ResetLockedScreen } from "../ui/security/reset-locked-screen.js";
+import { ResetReadableScreen } from "../ui/security/reset-readable-screen.js";
+import { SecuritySettingsScreen } from "../ui/security/security-settings-screen.js";
 import { SetupScreen } from "../ui/security/setup-screen.js";
 import { UnlockScreen } from "../ui/security/unlock-screen.js";
 import { WelcomeScreen } from "../ui/security/welcome-screen.js";
@@ -110,6 +125,14 @@ function SheafRoutes(): ReactNode {
           <Route
             element={<UnlockRoute runtime={runtime} wiring={wiring} />}
             path={ROUTE_PATHS.unlock}
+          />
+          <Route
+            element={<RecoveryRoute runtime={runtime} wiring={wiring} />}
+            path={ROUTE_PATHS.recover}
+          />
+          <Route
+            element={<ResetLockedRoute runtime={runtime} wiring={wiring} />}
+            path={ROUTE_PATHS.resetLocked}
           />
           <Route element={elsewhere} path="*" />
         </Routes>
@@ -345,7 +368,313 @@ function UnlockedArea({
         }
         path={ROUTE_PATHS.library}
       />
+      <Route
+        element={
+          <SecuritySettingsScreen
+            nav={nav}
+            onDismissError={() => {
+              send({ type: "DISMISS_SETTINGS_ERROR" });
+            }}
+            onLockNow={() => {
+              send({ type: "LOCK_NOW" });
+            }}
+            onSetIdleTimeout={(option) => {
+              send({ type: "SET_IDLE_TIMEOUT", minutes: option.minutes });
+            }}
+            topBarActions={lockAction}
+            vm={selectSecuritySettingsVm(snapshot)}
+          />
+        }
+        path={ROUTE_PATHS.securitySettings}
+      />
+      <Route
+        element={
+          <PassphraseChangeRoute topBarActions={lockAction} wiring={wiring} />
+        }
+        path={ROUTE_PATHS.passphraseChange}
+      />
+      <Route
+        element={
+          <RecoveryCodesRoute topBarActions={lockAction} wiring={wiring} />
+        }
+        path={ROUTE_PATHS.recoveryCodes}
+      />
+      <Route
+        element={
+          <ResetReadableRoute
+            runtime={runtime}
+            topBarActions={lockAction}
+            wiring={wiring}
+          />
+        }
+        path={ROUTE_PATHS.resetReadable}
+      />
       <Route element={elsewhere} path="*" />
     </Routes>
+  );
+}
+
+function RecoveryRoute({
+  runtime,
+  wiring,
+}: {
+  readonly runtime: SheafRuntime;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [snapshot, send] = useMachine(recoveryMachine, {
+    input: {
+      services: wiring.services,
+      policy: wiring.policy,
+      codeFormat: wiring.codeFormat,
+    },
+  });
+  const { onUnlocked } = runtime;
+
+  // FR-23: a session opened with the code is not usable until the replacement
+  // passphrase is committed, so the unlock is adopted at `done` and not before.
+  useEffect(() => {
+    const session = snapshot.context.session;
+    if (snapshot.matches("done") && session !== undefined) {
+      onUnlocked(session);
+    }
+  }, [snapshot, onUnlocked]);
+
+  return (
+    <RecoveryScreen
+      nav={nav}
+      onSubmitCode={(recoveryCode) => {
+        send({ type: "SUBMIT_CODE", recoveryCode });
+      }}
+      onSubmitPassphrase={(passphrase, confirmation) => {
+        send({ type: "SUBMIT_PASSPHRASE", passphrase, confirmation });
+      }}
+      vm={selectRecoveryVm(snapshot)}
+    />
+  );
+}
+
+function PassphraseChangeRoute({
+  topBarActions,
+  wiring,
+}: {
+  readonly topBarActions: ReactNode;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const navigate = useNavigate();
+  const [snapshot, send] = useMachine(passphraseChangeMachine, {
+    input: { services: wiring.services, policy: wiring.policy },
+  });
+
+  useEffect(() => {
+    if (snapshot.matches("done")) {
+      void navigate(ROUTE_PATHS.securitySettings);
+    }
+  }, [snapshot, navigate]);
+
+  return (
+    <PassphraseChangeScreen
+      nav={nav}
+      onCancel={() => {
+        send({ type: "CANCEL" });
+      }}
+      onConfirm={() => {
+        send({ type: "CONFIRM" });
+      }}
+      onEvaluate={(nextPassphrase, confirmation) => {
+        send({ type: "EVALUATE", nextPassphrase, confirmation });
+      }}
+      onSubmit={(currentPassphrase, nextPassphrase, confirmation) => {
+        send({
+          type: "SUBMIT",
+          currentPassphrase,
+          nextPassphrase,
+          confirmation,
+        });
+      }}
+      topBarActions={topBarActions}
+      vm={selectPassphraseChangeVm(snapshot)}
+    />
+  );
+}
+
+/**
+ * SCR-007's reveal is once per actor: `dismissed` is final, so a second look
+ * needs a second machine and therefore a second passphrase entry (MOD-022).
+ * The key is what makes that literal.
+ */
+function RecoveryCodesRoute({
+  topBarActions,
+  wiring,
+}: {
+  readonly topBarActions: ReactNode;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [reveal, setReveal] = useState({ key: 0, isOpen: false });
+
+  return (
+    <RevealSession
+      isOpen={reveal.isOpen}
+      key={reveal.key}
+      onClose={() => {
+        setReveal((current) => ({ key: current.key + 1, isOpen: false }));
+      }}
+      onOpen={() => {
+        setReveal((current) => ({ ...current, isOpen: true }));
+      }}
+      topBarActions={topBarActions}
+      wiring={wiring}
+    />
+  );
+}
+
+function RevealSession({
+  isOpen,
+  onOpen,
+  onClose,
+  topBarActions,
+  wiring,
+}: {
+  readonly isOpen: boolean;
+  readonly onOpen: () => void;
+  readonly onClose: () => void;
+  readonly topBarActions: ReactNode;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [snapshot, send] = useMachine(revealCodeMachine, {
+    input: { services: wiring.services },
+  });
+
+  return (
+    <RecoveryCodesScreen
+      isRevealOpen={isOpen}
+      nav={nav}
+      onCloseReveal={() => {
+        send({ type: "DISMISS" });
+        onClose();
+      }}
+      onOpenReveal={onOpen}
+      onSubmitPassphrase={(currentPassphrase) => {
+        send({ type: "SUBMIT", currentPassphrase });
+      }}
+      topBarActions={topBarActions}
+      vm={selectRevealCodeVm(snapshot)}
+    />
+  );
+}
+
+function ResetLockedRoute({
+  runtime,
+  wiring,
+}: {
+  readonly runtime: SheafRuntime;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const navigate = useNavigate();
+  const [snapshot, send] = useMachine(resetMachine, {
+    input: { services: wiring.services, entry: "locked" },
+  });
+  const vm = selectResetVm(snapshot);
+  const { restart } = runtime;
+
+  useEffect(() => {
+    if (snapshot.matches("purged")) {
+      // The database is gone; a fresh probe finds no bootstrap row and CA-07's
+      // first-run rule lands the user back on SCR-001.
+      restart();
+    }
+  }, [snapshot, restart]);
+
+  if ("purged" in vm || vm.entry !== "locked") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Destroying this device's encrypted local store."
+      />
+    );
+  }
+
+  return (
+    <ResetLockedScreen
+      busy={snapshot.matches("purging")}
+      nav={nav}
+      onAcknowledge={(acknowledged) => {
+        send({ type: "ACKNOWLEDGE", acknowledged });
+      }}
+      onCancel={() => {
+        void navigate(ROUTE_PATHS.unlock);
+      }}
+      onConfirm={() => {
+        send({ type: "CONFIRM" });
+      }}
+      onContinue={() => {
+        send({ type: "CONTINUE" });
+      }}
+      onRetry={() => {
+        send({ type: "RETRY" });
+      }}
+      onTypePhrase={(text) => {
+        send({ type: "TYPE_PHRASE", text });
+      }}
+      vm={vm}
+    />
+  );
+}
+
+function ResetReadableRoute({
+  runtime,
+  topBarActions,
+  wiring,
+}: {
+  readonly runtime: SheafRuntime;
+  readonly topBarActions: ReactNode;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const navigate = useNavigate();
+  const [snapshot, send] = useMachine(resetMachine, {
+    input: { services: wiring.services, entry: "readable" },
+  });
+  const vm = selectResetVm(snapshot);
+  const { restart } = runtime;
+
+  useEffect(() => {
+    if (snapshot.matches("purged")) {
+      restart();
+    }
+  }, [snapshot, restart]);
+
+  if ("purged" in vm || vm.entry !== "readable") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Destroying this device's encrypted local store."
+      />
+    );
+  }
+
+  return (
+    <ResetReadableScreen
+      busy={snapshot.matches("purging")}
+      nav={nav}
+      onAcknowledge={(acknowledged) => {
+        send({ type: "ACKNOWLEDGE", acknowledged });
+      }}
+      onCancel={() => {
+        void navigate(ROUTE_PATHS.securitySettings);
+      }}
+      onConfirm={() => {
+        send({ type: "CONFIRM" });
+      }}
+      onContinue={() => {
+        send({ type: "CONTINUE" });
+      }}
+      onRetry={() => {
+        send({ type: "RETRY" });
+      }}
+      onTypePhrase={(text) => {
+        send({ type: "TYPE_PHRASE", text });
+      }}
+      topBarActions={topBarActions}
+      vm={vm}
+    />
   );
 }
