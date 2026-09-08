@@ -85,27 +85,49 @@ language — *"Status looks like a dropdown with four options. Correct?"* — on
 at the start. And because rigidity is what kills tools like this, **the schema
 stays editable forever**, not just during onboarding.
 
-There is no server, and there never will be. The site is static, the data
-lives on the device, and the app is installable and fully usable offline. But
-"no server" is not the same as "trapped on one phone." The honest promise is
-not that data never leaves the device — it is that **the data is never
-readable by anyone but you.** Everything that syncs is end-to-end encrypted
-with keys that exist only on the user's own devices, and it travels over
-substrate the user already owns: an encrypted bundle file they can put
-anywhere, a folder in their own Google Drive, Dropbox, or OneDrive, or a
-direct device-to-device connection when both are present. Apple offers no
-third-party web API for iCloud Drive, so iCloud remains an upload source but
-never an automatic sync substrate — a limitation the product states plainly
-rather than letting users assume otherwise. That yields multi-device sync,
-real backup, and the ability to hand an app to a colleague — with nothing to
-run, nothing to pay for, and no third party who can read a single row.
+There is no server, and there never will be. The site is a static deploy, and
+the store on the device is always authoritative — the app reads and writes to
+it, online or off, and never waits on a network to start. The product is
+**local-first and cloud-durable**, and the distinction matters: requiring the
+cloud to *run* would put a fragile sign-in on the launch path of the very
+platform we are trying to protect, while requiring it to *persist* costs
+nothing at runtime and solves durability outright.
 
-Reconciling divergent copies is the engine that makes that possible, and it is
-the same engine that lets a user re-upload a newer version of a workbook and
-have it merge into the app they've already been using. Two devices that edited
-offline and a freshly re-uploaded file are the same problem wearing different
-clothes: two versions of one dataset that must be resolved field by field. One
-engine, both features. That engine is not a bonus — it is structural.
+Because local storage on a phone is not durable. iOS reclaims a web app's
+storage after a stretch of disuse, and no amount of care on our side prevents
+it. So **every app a user actually invests in must be given a durable home**
+before they are allowed to build on it. That home is a folder in their own
+Google Drive, Dropbox, or OneDrive, or an encrypted bundle file they save
+wherever they like. The requirement is that you say where this lives
+permanently — not that you hold a cloud account. An app without one still
+works; it is simply marked *scratch*, and says so, which is exactly what the
+ten-second demo should be.
+
+The honest promise, then, is not that data never leaves the device — it is
+that **the data is never readable by anyone but you.** Everything written to a
+durable home is end-to-end encrypted under a key derived from the user's own
+passphrase, which is what lets a second device sign in, pull the store, and
+decrypt it with nothing ever transferred between the devices themselves. No
+pairing ceremony, no key exchange, no infrastructure. Apple offers no
+third-party web API for iCloud Drive, so iCloud remains an upload source but
+never a durable home — a limitation the product states plainly rather than
+letting users assume otherwise. What falls out is multi-device sync, real
+backup, survival of a lost phone, and the ability to hand an app to a
+colleague — with nothing to run, nothing to pay for, and no third party who
+can read a single row.
+
+Reconciling divergent copies is the engine that makes all of that possible.
+Writes made offline queue locally and flush when they can, so two devices can
+always diverge; a durable home does not prevent that, it only makes the
+divergence recoverable. And it is the same engine that lets a user re-upload a
+newer version of a workbook and have it merge into the app they have already
+been using. Two devices that edited offline and a freshly re-uploaded file are
+the same problem wearing different clothes: two versions of one dataset that
+must be resolved field by field. One engine, both features. Changes are
+recorded as an append-only log and compacted periodically — which is what
+keeps a single save from rewriting an entire workbook, and is exactly the
+shape reconciliation wants anyway. That engine is not a bonus; it is
+structural.
 
 ---
 
@@ -170,17 +192,24 @@ are first-class rather than a dashboard afterthought.
     touch-native, where tapping a bar filters the list beneath it.
 12. **Per-app identity** — built-in themes plus per-app customization: color,
     accent, density, light/dark, logo.
-13. **Installable, offline-first PWA** — with active pressure toward home-screen
-    install and persistent storage, because on some platforms that is a
-    data-integrity requirement rather than a nicety.
-14. **End-to-end encrypted sync, backup, and sharing** — layered across
-    encrypted bundle files, user-owned cloud folders, and direct
-    device-to-device connections, with no server and no readable copy anywhere.
-15. **Merge and reconciliation engine** — resolves divergent copies field by
-    field; powers both multi-device sync and re-uploading a newer version of an
+13. **Installable, offline-first PWA** — fully usable with no network,
+    launching straight from the local store rather than waiting on one.
+    Home-screen install is encouraged for the experience, not demanded for
+    safety, because durability is the durable home's job.
+14. **A durable home for every app** — chosen before a user can invest real
+    data: a folder in their own Google Drive, Dropbox, or OneDrive, or an
+    encrypted bundle file they save themselves. Apps without one remain usable
+    but are marked *scratch* and say plainly that they are not backed up.
+15. **End-to-end encrypted sync, backup, and sharing** — everything leaving
+    the device is encrypted under a passphrase-derived key, so a second device
+    needs only the passphrase and access to the durable home. No server, no
+    readable copy anywhere, no pairing ceremony.
+16. **Merge and reconciliation engine** — an append-only change log, compacted
+    periodically, resolving divergent copies field by field; powers offline
+    write queues, multi-device sync, and re-uploading a newer version of an
     already-imported workbook.
-16. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
-17. **The shell** — a library of every generated app, each a tile with name,
+17. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
+18. **The shell** — a library of every generated app, each a tile with name,
     row count, theme, and last-opened.
 
 ---
@@ -198,6 +227,9 @@ deferred feature; the vision above is specified complete.
   re-uploading a macro-free copy.
 - **Not a multi-tenant SaaS.** No accounts, no server-side identity, no
   administrative backend, no subscription infrastructure.
+- **Not network-dependent.** Connectivity is never required to launch, read,
+  write, or search. The cloud is where data is kept durable, never where it is
+  served from, and a signed-out or offline device is a fully working device.
 - **Not a hosted collaborative document.** Sharing happens by handing someone
   access to an encrypted store — a shared storage folder or a bundle file plus
   a key — not by joining a live hosted session. No presence cursors, no comment
@@ -231,8 +263,6 @@ To be resolved during the `requirements` phase.
   dashboard content?
 - **Multiple tables on one sheet.** Two side-by-side or stacked tables on a
   single sheet: detected and split, or one-table-per-sheet as a hard rule?
-- **Sharing semantics.** Does a shared app sync bidirectionally with the
-  recipient, or is there a read-only share as well? Can the sender revoke?
 - **Scale ceiling.** What is the largest workbook the product commits to
   handling on a phone — in rows, sheets, and megabytes — and what does it do at
   the boundary?
@@ -241,25 +271,35 @@ To be resolved during the `requirements` phase.
 
 Recorded here so later phases don't relitigate them.
 
-- **Encryption is mandatory wherever a backup leaves the device.** An
+- **Local-first, cloud-durable — not cloud-required.** The local store is
+  authoritative for every read and write. A durable home is mandatory before a
+  user invests real data, and is satisfied either by a cloud folder or by an
+  encrypted bundle file the user saves themselves, so the requirement is a
+  decision rather than an account.
+- **Encryption is mandatory wherever data leaves the device.** An
   unreadable-by-anyone-but-you guarantee is the product's core claim, and an
   unencrypted blob in someone's Drive would forfeit it outright.
-- **Symmetric keys only, no public-key infrastructure.** One key per app,
-  reaching a second device by QR pairing and recoverable by a written code, with
-  an optional passphrase wrap. Sharing is delegated to the storage provider's
-  own folder sharing rather than to a trust model the product would have to
-  build and maintain.
-- **Cloud substrate, in order:** encrypted bundle file, Google Drive, Dropbox,
-  OneDrive, and a picked local folder on desktop. iCloud Drive is excluded, for
-  the reasons given in the Vision.
+- **Passphrase-derived symmetric keys, no public-key infrastructure and no
+  pairing.** Because the durable home carries the encrypted store, a second
+  device needs only the passphrase — nothing is transferred device to device. A
+  written recovery code remains available as an alternative to the passphrase.
+  Sharing is delegated to the storage provider's own folder sharing rather than
+  to a trust model the product would have to build and maintain.
+- **Durable home options, in order:** Google Drive, Dropbox, OneDrive, a saved
+  encrypted bundle file, and a picked local folder on desktop. iCloud Drive is
+  excluded, for the reasons given in the Vision.
 - **No secrets, no API keys, no paid infrastructure.** The site is a public
   static deploy from a public repository. Provider integration uses public
   OAuth client identifiers with PKCE and app-folder-scoped permissions, held in
-  build-time configuration that a fork can supply for itself.
-- **Peer-to-peer sync is an accelerator, never the guarantee.** In-person
-  pairing works with no infrastructure at all. Remote peer connections are
-  best-effort, because a guaranteed relay would require credentials the project
-  cannot publish. The cloud folder is always the reliable path.
+  build-time configuration that a fork can supply for itself. The OAuth client
+  is published to production status from the outset, because refresh tokens
+  issued by an app still in testing status expire in days.
+- **Peer-to-peer sync is optional and best-effort, never load-bearing.** No
+  feature depends on it, because a guaranteed relay would require credentials
+  the project cannot publish. The durable home is always the reliable path.
+- **Storage format is an append-only change log with periodic compaction** —
+  so a save writes a delta rather than rewriting a workbook, and so
+  reconciliation has the history it needs.
 - **Formula fidelity policy** — as recorded in Key Features 7.
 - **Product name** — *Sheaf*, with *"Your spreadsheet, as an app on your
   phone"* carrying the descriptive and search burden.
