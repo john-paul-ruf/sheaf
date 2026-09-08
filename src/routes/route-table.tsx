@@ -67,6 +67,7 @@ import {
   PreflightFitsScreen,
   PreflightOverBudgetScreen,
 } from "../ui/import/preflight-screens.js";
+import { ReviewScreen } from "../ui/import/review-screen.js";
 import { UploadScreen } from "../ui/import/upload-screen.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { LibraryScreen } from "../ui/library/library-screen.js";
@@ -712,10 +713,26 @@ function ImportStageScreens({
         />
       );
     case "SCR-023":
-      // The review surface lands next; the `done` step navigates away in
-      // `ImportArea`. The label is the model's own announcement, so whatever
-      // step is showing describes itself rather than being guessed at.
-      return <BusyIndicator cancellation="unavailable" label={vm.announcement} />;
+      // `done` navigates away in `ImportArea`; until that effect runs the
+      // model's own announcement is what there is to say.
+      return vm.step === "done" ? (
+        <BusyIndicator cancellation="unavailable" label={vm.announcement} />
+      ) : (
+        <ReviewScreen
+          nav={nav}
+          onApplyEdit={(edit) => {
+            send({ type: "APPLY_EDIT", edit });
+          }}
+          onCancel={() => {
+            send({ type: "CANCEL" });
+          }}
+          onCreateApp={() => {
+            send({ type: "CREATE_APP" });
+          }}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
   }
 }
 
