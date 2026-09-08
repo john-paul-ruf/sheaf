@@ -311,12 +311,27 @@ export function createEventStore(
       .filter((commit) => compareDomainIds(commit.deviceId, deps.deviceId) === 0)
       .at(-1);
 
+  /**
+   * The frontier is the authority for *how far this device has got*; the
+   * decoded commits are the authority for *what its last commit was*. The two
+   * must say the same thing — a frontier ahead of the segments means a segment
+   * the head names was not loaded, and continuing from the segments would mint
+   * a sequence number this device has already used. That is a corruption to
+   * report, not a number to pick between.
+   */
   function chainState(): AppChainStateV1 {
     const last = lastLocalCommit();
+    const applied = deviceOnlyChangeCount(head.frontier, deps.deviceId);
+    const decoded = Number(last?.deviceCommitSequence ?? 0n);
+    if (applied !== decoded) {
+      throw new IntegrityError(
+        "the head's frontier and its event segments disagree about this device",
+      );
+    }
     return {
       appId: initial.appId,
       deviceId: deps.deviceId,
-      deviceCommitSequence: last?.deviceCommitSequence ?? 0n,
+      deviceCommitSequence: BigInt(applied),
       lastCommitSha256: last?.commitSha256 ?? null,
       lastHybridTime: last?.hybridTime ?? null,
       frontier: head.frontier,

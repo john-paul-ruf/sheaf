@@ -378,3 +378,249 @@ test("noteAppOpened records the time as a cache, authoring no event", async ({
   expect(kinds).not.toContain("app.opened");
   expect(kinds.every((kind) => kind.startsWith("app.") || kind.startsWith("record.") || kind.startsWith("table.") || kind.startsWith("field.") || kind.startsWith("enum.") || kind.startsWith("import.") || kind.startsWith("inference-decision."))).toBe(true);
 });
+
+// --- CP3: the mutation path -------------------------------------------------
+
+test("a patch is durable and the next query already reflects it", async ({
+  page,
+}) => {
+  test.setTimeout(APP_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const session = await openApp(page, appId);
+  const table = session.tables[0];
+  const tableId = table?.tableId as string;
+  const emailField = table?.fields.find((field) =>
+    field.displayName.toLowerCase().includes("email"),
+  );
+  const emailId = emailField?.fieldId as string;
+
+  const before = await queryRecords(page, { appId, tableId, limit: 1 });
+  const target = before.records[0];
+  const recordId = target?.recordId as string;
+  expect(target?.recordRevision).toBe(0);
+
+  const patched = await command(page, {
+    kind: "patchRecord",
+    appId,
+    recordId,
+    changes: [
+      { fieldId: emailId, value: { kind: "text", text: "moved@example.test" } },
+    ],
+  });
+  if (!patched.ok || patched.response.kind !== "patchRecord") {
+    throw new Error("expected a patchRecord response");
+  }
+  expect(patched.response.outcome).toBe("accepted");
+  if (patched.response.outcome !== "accepted") {
+    return;
+  }
+  // The receipt names a real commit: the write is durable before this arrived.
+  expect(patched.response.receipt.commitId).not.toBeNull();
+  expect(patched.response.receipt.recordRevision).toBe(1);
+
+  const after = await queryRecords(page, { appId, tableId, limit: 1 });
+  expect(after.records[0]?.recordRevision).toBe(1);
+  expect(valueOf(after.records[0] as never, emailId)).toEqual({
+    kind: "text",
+    text: "moved@example.test",
+  });
+  // Nothing else moved, and the table is the same size.
+  expect(after.totalCount).toBe(40);
+
+  // The change is in the log, with the field that moved named.
+  const history = await command(page, { kind: "getChangeHistory", appId });
+  if (!history.ok || history.response.kind !== "getChangeHistory") {
+    throw new Error("expected a history page");
+  }
+  const latest = history.response.page?.entries[0];
+  expect(latest?.eventKind).toBe("record.patched");
+  expect(latest?.recordRevision).toBe(1);
+  expect(latest?.changedFieldIds).toEqual([emailId]);
+  expect(latest?.isRestorable).toBe(false);
+});
+
+test("an invalid write is a typed rejection that changes nothing", async ({
+  page,
+}) => {
+  test.setTimeout(APP_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const session = await openApp(page, appId);
+  const table = session.tables[0];
+  const tableId = table?.tableId as string;
+  const status = table?.fields.find((field) => field.displayName === "Status");
+
+  const before = await queryRecords(page, { appId, tableId, limit: 1 });
+  const recordId = before.records[0]?.recordId as string;
+
+  const refused = await command(page, {
+    kind: "patchRecord",
+    appId,
+    recordId,
+    changes: [
+      {
+        fieldId: status?.fieldId as string,
+        // An option id no enum in this app declares.
+        value: { kind: "option", optionId: "AAAAAAAAAAAAAAAAAAAAAA" },
+      },
+    ],
+  });
+  if (!refused.ok || refused.response.kind !== "patchRecord") {
+    throw new Error("expected a patchRecord response");
+  }
+  // A refusal is a result carrying the whole report — never an error kind (D23).
+  expect(refused.response.outcome).toBe("rejected");
+  if (refused.response.outcome !== "rejected") {
+    return;
+  }
+  expect(refused.response.report.isValid).toBe(false);
+  const issue = refused.response.report.issues.find(
+    (candidate) => candidate.fieldId === status?.fieldId,
+  );
+  expect(issue?.severity).toBe("blocking");
+  expect(issue?.messageKey).toBe("validation.unknown-option");
+  expect(issue?.messageParameters["fieldLabel"]).toBe("Status");
+
+  const after = await queryRecords(page, { appId, tableId, limit: 1 });
+  expect(after.records[0]?.recordRevision).toBe(0);
+  expect(after.totalCount).toBe(40);
+});
+
+test("delete removes the row, keeps it in the log, and restore brings it back", async ({
+  page,
+}) => {
+  test.setTimeout(APP_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const session = await openApp(page, appId);
+  const tableId = session.tables[0]?.tableId as string;
+
+  const before = await queryRecords(page, { appId, tableId, limit: 1 });
+  const recordId = before.records[0]?.recordId as string;
+
+  const deleted = await command(page, { kind: "deleteRecord", appId, recordId });
+  if (!deleted.ok || deleted.response.kind !== "deleteRecord") {
+    throw new Error("expected a deleteRecord response");
+  }
+  expect(deleted.response.outcome).toBe("accepted");
+
+  // Gone from the table.
+  const shrunk = await queryRecords(page, { appId, tableId, limit: 50 });
+  expect(shrunk.totalCount).toBe(39);
+  expect(shrunk.records.map((record) => record.recordId)).not.toContain(recordId);
+  const missing = await command(page, { kind: "getRecord", appId, recordId });
+  if (!missing.ok || missing.response.kind !== "getRecord") {
+    throw new Error("expected a getRecord response");
+  }
+  expect(missing.response.record).toBeNull();
+
+  // Still in the log, and marked restorable because it kept its payload.
+  const history = await command(page, { kind: "getChangeHistory", appId });
+  if (!history.ok || history.response.kind !== "getChangeHistory") {
+    throw new Error("expected a history page");
+  }
+  const entry = history.response.page?.entries[0];
+  expect(entry?.eventKind).toBe("record.deleted");
+  expect(entry?.isRestorable).toBe(true);
+
+  // The catalog's render cache followed the write.
+  const shrunkLibrary = await command(page, { kind: "listLibrary" });
+  if (!shrunkLibrary.ok || shrunkLibrary.response.kind !== "listLibrary") {
+    throw new Error("expected a library listing");
+  }
+  expect(shrunkLibrary.response.apps[0]?.rowCountCache).toBe(39);
+
+  // --- restore -------------------------------------------------------------
+  const restored = await command(page, { kind: "restoreRecord", appId, recordId });
+  if (!restored.ok || restored.response.kind !== "restoreRecord") {
+    throw new Error("expected a restoreRecord response");
+  }
+  expect(restored.response.outcome).toBe("accepted");
+  if (restored.response.outcome !== "accepted") {
+    return;
+  }
+  // The restored record sits one revision past the delete it undoes.
+  expect(restored.response.receipt.recordRevision).toBe(1);
+
+  const back = await queryRecords(page, { appId, tableId, limit: 50 });
+  expect(back.totalCount).toBe(40);
+  expect(back.records.map((record) => record.recordId)).toContain(recordId);
+
+  const detail = await command(page, { kind: "getRecord", appId, recordId });
+  if (!detail.ok || detail.response.kind !== "getRecord") {
+    throw new Error("expected a getRecord response");
+  }
+  // Its values came back exactly as the delete preserved them.
+  const original = before.records[0];
+  expect(detail.response.record?.values).toEqual(original?.values);
+
+  const restoredLibrary = await command(page, { kind: "listLibrary" });
+  if (!restoredLibrary.ok || restoredLibrary.response.kind !== "listLibrary") {
+    throw new Error("expected a library listing");
+  }
+  expect(restoredLibrary.response.apps[0]?.rowCountCache).toBe(40);
+
+  // Restoring twice is the same request answered twice: no second event.
+  const again = await command(page, { kind: "restoreRecord", appId, recordId });
+  if (!again.ok || again.response.kind !== "restoreRecord") {
+    throw new Error("expected a restoreRecord response");
+  }
+  expect(again.response.outcome).toBe("accepted");
+  if (again.response.outcome === "accepted") {
+    expect(again.response.receipt.commitId).toBeNull();
+  }
+});
+
+test("a created record is validated, durable, and searchable at once", async ({
+  page,
+}) => {
+  test.setTimeout(APP_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const session = await openApp(page, appId);
+  const table = session.tables[0];
+  const tableId = table?.tableId as string;
+  const emailField = table?.fields.find((field) =>
+    field.displayName.toLowerCase().includes("email"),
+  );
+
+  const created = await command(page, {
+    kind: "createRecord",
+    appId,
+    tableId,
+    values: [
+      {
+        fieldId: emailField?.fieldId as string,
+        value: { kind: "text", text: "brand-new@example.test" },
+      },
+    ],
+  });
+  if (!created.ok || created.response.kind !== "createRecord") {
+    throw new Error("expected a createRecord response");
+  }
+  expect(created.response.outcome).toBe("accepted");
+  if (created.response.outcome !== "accepted") {
+    return;
+  }
+  expect(created.response.receipt.recordRevision).toBe(0);
+
+  const found = await queryRecords(page, {
+    appId,
+    tableId,
+    search: "brand-new",
+  });
+  expect(found.records).toHaveLength(1);
+  expect(found.records[0]?.recordId).toBe(created.response.receipt.recordId);
+  expect(found.totalCount).toBe(41);
+
+  // Fields nobody filled are `missing`, not blank and not empty text.
+  const detail = await command(page, {
+    kind: "getRecord",
+    appId,
+    recordId: created.response.receipt.recordId,
+  });
+  if (!detail.ok || detail.response.kind !== "getRecord") {
+    throw new Error("expected a getRecord response");
+  }
+  const status = table?.fields.find((field) => field.displayName === "Status");
+  expect(
+    valueOf(detail.response.record as never, status?.fieldId as string),
+  ).toEqual({ kind: "missing" });
+});
