@@ -116,6 +116,15 @@ backup, survival of a lost phone, and the ability to hand an app to a
 colleague — with nothing to run, nothing to pay for, and no third party who
 can read a single row.
 
+And because the durable home holds the apps rather than merely backing them
+up, a new device is never a fresh start. Install Sheaf on a tablet, point it
+at the same home, enter the passphrase, and it finds what is already there and
+offers it — schema, theme, saved charts, and data intact, with no workbook to
+re-parse and no review screen to answer a second time. That is **adoption
+rather than import**, and it is why a storage provider that cannot let a
+second device enumerate what the first one wrote is not a durable home at all,
+whatever else it offers.
+
 Reconciling divergent copies is the engine that makes all of that possible.
 Writes made offline queue locally and flush when they can, so two devices can
 always diverge; a durable home does not prevent that, it only makes the
@@ -228,6 +237,15 @@ are first-class rather than a dashboard afterthought.
 19. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
 20. **The shell** — a library of every generated app, each a tile with name,
     row count, theme, and last-opened.
+21. **App discovery and adoption** — a device pointed at an existing durable
+    home finds the apps already in it and offers them, continuously rather
+    than only at install, so an app created on a desktop on Tuesday turns up
+    on the phone. Adoption is not import: nothing is re-parsed, nothing is
+    re-inferred, and the review screen never runs twice. Apps are adopted
+    selectively and lazily, because a new phone rarely wants all of them at
+    once. A durable home that is a saved bundle file has nothing to enumerate,
+    so its apps are opened by hand — which the product says plainly at the
+    moment a home is chosen.
 
 ---
 
@@ -296,15 +314,29 @@ Recorded here so later phases don't relitigate them.
 - **Encryption is mandatory wherever data leaves the device.** An
   unreadable-by-anyone-but-you guarantee is the product's core claim, and an
   unencrypted blob in someone's Drive would forfeit it outright.
-- **Passphrase-derived symmetric keys, no public-key infrastructure and no
-  pairing.** Because the durable home carries the encrypted store, a second
-  device needs only the passphrase — nothing is transferred device to device. A
-  written recovery code remains available as an alternative to the passphrase.
-  Sharing is delegated to the storage provider's own folder sharing rather than
-  to a trust model the product would have to build and maintain.
-- **Durable home options, in order:** Google Drive, Dropbox, OneDrive, a saved
-  encrypted bundle file, and a picked local folder on desktop. iCloud Drive is
-  excluded, for the reasons given in the Vision.
+- **Passphrase-derived keys in two layers, no public-key infrastructure and no
+  pairing.** The passphrase derives a **vault key**, and the vault holds the
+  encrypted index of apps together with each app's own key, wrapped. Per-app
+  keys survive intact, so one app can be shared without the rest, while a
+  device holding nothing but a passphrase can still discover what exists —
+  which a flat per-app model could not do, since a fresh device would have no
+  key with which to read the index. Because the durable home carries the
+  encrypted store, a second device needs only the passphrase, and nothing is
+  transferred device to device. A written recovery code remains available as an
+  alternative to the passphrase. Sharing is delegated to the storage provider's
+  own folder sharing rather than to a trust model the product would have to
+  build and maintain.
+- **A provider that cannot support discovery is not a durable home.** The test
+  is whether a second device, authorised as the same user, can enumerate what
+  the first device wrote — under a permission scope narrow enough to avoid a
+  verification regime, and without hiding the user's own files from them.
+  Dropbox and OneDrive application folders meet it. Google Drive is expected to
+  meet it under per-file scope but is **provisional until verified during the
+  architecture phase**, and is dropped outright if it cannot, rather than kept
+  by widening scope or by burying a user's data where they can't see it.
+  iCloud Drive is already excluded, for the reasons given in the Vision. A
+  saved bundle file and a picked desktop folder remain available and are exempt
+  from the test, since neither claims to be discoverable.
 - **No secrets, no API keys, no paid infrastructure.** The site is a public
   static deploy from a public repository. Provider integration uses public
   OAuth client identifiers with PKCE and app-folder-scoped permissions, held in
