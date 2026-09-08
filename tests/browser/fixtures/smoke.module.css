@@ -1,0 +1,5 @@
+/* Fixture proving Vitest's CSS Modules handling (`css: true`) is wired. */
+.hitTarget {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
