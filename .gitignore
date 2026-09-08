@@ -40,9 +40,11 @@ yarn-error.log*
 /playwright-report/
 /coverage/
 
-#My stuff
-.forge/
-/program/sheaf/prompts
+# Private process workspace: specs, mocks, architecture contracts, roadmaps,
+# review logs, session prompts, and state. Publish curated examples separately.
+/program/
+
+# Private role instructions
 /ENSO.md
 /JIKIJITSU.md
 /MU.md
