@@ -128,13 +128,18 @@ export function domainIdsEqual<K extends DomainIdKind>(
 /**
  * Bytewise order, which is the canonical sort for every durable ordering that
  * names an ID: frontier entries, record pages, and the commit order tiebreak.
+ *
+ * It takes plain bytes rather than branded IDs so the wire types in
+ * `src/migrations/004_event_format_v1.ts` — whose IDs are `Uint8Array` — sort
+ * through this one comparator instead of a second copy inside the codec.
  */
-export function compareDomainIds(left: AnyDomainId, right: AnyDomainId): number {
-  for (let index = 0; index < DOMAIN_ID_BYTE_LENGTH; index += 1) {
+export function compareDomainIds(left: Uint8Array, right: Uint8Array): number {
+  const shared = Math.min(left.length, right.length);
+  for (let index = 0; index < shared; index += 1) {
     const difference = (left[index] as number) - (right[index] as number);
     if (difference !== 0) {
       return difference;
     }
   }
-  return 0;
+  return left.length - right.length;
 }
