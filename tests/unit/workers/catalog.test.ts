@@ -43,6 +43,12 @@ function app(overrides: Partial<LocalCatalogAppEntryV1> = {}): LocalCatalogAppEn
     appHeadStorageId: null,
     homeId: "home-1",
     scratchReminder: null,
+    displayName: "Field Log Messy",
+    identity: { accentId: "leaf", glyph: "FL" },
+    createdAtEpochMs: 1_757_000_000_000,
+    lastOpenedAtEpochMs: null,
+    rowCountCache: 40,
+    tableCount: 1,
     ...overrides,
   };
 }
@@ -242,6 +248,94 @@ describe("checks 1–6", () => {
         ),
       ),
     ).not.toThrow();
+  });
+});
+
+describe("CA-09 app display metadata", () => {
+  /**
+   * There is no legacy-entry decode path and there must not be one. `apps` was
+   * `[]` in every catalog F01 could write — `buildLocalCatalog` starts it
+   * empty and F01 shipped no writer that added an entry — so a stored entry
+   * without these fields cannot exist. A tolerant decoder here would be
+   * accepting a shape with no producer, and would hide a real corruption.
+   */
+  it("round-trips a full entry byte-identically", () => {
+    const catalog = withEntries(
+      [app({ locality: "present", wrappedAppKey: Uint8Array.of(1, 2, 3), appHeadStorageId: "head-1", homeId: null })],
+      [],
+    );
+    const encoded = encodeLocalCatalog(catalog);
+
+    expect(decodeLocalCatalog(encoded)).toEqual(catalog);
+    expect(encodeLocalCatalog(decodeLocalCatalog(encoded))).toEqual(encoded);
+  });
+
+  it("refuses an entry with no display name", () => {
+    expect(() =>
+      validateLocalCatalog(withEntries([app({ displayName: "" })], [home()])),
+    ).toThrow(/no display name/);
+  });
+
+  it("refuses an accent that is not one M40 declares", () => {
+    expect(() =>
+      validateLocalCatalog(
+        withEntries(
+          [app({ identity: { accentId: "chartreuse" as "leaf", glyph: "FL" } })],
+          [home()],
+        ),
+      ),
+    ).toThrow(/unknown accent/);
+  });
+
+  it("refuses a glyph that is empty or longer than a monogram", () => {
+    for (const glyph of ["", "FLM"]) {
+      expect(() =>
+        validateLocalCatalog(
+          withEntries([app({ identity: { accentId: "leaf", glyph } })], [home()]),
+        ),
+      ).toThrow(/glyph is empty or too long/);
+    }
+  });
+
+  it("refuses counts and times that are not nonnegative whole numbers", () => {
+    const rejects: Partial<LocalCatalogAppEntryV1>[] = [
+      { createdAtEpochMs: -1 },
+      { createdAtEpochMs: 1.5 },
+      { lastOpenedAtEpochMs: -1 },
+      { rowCountCache: -1 },
+      { tableCount: -1 },
+      { tableCount: Number.NaN },
+    ];
+    for (const overrides of rejects) {
+      expect(() =>
+        validateLocalCatalog(withEntries([app(overrides)], [home()])),
+      ).toThrow(CodecError);
+    }
+  });
+
+  it("accepts the absent states: never opened, nothing counted yet", () => {
+    const catalog = withEntries(
+      [app({ lastOpenedAtEpochMs: null, rowCountCache: null, tableCount: 0 })],
+      [home()],
+    );
+    expect(decodeLocalCatalog(encodeLocalCatalog(catalog))).toEqual(catalog);
+  });
+
+  it("refuses a stored entry whose accent is not approved", () => {
+    const catalog = withEntries([app()], [home()]);
+    const decoded = decodeCanonical(encodeLocalCatalog(catalog)) as Map<
+      string,
+      CborValue
+    >;
+    const entry = (decoded.get("apps") as CborValue[])[0] as Map<
+      string,
+      CborValue
+    >;
+    (entry.get("identity") as Map<string, CborValue>).set("accentId", "gold");
+
+    expect(() => decodeLocalCatalog(encodeCanonical(decoded))).toThrow(
+      /accent is not an approved value/,
+    );
   });
 });
 

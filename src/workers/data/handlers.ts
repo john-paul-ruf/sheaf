@@ -555,11 +555,13 @@ export function createDataWorkerHandler(
 
   function inventoryOf(catalog: LocalCatalogV1): ResetInventoryViewV1 {
     return {
-      // F01 has no app producer, so this list is empty and the surface must
-      // say "none", not "unknown" (FR-23, readable reset).
+      // CA-09/CAP-18: the name is now the app's own, not its opaque id. The
+      // device-only change count still needs the decrypted head's frontier,
+      // which S05 supplies; until then it is the honest zero of a list with
+      // no apps in it, and the surface says "none", never "unknown" (FR-23).
       apps: catalog.apps.map((app) => ({
         appId: app.appId,
-        displayName: app.appId,
+        displayName: app.displayName,
         deviceOnlyChangeCount: 0,
       })),
       appCount: catalog.apps.length,
@@ -581,7 +583,16 @@ export function createDataWorkerHandler(
         "sheaf/local/reset-inventory/v1",
         BigInt(transactionRevision),
         BigInt(catalog.catalogRevision),
-        catalog.apps.map((app) => [app.appId, app.locality, app.homeId ?? ""]),
+        // The name is part of the token because the confirmation shows it: a
+        // rename between enumerate and confirm must invalidate the token, not
+        // purge under a name the user never read. With `apps: []` — every
+        // catalog F01 could write — the encoding is unchanged.
+        catalog.apps.map((app) => [
+          app.appId,
+          app.locality,
+          app.homeId ?? "",
+          app.displayName,
+        ]),
         catalog.homes.map((home) => [home.homeId, home.kind]),
       ]),
     );
