@@ -1,0 +1,283 @@
+/*
+ * M43 — the import surfaces (SCR-016–023, MOD-004–008, SHT-013).
+ *
+ * One module for the whole flow: the screens are one journey and share their
+ * card, fact-list and stepper geometry, so a divergence between two steps of
+ * the same import would be a bug rather than a variation.
+ *
+ * Unlayered by the layer contract (`tokens.css` and `base.css` own the
+ * cascade layers), so these rules win on order without a specificity war.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-20);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-level-0);
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.badge {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  justify-self: start;
+  width: var(--space-48);
+  height: var(--space-48);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
+  color: var(--color-action);
+  font-size: var(--text-section);
+  line-height: 1;
+}
+
+/* A two-column fact list that becomes one column when there is no room. */
+.facts {
+  display: grid;
+  gap: var(--space-4) var(--space-16);
+  grid-template-columns: auto 1fr;
+  margin: 0;
+  font-size: var(--text-supporting);
+}
+
+.facts dt {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-control);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+@media (width < 380px) {
+  .facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Wraps rather than shrinks, so every action stays whole at 320px. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
+
+/* --- the three named stages (import.html, review.html) --------------------- */
+
+.stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-16);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-supporting);
+}
+
+.stage {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+.stage[data-state="current"] {
+  color: var(--color-text);
+  font-weight: var(--weight-status);
+}
+
+.stageMark {
+  display: grid;
+  place-items: center;
+  width: var(--space-24);
+  height: var(--space-24);
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.stage[data-state="current"] .stageMark,
+.stage[data-state="done"] .stageMark {
+  background: var(--color-action);
+  color: var(--color-action-text);
+}
+
+/* --- SCR-016 format groups ------------------------------------------------- */
+
+.groups {
+  display: grid;
+  gap: var(--space-16);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.extensions {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* --- SCR-017 destination choice (CTL-044) ---------------------------------- */
+
+.choices {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.choice {
+  display: grid;
+  gap: var(--space-4) var(--space-12);
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.choice[data-selected="true"] {
+  border-color: var(--color-action);
+  box-shadow: inset 0 0 0 1px var(--color-action);
+}
+
+.choice[data-disabled="true"] {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.choice[data-focus-visible="true"] {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.choiceMark {
+  width: var(--space-20);
+  height: var(--space-20);
+  border: 2px solid var(--color-border-input);
+  border-radius: var(--radius-pill);
+}
+
+.choice[data-selected="true"] .choiceMark {
+  border-color: var(--color-action);
+  border-width: 6px;
+}
+
+.choiceLabel {
+  font-weight: var(--weight-control);
+}
+
+.choiceHint {
+  grid-column: 2;
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.fieldGroup {
+  display: grid;
+  gap: var(--space-16);
+}
+
+/* --- SCR-020 progress ------------------------------------------------------ */
+
+/*
+ * No bar and no percentage: pre-flight's row count is an estimate (D24) and
+ * `ImportProgressVm` carries no denominator, so a filled track would be a
+ * number Sheaf does not have. The stage and the durable row count are the
+ * progress, in text, inside the progress region assistive technology reads.
+ */
+.progressRow {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.progressCount {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+/* --- SCR-021 / SCR-022 refusal and cleanup --------------------------------- */
+
+.steps {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding-left: var(--space-20);
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.note {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}

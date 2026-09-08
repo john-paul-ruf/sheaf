@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   HashRouter,
   Navigate,
@@ -8,6 +15,10 @@ import {
   useNavigate,
 } from "react-router";
 import { useMachine } from "@xstate/react";
+import {
+  selectImportVm,
+  type ImportVm,
+} from "../application/view-models/import.js";
 import { selectLibraryVm } from "../application/view-models/library.js";
 import {
   announceRefusal,
@@ -29,14 +40,34 @@ import { passphraseChangeMachine } from "../application/workflows/passphrase-cha
 import { revealCodeMachine } from "../application/workflows/reveal-code.machine.js";
 import { resetMachine } from "../application/workflows/reset.machine.js";
 import { sessionMachine } from "../application/workflows/session.machine.js";
+import {
+  importMachine,
+  type ImportEvent,
+} from "../application/workflows/import.machine.js";
+import { createImportServices } from "../application/workflows/import-services.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
+import { spawnImportWorker } from "../bootstrap/import-worker.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
+import {
+  WORKBOOK_FILE_EXTENSIONS,
+  pickWorkbookFile,
+  type PickedWorkbookV1,
+} from "../platform/file-pick.js";
 import type {
   LibraryAppV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
 import type { RecordsServices } from "../application/workflows/records-services.js";
 import { toSecurityError } from "../application/workflows/services.js";
+import { DelimitedTargetScreen } from "../ui/import/delimited-target-screen.js";
+import { ImportFailedScreen } from "../ui/import/import-failed-screen.js";
+import { ImportProgressScreen } from "../ui/import/import-progress-screen.js";
+import { ImportRefusedScreen } from "../ui/import/import-refused-screen.js";
+import {
+  PreflightFitsScreen,
+  PreflightOverBudgetScreen,
+} from "../ui/import/preflight-screens.js";
+import { UploadScreen } from "../ui/import/upload-screen.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { LibraryScreen } from "../ui/library/library-screen.js";
 import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
@@ -65,8 +96,10 @@ import {
   ROUTE_HREFS,
   ROUTE_PATHS,
   appHref,
+  appPath,
   fallbackRoute,
   guardRoute,
+  type RoutePath,
   type SessionPhase,
 } from "./guards.js";
 
@@ -318,6 +351,9 @@ function UnlockedArea({
   });
   const { restart } = runtime;
   const persisted = snapshot.context.idleTimeoutMinutes;
+  // `done` is a top-level final state, so one actor imports one file. A second
+  // import in the same session is a second actor, which this key mounts.
+  const [importRun, setImportRun] = useState(0);
 
   // Mirror the *adopted* value onto the runtime's timer. `persisted` changes
   // only when the worker answered, so this can never arm optimistically.
@@ -372,69 +408,315 @@ function UnlockedArea({
   );
 
   return (
-    <Routes>
-      <Route
-        element={
-          <LibraryRoute
-            records={wiring.records}
-            topBarActions={lockAction}
-          />
-        }
-        path={ROUTE_PATHS.library}
-      />
-      <Route
-        element={
-          <LibrarySearchRoute
-            records={wiring.records}
-            topBarActions={lockAction}
-          />
-        }
-        path={ROUTE_PATHS.librarySearch}
-      />
-      <Route
-        element={
-          <SecuritySettingsScreen
-            nav={nav}
-            onDismissError={() => {
-              send({ type: "DISMISS_SETTINGS_ERROR" });
-            }}
-            onLockNow={() => {
-              send({ type: "LOCK_NOW" });
-            }}
-            onSetIdleTimeout={(option) => {
-              send({ type: "SET_IDLE_TIMEOUT", minutes: option.minutes });
-            }}
-            topBarActions={lockAction}
-            vm={selectSecuritySettingsVm(snapshot)}
-          />
-        }
-        path={ROUTE_PATHS.securitySettings}
-      />
-      <Route
-        element={
-          <PassphraseChangeRoute topBarActions={lockAction} wiring={wiring} />
-        }
-        path={ROUTE_PATHS.passphraseChange}
-      />
-      <Route
-        element={
-          <RecoveryCodesRoute topBarActions={lockAction} wiring={wiring} />
-        }
-        path={ROUTE_PATHS.recoveryCodes}
-      />
-      <Route
-        element={
-          <ResetReadableRoute
-            runtime={runtime}
-            topBarActions={lockAction}
-            wiring={wiring}
-          />
-        }
-        path={ROUTE_PATHS.resetReadable}
-      />
-      <Route element={elsewhere} path="*" />
-    </Routes>
+    <ImportArea
+      app={app}
+      key={importRun}
+      onRunEnded={() => {
+        setImportRun((current) => current + 1);
+      }}
+      topBarActions={lockAction}
+    >
+      <Routes>
+        <Route
+          element={
+            <LibraryRoute records={wiring.records} topBarActions={lockAction} />
+          }
+          path={ROUTE_PATHS.library}
+        />
+        <Route
+          element={
+            <LibrarySearchRoute
+              records={wiring.records}
+              topBarActions={lockAction}
+            />
+          }
+          path={ROUTE_PATHS.librarySearch}
+        />
+        <Route
+          element={
+            <SecuritySettingsScreen
+              nav={nav}
+              onDismissError={() => {
+                send({ type: "DISMISS_SETTINGS_ERROR" });
+              }}
+              onLockNow={() => {
+                send({ type: "LOCK_NOW" });
+              }}
+              onSetIdleTimeout={(option) => {
+                send({ type: "SET_IDLE_TIMEOUT", minutes: option.minutes });
+              }}
+              topBarActions={lockAction}
+              vm={selectSecuritySettingsVm(snapshot)}
+            />
+          }
+          path={ROUTE_PATHS.securitySettings}
+        />
+        <Route
+          element={
+            <PassphraseChangeRoute topBarActions={lockAction} wiring={wiring} />
+          }
+          path={ROUTE_PATHS.passphraseChange}
+        />
+        <Route
+          element={
+            <RecoveryCodesRoute topBarActions={lockAction} wiring={wiring} />
+          }
+          path={ROUTE_PATHS.recoveryCodes}
+        />
+        <Route
+          element={
+            <ResetReadableRoute
+              runtime={runtime}
+              topBarActions={lockAction}
+              wiring={wiring}
+            />
+          }
+          path={ROUTE_PATHS.resetReadable}
+        />
+        <Route element={elsewhere} path="*" />
+      </Routes>
+    </ImportArea>
   );
+}
+
+/**
+ * The import column, composed (D17, PC-12; CAP-09–CAP-12).
+ *
+ * This is the composition point the feature plan names: it imports
+ * `spawnImportWorker` from `src/bootstrap/` — which application code may not —
+ * and injects it into S06's services, exactly as `startApp` injects the data
+ * worker's constructor. The `MessageChannel` between the two workers is
+ * created inside those services, on the page, because neither worker can hand
+ * a port back (a response never carries one).
+ *
+ * **The actor sits above the router, not inside a route.** `#/upload` and
+ * `#/import` are two paths over one run, and a run must survive moving between
+ * them; the rest of the unlocked area renders as `children` when neither path
+ * is current, so `<Routes>` remounts — and the library refetches its catalog —
+ * the moment an import ends.
+ *
+ * **A lock ends the parser.** Locking unmounts this component (the unlocked
+ * area goes with the session), so the cleanup terminates the import worker
+ * here rather than leaving it parsing into a channel whose other end is gone.
+ * Staged bytes are not this component's to remove: S04's unlock sweep owns
+ * that, and nothing here blocks or delays the lock (FR-22).
+ */
+function ImportArea({
+  app,
+  children,
+  onRunEnded,
+  topBarActions,
+}: {
+  readonly app: AppRuntime;
+  /** The rest of the unlocked area, rendered when no import path is current. */
+  readonly children: ReactNode;
+  readonly onRunEnded: () => void;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  const services = useMemo(
+    () => createImportServices({ dataWorker: app.client, spawnImportWorker }),
+    [app],
+  );
+  useEffect(
+    () => () => {
+      services.terminate();
+    },
+    [services],
+  );
+
+  const [snapshot, send] = useMachine(importMachine, { input: { services } });
+  /** The machine keeps no file (a snapshot must hold no cell content), so
+   * "Retry same file" needs the handle the picker gave this page. */
+  const picked = useRef<PickedWorkbookV1 | null>(null);
+
+  const vm = selectImportVm(snapshot);
+  const stagePath: RoutePath =
+    vm.screen === "SCR-016" ? ROUTE_PATHS.upload : ROUTE_PATHS.importFlow;
+  const onImportPath =
+    pathname === ROUTE_PATHS.upload || pathname === ROUTE_PATHS.importFlow;
+
+  // The app exists. S08 serves `#/app/:appId`; until it does, CA-07's
+  // unknown-route rule lands this on the library, where the new tile is.
+  const done = vm.screen === "SCR-023" && vm.step === "done" ? vm : null;
+  const doneAppId = done?.appId;
+  useEffect(() => {
+    if (doneAppId === undefined) return;
+    void navigate(appPath(doneAppId));
+    onRunEnded();
+  }, [doneAppId, navigate, onRunEnded]);
+
+  const chooseFile = useCallback(
+    (files: FileList | null) => {
+      const workbook = pickWorkbookFile(files);
+      if (workbook === null) return;
+      picked.current = workbook;
+      send({
+        type: "CHOOSE_FILE",
+        file: workbook.file,
+        fileName: workbook.fileName,
+      });
+    },
+    [send],
+  );
+
+  const goToUpload = useCallback(() => {
+    void navigate(ROUTE_PATHS.upload);
+  }, [navigate]);
+
+  const goToLibrary = useCallback(() => {
+    void navigate(ROUTE_PATHS.library);
+  }, [navigate]);
+
+  if (!onImportPath) {
+    return children;
+  }
+
+  // A deep link into the wrong half of the flow lands on the stage the run is
+  // actually in, rather than on a screen with nothing behind it.
+  if (pathname !== stagePath) {
+    return <Navigate replace to={stagePath} />;
+  }
+
+  return (
+    <ImportStageScreens
+      onChooseAnotherFile={goToUpload}
+      onReturnToLibrary={goToLibrary}
+      onSelectFiles={chooseFile}
+      picked={picked.current}
+      send={send}
+      topBarActions={topBarActions}
+      vm={vm}
+    />
+  );
+}
+
+/**
+ * One view model in, one approved surface out.
+ *
+ * The union is exhaustive by construction: `ImportVm`'s members each name
+ * their `screen`, so a variant added upstream fails to compile here rather
+ * than falling through to a blank page.
+ */
+function ImportStageScreens({
+  onChooseAnotherFile,
+  onReturnToLibrary,
+  onSelectFiles,
+  picked,
+  send,
+  topBarActions,
+  vm,
+}: {
+  readonly onChooseAnotherFile: () => void;
+  readonly onReturnToLibrary: () => void;
+  readonly onSelectFiles: (files: FileList | null) => void;
+  readonly picked: PickedWorkbookV1 | null;
+  readonly send: (event: ImportEvent) => void;
+  readonly topBarActions: ReactNode;
+  readonly vm: ImportVm;
+}): ReactNode {
+  switch (vm.screen) {
+    case "SCR-016":
+      return (
+        <UploadScreen
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          nav={nav}
+          onSelectFiles={onSelectFiles}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-017":
+      return (
+        <DelimitedTargetScreen
+          nav={nav}
+          onChooseAnotherFile={onChooseAnotherFile}
+          onContinue={() => {
+            send({ type: "CONTINUE" });
+          }}
+          onSetAppName={(text) => {
+            send({ type: "SET_APP_NAME", text });
+          }}
+          onSetTableName={(text) => {
+            send({ type: "SET_TABLE_NAME", text });
+          }}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-018":
+      return (
+        <PreflightFitsScreen
+          nav={nav}
+          onBack={() => {
+            send({ type: "BACK" });
+          }}
+          onStart={() => {
+            send({ type: "START" });
+          }}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-019":
+      return (
+        <PreflightOverBudgetScreen
+          nav={nav}
+          onChooseAnotherFile={onChooseAnotherFile}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-020":
+      return (
+        <ImportProgressScreen
+          nav={nav}
+          onCancel={() => {
+            send({ type: "CANCEL" });
+          }}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-021":
+      return (
+        <ImportRefusedScreen
+          nav={nav}
+          onChooseAnotherFile={onChooseAnotherFile}
+          onReturnToLibrary={onReturnToLibrary}
+          topBarActions={topBarActions}
+          vm={vm}
+        />
+      );
+    case "SCR-022":
+      return (
+        <ImportFailedScreen
+          nav={nav}
+          onChooseAnotherFile={onChooseAnotherFile}
+          onReturnToLibrary={onReturnToLibrary}
+          topBarActions={topBarActions}
+          vm={vm}
+          {...(picked === null
+            ? {}
+            : {
+                onRetrySameFile: () => {
+                  send({
+                    type: "CHOOSE_FILE",
+                    file: picked.file,
+                    fileName: picked.fileName,
+                  });
+                },
+              })}
+        />
+      );
+    case "SCR-023":
+      // The review surface lands next; the `done` step navigates away in
+      // `ImportArea`. The label is the model's own announcement, so whatever
+      // step is showing describes itself rather than being guessed at.
+      return <BusyIndicator cancellation="unavailable" label={vm.announcement} />;
+  }
 }
 
 /**

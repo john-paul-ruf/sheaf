@@ -18,6 +18,13 @@
  * - **unlocked**: the five locked routes redirect to `#/library`, as does any
  *   unknown path.
  *
+ * S07's amendment adds three unlocked-only paths — `#/library/search`,
+ * `#/upload` and `#/import` — and nothing else. `#/import` is one route whose
+ * *stage* is chosen by the import machine rather than by the URL, because the
+ * stage is a fact about a run in progress and a stage-named path could be deep
+ * linked into a run that is not there. `#/app/…` is reserved and deliberately
+ * absent: see {@link appHref}.
+ *
  * `tests/e2e/route-guards.spec.ts` drives this matrix through the real entry,
  * deep links included.
  */
@@ -31,6 +38,8 @@ export const ROUTE_PATHS = {
   resetLocked: "/reset",
   library: "/library",
   librarySearch: "/library/search",
+  upload: "/upload",
+  importFlow: "/import",
   securitySettings: "/settings/security",
   passphraseChange: "/settings/security/passphrase",
   recoveryCodes: "/settings/security/recovery-codes",
@@ -70,6 +79,8 @@ export const LOCKED_ROUTES: readonly RoutePath[] = Object.freeze([
 export const UNLOCKED_ROUTES: readonly RoutePath[] = Object.freeze([
   ROUTE_PATHS.library,
   ROUTE_PATHS.librarySearch,
+  ROUTE_PATHS.upload,
+  ROUTE_PATHS.importFlow,
   ROUTE_PATHS.securitySettings,
   ROUTE_PATHS.passphraseChange,
   ROUTE_PATHS.recoveryCodes,
@@ -89,8 +100,12 @@ export const FIRST_RUN_ROUTES: readonly RoutePath[] = Object.freeze([
  * library, where the newly created tile is visible. Adding it to
  * {@link UNLOCKED_ROUTES} early would render nothing at all.
  */
+export function appPath(appId: string): string {
+  return `/app/${encodeURIComponent(appId)}`;
+}
+
 export function appHref(appId: string): string {
-  return `#/app/${encodeURIComponent(appId)}`;
+  return `#${appPath(appId)}`;
 }
 
 export type RouteGuardResult =

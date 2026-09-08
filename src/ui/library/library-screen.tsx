@@ -51,6 +51,12 @@ export function navigateToUpload(): void {
   window.location.hash = UPLOAD_ROUTE;
 }
 
+/**
+ * The mocks write counts grouped — "12,482 rows". A view model holds no locale
+ * (M37 must-not), so the grouping is chosen here, from the reader's own.
+ */
+const groupedNumber = new Intl.NumberFormat();
+
 const dateTime = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -67,13 +73,15 @@ function isoInstant(epochMs: number): string {
 /** "1 table · 40 rows" — and never "0 rows" for a count that was not cached. */
 export function describeContents(tile: LibraryTileVm): string {
   const tables =
-    tile.tableCount === 1 ? "1 table" : `${String(tile.tableCount)} tables`;
+    tile.tableCount === 1
+      ? "1 table"
+      : `${groupedNumber.format(tile.tableCount)} tables`;
   const rows =
     tile.rowCount === null
       ? "rows not counted yet"
       : tile.rowCount === 1
         ? "1 row"
-        : `${String(tile.rowCount)} rows`;
+        : `${groupedNumber.format(tile.rowCount)} rows`;
   return `${tables} · ${rows}`;
 }
 
@@ -81,7 +89,7 @@ export function describeContents(tile: LibraryTileVm): string {
 export function describeAppCount(appCount: number): string {
   return appCount === 1
     ? "1 app is on this device."
-    : `${String(appCount)} apps are on this device.`;
+    : `${groupedNumber.format(appCount)} apps are on this device.`;
 }
 
 export interface LibraryActionsProps {
