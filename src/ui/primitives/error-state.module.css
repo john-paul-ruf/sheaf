@@ -1,0 +1,47 @@
+/* CTL-087 error state — recoverable variant. */
+
+.root {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-12);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--color-surface);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--color-danger-tint);
+  color: var(--color-danger-ink);
+  font-weight: var(--weight-status);
+}
+
+.body {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-family: var(--font-interface);
+  font-size: var(--text-body);
+  font-weight: var(--weight-status);
+}
+
+.cause {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-top: var(--space-4);
+}

@@ -1,0 +1,80 @@
+/* CTL-096 recovery-code card. */
+
+.root {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--color-panel);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+}
+
+.code {
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px dashed var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-16);
+  background: var(--color-canvas);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: var(--weight-status);
+  letter-spacing: 0.08em;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  min-height: 44px; /* --target-min */
+  padding: var(--space-8) 0;
+  cursor: pointer;
+}
+
+.checkbox {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin-top: 2px;
+  accent-color: var(--color-action);
+}
+
+.confirmCopy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.confirmDetail {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.receipt {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}

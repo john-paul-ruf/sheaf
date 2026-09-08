@@ -1,0 +1,94 @@
+/*
+ * M39 — pre-unlock shell. Ported from the `.simple-page` frame in
+ * unlock.html / setup.html.
+ *
+ * Layout classes (design.md §Layout Classes): compact phone 320–599px keeps
+ * the 16px gutter; the gutter opens at 600px and again at 900px. The column
+ * itself never widens past a readable measure at any class — capability does
+ * not change with density.
+ */
+
+.root {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  background: var(--color-canvas);
+}
+
+.skipLink {
+  position: fixed;
+  top: -100px;
+  left: var(--space-12);
+  z-index: var(--z-skip-link);
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
+  background: var(--ink-950);
+  color: var(--white);
+}
+
+.skipLink:focus-visible {
+  top: var(--space-12);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color-on-ink);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-height: 70px;
+  padding-top: max(var(--space-12), env(safe-area-inset-top));
+  padding-right: var(--gutter-compact);
+  padding-bottom: var(--space-12);
+  padding-left: var(--gutter-compact);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+}
+
+.main {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  width: 100%;
+  padding-top: var(--space-20);
+  padding-right: var(--gutter-compact);
+  padding-bottom: max(var(--space-48), env(safe-area-inset-bottom));
+  padding-left: var(--gutter-compact);
+}
+
+/* One readable column at every class — a passphrase form gains nothing from
+   a second one. */
+.column {
+  width: 100%;
+  max-width: 540px;
+  min-width: 0;
+}
+
+@media (min-width: 600px) {
+  .header,
+  .main {
+    padding-left: var(--gutter-wide);
+    padding-right: var(--gutter-wide);
+  }
+}
+
+@media (min-width: 900px) {
+  .header,
+  .main {
+    padding-left: var(--gutter-desktop);
+    padding-right: var(--gutter-desktop);
+  }
+
+  .main {
+    padding-top: var(--space-40);
+  }
+}

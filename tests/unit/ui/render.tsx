@@ -17,6 +17,10 @@ interface Mounted {
   readonly unmount: () => void;
 }
 
+// React 19 requires this flag before `act` will flush effects synchronously.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+  true;
+
 const mounted: Root[] = [];
 
 afterEach(() => {
@@ -52,11 +56,36 @@ export async function render(ui: ReactNode): Promise<Mounted> {
   };
 }
 
-/** Runs `fn` inside `act`, flushing the effects it schedules. */
+/**
+ * Runs `fn` inside `act`, then lets the scheduler settle.
+ *
+ * React Aria moves and restores focus on a later task, not in the effect that
+ * opens an overlay, so a microtask flush alone would observe a half-open
+ * dialog.
+ */
 export async function interact(fn: () => void): Promise<void> {
   await act(async () => {
     fn();
-    await Promise.resolve();
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        setTimeout(resolve, 0);
+      });
+    });
+  });
+}
+
+/**
+ * Waits for work React Aria defers past the frame that triggered it.
+ *
+ * Focus *restoration* on overlay close lands a frame after the unmount that
+ * causes it, so an assertion about where focus went needs this; `interact`
+ * alone is enough for everything else.
+ */
+export async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
   });
 }
 
@@ -98,6 +127,38 @@ export function typeInto(
     setValue(value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+/**
+ * The CSS rules whose selector mentions one of `element`'s own class names.
+ *
+ * jsdom never evaluates `:focus-visible`, `:visited` or media queries through
+ * `getComputedStyle`, so state-dependent styling is asserted structurally —
+ * against the rules the stylesheet actually shipped. Whether those rules paint
+ * correctly is SESSION-07's browser evidence, not this runner's.
+ */
+export function cssRulesFor(
+  element: Element,
+  options: { readonly insideMediaQuery?: boolean } = {},
+): readonly string[] {
+  const classNames = [...element.classList];
+  if (classNames.length === 0) return [];
+
+  const collect = (rules: CSSRuleList, inMedia: boolean): string[] =>
+    [...rules].flatMap((rule) => {
+      if (rule instanceof CSSMediaRule) return collect(rule.cssRules, true);
+      if (!(rule instanceof CSSStyleRule)) return [];
+      if (inMedia !== (options.insideMediaQuery ?? false)) return [];
+      return classNames.some((name) =>
+        rule.selectorText.includes(`.${name}`),
+      )
+        ? [rule.cssText]
+        : [];
+    });
+
+  return [...document.styleSheets].flatMap((sheet) =>
+    collect(sheet.cssRules, false),
+  );
 }
 
 /** The accessible name of `element`, as far as jsdom can resolve it. */

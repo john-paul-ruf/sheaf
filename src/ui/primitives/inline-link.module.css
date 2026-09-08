@@ -1,0 +1,25 @@
+/* CTL-020 inline link. */
+
+.root {
+  border-radius: var(--radius-control);
+  color: var(--color-action);
+  font-weight: var(--weight-control);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* "visited-neutral": following a link never restyles it. A recovery route the
+   user already opened must not look different from one they have not. */
+.root:visited {
+  color: var(--color-action);
+}
+
+.root[data-hovered] {
+  text-decoration-thickness: 2px;
+}
+
+.root:focus-visible,
+.root[data-focus-visible] {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}

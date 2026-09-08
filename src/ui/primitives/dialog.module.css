@@ -1,0 +1,72 @@
+/* CTL-109 modal container / CTL-110 alert-dialog container. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: var(--gutter-compact);
+  padding-bottom: max(var(--gutter-compact), env(safe-area-inset-bottom));
+  background: rgb(23 33 28 / 72%);
+}
+
+.modal {
+  width: min(100%, 480px);
+  min-width: 0;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-level-2);
+}
+
+.dialog {
+  display: grid;
+  gap: var(--space-12);
+  padding: var(--space-20);
+  outline: none;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.content {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+/* Compact phone promotes a dialog to a full-height sheet
+   (design.md §Layout Classes, dialog-atlas compact-phone rule). */
+@media (max-width: 599px) {
+  .overlay {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  }
+
+  .dialog {
+    padding-bottom: max(var(--space-20), env(safe-area-inset-bottom));
+  }
+}

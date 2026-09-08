@@ -1,0 +1,81 @@
+/* CTL-081 persistent banner. Ported from the mocks' `.notice`. */
+
+.root {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-12);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--color-surface);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-status);
+}
+
+.body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.title {
+  font-weight: var(--weight-status);
+}
+
+.detail {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.root[data-tone="info"] {
+  border-color: var(--color-info);
+}
+
+.root[data-tone="info"] .icon {
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+}
+
+.root[data-tone="warning"] {
+  border-color: var(--color-warning);
+}
+
+.root[data-tone="warning"] .icon {
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+}
+
+.root[data-tone="danger"] {
+  border-color: var(--color-danger);
+}
+
+.root[data-tone="danger"] .icon {
+  background: var(--color-danger-tint);
+  color: var(--color-danger-ink);
+}
+
+.root[data-tone="success"] {
+  border-color: var(--color-success);
+}
+
+.root[data-tone="success"] .icon {
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+}

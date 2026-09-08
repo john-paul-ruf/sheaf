@@ -1,0 +1,45 @@
+/* CTL-022 loading action / CTL-088 indeterminate progress. */
+
+.root {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: 44px; /* --target-min */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+}
+
+.spinner {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-disabled-fill);
+  border-top-color: var(--color-action);
+  border-radius: var(--radius-pill);
+  animation: spin 900ms linear infinite;
+}
+
+.label {
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * The duration tokens collapse under reduced motion, which would spin this
+ * faster rather than slower — so the spinner stops outright instead. The label
+ * and the live region carry the whole message, so nothing is lost
+ * (design.md §Motion: no required information depends on an animation).
+ */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

@@ -1,0 +1,93 @@
+/* CTL-038 enum picker field. */
+
+.root {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-height: 44px; /* --target-min */
+  min-width: 0;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-body); /* never below 16px */
+  text-align: left;
+}
+
+.trigger:focus-visible,
+.trigger[data-focus-visible] {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.trigger[data-invalid] {
+  border-color: var(--color-danger);
+}
+
+.trigger[data-disabled] {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.value[data-placeholder] {
+  color: var(--color-text-muted);
+}
+
+.popover {
+  min-width: var(--trigger-width);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-level-1);
+}
+
+.listBox {
+  display: grid;
+  padding: var(--space-4);
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  min-height: 44px; /* --target-min */
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  cursor: pointer;
+}
+
+.option[data-focused],
+.option[data-hovered] {
+  background: var(--color-panel);
+}
+
+.option[data-selected] {
+  background: var(--color-action);
+  color: var(--color-action-text);
+  font-weight: var(--weight-control);
+}
+
+.description {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.error {
+  color: var(--color-danger-ink);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
