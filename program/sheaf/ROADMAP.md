@@ -189,4 +189,4 @@ branches.
 
 | Gate | Date | Revision | Verdict | Feedback disposition |
 |------|------|----------|---------|----------------------|
-| — | | | | |
+| GATE-F01 | 2026-09-08 | 2c0248a6f1764a67695c761bcb5df4dfc5b27714 | approve | none — human: "approved"; F02 planning proceeds via Forge (human-initiated) |
