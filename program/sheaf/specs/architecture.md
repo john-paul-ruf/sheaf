@@ -1,7 +1,7 @@
 # Architecture — Sheaf
 
 > **Phase:** architecture<br>
-> **Status:** draft for builder approval — one requirements clarification<br>
+> **Status:** approved — including the platform-conditional share/open-in clarification<br>
 > **Decision date:** 2026-09-08<br>
 > **Inputs:** ./program/sheaf/specs/idea.md, ./program/sheaf/specs/requirements.md, and ./program/sheaf/specs/design.md
 
@@ -230,108 +230,108 @@ organizational only and do not imply shared ownership.
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/main.tsx | Minimal browser entry: load public configuration, mount the root, and register fatal bootstrap handling. |
-| ./program/sheaf/src/bootstrap/ | Capability checks, lock/unlock runtime lifetime, dependency composition, worker startup/termination, and lifecycle signals. |
-| ./program/sheaf/src/routes/ | Hash-route definitions, route guards, approved screen composition, and OAuth return routing. |
-| ./program/sheaf/src/platform/ | File/open-in acquisition, save/share handoff, date/tel/maps navigation, install prompt, visibility, and storage-estimate adapters. |
-| ./program/sheaf/src/config/ | Validated public build configuration, provider client IDs/redirects, allowed origins, format versions, and feature flags. |
-| ./program/sheaf/src/pwa/ | Manifest, service worker, precache policy, Chromium share-target receiver, transient encrypted share inbox, offline fallback, and safe-update coordination. |
+| ./src/main.tsx | Minimal browser entry: load public configuration, mount the root, and register fatal bootstrap handling. |
+| ./src/bootstrap/ | Capability checks, lock/unlock runtime lifetime, dependency composition, worker startup/termination, and lifecycle signals. |
+| ./src/routes/ | Hash-route definitions, route guards, approved screen composition, and OAuth return routing. |
+| ./src/platform/ | File/open-in acquisition, save/share handoff, date/tel/maps navigation, install prompt, visibility, and storage-estimate adapters. |
+| ./src/config/ | Validated public build configuration, provider client IDs/redirects, allowed origins, format versions, and feature flags. |
+| ./src/pwa/ | Manifest, service worker, precache policy, Chromium share-target receiver, transient encrypted share inbox, offline fallback, and safe-update coordination. |
 
 ### UI modules
 
 | Path | Responsibility and approved surfaces |
 |---|---|
-| ./program/sheaf/src/ui/primitives/ | CTL-001–120 behavior wrappers and semantic states; React Aria/native composition only, with no product workflow. |
-| ./program/sheaf/src/ui/layout/ | Compact, wide, tablet-split, and desktop-rail layouts; safe areas, sticky regions, and focus order. |
-| ./program/sheaf/src/ui/theme/ | Shell tokens, generated-app token mapping, contrast enforcement, mode/density/logo presentation. |
-| ./program/sheaf/src/ui/security/ | SCR-001–009 plus MOD-020–024, MOD-032–033, and MOD-037: setup, lock/recovery/reset, scoped secrets, and recovery codes. |
-| ./program/sheaf/src/ui/library/ | SCR-010–015, MOD-003, and SHT-011: shell tile states, library search, durable-home list, discovery, install education, and tile actions. |
-| ./program/sheaf/src/ui/import/ | SCR-016–023, SCR-043–045, MOD-004–008, MOD-034–035, and SHT-013: upload, pre-flight, progress, refusal, review, re-upload, identity, and evidence. |
-| ./program/sheaf/src/ui/records/ | SCR-024–032 except chart-specific content; MOD-009–011; and SHT-001–010/SHT-016: app home, table/query, record forms/detail, snapshots, and history. |
-| ./program/sheaf/src/ui/charts/ | SCR-033–034, MOD-012–013, and SHT-012/SHT-017: chart rendering/builder, mark interaction, save/pin, and accessible alternatives. |
-| ./program/sheaf/src/ui/schema/ | SCR-035–037, MOD-014–015, and SHT-014: schema, rule, formula, theme, and app-settings editors. |
-| ./program/sheaf/src/ui/durability/ | SCR-038–042; MOD-001–002, MOD-016–019, MOD-025–026, and MOD-036; and SHT-015: reminders, providers, backup, adoption, and capacity doors. |
-| ./program/sheaf/src/ui/reconciliation/ | SCR-046–048 and SHT-018: pending queue, three-way comparisons, record repair, special conflicts, and applied log. |
-| ./program/sheaf/src/ui/ownership/ | SCR-049–052 and MOD-027–031: plaintext export, local removal, delete-everywhere, and deletion-marker rescue. |
+| ./src/ui/primitives/ | CTL-001–120 behavior wrappers and semantic states; React Aria/native composition only, with no product workflow. |
+| ./src/ui/layout/ | Compact, wide, tablet-split, and desktop-rail layouts; safe areas, sticky regions, and focus order. |
+| ./src/ui/theme/ | Shell tokens, generated-app token mapping, contrast enforcement, mode/density/logo presentation. |
+| ./src/ui/security/ | SCR-001–009 plus MOD-020–024, MOD-032–033, and MOD-037: setup, lock/recovery/reset, scoped secrets, and recovery codes. |
+| ./src/ui/library/ | SCR-010–015, MOD-003, and SHT-011: shell tile states, library search, durable-home list, discovery, install education, and tile actions. |
+| ./src/ui/import/ | SCR-016–023, SCR-043–045, MOD-004–008, MOD-034–035, and SHT-013: upload, pre-flight, progress, refusal, review, re-upload, identity, and evidence. |
+| ./src/ui/records/ | SCR-024–032 except chart-specific content; MOD-009–011; and SHT-001–010/SHT-016: app home, table/query, record forms/detail, snapshots, and history. |
+| ./src/ui/charts/ | SCR-033–034, MOD-012–013, and SHT-012/SHT-017: chart rendering/builder, mark interaction, save/pin, and accessible alternatives. |
+| ./src/ui/schema/ | SCR-035–037, MOD-014–015, and SHT-014: schema, rule, formula, theme, and app-settings editors. |
+| ./src/ui/durability/ | SCR-038–042; MOD-001–002, MOD-016–019, MOD-025–026, and MOD-036; and SHT-015: reminders, providers, backup, adoption, and capacity doors. |
+| ./src/ui/reconciliation/ | SCR-046–048 and SHT-018: pending queue, three-way comparisons, record repair, special conflicts, and applied log. |
+| ./src/ui/ownership/ | SCR-049–052 and MOD-027–031: plaintext export, local removal, delete-everywhere, and deletion-marker rescue. |
 
 ### Application and domain modules
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/application/ports/ | Interfaces for local transactions, projections, crypto, providers, files, clocks, entropy, lifecycle, and budget probes. |
-| ./program/sheaf/src/application/commands/ | Command authorization, validation orchestration, event creation, transactional commit, and post-commit acknowledgement. |
-| ./program/sheaf/src/application/queries/ | Typed query requests, pagination/partial-result policy, relationship traversal, history, metrics, and chart datasets. |
-| ./program/sheaf/src/application/workflows/ | XState machines for setup, unlock/recovery/reset, import/re-upload, OAuth, backup, adoption, export, removal, and deletion. |
-| ./program/sheaf/src/application/view-models/ | Converts domain/query results into screen-specific, plaintext-minimized UI models and announcements. |
-| ./program/sheaf/src/domain/model/ | Stable opaque IDs, app/schema/record/chart/theme concepts, source provenance, event unions, baseline references, and domain errors. |
-| ./program/sheaf/src/domain/validation/ | Column rules, record rules, referential integrity, schema compatibility, impact analysis, and one shared validation report. |
-| ./program/sheaf/src/domain/formulas/ | Formula parser, stable-reference IR, function catalog, dependency graph, cycle detection, evaluator, and volatility policy. |
-| ./program/sheaf/src/domain/reconciliation/ | Three-way comparison, automatic-merge eligibility, key/delete/schema conflict classification, validation handoff, pending cases, and applied audit entries. |
-| ./program/sheaf/src/domain/capacity/ | Five independent budget models, calibration, estimates, state transitions, named degradation, and remedies. |
-| ./program/sheaf/src/domain/policy/ | Pure cross-cutting policies: scratch reminders, backup freshness, removal consequences, account isolation, and allowed actions by local/listed state. |
+| ./src/application/ports/ | Interfaces for local transactions, projections, crypto, providers, files, clocks, entropy, lifecycle, and budget probes. |
+| ./src/application/commands/ | Command authorization, validation orchestration, event creation, transactional commit, and post-commit acknowledgement. |
+| ./src/application/queries/ | Typed query requests, pagination/partial-result policy, relationship traversal, history, metrics, and chart datasets. |
+| ./src/application/workflows/ | XState machines for setup, unlock/recovery/reset, import/re-upload, OAuth, backup, adoption, export, removal, and deletion. |
+| ./src/application/view-models/ | Converts domain/query results into screen-specific, plaintext-minimized UI models and announcements. |
+| ./src/domain/model/ | Stable opaque IDs, app/schema/record/chart/theme concepts, source provenance, event unions, baseline references, and domain errors. |
+| ./src/domain/validation/ | Column rules, record rules, referential integrity, schema compatibility, impact analysis, and one shared validation report. |
+| ./src/domain/formulas/ | Formula parser, stable-reference IR, function catalog, dependency graph, cycle detection, evaluator, and volatility policy. |
+| ./src/domain/reconciliation/ | Three-way comparison, automatic-merge eligibility, key/delete/schema conflict classification, validation handoff, pending cases, and applied audit entries. |
+| ./src/domain/capacity/ | Five independent budget models, calibration, estimates, state transitions, named degradation, and remedies. |
+| ./src/domain/policy/ | Pure cross-cutting policies: scratch reminders, backup freshness, removal consequences, account isolation, and allowed actions by local/listed state. |
 
 ### Local persistence and cryptography
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/crypto/ | KDF calibration, key hierarchy, recovery-code handling, envelope/stream encryption, authenticated key wrapping, zeroization hooks, and cipher-suite versioning. |
-| ./program/sheaf/src/persistence/envelope-store/ | Dexie database ownership, encrypted blob/event/staging transactions, clear operational headers, quota-safe writes, and multi-tab revision notices. |
-| ./program/sheaf/src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, event replay, lazy table hydration, FTS/query plans, and projection invalidation. |
-| ./program/sheaf/src/persistence/codecs/ | Canonical CBOR types, compression, envelope framing, checksums, and forward/backward codec readers. |
-| ./program/sheaf/src/migrations/ | Ordered local database, envelope, event, projection, and vault-format migrations produced by the DB phase. No other module writes migration logic. |
+| ./src/crypto/ | KDF calibration, key hierarchy, recovery-code handling, envelope/stream encryption, authenticated key wrapping, zeroization hooks, and cipher-suite versioning. |
+| ./src/persistence/envelope-store/ | Dexie database ownership, encrypted blob/event/staging transactions, clear operational headers, quota-safe writes, and multi-tab revision notices. |
+| ./src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, event replay, lazy table hydration, FTS/query plans, and projection invalidation. |
+| ./src/persistence/codecs/ | Canonical CBOR types, compression, envelope framing, checksums, and forward/backward codec readers. |
+| ./src/migrations/ | Ordered local database, envelope, event, projection, and vault-format migrations produced by the DB phase. No other module writes migration logic. |
 
 ### Import and inference
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/import/source/ | Random-access source abstraction over File/Blob and encrypted staged chunks; content sniffing independent of extension. |
-| ./program/sheaf/src/import/preflight/ | Metadata-only sizing, archive/CFB safety bounds, macro/unsafe-format detection, sheet inventory, device estimate, and selection plan before cell parsing. |
-| ./program/sheaf/src/import/formats/ooxml/ | Streaming XLSX/OPC relationships, cells, formulas, styles, formats, validations, tables, charts, pivots, drawings, and unsupported-part inventory. |
-| ./program/sheaf/src/import/formats/xlsb/ | Streaming XLSB record parsing with the same normalized fact contract and macro-sheet detection. |
-| ./program/sheaf/src/import/formats/biff/ | Bounded random-access CFB and BIFF/XLS records, code pages, formats, formulas, validations, objects, and VBA/XLM refusal signals. |
-| ./program/sheaf/src/import/formats/ods/ | Streaming ODS content/styles/validation/formula/chart facts and preserved unsupported objects. |
-| ./program/sheaf/src/import/formats/delimited/ | Chunked CSV/TSV delimiter/encoding detection, row iteration, and value-only facts for new or existing apps. |
-| ./program/sheaf/src/import/formats/html-table/ | Non-executing HTML table tokenization for legacy exports disguised as XLS; safe text/table facts only. |
-| ./program/sheaf/src/import/inference/ | Header/region/table classification, types, enums, keys, relationships, record rules, formulas, metrics, charts, evidence, and remembered rejection decisions. |
-| ./program/sheaf/src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted original-source chunks, inert-content inventory, and safe render data. |
-| ./program/sheaf/src/import/staging/ | Provisional encrypted import model, cancellation cleanup, review edits, explicit-accept promotion, and no-partial-app guarantee. |
+| ./src/import/source/ | Random-access source abstraction over File/Blob and encrypted staged chunks; content sniffing independent of extension. |
+| ./src/import/preflight/ | Metadata-only sizing, archive/CFB safety bounds, macro/unsafe-format detection, sheet inventory, device estimate, and selection plan before cell parsing. |
+| ./src/import/formats/ooxml/ | Streaming XLSX/OPC relationships, cells, formulas, styles, formats, validations, tables, charts, pivots, drawings, and unsupported-part inventory. |
+| ./src/import/formats/xlsb/ | Streaming XLSB record parsing with the same normalized fact contract and macro-sheet detection. |
+| ./src/import/formats/biff/ | Bounded random-access CFB and BIFF/XLS records, code pages, formats, formulas, validations, objects, and VBA/XLM refusal signals. |
+| ./src/import/formats/ods/ | Streaming ODS content/styles/validation/formula/chart facts and preserved unsupported objects. |
+| ./src/import/formats/delimited/ | Chunked CSV/TSV delimiter/encoding detection, row iteration, and value-only facts for new or existing apps. |
+| ./src/import/formats/html-table/ | Non-executing HTML table tokenization for legacy exports disguised as XLS; safe text/table facts only. |
+| ./src/import/inference/ | Header/region/table classification, types, enums, keys, relationships, record rules, formulas, metrics, charts, evidence, and remembered rejection decisions. |
+| ./src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted original-source chunks, inert-content inventory, and safe render data. |
+| ./src/import/staging/ | Provisional encrypted import model, cancellation cleanup, review edits, explicit-accept promotion, and no-partial-app guarantee. |
 
 ### Durable homes and reconciliation transport
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/sync/protocol/ | Provider-neutral vault header/index, immutable segment layout, generation head, CAS/retry, compaction publication, tombstones, and adoption manifests. |
-| ./program/sheaf/src/sync/scheduler/ | Debounce, manual backup, visibility-triggered best effort, resume retry, continuous discovery while unlocked, and truthful status transitions. |
-| ./program/sheaf/src/sync/providers/dropbox/ | Dropbox PKCE/token lifecycle, account identity, App Folder list/download/upload-session/CAS operations, and error translation. |
-| ./program/sheaf/src/sync/providers/onedrive/ | Microsoft SPA PKCE/token lifecycle, account identity, approot/Graph list/download/upload-session/CAS operations, renewal, and error translation. |
-| ./program/sheaf/src/sync/providers/bundle/ | Manual encrypted bundle assembly, save/open validation, vault-secret prompt contract, and staleness semantics. |
-| ./program/sheaf/src/sync/adoption/ | Index-only discovery, pre-download sizing, selective payload transfer, local validation, atomic adoption, and listed-only refusal. |
-| ./program/sheaf/src/sync/coordinator/ | Pull/push orchestration, event-set comparison, baseline selection, reconciliation invocation, pending/applied persistence, and confirmed-head accounting. |
+| ./src/sync/protocol/ | Provider-neutral vault header/index, immutable segment layout, generation head, CAS/retry, compaction publication, tombstones, and adoption manifests. |
+| ./src/sync/scheduler/ | Debounce, manual backup, visibility-triggered best effort, resume retry, continuous discovery while unlocked, and truthful status transitions. |
+| ./src/sync/providers/dropbox/ | Dropbox PKCE/token lifecycle, account identity, App Folder list/download/upload-session/CAS operations, and error translation. |
+| ./src/sync/providers/onedrive/ | Microsoft SPA PKCE/token lifecycle, account identity, approot/Graph list/download/upload-session/CAS operations, renewal, and error translation. |
+| ./src/sync/providers/bundle/ | Manual encrypted bundle assembly, save/open validation, vault-secret prompt contract, and staleness semantics. |
+| ./src/sync/adoption/ | Index-only discovery, pre-download sizing, selective payload transfer, local validation, atomic adoption, and listed-only refusal. |
+| ./src/sync/coordinator/ | Pull/push orchestration, event-set comparison, baseline selection, reconciliation invocation, pending/applied persistence, and confirmed-head accounting. |
 
 ### Export and worker boundaries
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/src/export/ | Plaintext XLSX/CSV/PNG/PDF generation after acknowledgement, complete-local-data scope, cancellation, and platform save/share delivery. |
-| ./program/sheaf/src/workers/data.worker.ts | Owns unlocked keys, event replay, validation, formulas, in-memory SQLite, commands, queries, compaction, and local reconciliation. |
-| ./program/sheaf/src/workers/import.worker.ts | Owns pre-flight and selected-sheet parsing/inference with bounded memory and cancellation. |
-| ./program/sheaf/src/workers/io.worker.ts | Owns provider authorization and encrypted provider/bundle byte transfer, ciphertext hashing, and resumable I/O without access to record plaintext. |
-| ./program/sheaf/src/workers/export.worker.ts | Owns plaintext artifact generation in a short-lived, network-incapable worker that is terminated after save/share completion. |
-| ./program/sheaf/src/workers/protocol/ | Versioned typed RPC messages, cancellation, progress, transfer ownership, error redaction, and worker capability negotiation. |
+| ./src/export/ | Plaintext XLSX/CSV/PNG/PDF generation after acknowledgement, complete-local-data scope, cancellation, and platform save/share delivery. |
+| ./src/workers/data.worker.ts | Owns unlocked keys, event replay, validation, formulas, in-memory SQLite, commands, queries, compaction, and local reconciliation. |
+| ./src/workers/import.worker.ts | Owns pre-flight and selected-sheet parsing/inference with bounded memory and cancellation. |
+| ./src/workers/io.worker.ts | Owns provider authorization and encrypted provider/bundle byte transfer, ciphertext hashing, and resumable I/O without access to record plaintext. |
+| ./src/workers/export.worker.ts | Owns plaintext artifact generation in a short-lived, network-incapable worker that is terminated after save/share completion. |
+| ./src/workers/protocol/ | Versioned typed RPC messages, cancellation, progress, transfer ownership, error redaction, and worker capability negotiation. |
 
 ### Test ownership
 
 | Path | Responsibility |
 |---|---|
-| ./program/sheaf/tests/unit/ | Pure domain, workflow, codec, policy, and adapter unit tests. |
-| ./program/sheaf/tests/property/ | Reconciliation, validation, crypto-envelope, event-order, and parser-bound property tests. |
-| ./program/sheaf/tests/fixtures/workbooks/ | Hand-authored and application-generated fidelity corpus for every accepted/refused format and edge case. |
-| ./program/sheaf/tests/fixtures/vaults/ | Versioned encrypted known-answer vaults, segments, bundles, tombstones, and migration fixtures. |
-| ./program/sheaf/tests/browser/ | Real-browser database, worker, service-worker, lifecycle, offline, quota, and multi-tab tests. |
-| ./program/sheaf/tests/e2e/ | Approved user flows and responsive/accessibility assertions against the design inventory. |
-| ./program/sheaf/tests/provider-contract/ | Recorded/local protocol doubles plus opt-in live Dropbox and OneDrive qualification suites. |
-| ./program/sheaf/tests/performance/ | Reference-device import, storage, query, chart, sync, memory, and abrupt-termination budgets. |
-| ./program/sheaf/tests/security/ | Egress allowlist, CSP, malicious workbook, tamper, KDF, secret lifetime, and plaintext-at-rest probes. |
+| ./tests/unit/ | Pure domain, workflow, codec, policy, and adapter unit tests. |
+| ./tests/property/ | Reconciliation, validation, crypto-envelope, event-order, and parser-bound property tests. |
+| ./tests/fixtures/workbooks/ | Hand-authored and application-generated fidelity corpus for every accepted/refused format and edge case. |
+| ./tests/fixtures/vaults/ | Versioned encrypted known-answer vaults, segments, bundles, tombstones, and migration fixtures. |
+| ./tests/browser/ | Real-browser database, worker, service-worker, lifecycle, offline, quota, and multi-tab tests. |
+| ./tests/e2e/ | Approved user flows and responsive/accessibility assertions against the design inventory. |
+| ./tests/provider-contract/ | Recorded/local protocol doubles plus opt-in live Dropbox and OneDrive qualification suites. |
+| ./tests/performance/ | Reference-device import, storage, query, chart, sync, memory, and abrupt-termination budgets. |
+| ./tests/security/ | Egress allowlist, CSP, malicious workbook, tamper, KDF, secret lifetime, and plaintext-at-rest probes. |
 
 ---
 
@@ -342,9 +342,9 @@ organizational only and do not imply shared ownership.
 - **Owns:** Runtime capability decision, lock lifetime, worker composition, and
   lifecycle fan-out.
 - **Exports:** AppBootstrap, CapabilityReport, UnlockedSession, LockReason.
-- **Depends on:** ./program/sheaf/src/config/,
-  ./program/sheaf/src/platform/, ./program/sheaf/src/pwa/, and
-  ./program/sheaf/src/workers/protocol/.
+- **Depends on:** ./src/config/,
+  ./src/platform/, ./src/pwa/, and
+  ./src/workers/protocol/.
 - **Must not:** Read user records, call a provider, or retain a key after
   locking.
 
@@ -374,7 +374,7 @@ organizational only and do not imply shared ownership.
   assigned in Module Structure.
 - **Exports:** Route components and typed user intents.
 - **Depends on:** UI primitives/layout/theme plus
-  ./program/sheaf/src/application/view-models/.
+  ./src/application/view-models/.
 - **Must not:** Acknowledge a save before receiving CommitConfirmed, calculate
   merge eligibility, or hide partial/broken/stale states.
 
@@ -521,7 +521,7 @@ organizational only and do not imply shared ownership.
 - **Exports:** hydrateApp, applyEvents, executeQuery, createExportCursor,
   disposeProjection.
 - **Depends on:** SQLite WASM, domain event/formula/validation types.
-- **Contract:** Runs only in ./program/sheaf/src/workers/data.worker.ts. It
+- **Contract:** Runs only in ./src/workers/data.worker.ts. It
   persists nothing and is destroyed on lock. Export cursors are bounded,
   sequential reconstructions from encrypted checkpoints/events; they traverse
   complete local data without requiring interactive app entry or a fully
@@ -1487,15 +1487,9 @@ Android storage pressure.
 
 ## Open Architectural Questions
 
-1. **FR-1 / EXT-002 platform scope requires builder confirmation.** Approve
-   "share/open-in where the installed web platform exposes it, with the file
-   picker as the WebKit path," or reopen requirements and replace the static
-   PWA constraint with a signed native wrapper. Architecture recommends the
-   platform-conditional reading because it preserves every settled product
-   boundary and does not misrepresent iOS capability.
-
-The conditional Google Drive decision is otherwise resolved as **not
-eligible** under the current no-backend/public-client constraints. Exact
-object-store schemas, indexes, envelope records, projection tables, and
-migration sequence are intentionally delegated to the DB phase rather than
-left open here.
+**None.** The builder approved "share/open-in where the installed web platform
+exposes it, with the file picker as the WebKit path." The conditional Google
+Drive decision is resolved as **not eligible** under the current
+no-backend/public-client constraints. Exact object-store schemas, indexes,
+envelope records, projection tables, and migration sequence are delegated to
+the DB phase.
