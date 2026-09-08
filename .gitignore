@@ -39,6 +39,10 @@ yarn-error.log*
 /test-results/
 /playwright-report/
 /coverage/
+
+#My stuff
+.forge/
+/program/sheaf/prompts
 /ENSO.md
 /JIKIJITSU.md
 /MU.md
@@ -48,5 +52,4 @@ yarn-error.log*
 /DESIGNER.md
 /SPEC.md
 /FORGE.md
-.forge/
 /GENESIS.md
