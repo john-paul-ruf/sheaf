@@ -14,3 +14,12 @@ Extracted from specs/architecture.md §Module Contracts (Application ports). F01
 
 ## Change History
 - 2026-09-08 — fragment seeded (Forge, F01 planning). No code yet.
+
+<!-- foundation-first-unlock SESSION-02 -->
+- 2026-09-08 — SESSION-02 landed (final revision `acca5a8`). Delta:
+
+### M07 — Application ports (`src/application/ports/`) — first implementation
+
+`clock.ts` → `ClockPort { nowEpochMs(): number }`;
+`entropy.ts` → `EntropyPort { randomBytes(byteLength): Uint8Array }`.
+F01 subset only (D9); no other port was added.
