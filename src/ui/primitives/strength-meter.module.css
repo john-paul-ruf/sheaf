@@ -1,0 +1,57 @@
+/* CTL-098 passphrase strength / match. */
+
+.root {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-disabled-fill);
+}
+
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--duration-control) var(--easing-standard);
+}
+
+.fill[data-strength="weak"] {
+  background: var(--color-warning);
+}
+
+.fill[data-strength="sufficient"] {
+  background: var(--color-success);
+}
+
+.labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  justify-content: space-between;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.badge[data-state="weak"],
+.badge[data-state="mismatch"] {
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+}
+
+.badge[data-state="sufficient"],
+.badge[data-state="matched"] {
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+}

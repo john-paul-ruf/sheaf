@@ -1,0 +1,60 @@
+/* CTL-023 text input, and the field chrome every labelled control reuses. */
+
+.root {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px; /* --target-min */
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-body); /* never below 16px: prevents mobile zoom */
+}
+
+.input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input[data-invalid] {
+  border-color: var(--color-danger);
+}
+
+.input[data-disabled] {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.description {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  color: var(--color-danger-ink);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}

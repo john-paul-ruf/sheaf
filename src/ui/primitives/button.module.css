@@ -1,0 +1,80 @@
+/*
+ * CTL-014 primary, CTL-016 secondary, CTL-018 danger.
+ * Unlayered on purpose — see the layer note in ../theme/base.css.
+ */
+
+.wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.root {
+  display: inline-flex;
+  min-height: 44px; /* --target-min; literal so the geometry gate can read it */
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-16);
+  font-weight: var(--weight-control);
+  line-height: 1.1;
+  text-align: center;
+  transition: filter var(--duration-control) var(--easing-standard);
+}
+
+.root:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.primary {
+  background: var(--color-action);
+  color: var(--color-action-text);
+  box-shadow: var(--shadow-level-1);
+}
+
+.secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.destructive {
+  background: var(--color-danger);
+  color: var(--color-action-text);
+}
+
+.root[data-hovered] {
+  filter: brightness(0.94);
+}
+
+.root[data-pressed] {
+  filter: brightness(0.88);
+}
+
+/*
+ * Paper 200 fill rather than the mock's `opacity: .5`: dimming the whole
+ * control also dims its label below readable contrast. The reason always
+ * rides alongside as text (`.reason`), never as dimming alone.
+ */
+.root[data-disabled] {
+  border-color: transparent;
+  background: var(--color-disabled-fill);
+  box-shadow: none;
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.reason {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-body);
+}
+
+.fullWidth {
+  width: 100%;
+}

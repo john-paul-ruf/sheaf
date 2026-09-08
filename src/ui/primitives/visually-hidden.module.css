@@ -1,0 +1,17 @@
+/*
+ * Shared by the primitives that must expose text to assistive technology
+ * without drawing it — announcements, and icon glyph fallbacks.
+ * design.md §Accessibility Contract: "complete state copy remains in text".
+ */
+
+.root {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

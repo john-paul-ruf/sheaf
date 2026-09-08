@@ -1,0 +1,39 @@
+/* CTL-026 passphrase input + CTL-027 show/hide secret control. */
+
+.toggle {
+  flex: 0 0 auto;
+  min-height: 44px; /* --target-min */
+  min-width: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.toggle:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.toggle[data-disabled] {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* The delay is a fact the user is waiting on, so it reads as status, not error. */
+.delay {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}

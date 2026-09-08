@@ -1,0 +1,17 @@
+/* CTL-028 recovery-code input — grouped, monospace entry. */
+
+.input {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-status);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  color: var(--color-success-ink);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
