@@ -62,6 +62,9 @@ export type DetectedFormatV1 =
 
 export type DetectedFormatKindV1 = DetectedFormatV1["kind"];
 
+/** The one detected format F02 goes on to parse. */
+export type DelimitedFormatV1 = Extract<DetectedFormatV1, { kind: "delimited" }>;
+
 export interface ExtensionContradictionV1 {
   /** Lowercased, without the dot. */
   readonly declaredExtension: string;
