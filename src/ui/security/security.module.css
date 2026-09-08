@@ -1,0 +1,215 @@
+/*
+ * M41 — screen-level composition for SCR-001–009.
+ *
+ * Composition only: rhythm, card geometry, and action rows. Every control's
+ * own appearance belongs to its primitive, and every value here is a token
+ * (ENSO.md §Tokens, Never Literals) so an app theme cannot fork the shell and
+ * a safety colour cannot be remapped.
+ *
+ * The unlayered module wins over `theme/base.css`'s `base` layer by order, so
+ * nothing here needs a specificity trick.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.tight {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.fact {
+  color: var(--color-text);
+  line-height: var(--line-height-body);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-16);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-20);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-level-1);
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-16);
+}
+
+/*
+ * Actions wrap rather than shrink: at 320px and at 200% text they must stay
+ * whole and never overlap the copy above them (design.md §Accessibility
+ * Contract).
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+.routes {
+  display: grid;
+  gap: var(--space-12);
+  justify-items: start;
+}
+
+/* --- the three-gate stepper on SCR-002, SCR-008 and SCR-009 --------------- */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-control);
+}
+
+.step[data-state="current"] {
+  background: var(--leaf-pale);
+  color: var(--leaf-ink);
+}
+
+.step[data-state="done"] {
+  color: var(--color-success-ink);
+}
+
+/* --- link rows: CTL-020 destinations with their one-line explanation ------ */
+
+.linkRow {
+  display: grid;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-16);
+}
+
+.linkRow:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.linkHint {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-danger-tint);
+  color: var(--color-danger-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+/* --- settings rows: a control with the fact that explains it -------------- */
+
+.settingRow {
+  display: grid;
+  gap: var(--space-8);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-16);
+}
+
+.settingRow:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.settingHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+}
+
+/* --- the masked shape of a code that has not been revealed ---------------- */
+
+.codeMask {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-supporting);
+  letter-spacing: 0.08em;
+}
+
+.list {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding-left: var(--space-20);
+  color: var(--color-text);
+  line-height: var(--line-height-body);
+}
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-16);
+  background: var(--color-panel);
+  line-height: var(--line-height-body);
+}
+
+.checkbox input {
+  flex: none;
+  width: var(--space-24);
+  height: var(--space-24);
+  margin-top: 2px;
+  accent-color: var(--color-action);
+}

@@ -1,0 +1,351 @@
+import { useCallback, useEffect, type ReactNode } from "react";
+import {
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
+import { useMachine } from "@xstate/react";
+import { selectEmptyLibraryVm } from "../application/view-models/library.js";
+import {
+  selectSetupVm,
+  selectUnlockVm,
+  selectWelcomeVm,
+} from "../application/view-models/security.js";
+import { setupMachine } from "../application/workflows/setup.machine.js";
+import { unlockMachine } from "../application/workflows/unlock.machine.js";
+import { sessionMachine } from "../application/workflows/session.machine.js";
+import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
+import type { CapabilityReport } from "../platform/capabilities.js";
+import type { UnlockedSessionViewV1 } from "../workers/protocol/messages.js";
+import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
+import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
+import { Button } from "../ui/primitives/button.js";
+import type { SecurityNavigation } from "../ui/security/frames.js";
+import { SetupScreen } from "../ui/security/setup-screen.js";
+import { UnlockScreen } from "../ui/security/unlock-screen.js";
+import { WelcomeScreen } from "../ui/security/welcome-screen.js";
+import {
+  useSheafRuntime,
+  type SecurityWiring,
+  type SheafRuntime,
+} from "./app-runtime.js";
+import {
+  ROUTE_HREFS,
+  ROUTE_PATHS,
+  fallbackRoute,
+  guardRoute,
+  type SessionPhase,
+} from "./guards.js";
+
+/**
+ * The F01 route table (M54): hash routes, CA-07's guards, and the composition
+ * that turns a machine snapshot into an approved surface.
+ *
+ * Screens under `src/ui/**` are pure — a view model in, callbacks out. The
+ * actors live here for two reasons: a screen may not import a state-machine
+ * runtime (the dependency direction `tests/unit/ui/architecture.test.ts`
+ * enforces), and the session actor has to outlive navigation between the
+ * unlocked screens.
+ */
+
+const nav: SecurityNavigation = ROUTE_HREFS;
+
+export function SheafApp(): ReactNode {
+  return (
+    <HashRouter>
+      <SheafRoutes />
+    </HashRouter>
+  );
+}
+
+function SheafRoutes(): ReactNode {
+  const runtime = useSheafRuntime();
+  const { state } = runtime;
+
+  if (state.kind === "starting") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Starting Sheaf on this device."
+      />
+    );
+  }
+
+  // CAP-08: the probe refused, so no worker exists and no route is reachable.
+  // SCR-001's recoverable variant is the whole application until the runtime
+  // provides what it names.
+  if (state.kind === "unsupported") {
+    return <UnsupportedApp report={state.report} />;
+  }
+
+  const { app, phase, report, session, wiring } = state;
+  const elsewhere = <Navigate replace to={fallbackRoute(phase)} />;
+
+  // The two halves never coexist: the guard has already refused every path
+  // that does not belong to this phase, so the unlocked half can hold the
+  // session actor for as long as the session lasts and no longer.
+  return (
+    <RouteGuard phase={phase}>
+      {phase === "unlocked" && session !== undefined ? (
+        <UnlockedArea
+          app={app}
+          elsewhere={elsewhere}
+          runtime={runtime}
+          session={session}
+          wiring={wiring}
+        />
+      ) : (
+        <Routes>
+          <Route
+            element={<WelcomeRoute report={report} />}
+            path={ROUTE_PATHS.welcome}
+          />
+          <Route
+            element={<SetupRoute runtime={runtime} wiring={wiring} />}
+            path={ROUTE_PATHS.setup}
+          />
+          <Route
+            element={<UnlockRoute runtime={runtime} wiring={wiring} />}
+            path={ROUTE_PATHS.unlock}
+          />
+          <Route element={elsewhere} path="*" />
+        </Routes>
+      )}
+    </RouteGuard>
+  );
+}
+
+function UnsupportedApp({
+  report,
+}: {
+  readonly report: CapabilityReport;
+}): ReactNode {
+  return (
+    <WelcomeScreen
+      onProtect={() => {
+        // Unreachable: the unsupported variant renders no setup control.
+      }}
+      vm={selectWelcomeVm(report)}
+    />
+  );
+}
+
+/**
+ * CA-07 in one place. The guard sees the phase and the path and nothing else —
+ * no provider, no storage fact, no capability — and either renders what was
+ * asked for or replaces the entry with the phase's own destination.
+ */
+function RouteGuard({
+  phase,
+  children,
+}: {
+  readonly phase: SessionPhase;
+  readonly children: ReactNode;
+}): ReactNode {
+  const { pathname } = useLocation();
+  const verdict = guardRoute(phase, pathname);
+  return verdict.kind === "render" ? (
+    <>{children}</>
+  ) : (
+    <Navigate replace to={verdict.to} />
+  );
+}
+
+function WelcomeRoute({
+  report,
+}: {
+  readonly report: CapabilityReport;
+}): ReactNode {
+  const navigate = useNavigate();
+  return (
+    <WelcomeScreen
+      onProtect={() => {
+        void navigate(ROUTE_PATHS.setup);
+      }}
+      vm={selectWelcomeVm(report)}
+    />
+  );
+}
+
+function SetupRoute({
+  runtime,
+  wiring,
+}: {
+  readonly runtime: SheafRuntime;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [snapshot, send] = useMachine(setupMachine, {
+    input: { services: wiring.services, policy: wiring.policy },
+  });
+  const { onUnlocked } = runtime;
+
+  // SCR-002 is entered from SCR-001, so its first step is already behind us.
+  useEffect(() => {
+    if (snapshot.matches("welcome")) {
+      send({ type: "BEGIN" });
+    }
+  }, [snapshot, send]);
+
+  useEffect(() => {
+    const session = snapshot.context.session;
+    if (snapshot.matches("unlocked") && session !== undefined) {
+      onUnlocked(session);
+    }
+  }, [snapshot, onUnlocked]);
+
+  return (
+    <SetupScreen
+      onAcknowledgeSaved={(acknowledged) => {
+        // One checkbox answers the machine's two questions: the code has been
+        // seen, and it has been saved.
+        if (snapshot.matches("codeIssued")) {
+          send({ type: "CONTINUE" });
+        }
+        send({ type: "ACKNOWLEDGE_SAVED", acknowledged });
+      }}
+      onEvaluate={(passphrase, confirmation) => {
+        send({ type: "EVALUATE", passphrase, confirmation });
+      }}
+      onFinish={() => {
+        send({ type: "FINISH" });
+      }}
+      onRetry={() => {
+        send({ type: "RETRY" });
+      }}
+      onSubmit={(passphrase, confirmation) => {
+        send({ type: "SUBMIT", passphrase, confirmation });
+      }}
+      vm={selectSetupVm(snapshot)}
+    />
+  );
+}
+
+function UnlockRoute({
+  runtime,
+  wiring,
+}: {
+  readonly runtime: SheafRuntime;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [snapshot, send] = useMachine(unlockMachine, {
+    input: { services: wiring.services, clock: wiring.clock },
+  });
+  const { onUnlocked } = runtime;
+
+  useEffect(() => {
+    const session = snapshot.context.session;
+    if (snapshot.matches("unlocked") && session !== undefined) {
+      onUnlocked(session);
+    }
+  }, [snapshot, onUnlocked]);
+
+  return (
+    <UnlockScreen
+      nav={nav}
+      onSubmit={(passphrase) => {
+        send({ type: "SUBMIT", passphrase });
+      }}
+      vm={selectUnlockVm(snapshot)}
+    />
+  );
+}
+
+/**
+ * Everything behind the unlock, under one session actor (CAP-03, D13/AD-7).
+ *
+ * Two countdowns exist and both must agree: this machine's, and the runtime's
+ * (M53). Neither is armed from a value the user picked — only from one the
+ * worker confirmed it stored — and both end in the same idempotent lock, so a
+ * refused settings write can move neither.
+ */
+function UnlockedArea({
+  app,
+  elsewhere,
+  runtime,
+  session,
+  wiring,
+}: {
+  readonly app: AppRuntime;
+  /** Where an unlocked path that this build does not serve is sent. */
+  readonly elsewhere: ReactNode;
+  readonly runtime: SheafRuntime;
+  readonly session: UnlockedSessionViewV1;
+  readonly wiring: SecurityWiring;
+}): ReactNode {
+  const [snapshot, send] = useMachine(sessionMachine, {
+    input: { services: wiring.services, session },
+  });
+  const { restart } = runtime;
+  const persisted = snapshot.context.idleTimeoutMinutes;
+
+  // Mirror the *adopted* value onto the runtime's timer. `persisted` changes
+  // only when the worker answered, so this can never arm optimistically.
+  useEffect(() => {
+    app.setIdleTimeout(persisted);
+  }, [app, persisted]);
+
+  // Whatever locked — this machine, the runtime's idle timer, or pagehide —
+  // the page needs a fresh runtime, because a terminated client never returns.
+  useEffect(
+    () =>
+      app.onLock(() => {
+        restart();
+      }),
+    [app, restart],
+  );
+
+  useEffect(() => {
+    if (snapshot.matches("locked")) {
+      void app.lockNow(snapshot.context.lockReason ?? "user");
+    }
+  }, [snapshot, app]);
+
+  // One handler, both clocks.
+  const noteActivity = useCallback(() => {
+    send({ type: "ACTIVITY" });
+    app.noteActivity();
+  }, [app, send]);
+
+  useEffect(() => {
+    const onPageHide = (): void => {
+      send({ type: "PAGEHIDE" });
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pointerdown", noteActivity);
+    window.addEventListener("keydown", noteActivity);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pointerdown", noteActivity);
+      window.removeEventListener("keydown", noteActivity);
+    };
+  }, [send, noteActivity]);
+
+  const lockAction = (
+    <Button
+      onPress={() => {
+        send({ type: "LOCK_NOW" });
+      }}
+    >
+      Lock device
+    </Button>
+  );
+
+  return (
+    <Routes>
+      <Route
+        element={
+          <EmptyLibraryScreen
+            nav={nav}
+            topBarActions={lockAction}
+            vm={selectEmptyLibraryVm()}
+          />
+        }
+        path={ROUTE_PATHS.library}
+      />
+      <Route element={elsewhere} path="*" />
+    </Routes>
+  );
+}

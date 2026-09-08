@@ -1,0 +1,79 @@
+/*
+ * M42 — SCR-011's composition (library-empty.html, STA-025).
+ *
+ * The empty state is a single centred invitation card, not a grid with one
+ * hole in it: there is no app to lay out and no placeholder tile that would
+ * imply one.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-16);
+  justify-items: start;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-32) var(--space-20);
+  background: var(--color-surface);
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: var(--space-48);
+  height: var(--space-48);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
+  color: var(--color-action);
+  font-size: var(--text-section);
+  line-height: 1;
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+/* Wraps rather than shrinks, so both actions stay whole at 320px. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
