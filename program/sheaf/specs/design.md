@@ -2,7 +2,7 @@
 
 > **Phase:** design  
 > **Status:** draft for builder approval  
-> **Sources:** `specs/idea.md`, `specs/requirements.md`
+> **Sources:** `./program/sheaf/specs/idea.md`, `./program/sheaf/specs/requirements.md`
 
 Sheaf should feel like a dependable field notebook rather than a spreadsheet
 wearing a mobile skin. The shell is quiet, tactile, and recognisable. A
@@ -222,25 +222,25 @@ actions and read the same status text; density changes, capability does not.
 
 | Screen | Mock file | Purpose and required states |
 |---|---|---|
-| Protect this device | `mocks/setup.html` | Create the offline local unlock, issue the local recovery code, and distinguish the later per-home vault code (FR-22–24) |
-| Unlock | `mocks/unlock.html` | Cold launch with no decrypted app inventory, local recovery route, escalating delay copy, and explicit reset route (FR-20, FR-22–23) |
-| Library | `mocks/library.html` | Shell launch destination, upload action, independent app themes, backup facts, and present/scratch/listed-only/oversized-local tiles (FR-19, FR-25–26, FR-30, FR-34) |
-| Workbook pre-flight | `mocks/import.html` | Content-detected format, sheet sizing/selection, streaming progress, refusal language, and desktop handoff (FR-1–3, FR-10) |
-| Review what Sheaf found | `mocks/review.html` | The single plain-language import review with editable tables, types, relationships, formulas, sheet use, and preserved content (FR-4–9, FR-14) |
-| Generated app home | `mocks/app-home.html` | A distinctly themed app with metrics, imported/pinned chart, table routes, app status, and scratch reminder pattern (FR-11, FR-14, FR-16–17, FR-25–26) |
-| Records | `mocks/records.html` | Sticky search, type-aware filters, phone cards, tablet split view, desktop dense table, relationships, and named omissions (FR-11, FR-13, FR-34) |
-| Record detail/edit | `mocks/record-edit.html` | Typed controls, reference picker, dial/maps affordances, live formula, column/record validation, delete recovery, thumb-zone save (FR-11–12, FR-14) |
-| Chart builder | `mocks/chart-builder.html` | Chart type, relational fields, touch preview/filter behavior, save and pin, chart-budget degradation (FR-16, FR-34) |
-| App structure editor | `mocks/schema.html` | Permanent schema editing, formula/relationship access, user-language rules, and counted impact preview (FR-12, FR-14–15) |
-| Durable home & backup | `mocks/durable-home.html` | Provider/bundle choice, exact privacy boundary, conditional Drive card, iCloud explanation, confirmed backup age, device-only count, and one-tap remedy (FR-21, FR-23–27, FR-30) |
-| Resolve conflicts | `mocks/conflicts.html` | Required three-way values, provenance, baseline-absent explanation, whole-record invalid merge, pending queue, and applied log (FR-28–32) |
-| Capacity door | `mocks/capacity.html` | Explicitly different oversized-local and listed-only states with only truthful actions (FR-18–19, FR-30, FR-34) |
-| Export or remove | `mocks/export-remove.html` | Plaintext export warning, device-only loss facts, remedies, remove-local vs delete-everywhere, and offline-copy language (FR-18, FR-26, FR-33) |
-| Reset without a readable store | `mocks/reset.html` | Locked generic destructive path that exposes no plaintext inventory and explains exactly what cannot be known (FR-22–23) |
+| Protect this device | `./program/sheaf/mocks/setup.html` | Create the offline local unlock, issue the local recovery code, and distinguish the later per-home vault code (FR-22–24) |
+| Unlock | `./program/sheaf/mocks/unlock.html` | Cold launch with no decrypted app inventory, local recovery route, escalating delay copy, and explicit reset route (FR-20, FR-22–23) |
+| Library | `./program/sheaf/mocks/library.html` | Shell launch destination, upload action, independent app themes, backup facts, and present/scratch/listed-only/oversized-local tiles (FR-19, FR-25–26, FR-30, FR-34) |
+| Workbook pre-flight | `./program/sheaf/mocks/import.html` | Content-detected format, sheet sizing/selection, streaming progress, refusal language, and desktop handoff (FR-1–3, FR-10) |
+| Review what Sheaf found | `./program/sheaf/mocks/review.html` | The single plain-language import review with editable tables, types, relationships, formulas, sheet use, and preserved content (FR-4–9, FR-14) |
+| Generated app home | `./program/sheaf/mocks/app-home.html` | A distinctly themed app with metrics, imported/pinned chart, table routes, app status, and scratch reminder pattern (FR-11, FR-14, FR-16–17, FR-25–26) |
+| Records | `./program/sheaf/mocks/records.html` | Sticky search, type-aware filters, phone cards, tablet split view, desktop dense table, relationships, and named omissions (FR-11, FR-13, FR-34) |
+| Record detail/edit | `./program/sheaf/mocks/record-edit.html` | Typed controls, reference picker, dial/maps affordances, live formula, column/record validation, delete recovery, thumb-zone save (FR-11–12, FR-14) |
+| Chart builder | `./program/sheaf/mocks/chart-builder.html` | Chart type, relational fields, touch preview/filter behavior, save and pin, chart-budget degradation (FR-16, FR-34) |
+| App structure editor | `./program/sheaf/mocks/schema.html` | Permanent schema editing, formula/relationship access, user-language rules, and counted impact preview (FR-12, FR-14–15) |
+| Durable home & backup | `./program/sheaf/mocks/durable-home.html` | Provider/bundle choice, exact privacy boundary, conditional Drive card, iCloud explanation, confirmed backup age, device-only count, and one-tap remedy (FR-21, FR-23–27, FR-30) |
+| Resolve conflicts | `./program/sheaf/mocks/conflicts.html` | Required three-way values, provenance, baseline-absent explanation, whole-record invalid merge, pending queue, and applied log (FR-28–32) |
+| Capacity door | `./program/sheaf/mocks/capacity.html` | Explicitly different oversized-local and listed-only states with only truthful actions (FR-18–19, FR-30, FR-34) |
+| Export or remove | `./program/sheaf/mocks/export-remove.html` | Plaintext export warning, device-only loss facts, remedies, remove-local vs delete-everywhere, and offline-copy language (FR-18, FR-26, FR-33) |
+| Reset without a readable store | `./program/sheaf/mocks/reset.html` | Locked generic destructive path that exposes no plaintext inventory and explains exactly what cannot be known (FR-22–23) |
 
-All paths above are relative to the program root. Mock navigation is provided
+All paths above are relative to the workspace root. Mock navigation is provided
 for orientation, but the separate `prototype` phase remains responsible for a
-fully linked `mocks/index.html` walkthrough.
+fully linked `./program/sheaf/mocks/index.html` walkthrough.
 
 ---
 
