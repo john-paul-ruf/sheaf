@@ -27,8 +27,8 @@ import { frameToRow } from "./frame-row.js";
 
 /** What the caller believes it read before deciding to write (CA-01). */
 export interface BootstrapExpectation {
-  readonly transactionRevision: number;
-  readonly writerEpoch: number;
+  readonly expectedRevision: number;
+  readonly expectedWriterEpoch: number;
 }
 
 /**
@@ -41,12 +41,12 @@ export function assertExpectedBootstrap(
 ): LocalBootstrapRowV1 {
   if (
     current === undefined ||
-    current.transactionRevision !== expected.transactionRevision ||
-    current.writerEpoch !== expected.writerEpoch
+    current.transactionRevision !== expected.expectedRevision ||
+    current.writerEpoch !== expected.expectedWriterEpoch
   ) {
     throw new RevisionConflictError(
-      expected.transactionRevision,
-      expected.writerEpoch,
+      expected.expectedRevision,
+      expected.expectedWriterEpoch,
       current?.transactionRevision ?? null,
       current?.writerEpoch ?? null,
     );

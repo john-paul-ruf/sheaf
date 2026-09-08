@@ -79,7 +79,7 @@ describe("updateForPassphraseChange (CAP-04)", () => {
     await createBootstrap(before, [catalog]);
 
     const revision = await updateForPassphraseChange(
-      { transactionRevision: 1, writerEpoch: 0 },
+      { expectedRevision: 1, expectedWriterEpoch: 0 },
       passphraseKdf(42),
       wrappedRoot(43),
     );
@@ -103,14 +103,14 @@ describe("updateForPassphraseChange (CAP-04)", () => {
 
     await expect(
       updateForPassphraseChange(
-        { transactionRevision: 0, writerEpoch: 0 },
+        { expectedRevision: 0, expectedWriterEpoch: 0 },
         passphraseKdf(42),
         wrappedRoot(43),
       ),
     ).rejects.toThrow(RevisionConflictError);
     await expect(
       updateForPassphraseChange(
-        { transactionRevision: 1, writerEpoch: 1 },
+        { expectedRevision: 1, expectedWriterEpoch: 1 },
         passphraseKdf(42),
         wrappedRoot(43),
       ),
@@ -123,7 +123,7 @@ describe("updateForPassphraseChange (CAP-04)", () => {
 
   it("reports a missing bootstrap row as a conflict with null actuals", async () => {
     const conflict = await updateForPassphraseChange(
-      { transactionRevision: 1, writerEpoch: 0 },
+      { expectedRevision: 1, expectedWriterEpoch: 0 },
       passphraseKdf(42),
       wrappedRoot(43),
     ).catch((cause: unknown) => cause);
