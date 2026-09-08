@@ -30,6 +30,16 @@ import type {
   UnlockWithRecoveryCodeResponseV1,
   UpdateSettingsResponseV1,
 } from "../../workers/protocol/messages.js";
+import {
+  createImportServices,
+  type ImportServices,
+  type ImportWorkerPort,
+} from "./import-services.js";
+import {
+  createRecordsServices,
+  type RecordsServices,
+  type RecordsWorkerPort,
+} from "./records-services.js";
 
 /** A refusal a machine can render. Identical to the wire error by design. */
 export type SecurityError = DataWorkerErrorV1;
@@ -115,6 +125,32 @@ export function toSecurityError(cause: unknown): SecurityError {
     return cause.error;
   }
   return { kind: "internal" };
+}
+
+/**
+ * Every adapter set one runtime needs, composed from the one worker client
+ * (F02). The import set is separate because it also owns a second worker and
+ * the channel between them; the records set is separate because it has no
+ * lifecycle at all. They are assembled here so a runtime wires the client once.
+ */
+export interface ApplicationServices {
+  readonly security: SecurityServices;
+  readonly records: RecordsServices;
+  readonly import: ImportServices;
+}
+
+export function createApplicationServices(options: {
+  readonly port: SecurityWorkerPort & ImportWorkerPort & RecordsWorkerPort;
+  readonly spawnImportWorker: () => Worker;
+}): ApplicationServices {
+  return {
+    security: createSecurityServices(options.port),
+    records: createRecordsServices(options.port),
+    import: createImportServices({
+      dataWorker: options.port,
+      spawnImportWorker: options.spawnImportWorker,
+    }),
+  };
 }
 
 /** Whether the entry is strong enough to be accepted (CTL-098's vocabulary). */

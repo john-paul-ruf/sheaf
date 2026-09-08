@@ -19,6 +19,9 @@ const source = (path: string): string =>
 
 const WORKFLOW_FILES = [
   "src/application/workflows/services.ts",
+  "src/application/workflows/import-services.ts",
+  "src/application/workflows/records-services.ts",
+  "src/application/workflows/import.machine.ts",
   "src/application/workflows/setup.machine.ts",
   "src/application/workflows/unlock.machine.ts",
   "src/application/workflows/recovery.machine.ts",
