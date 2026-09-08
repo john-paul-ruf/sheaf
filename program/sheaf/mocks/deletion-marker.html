@@ -1,12 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
-  <title>Cedar & Finch Fieldbook — Sheaf Mock</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="color-scheme" content="light"><title>Deletion marker — Sheaf Mock</title><script src="https://cdn.tailwindcss.com"></script><style>
 :root {
   --ink: #17211c;
   --ink-2: #2b3932;
@@ -323,82 +316,63 @@ td:first-child, th:first-child { position: sticky; left: 0; z-index: 1; backgrou
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
 }
-</style>
-</head>
-<body class="app-page">
-  <a class="skip-link" href="#content">Skip to content</a>
-  <aside class="mock-note" aria-label="Mock status">Design mock</aside>
-  <div class="shell">
-    <aside class="rail"><a class="rail-brand" href="library.html" aria-label="All Sheaf apps"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="rail-word">Fieldbook</span></a><nav aria-label="Primary"><a class="rail-link active" href="app-home.html" aria-current="page"><span class="rail-icon" aria-hidden="true">H</span><span class="rail-label">Home</span></a><a class="rail-link" href="records.html"><span class="rail-icon" aria-hidden="true">J</span><span class="rail-label">Jobs</span></a><a class="rail-link" href="chart-builder.html"><span class="rail-icon" aria-hidden="true">C</span><span class="rail-label">Charts</span></a><a class="rail-link" href="schema.html"><span class="rail-icon" aria-hidden="true">S</span><span class="rail-label">Structure</span></a><a class="rail-link" href="app-settings.html"><span class="rail-icon" aria-hidden="true">⚙</span><span class="rail-label">Settings</span></a></nav><div class="rail-foot"><a class="rail-link" href="unlock.html"><span class="rail-icon">L</span><span class="rail-label">Lock device</span></a><span class="rail-avatar" role="img" aria-label="Local profile">PH</span></div></aside>
-    <div class="shell-main">
-      <header class="topbar"><a class="mobile-brand" href="library.html"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span>Fieldbook</span></a><span class="desktop-only"><strong>Cedar & Finch Fieldbook</strong></span><div class="top-actions"><span class="badge neutral">Saved locally</span><a class="icon-btn" href="library.html" aria-label="All apps">⌂</a></div></header>
-      <main id="content">
-<div class="page">
-  <section class="app-hero" aria-labelledby="app-home-title">
-    <div class="row between wrap">
-      <div class="row"><span class="tile-monogram" style="width:56px;height:56px;background:var(--sprout);color:var(--ink);border:0">CF</span><div><div class="eyebrow">Cedar &amp; Finch</div><span class="small" style="color:rgba(255,255,255,.64)">Fieldbook · Monday, September 7</span></div></div>
-      <a class="button bright" href="record-create.html"><span aria-hidden="true">＋</span> Add a job</a>
-    </div>
-    <div class="section" style="margin-top:34px">
-      <h1 id="app-home-title" style="max-width:660px">Four jobs need you today.</h1>
-      <p class="lede">Two are ready to start. One is waiting on materials.</p>
-    </div>
-    <div class="backup-strip section">
-      <div class="row"><span class="notice-icon" style="background:rgba(215,242,138,.12);color:var(--sprout)">↻</span><div><strong>1 change only on this device</strong><p>Last confirmed backup today at 8:42 AM</p></div></div>
-      <button class="button bright" type="button">Back up now</button>
-    </div>
-  </section>
 
-  <section class="section" aria-labelledby="pulse-title">
-    <div class="section-head"><div><div class="eyebrow">At a glance</div><h2 id="pulse-title">This week's pulse</h2></div><span class="small muted">Live from local data</span></div>
-    <div class="metric-grid">
-      <article class="metric"><span class="metric-label">Open jobs</span><strong class="metric-value">18</strong><span class="small muted">4 due this week</span></article>
-      <article class="metric"><span class="metric-label">Quoted</span><strong class="metric-value">$42.8k</strong><span class="small muted">Live total</span></article>
-      <article class="metric"><span class="metric-label">Outstanding</span><strong class="metric-value">$8.4k</strong><span class="small muted">Quoted − paid</span></article>
-      <article class="metric"><span class="metric-label">Crew hours</span><strong class="metric-value">126</strong><span class="small muted">Sep 7–13</span></article>
-    </div>
-  </section>
-
-  <div class="grid-2 section" style="align-items:start">
-    <section aria-labelledby="chart-title">
-      <div class="section-head"><div><div class="eyebrow">Pinned chart</div><h2 id="chart-title">Jobs by status</h2></div><a class="button ghost" href="chart-builder.html">Edit chart</a></div>
-      <div class="chart">
-        <div class="row between"><div><strong>18 open jobs</strong><div class="small muted">Tap a bar to filter the list</div></div><span class="badge good">All local rows</span></div>
-        <div class="bars" role="group" aria-label="Bar chart: Scheduled 7, In progress 5, Waiting 2, Complete 12, Invoiced 9">
-          <a class="bar-col" href="records.html" aria-label="Filter by Scheduled, 7 jobs"><span class="bar" style="height:50%"></span><span class="bar-label">Scheduled</span></a>
-          <a class="bar-col" href="records.html" aria-label="Filter by In progress, 5 jobs"><span class="bar accent" style="height:37%"></span><span class="bar-label">Active</span></a>
-          <a class="bar-col" href="records.html" aria-label="Filter by Waiting, 2 jobs"><span class="bar" style="height:18%;opacity:.55"></span><span class="bar-label">Waiting</span></a>
-          <a class="bar-col" href="records.html" aria-label="Filter by Complete, 12 jobs"><span class="bar" style="height:82%"></span><span class="bar-label">Done</span></a>
-          <a class="bar-col" href="records.html" aria-label="Filter by Invoiced, 9 jobs"><span class="bar" style="height:65%;opacity:.76"></span><span class="bar-label">Invoiced</span></a>
-        </div>
-        <div class="legend"><span>Current work</span><span class="alt">Needs attention</span><a href="records.html" style="margin-left:auto;color:var(--leaf);font-weight:800">View data table</a></div>
-      </div>
-    </section>
-
-    <section aria-labelledby="today-title">
-      <div class="section-head"><div><div class="eyebrow">Today's route</div><h2 id="today-title">Next up</h2></div><a class="button ghost" href="records.html">All jobs</a></div>
-      <div class="list">
-        <a class="list-row selectable" href="record-detail.html"><span class="list-leading" style="background:#e7efc7">09</span><div class="list-copy"><strong>Patio lighting · Ellis</strong><span>9:00 AM · 4822 W Berteau Ave</span></div><span class="badge good">Ready</span></a>
-        <a class="list-row selectable" href="record-detail.html"><span class="list-leading">11</span><div class="list-copy"><strong>Courtyard irrigation · Moss</strong><span>11:30 AM · needs valve set</span></div><span class="badge warn">Waiting</span></a>
-        <a class="list-row selectable" href="record-detail.html"><span class="list-leading">14</span><div class="list-copy"><strong>Maple pruning · Okafor</strong><span>2:00 PM · 17 min away</span></div><span class="badge info">Scheduled</span></a>
-        <a class="list-row selectable" href="record-detail.html"><span class="list-leading">16</span><div class="list-copy"><strong>Bed refresh · Valencia</strong><span>4:15 PM · crew: Mina + Theo</span></div><span class="badge info">Scheduled</span></a>
-      </div>
-    </section>
-  </div>
-
-  <section class="section card soft card-pad" aria-labelledby="tables-heading">
-    <div class="section-head"><div><div class="eyebrow">Working lists</div><h2 id="tables-heading">Open a table</h2></div><a class="button ghost" href="schema.html">Edit structure</a></div>
-    <div class="grid-4">
-      <a class="card card-pad" href="records.html"><span class="badge neutral">8,240</span><h3 style="margin-top:18px">Jobs</h3><p class="small muted" style="margin:0">Customers, dates, crew, amounts</p></a>
-      <a class="card card-pad" href="records.html"><span class="badge neutral">1,806</span><h3 style="margin-top:18px">Customers</h3><p class="small muted" style="margin:0">Contact details and related jobs</p></a>
-      <a class="card card-pad" href="records.html"><span class="badge neutral">84</span><h3 style="margin-top:18px">Crew</h3><p class="small muted" style="margin:0">Roles, phones, availability</p></a>
-      <a class="card card-pad" href="records.html"><span class="badge neutral">2,318</span><h3 style="margin-top:18px">Materials</h3><p class="small muted" style="margin:0">Stock, supplier, unit cost</p></a>
-    </div>
-  </section>
-</div>
-</main>
-    </div>
-    <nav class="bottom-nav" aria-label="Mobile navigation"><a class="bottom-link active" href="app-home.html" aria-current="page"><b aria-hidden="true">⌂</b><span>Home</span></a><a class="bottom-link" href="records.html"><b aria-hidden="true">≡</b><span>Jobs</span></a><a class="bottom-link add" href="record-create.html"><b aria-hidden="true">+</b><span class="sr-only">Add</span></a><a class="bottom-link" href="chart-builder.html"><b aria-hidden="true">▥</b><span>Charts</span></a><a class="bottom-link" href="app-settings.html"><b aria-hidden="true">⚙</b><span>Settings</span></a></nav>
-  </div>
-</body>
-</html>
+.catalog-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+.catalog-card { scroll-margin-top:90px; min-width:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); padding:17px; }
+.catalog-card .badge { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.catalog-card h2, .catalog-card h3, .catalog-card p { overflow-wrap:anywhere; }
+.catalog-id { color:var(--leaf); font-size:11px; font-weight:850; letter-spacing:.1em; text-transform:uppercase; }
+.catalog-demo { min-width:0; min-height:86px; margin-top:14px; overflow:auto; border:1px dashed #bcb5a5; border-radius:13px; padding:13px; background:var(--paper); display:grid; align-content:center; gap:8px; }
+.modal-stage { min-height:310px; padding:22px; display:grid; place-items:center; border-radius:18px; background:rgba(23,33,28,.72); }
+.modal-card { width:min(100%,480px); min-width:0; max-width:100%; border:1px solid var(--line); border-radius:22px; padding:20px; background:var(--surface); box-shadow:var(--shadow-2); }
+.phone-frame { position:relative; min-height:460px; overflow:hidden; border:8px solid var(--ink); border-radius:32px; background:var(--paper); }
+.phone-frame::before { content:""; display:block; width:82px; height:18px; margin:0 auto; border-radius:0 0 12px 12px; background:var(--ink); }
+.sheet-demo { position:absolute; inset:auto 0 0; border-radius:24px 24px 0 0; padding:18px; background:var(--surface); box-shadow:var(--shadow-2); }
+.toast-demo { display:inline-flex; align-items:center; gap:10px; border-radius:13px; padding:11px 14px; background:var(--ink); color:white; box-shadow:var(--shadow-1); font-weight:700; }
+.swatch { width:42px; height:42px; border:3px solid var(--surface); border-radius:50%; box-shadow:0 0 0 1px var(--line); }
+.switch { position:relative; width:52px; height:30px; border-radius:999px; background:var(--leaf); }
+.switch::after { content:""; position:absolute; top:4px; right:4px; width:22px; height:22px; border-radius:50%; background:white; }
+.skeleton { min-height:14px; border-radius:7px; background:var(--paper-3); }
+.sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+.page.wide { max-width:1600px; }
+.chip { display:inline-flex; min-height:34px; flex:0 0 auto; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:6px 10px; background:var(--surface); color:var(--ink); font-size:12px; font-weight:750; white-space:nowrap; }
+.chip.active { border-color:#91b16d; background:#edf5df; color:#244d3c; }
+.choice { display:flex; min-width:0; align-items:flex-start; gap:11px; border:1px solid var(--line); border-radius:13px; padding:12px; background:var(--surface); color:var(--ink); text-align:left; }
+.choice + .choice { margin-top:8px; }
+.choice.selected { border-color:#87a968; background:#f1f7e7; box-shadow:inset 0 0 0 1px #87a968; }
+.choice > input { flex:0 0 auto; width:18px; height:18px; margin-top:2px; accent-color:var(--leaf); }
+.choice > span { display:grid; min-width:0; gap:3px; }
+.choice small { color:var(--muted); line-height:1.35; }
+.progress { width:100%; height:10px; overflow:hidden; border-radius:999px; background:var(--paper-3); }
+.progress > span { display:block; height:100%; border-radius:inherit; background:var(--leaf); }
+.steps { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.steps li { position:relative; display:grid; gap:2px; min-height:58px; padding:4px 4px 13px 38px; color:var(--muted); }
+.steps li::before { content:""; position:absolute; top:4px; left:5px; width:22px; height:22px; border:2px solid var(--line); border-radius:50%; background:var(--surface); }
+.steps li:not(:last-child)::after { content:""; position:absolute; top:27px; bottom:0; left:15px; width:2px; background:var(--line); }
+.steps li.complete::before { content:"✓"; display:grid; place-items:center; border-color:var(--leaf); background:var(--leaf); color:white; font-size:12px; font-weight:900; }
+.steps li.current { color:var(--ink); }
+.steps li.current::before { border:6px solid var(--sprout); background:var(--ink); }
+.tabs { display:flex; max-width:100%; gap:5px; overflow-x:auto; border-bottom:1px solid var(--line); scrollbar-width:none; }
+.tabs > button { flex:0 0 auto; border:0; border-bottom:3px solid transparent; padding:10px 12px; background:transparent; color:var(--muted); font-weight:800; white-space:nowrap; }
+.tabs > button.active { border-color:var(--leaf); color:var(--ink); }
+.tabs > button span { margin-left:4px; color:var(--leaf); }
+.sticky-actions { position:sticky; bottom:18px; display:flex; justify-content:flex-end; gap:9px; border:1px solid var(--line); border-radius:15px; padding:10px; background:rgba(255,253,247,.94); box-shadow:var(--shadow-1); backdrop-filter:blur(10px); }
+.swatches { display:flex; flex-wrap:wrap; gap:12px; }
+.swatches .swatch { display:grid; width:66px; height:66px; place-items:end center; padding:5px; border-radius:14px; background:var(--sw); color:white; font-size:10px; font-weight:900; text-shadow:0 1px 3px #000; }
+.swatches .swatch.selected { outline:3px solid var(--focus); outline-offset:2px; }
+.segmented label { display:block; }
+.segmented label span { display:grid; min-height:38px; place-items:center; border-radius:8px; padding:0 13px; color:#4f5d55; font-size:13px; font-weight:750; white-space:nowrap; }
+.segmented label:has(input:checked) span { background:var(--surface); color:var(--ink); box-shadow:0 2px 8px rgba(23,33,28,.08); }
+.phone-screen { min-height:440px; background:var(--paper); }
+.phone-app-head { display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); padding:16px; background:var(--ink); color:white; }
+.phone-body { padding:18px; }
+.chart-y { position:absolute; inset:18px auto 42px 16px; display:flex; flex-direction:column; justify-content:space-between; color:var(--muted); font-size:11px; }
+.chart-bars { display:flex; height:210px; align-items:flex-end; gap:9px; margin-left:48px; padding:8px 0 30px; border-bottom:1px solid var(--line); }
+.chart-bars .bar { display:flex; min-width:0; flex:1; align-items:flex-end; justify-content:center; padding:7px 3px; color:#fff; font-weight:800; line-height:1.1; }
+.chart-bars .bar.selected { outline:3px solid var(--focus); outline-offset:2px; }
+.chart-bars .bar span { color:#fff; font-size:11px; overflow-wrap:anywhere; }
+@media (min-width:600px){ .catalog-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (min-width:1200px){ .catalog-grid.three { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+</style></head>
+<body class=""><a class="skip-link" href="#content">Skip to content</a><aside class="mock-note" aria-label="Mock status">Design mock</aside><div class="shell"><aside class="rail" aria-label="Sheaf navigation"><a class="rail-brand" href="library.html" aria-label="Sheaf home"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="rail-word">Sheaf</span></a><nav aria-label="Primary"><a class="rail-link active" href="library.html" aria-current="page"><span class="rail-icon" aria-hidden="true">A</span><span class="rail-label">All apps</span></a><a class="rail-link" href="upload.html"><span class="rail-icon" aria-hidden="true">+</span><span class="rail-label">New workbook</span></a><a class="rail-link" href="durable-homes.html"><span class="rail-icon" aria-hidden="true">D</span><span class="rail-label">Durable homes</span></a><a class="rail-link" href="capacity.html"><span class="rail-icon" aria-hidden="true">B</span><span class="rail-label">Device budgets</span></a><a class="rail-link" href="security-settings.html"><span class="rail-icon" aria-hidden="true">S</span><span class="rail-label">Security</span></a></nav><div class="rail-foot"><a class="rail-link" href="unlock.html"><span class="rail-icon" aria-hidden="true">L</span><span class="rail-label">Lock device</span></a><span class="rail-avatar" role="img" aria-label="Local profile">PH</span></div></aside><div class="shell-main"><header class="topbar"><a class="mobile-brand" href="library.html"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span>Sheaf</span></a><span class="desktop-only"><strong>Deletion marker</strong></span><div class="top-actions"><span class="badge danger">No resurrection</span></div></header><main id="content"><div class="page narrow"><section class="row between wrap" aria-labelledby="page-title"><div><div class="eyebrow">Dropbox Fieldwork · reconnect</div><h1 id="page-title">This app was deleted everywhere.</h1><p class="lede">A retained deletion marker prevents an offline copy from silently restoring the deleted app.</p></div></section>
+<div class="grid-2 section"><section class="panel panel-pad"><div class="row between"><div><div class="eyebrow">Zero-change path</div><h2>Market Day Archive</h2></div><span class="badge good">0 local changes</span></div><p class="muted">Deleted everywhere by this desktop on Sep 7, 6:22 PM. This phone’s last local copy matches the deleted baseline.</p><div class="notice info section"><span class="notice-icon">i</span><div><strong class="notice-title">Local copy will be removed</strong><p class="small muted">The app will not reappear in Dropbox. The deletion marker remains for other offline devices.</p></div></div><button class="button primary full">Acknowledge and remove local copy</button></section><section class="panel panel-pad" style="border-color:#dfb09f"><div class="row between"><div><div class="eyebrow">Rescue-required path</div><h2>Studio Stock</h2></div><span class="badge danger">3 changes only here</span></div><p class="muted">This phone edited three records after the copy that was deleted everywhere. Sheaf will not upload them over the marker or discard them silently.</p><div class="stack section"><button class="button primary">Export 3 changed records</button><button class="button secondary">Save an encrypted rescue bundle</button><button class="button secondary">Review change history</button><label class="choice"><input type="checkbox"><span><strong>I saved what I need or accept losing 3 changes.</strong><small>Required before acknowledging deletion.</small></span></label><button class="button danger" disabled>Acknowledge deletion</button></div></section></div><a class="button ghost section" href="library.html">← Return to library without deciding</a></div></main></div></div></body></html>
