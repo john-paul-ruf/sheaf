@@ -15,6 +15,11 @@
  * The app's identity and its theme are not hydration's to invent: they come
  * from the checkpoint that promotion wrote (D29). `theme_cbor` is `NOT NULL`,
  * and a default composed here would be a colour nobody chose.
+ *
+ * The tail is replayed by `applyEvents` — the same call a caller could make
+ * itself — so `hydrateApp(checkpoint, tail)` performs exactly the writes of
+ * `hydrateApp(checkpoint, [])` followed by `applyEvents(tail)`. That is CA-13's
+ * equivalence, held by construction rather than by coincidence.
  */
 
 import { CodecError } from "../../domain/model/errors.js";
@@ -22,6 +27,7 @@ import { compareDomainIds } from "../../domain/model/ids.js";
 import { storageKindForFieldType } from "../../domain/model/schema.js";
 import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../../domain/model/schema.js";
 import { encodeCanonical } from "../codecs/canonical-cbor.js";
+import { applyEvents } from "./apply-events.js";
 import {
   encodeAppTheme,
   encodeFrontier,
@@ -54,17 +60,19 @@ import {
 } from "./statements.js";
 import type {
   ProjectionCheckpointV1,
+  ProjectionCommitV1,
   ProjectionSchemaCacheV1,
 } from "./types.js";
 
 /**
- * Hydrates the projection from a decoded checkpoint. The caller has already
- * decrypted, decoded, and verified the checkpoint's own manifest; this reads no
- * storage of its own.
+ * Hydrates the projection from a decoded checkpoint and replays the commits
+ * that follow it. The caller has already decrypted, decoded, and verified the
+ * checkpoint's own manifest; this reads no storage of its own.
  */
 export async function hydrateApp(
   handle: ProjectionHandleV1,
   checkpoint: ProjectionCheckpointV1,
+  tailCommits: readonly ProjectionCommitV1[] = [],
 ): Promise<void> {
   assertUsable(handle);
   if (handle.hydrated) {
@@ -93,10 +101,12 @@ export async function hydrateApp(
     });
   }
 
-  handle.hydrated = true;
   for (const entry of checkpoint.frontier) {
-    handle.frontier.set(idKey(entry.deviceId), entry.commitSequence);
+    handle.frontier.set(idKey(entry.deviceId), entry);
   }
+  handle.hydrated = true;
+
+  await applyEvents(handle, tailCommits);
 }
 
 function assertCheckpointShape(checkpoint: ProjectionCheckpointV1): void {

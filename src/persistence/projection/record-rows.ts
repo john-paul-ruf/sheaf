@@ -27,6 +27,7 @@ import {
   type FieldDefV1,
   type StorageKindV1,
 } from "../../domain/model/schema.js";
+import type { AuthoredRecordV1 } from "../../domain/model/events.js";
 import { isAbsentCellValue, type CellValueV1 } from "../../domain/model/values.js";
 import { encodeAuthoredRecord, encodeMessageParameters } from "./cbor-values.js";
 import {
@@ -166,15 +167,14 @@ export function projectCellValue(
  */
 export function searchableTextFor(
   schema: ProjectionSchemaCacheV1,
-  record: ProjectionRecordV1,
+  record: AuthoredRecordV1,
 ): string {
   const values = new Map(
-    [...record.record.values].map(([fieldId, value]) => [idKey(fieldId), value]),
+    [...record.values].map(([fieldId, value]) => [idKey(fieldId), value]),
   );
   const parts: string[] = [];
 
-  for (const field of schema.fieldsByTable.get(idKey(record.record.tableId)) ??
-    []) {
+  for (const field of schema.fieldsByTable.get(idKey(record.tableId)) ?? []) {
     if (!field.isActive) {
       continue;
     }
@@ -291,7 +291,7 @@ function writeRecordContents(
 
   run(handle, INSERT_SEARCH_ROW, [
     recordPk,
-    searchableTextFor(handle.schema, record),
+    searchableTextFor(handle.schema, record.record),
   ]);
 }
 

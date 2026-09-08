@@ -193,6 +193,16 @@ export interface ProjectionCheckpointV1 {
 export interface ProjectionCommitV1 {
   readonly commit: EventCommitV1;
   readonly events: readonly F02DomainEventV1[];
+  /**
+   * The validator's issues for the record an event leaves behind, keyed by
+   * event index. The projection never re-validates (invariant 5), so a caller
+   * that holds a report — S05 does, at command time — hands it over here;
+   * anything not named simply has no issues.
+   */
+  readonly issuesByEventIndex?: ReadonlyMap<
+    number,
+    readonly ValidationIssueV1Input[]
+  >;
 }
 
 // --------------------------------------------------------------- queries out --

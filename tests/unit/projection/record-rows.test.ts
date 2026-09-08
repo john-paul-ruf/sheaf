@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asDomainId } from "../../../src/domain/model/ids.js";
 import type { FieldId } from "../../../src/domain/model/ids.js";
+import type { AuthoredRecordV1 } from "../../../src/domain/model/events.js";
 import type { FieldDefV1, FieldTypeV1 } from "../../../src/domain/model/schema.js";
 import {
   BLANK_VALUE,
@@ -11,6 +12,7 @@ import {
   invalidPreservedValue,
   MISSING_VALUE,
   textValue,
+  type CellValueV1,
 } from "../../../src/domain/model/values.js";
 import {
   deriveIssueId,
@@ -22,14 +24,10 @@ import {
   decimalOrderKeyV1,
   textSortKeyV1,
 } from "../../../src/persistence/projection/sort-keys.js";
-import type {
-  ProjectionRecordV1,
-  ProjectionSchemaCacheV1,
-} from "../../../src/persistence/projection/types.js";
+import type { ProjectionSchemaCacheV1 } from "../../../src/persistence/projection/types.js";
 
 const tableId = asDomainId("table", new Uint8Array(16).fill(1));
 const recordId = asDomainId("record", new Uint8Array(16).fill(2));
-const commitId = asDomainId("commit", new Uint8Array(16).fill(3));
 const optionId = asDomainId("option", new Uint8Array(16).fill(4));
 
 let nextField = 10;
@@ -154,17 +152,13 @@ describe("searchable text", () => {
     optionLabels: new Map([[idKey(optionId), "Overdue"]]),
   };
 
-  const record = (values: readonly [FieldId, ReturnType<typeof textValue>][]): ProjectionRecordV1 => ({
-    record: {
-      recordId,
-      tableId,
-      values: new Map(values),
-      provenance: new Map(),
-    },
-    recordRevision: 0n,
-    createdCommitId: commitId,
-    updatedCommitId: commitId,
-    issues: [],
+  const record = (
+    values: readonly [FieldId, CellValueV1][],
+  ): AuthoredRecordV1 => ({
+    recordId,
+    tableId,
+    values: new Map(values),
+    provenance: new Map(),
   });
 
   it("indexes what a person reads, in schema order", () => {

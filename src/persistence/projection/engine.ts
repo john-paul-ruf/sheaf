@@ -34,7 +34,10 @@ import {
   type ProjectionMigrationHost,
   type ProjectionMigrationScripts,
 } from "../../migrations/index.js";
-import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
+import type {
+  EventCommitV1,
+  FrontierEntryV1,
+} from "../../migrations/004_event_format_v1.js";
 import type { ProjectionSchemaCacheV1, Sha256Fn } from "./types.js";
 import { READ_USER_VERSION } from "./statements.js";
 
@@ -66,8 +69,8 @@ export interface ProjectionHandleV1 {
    * commit in each segment).
    */
   readonly appliedCommits: EventCommitV1[];
-  /** Highest applied commit sequence per device, keyed by device ID text. */
-  readonly frontier: Map<string, bigint>;
+  /** The applied frontier: one entry per device, keyed by its ID text. */
+  readonly frontier: Map<string, FrontierEntryV1>;
   hydrated: boolean;
   disposed: boolean;
 }

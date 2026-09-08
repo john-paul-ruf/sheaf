@@ -48,7 +48,10 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   SEARCH_RECORDS_FIRST: 3,
   SEARCH_RECORDS_AFTER: 4,
   SELECT_RECORD_BY_ID: 1,
-  SELECT_RECORD_PK_BY_ID: 1,
+  SELECT_RECORD_STATE_BY_ID: 1,
+  SELECT_RECORDS_FOR_TABLE: 1,
+  SELECT_SCHEMA_REVISION: 0,
+  SELECT_PROJECTION_APP_ID: 0,
   SELECT_CELLS_FOR_RECORD: 1,
   SELECT_ISSUES_FOR_RECORD: 1,
   PAGE_CHANGE_HISTORY_FIRST: 1,
@@ -70,9 +73,9 @@ const ALLOWED_LITERALS = new Set([
   "'record.deleted'",
 ]);
 
-const sqlEntries = Object.entries(statements).filter(
-  (entry): entry is [string, string] => typeof entry[1] === "string",
-);
+const sqlEntries = Object.entries(
+  statements as Record<string, unknown>,
+).filter((entry): entry is [string, string] => typeof entry[1] === "string");
 
 describe("projection statements", () => {
   it("declares every statement it ships, with its parameter count", () => {

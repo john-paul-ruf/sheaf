@@ -243,9 +243,20 @@ SELECT ${RECORD_SUMMARY_COLUMNS}, r.created_commit_id, r.updated_commit_id
   FROM records AS r
  WHERE r.record_id = ?;`;
 
-export const SELECT_RECORD_PK_BY_ID =
-  "SELECT record_pk, table_id, record_revision, created_commit_id" +
-  " FROM records WHERE record_id = ?;";
+/** What replay needs before it may touch a record: identity, then state. */
+export const SELECT_RECORD_STATE_BY_ID = `
+SELECT record_pk, table_id, record_revision, created_commit_id, authored_cbor
+  FROM records WHERE record_id = ?;`;
+
+/** Bounded by one table; used to rebuild search text after an enum rename. */
+export const SELECT_RECORDS_FOR_TABLE = `
+SELECT record_pk, authored_cbor FROM records WHERE table_id = ? ORDER BY record_pk;`;
+
+export const SELECT_PROJECTION_APP_ID =
+  "SELECT app_id FROM projection_meta WHERE singleton = 1;";
+
+export const SELECT_SCHEMA_REVISION =
+  "SELECT schema_revision FROM app_state WHERE singleton = 1;";
 
 export const SELECT_CELLS_FOR_RECORD = `
 SELECT field_id, origin, value_kind, text_value, text_sort_key, decimal_value,
