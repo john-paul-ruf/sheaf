@@ -14,3 +14,24 @@ Extracted from specs/architecture.md §Module Structure (Entry). F01 scope.
 
 ## Change History
 - 2026-09-08 — fragment seeded (Forge, F01 planning). Placeholder: SESSION-01; real entry: SESSION-07.
+
+<!-- foundation-first-unlock SESSION-01 -->
+- 2026-09-08 — SESSION-01 landed the placeholder (checkpoint 1, final revision
+  `7767341`): React 19 root rendering a static "Sheaf" element, no composition.
+  It also publishes served-artifact identity that SESSION-07 **must preserve**
+  when rewriting `src/main.tsx`: `window.__sheafBuildId = __SHEAF_BUILD_ID__`
+  and `document.documentElement.dataset.sheafBuildId`.
+- 2026-09-08 — SESSION-01 added a non-product **test-harness entry**
+  (`harness.html` + `src/harness/`, no module ID; D11): second Vite rollup
+  input, never imported by `src/main.tsx` (proved by
+  `tests/browser/harness.smoke.spec.ts`). Public surface
+  (`src/harness/main.ts`, exported type `SheafHarness`):
+  `window.__sheafHarness = { buildId, listModules(), listWorkers(),
+  module<T>(specifier), worker(specifier) }`; specifiers are root-absolute
+  source paths (e.g. `/src/workers/data.worker.ts`); resolution via
+  `import.meta.glob` over `/src/**/*.ts(x)` (excl. `*.d.ts`, `*.worker.ts`,
+  `src/harness/**`, `src/main.tsx`) plus `/src/**/*.worker.ts` with `?worker`
+  — new `src/**` files are reachable without editing any S01-owned file.
+  Must not: hold product behavior; be imported by the production entry graph;
+  be precached by the F08 service worker (`harness.html` + chunks incl. the
+  ~534 kB libsodium probe-worker chunk are test artifacts — recorded F08 debt).
