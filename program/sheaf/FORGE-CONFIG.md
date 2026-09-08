@@ -256,6 +256,7 @@ needs real Dropbox/OneDrive test accounts, and is never a checkpoint gate.
 4. **Share/open-in is platform-conditional.** Chromium share-target only; WebKit gets the file picker and must not claim share-target status (approved clarification in architecture.md).
 5. **UI surfaces come from the design inventory.** A missing surface is a design-fill seam for Jikijitsu, never an invention. Mock Tailwind classes are reference only — production styling is CSS Modules + tokens.
 6. **Format versions come from `src/migrations/index.ts`** (`CURRENT_FORMAT_VERSIONS`). No session redeclares them; consume the export.
+7. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N.
 
 ## Genesis Sources
 
