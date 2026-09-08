@@ -35,3 +35,16 @@ Extracted from specs/architecture.md §Module Structure (Entry). F01 scope.
   Must not: hold product behavior; be imported by the production entry graph;
   be precached by the F08 service worker (`harness.html` + chunks incl. the
   ~534 kB libsodium probe-worker chunk are test artifacts — recorded F08 debt).
+
+<!-- foundation-first-unlock SESSION-07 -->
+- 2026-09-08 — SESSION-07 landed (final revision `9174b6d`). Delta:
+
+**M55 — Entry (`src/main.tsx`)**
+- Replaced SESSION-01's placeholder with composition only: `import
+  "./ui/theme/base.css"` (the shell's single stylesheet, imported exactly once
+  in the program), `applyShellTheme(document.documentElement)` with no
+  variables, then `<SheafApp/>` under the React root.
+- SESSION-01's served-artifact identity is **preserved verbatim**:
+  `window.__sheafBuildId = __SHEAF_BUILD_ID__` and
+  `document.documentElement.dataset.sheafBuildId` (D15).
+- Still imports nothing from `src/harness/**`.
