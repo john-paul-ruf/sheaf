@@ -20,6 +20,7 @@ export type {
 
 export { hydrateApp } from "./hydrate.js";
 export { applyEvents } from "./apply-events.js";
+export { executeQuery } from "./query-exec.js";
 
 export {
   DECIMAL_ORDER_KEY_BYTES,
