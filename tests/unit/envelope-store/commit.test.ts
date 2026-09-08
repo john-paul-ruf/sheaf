@@ -153,3 +153,97 @@ describe("commitEnvelopes", () => {
     await expect.poll(() => seen).toEqual([2]);
   });
 });
+
+/**
+ * The keyed-delete path (F02 S04, database.md § Import staging cancellation
+ * step 1 and § Encrypted mark-and-sweep step 5). Cancelling an import removes
+ * the wrap that reaches the staged bytes in the same transaction that
+ * replaces the catalog, so these assertions are about *exactness*: the named
+ * row and only the named row, and nothing at all when the caller is stale.
+ */
+describe("commitEnvelopes with deleteStorageIds", () => {
+  const digestOf = async (seed: number): Promise<string | null> => {
+    const frame = await getEnvelope(storageId(seed));
+    return frame === null || frame === undefined
+      ? null
+      : [...frame.ciphertext, ...frame.nonce].join(",");
+  };
+
+  beforeEach(async () => {
+    await commitEnvelopes({
+      expectedRevision: 1,
+      expectedWriterEpoch: 0,
+      addFrames: [opaqueFrame(50, 2n), opaqueFrame(51, 2n), opaqueFrame(52, 2n)],
+    });
+  });
+
+  it("removes exactly the named rows and leaves the others byte-identical", async () => {
+    const untouched = [await digestOf(11), await digestOf(52)];
+
+    const revision = await commitEnvelopes({
+      expectedRevision: 2,
+      expectedWriterEpoch: 0,
+      addFrames: [opaqueFrame(60, 3n)],
+      deleteStorageIds: [storageId(50), storageId(51)],
+      bootstrapPatch: { catalogStorageId: storageIdText(60) },
+    });
+
+    expect(revision).toBe(3);
+    expect(await getEnvelope(storageId(50))).toBeUndefined();
+    expect(await getEnvelope(storageId(51))).toBeUndefined();
+    // The survivors are untouched, not merely present: a delete that rewrote
+    // a neighbour would break every AAD built from its stored row.
+    expect([await digestOf(11), await digestOf(52)]).toEqual(untouched);
+    expect(await getEnvelope(storageId(60))).toBeDefined();
+    expect((await readBootstrap())?.catalogStorageId).toBe(storageIdText(60));
+  });
+
+  it("deletes nothing when the revision or writer epoch is stale", async () => {
+    const before = [await digestOf(50), await digestOf(51), await digestOf(52)];
+
+    for (const stale of [
+      { expectedRevision: 1, expectedWriterEpoch: 0 },
+      { expectedRevision: 2, expectedWriterEpoch: 9 },
+    ]) {
+      await expect(
+        commitEnvelopes({
+          ...stale,
+          addFrames: [],
+          deleteStorageIds: [storageId(50), storageId(51), storageId(52)],
+        }),
+      ).rejects.toThrow(RevisionConflictError);
+    }
+
+    // A losing collector destroys nothing the winning commit still reaches.
+    // Two mechanisms give this: the gate precedes the deletes, and the whole
+    // transaction aborts anyway. Verified to fail against a delete that runs
+    // outside the transaction — the case rollback cannot cover; an in-
+    // transaction reordering stays green, because there the abort is enough.
+    expect([await digestOf(50), await digestOf(51), await digestOf(52)]).toEqual(
+      before,
+    );
+    expect((await readBootstrap())?.transactionRevision).toBe(2);
+  });
+
+  it("treats an absent id as a no-op, so a bounded sweep can resume", async () => {
+    await commitEnvelopes({
+      expectedRevision: 2,
+      expectedWriterEpoch: 0,
+      addFrames: [],
+      deleteStorageIds: [storageId(50)],
+    });
+
+    // Replaying the same cursor after an interruption must succeed rather
+    // than fail on a row the previous batch already removed.
+    const revision = await commitEnvelopes({
+      expectedRevision: 3,
+      expectedWriterEpoch: 0,
+      addFrames: [],
+      deleteStorageIds: [storageId(50), storageId(99), storageId(51)],
+    });
+
+    expect(revision).toBe(4);
+    expect(await getEnvelope(storageId(51))).toBeUndefined();
+    expect(await getEnvelope(storageId(52))).toBeDefined();
+  });
+});
