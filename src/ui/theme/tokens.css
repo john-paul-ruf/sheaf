@@ -1,0 +1,168 @@
+/*
+ * M40 — Sheaf shell tokens.
+ *
+ * Ported from specs/design.md (§Design Language, §Layout Classes,
+ * §Accessibility Contract) and the `:root` blocks of the approved mocks.
+ * This file is the ONLY place in src/ui/** that may contain a colour literal.
+ *
+ * OWNERSHIP SPLIT (architecture §UI primitives, layout, and theme —
+ * "Safety semantics cannot be recolored or renamed by an app theme"):
+ *
+ *   Shell palette + scale below .... presentation. A future generated-app
+ *                                    theme remaps a small semantic set
+ *                                    (app-ink/canvas/surface/primary/accent/
+ *                                    muted, design.md §Per-app theming
+ *                                    contract). Those slots arrive with their
+ *                                    first consumer; F01 has none.
+ *
+ *   §System-owned semantics ........ danger, warning, info, success, the focus
+ *                                    ring, and the minimum hit target. A theme
+ *                                    may NEVER remap these. `applyShellTheme`
+ *                                    (./theme.ts) rejects any attempt at
+ *                                    runtime; `SYSTEM_OWNED_PROPERTIES` there
+ *                                    is the machine-readable copy of the list
+ *                                    below and is asserted against this file.
+ */
+
+@layer tokens {
+  :root {
+    /* ---- Palette (design.md §Color palette) ---- */
+    --ink-950: #17211c;
+    --ink-800: #2b3932;
+    --paper-50: #f7f5ee;
+    --paper-100: #efece2;
+    --paper-200: #e2ded2;
+    --white: #fffdf8;
+    --leaf-700: #2d5a4b;
+    --leaf-500: #4f7d6c;
+    --sprout-300: #cbea80;
+    --clay-600: #a84f32;
+    --marigold-500: #c78316;
+    --river-600: #396b8c;
+    --violet-600: #705b91;
+
+    /* ---- Support values carried by the mocks' `:root` and rules, not by
+           design.md's palette table (hairline, tints, secondary text). ---- */
+    --line: #ded9cc;
+    --clay-pale: #f4ded5;
+    --marigold-pale: #f6ead0;
+    --river-pale: #dcebf3;
+    --leaf-pale: #e0eee7;
+    --violet-pale: #ece6f4;
+    --clay-ink: #833b26;
+    --marigold-ink: #7b4d08;
+    --river-ink: #285770;
+    --leaf-ink: #21503f;
+    --violet-ink: #5d477c;
+
+    /* ---- Surface + text roles ---- */
+    --color-canvas: var(--paper-50);
+    --color-panel: var(--paper-100);
+    --color-surface: var(--white);
+    --color-text: var(--ink-950);
+    --color-text-muted: #56645c;
+    --color-border: var(--line);
+    --color-border-input: #cfc9ba;
+    --color-disabled-fill: var(--paper-200);
+    --color-action: var(--leaf-700);
+    --color-action-text: var(--white);
+    --color-accent: var(--leaf-500);
+    --color-selected-on-ink: var(--sprout-300);
+
+    /* ---- §System-owned semantics — never theme-overridable ----
+       Text/icon always accompanies these; hue alone never carries state
+       (design.md §Color palette, §Accessibility Contract). */
+    --color-danger: var(--clay-600);
+    --color-warning: var(--marigold-500);
+    --color-info: var(--river-600);
+    --color-success: var(--leaf-700);
+    --color-danger-tint: var(--clay-pale);
+    --color-warning-tint: var(--marigold-pale);
+    --color-info-tint: var(--river-pale);
+    --color-success-tint: var(--leaf-pale);
+    --color-danger-ink: var(--clay-ink);
+    --color-warning-ink: var(--marigold-ink);
+    --color-info-ink: var(--river-ink);
+    --color-success-ink: var(--leaf-ink);
+
+    /* Focus: "3px Leaf/Sprout outline with 2px separation … remains visible
+       on dark themed chrome" (design.md §Accessibility Contract). Leaf on
+       paper, Sprout on ink — Sprout on Paper 50 is ~1.2:1 and would not be
+       visible at all. */
+    --focus-ring-width: 3px;
+    --focus-ring-offset: 2px;
+    --focus-ring-color: var(--leaf-700);
+    --focus-ring-color-on-ink: var(--sprout-300);
+    --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+
+    /* Minimum hit area (design.md §Accessibility Contract, §Spacing system).
+       Kept literal here so the one number has one home. */
+    --target-min: 44px;
+
+    /* ---- Spacing (design.md §Spacing system: 4px base) ---- */
+    --space-4: 4px;
+    --space-8: 8px;
+    --space-12: 12px;
+    --space-16: 16px;
+    --space-20: 20px;
+    --space-24: 24px;
+    --space-32: 32px;
+    --space-40: 40px;
+    --space-48: 48px;
+    --space-64: 64px;
+    --gutter-compact: 16px;
+    --gutter-wide: 24px;
+    --gutter-desktop: 32px;
+
+    /* ---- Shape (design.md §Shape) ---- */
+    --radius-control: 10px;
+    --radius-card: 16px;
+    --radius-panel: 22px;
+    --radius-pill: 999px;
+
+    /* ---- Shadow (design.md §Shadow and borders).
+           Level 0 is a 1px hairline border, not a shadow. ---- */
+    --shadow-level-0: 0 1px 0 rgb(23 33 28 / 2%);
+    --shadow-level-1: 0 8px 24px rgb(23 33 28 / 8%);
+    --shadow-level-2: 0 20px 60px rgb(23 33 28 / 16%);
+
+    /* ---- Typography (design.md §Typography) ---- */
+    --font-display: charter, "Iowan Old Style", georgia, serif;
+    --font-interface: "Avenir Next", "Segoe UI", "Helvetica Neue", arial, sans-serif;
+    --font-mono: ui-monospace, sfmono-regular, menlo, monospace;
+    --text-caption: 12px;
+    --text-supporting: 14px;
+    --text-body: 16px;
+    --text-section: 20px;
+    --text-page: 28px;
+    --text-display: 36px;
+    --line-height-body: 1.45;
+    --line-height-heading: 1.15;
+    --weight-body: 450;
+    --weight-control: 600;
+    --weight-status: 700;
+
+    /* ---- Motion (design.md §Motion) ---- */
+    --duration-control: 160ms;
+    --duration-panel: 240ms;
+    --easing-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+    /* ---- Stacking. Declared centrally so no component invents a z-index. ---- */
+    --z-sticky: 20;
+    --z-rail: 30;
+    --z-bottom-bar: 40;
+    --z-overlay: 60;
+    --z-skip-link: 100;
+  }
+
+  /* "no required information depends on an animation completing"
+     (design.md §Motion). Overriding the duration tokens disarms every
+     transition in src/ui/** without an `!important` sledgehammer, because
+     nothing below this file writes a literal duration. */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --duration-control: 1ms;
+      --duration-panel: 1ms;
+    }
+  }
+}

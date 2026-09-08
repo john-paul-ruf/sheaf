@@ -1,0 +1,142 @@
+/*
+ * M40 — Sheaf shell base layer.
+ *
+ * Replaces the mocks' Tailwind Preflight (FORGE-CONFIG Custom Rule 5: the CDN
+ * is mock scaffolding; production styling is CSS Modules + cascade layers +
+ * custom properties). Importing this file gives a surface the whole shell:
+ * reset, tokens, and element defaults.
+ *
+ * LAYER ORDER — `reset, tokens, base`, weakest first. Component
+ * `*.module.css` files are deliberately UNLAYERED, so they win over `base`
+ * without a specificity war or a single `!important` (ENSO.md §Specificity).
+ */
+
+@layer reset, tokens, base;
+
+@import "./tokens.css";
+
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body,
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  figure,
+  blockquote,
+  dl,
+  dd,
+  ol,
+  ul {
+    margin: 0;
+  }
+
+  ol,
+  ul {
+    padding: 0;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    display: block;
+    max-width: 100%;
+  }
+
+  /* Editable controls never fall below 16px: smaller text triggers mobile
+     zoom and fails design.md §Typography. */
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    font-size: max(1rem, var(--text-body));
+    color: inherit;
+  }
+
+  /* design.md §Accessibility Contract: minimum hit area is 44x44px, "even
+     when their visual mark is smaller". */
+  button,
+  input,
+  select,
+  textarea,
+  summary {
+    min-height: var(--target-min);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-text);
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    background: var(--color-canvas);
+    color: var(--color-text);
+    font-family: var(--font-interface);
+    font-size: var(--text-body);
+    font-weight: var(--weight-body);
+    line-height: var(--line-height-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: var(--weight-status);
+    line-height: var(--line-height-heading);
+  }
+
+  h1 {
+    font-size: var(--text-page);
+    letter-spacing: -0.025em;
+  }
+
+  h2 {
+    font-size: var(--text-section);
+    letter-spacing: -0.015em;
+  }
+
+  h3 {
+    font-family: var(--font-interface);
+    font-size: var(--text-body);
+    font-weight: var(--weight-control);
+  }
+
+  /* Data is read in columns; digits must not jitter (design.md §Typography). */
+  output,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  ::selection {
+    background: var(--sprout-300);
+    color: var(--ink-950);
+  }
+}
