@@ -13,6 +13,7 @@
  */
 
 import type { FieldId, OptionId, SheetId, TableId } from "./ids.js";
+import type { CellValueKindV1 } from "./values.js";
 
 export const FIELD_TYPE_KINDS = Object.freeze([
   "date",
@@ -90,6 +91,43 @@ export function storageKindForFieldType(type: FieldTypeV1): StorageKindV1 {
  * (invariant 7). The projection's `is_computed` column is written `0` for
  * every F02 field, and F04's formula work adds the fields with their producer.
  */
+/**
+ * The one cell-value kind a field of this type accepts. Everything else is a
+ * type issue: the value is preserved and flagged, never coerced. The absent
+ * states (`missing`, `blank`) and `invalid-preserved` are legal for every
+ * field type and so are not named here.
+ */
+export function expectedCellKindForFieldType(
+  type: FieldTypeV1,
+): Extract<
+  CellValueKindV1,
+  "text" | "decimal" | "date" | "boolean" | "enum" | "reference"
+> {
+  switch (type.kind) {
+    case "currency":
+    case "number":
+      return "decimal";
+    case "date":
+      return "date";
+    case "boolean":
+      return "boolean";
+    case "enum":
+      return "enum";
+    case "reference":
+      return "reference";
+    case "phone":
+    case "email":
+    case "url":
+    case "address":
+    case "text":
+      return "text";
+    default: {
+      const unreachable: never = type;
+      return unreachable;
+    }
+  }
+}
+
 export interface FieldDefV1 {
   readonly fieldId: FieldId;
   readonly tableId: TableId;
