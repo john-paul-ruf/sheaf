@@ -100,7 +100,6 @@ import {
   appPath,
   fallbackRoute,
   guardRoute,
-  type RoutePath,
   type SessionPhase,
 } from "./guards.js";
 
@@ -534,20 +533,40 @@ function ImportArea({
   const picked = useRef<PickedWorkbookV1 | null>(null);
 
   const vm = selectImportVm(snapshot);
-  const stagePath: RoutePath =
-    vm.screen === "SCR-016" ? ROUTE_PATHS.upload : ROUTE_PATHS.importFlow;
+  const atLanding = vm.screen === "SCR-016";
+  const stagePath = atLanding ? ROUTE_PATHS.upload : ROUTE_PATHS.importFlow;
   const onImportPath =
     pathname === ROUTE_PATHS.upload || pathname === ROUTE_PATHS.importFlow;
 
+  /**
+   * The run stopped: it refused the file, refused its size, ended, or created
+   * the app. Every one of those states still accepts another file — except
+   * `done`, which is a top-level final state and accepts nothing — so the
+   * actor is replaced once the user has *left* the import area.
+   *
+   * Leaving is the trigger, not the state, and that ordering is load-bearing:
+   * a refusal arriving while the user is still on `#/upload` would otherwise
+   * replace the actor that had just produced it, and the refusal would never
+   * be seen.
+   */
+  const runIsOver =
+    vm.screen === "SCR-019" ||
+    vm.screen === "SCR-021" ||
+    (vm.screen === "SCR-022" && !vm.busy) ||
+    (vm.screen === "SCR-023" && vm.step === "done");
+
+  useEffect(() => {
+    if (runIsOver && !onImportPath) onRunEnded();
+  }, [runIsOver, onImportPath, onRunEnded]);
+
   // The app exists. S08 serves `#/app/:appId`; until it does, CA-07's
   // unknown-route rule lands this on the library, where the new tile is.
-  const done = vm.screen === "SCR-023" && vm.step === "done" ? vm : null;
-  const doneAppId = done?.appId;
+  const doneAppId =
+    vm.screen === "SCR-023" && vm.step === "done" ? vm.appId : undefined;
   useEffect(() => {
     if (doneAppId === undefined) return;
     void navigate(appPath(doneAppId));
-    onRunEnded();
-  }, [doneAppId, navigate, onRunEnded]);
+  }, [doneAppId, navigate]);
 
   const chooseFile = useCallback(
     (files: FileList | null) => {
@@ -563,10 +582,6 @@ function ImportArea({
     [send],
   );
 
-  const goToUpload = useCallback(() => {
-    void navigate(ROUTE_PATHS.upload);
-  }, [navigate]);
-
   const goToLibrary = useCallback(() => {
     void navigate(ROUTE_PATHS.library);
   }, [navigate]);
@@ -575,15 +590,15 @@ function ImportArea({
     return children;
   }
 
-  // A deep link into the wrong half of the flow lands on the stage the run is
-  // actually in, rather than on a screen with nothing behind it.
+  // A deep link lands on the stage the run is actually in, rather than on a
+  // screen with nothing behind it: `#/import` with no run in flight is the
+  // landing, and `#/upload` during a run is the run.
   if (pathname !== stagePath) {
     return <Navigate replace to={stagePath} />;
   }
 
   return (
     <ImportStageScreens
-      onChooseAnotherFile={goToUpload}
       onReturnToLibrary={goToLibrary}
       onSelectFiles={chooseFile}
       picked={picked.current}
@@ -602,7 +617,6 @@ function ImportArea({
  * than falling through to a blank page.
  */
 function ImportStageScreens({
-  onChooseAnotherFile,
   onReturnToLibrary,
   onSelectFiles,
   picked,
@@ -610,7 +624,6 @@ function ImportStageScreens({
   topBarActions,
   vm,
 }: {
-  readonly onChooseAnotherFile: () => void;
   readonly onReturnToLibrary: () => void;
   readonly onSelectFiles: (files: FileList | null) => void;
   readonly picked: PickedWorkbookV1 | null;
@@ -633,7 +646,8 @@ function ImportStageScreens({
       return (
         <DelimitedTargetScreen
           nav={nav}
-          onChooseAnotherFile={onChooseAnotherFile}
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          onSelectFiles={onSelectFiles}
           onContinue={() => {
             send({ type: "CONTINUE" });
           }}
@@ -665,7 +679,8 @@ function ImportStageScreens({
       return (
         <PreflightOverBudgetScreen
           nav={nav}
-          onChooseAnotherFile={onChooseAnotherFile}
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          onSelectFiles={onSelectFiles}
           topBarActions={topBarActions}
           vm={vm}
         />
@@ -685,7 +700,8 @@ function ImportStageScreens({
       return (
         <ImportRefusedScreen
           nav={nav}
-          onChooseAnotherFile={onChooseAnotherFile}
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          onSelectFiles={onSelectFiles}
           onReturnToLibrary={onReturnToLibrary}
           topBarActions={topBarActions}
           vm={vm}
@@ -695,7 +711,8 @@ function ImportStageScreens({
       return (
         <ImportFailedScreen
           nav={nav}
-          onChooseAnotherFile={onChooseAnotherFile}
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          onSelectFiles={onSelectFiles}
           onReturnToLibrary={onReturnToLibrary}
           topBarActions={topBarActions}
           vm={vm}

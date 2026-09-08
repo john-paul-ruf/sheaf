@@ -7,6 +7,10 @@ import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
+import {
+  ChooseAnotherFileButton,
+  type WorkbookPickerProps,
+} from "./upload-screen.js";
 import styles from "./import.module.css";
 
 /**
@@ -113,10 +117,9 @@ export function refusalCard(vm: ImportRefusedVm): RefusalCardV1 {
 export const RELEASE_SCOPE =
   "This release reads CSV and TSV. Workbook formats arrive in a later release.";
 
-export interface ImportRefusedScreenProps {
+export interface ImportRefusedScreenProps extends WorkbookPickerProps {
   readonly vm: ImportRefusedVm;
   readonly nav: SecurityNavigation;
-  readonly onChooseAnotherFile: () => void;
   readonly onReturnToLibrary: () => void;
   readonly topBarActions?: ReactNode;
 }
@@ -124,7 +127,8 @@ export interface ImportRefusedScreenProps {
 export function ImportRefusedScreen({
   vm,
   nav,
-  onChooseAnotherFile,
+  acceptedFileTypes,
+  onSelectFiles,
   onReturnToLibrary,
   topBarActions,
 }: ImportRefusedScreenProps): ReactNode {
@@ -173,9 +177,10 @@ export function ImportRefusedScreen({
         </StatusBanner>
 
         <div className={cx(styles["actions"])}>
-          <Button onPress={onChooseAnotherFile} tone="primary">
-            Choose another file
-          </Button>
+          <ChooseAnotherFileButton
+            acceptedFileTypes={acceptedFileTypes}
+            onSelectFiles={onSelectFiles}
+          />
           <Button onPress={onReturnToLibrary}>Return to library</Button>
         </div>
       </div>

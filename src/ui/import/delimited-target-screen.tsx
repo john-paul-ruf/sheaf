@@ -12,6 +12,10 @@ import { cx } from "../primitives/class-names.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { TextField } from "../primitives/text-field.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
+import {
+  ChooseAnotherFileButton,
+  type WorkbookPickerProps,
+} from "./upload-screen.js";
 import styles from "./import.module.css";
 
 /**
@@ -97,13 +101,12 @@ export function describeContradiction(
   return `This file is named “.${contradiction.declaredExtension}”, which usually holds ${contradiction.expectedKind}, but its content is ${contradiction.detectedKind}. Sheaf goes by the content.`;
 }
 
-export interface DelimitedTargetScreenProps {
+export interface DelimitedTargetScreenProps extends WorkbookPickerProps {
   readonly vm: DelimitedTargetVm;
   readonly nav: SecurityNavigation;
   readonly onSetAppName: (text: string) => void;
   readonly onSetTableName: (text: string) => void;
   readonly onContinue: () => void;
-  readonly onChooseAnotherFile: () => void;
   readonly topBarActions?: ReactNode;
 }
 
@@ -113,7 +116,8 @@ export function DelimitedTargetScreen({
   onSetAppName,
   onSetTableName,
   onContinue,
-  onChooseAnotherFile,
+  acceptedFileTypes,
+  onSelectFiles,
   topBarActions,
 }: DelimitedTargetScreenProps): ReactNode {
   const submit = (event: FormEvent<HTMLFormElement>): void => {
@@ -235,7 +239,11 @@ export function DelimitedTargetScreen({
                 Check size first
               </Button>
             )}
-            <Button onPress={onChooseAnotherFile}>Choose another file</Button>
+            <ChooseAnotherFileButton
+              acceptedFileTypes={acceptedFileTypes}
+              onSelectFiles={onSelectFiles}
+              tone="secondary"
+            />
           </div>
         </form>
       </div>

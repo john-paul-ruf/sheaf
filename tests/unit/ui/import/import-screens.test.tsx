@@ -155,7 +155,8 @@ describe("SCR-017 — the delimited target keeps its estimate flagged", () => {
   ): React.ReactElement => (
     <DelimitedTargetScreen
       nav={nav}
-      onChooseAnotherFile={noop}
+      acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+      onSelectFiles={noop}
       onContinue={noop}
       onSetAppName={noop}
       onSetTableName={noop}
@@ -274,7 +275,8 @@ describe("SCR-018 / SCR-019 — the size answer (D20)", () => {
     const { rerender } = await render(
       <PreflightOverBudgetScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         vm={over}
       />,
     );
@@ -286,7 +288,8 @@ describe("SCR-018 / SCR-019 — the size answer (D20)", () => {
     await rerender(
       <PreflightOverBudgetScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         vm={{ ...over, exceeded: "estimated-cells" }}
       />,
     );
@@ -298,7 +301,8 @@ describe("SCR-018 / SCR-019 — the size answer (D20)", () => {
     await render(
       <PreflightOverBudgetScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         vm={over}
       />,
     );
@@ -406,7 +410,8 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     await render(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={refused(token)}
       />,
@@ -425,7 +430,8 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     const { rerender } = await render(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={refused("workbook-format-later-release", "ooxml")}
       />,
@@ -438,7 +444,8 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     await rerender(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={refused("workbook-format-later-release", "ods")}
       />,
@@ -452,7 +459,8 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     const { rerender } = await render(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={refused("pdf-file")}
       />,
@@ -464,7 +472,8 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     await rerender(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={refused("pages-file")}
       />,
@@ -499,7 +508,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     const { rerender } = await render(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended()}
       />,
@@ -513,7 +523,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await rerender(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended({ cleanup: { kind: "unconfirmed" } })}
       />,
@@ -526,7 +537,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await rerender(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended({ cleanup: { kind: "nothing-to-remove" } })}
       />,
@@ -539,7 +551,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     const { rerender } = await render(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended()}
       />,
@@ -549,7 +562,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await rerender(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended({
           step: "failed",
@@ -571,7 +585,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await render(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended({ step: "failed", outcome: "failed", reason: "parse-failed" })}
       />,
@@ -603,7 +618,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     const { rerender } = await render(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended()}
       />,
@@ -615,7 +631,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await rerender(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onRetrySameFile={retry}
         onReturnToLibrary={noop}
         vm={ended()}
@@ -633,7 +650,8 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
     await render(
       <ImportFailedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={ended({ step: "cancelling", busy: true })}
       />,
@@ -650,7 +668,8 @@ describe("every import action meets the minimum hit area", () => {
     await render(
       <ImportRefusedScreen
         nav={nav}
-        onChooseAnotherFile={noop}
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        onSelectFiles={noop}
         onReturnToLibrary={noop}
         vm={{
           screen: "SCR-021",

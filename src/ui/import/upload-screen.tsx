@@ -47,6 +47,34 @@ const GROUP_DETAIL: Readonly<Record<AcceptedFormatGroupVm["id"], string>> =
       "Sheaf recognises these files and refuses them whole. Nothing partial is added to the library.",
   });
 
+/**
+ * What every screen that offers "choose another file" actually needs.
+ *
+ * The machine accepts `CHOOSE_FILE` from any state that is not mid-run, so a
+ * refused, over-budget or ended run restarts by *picking a file* — not by
+ * navigating back to the landing and picking one there. Making the control a
+ * picker rather than a link is what keeps that one press.
+ */
+export interface WorkbookPickerProps {
+  /** The extensions the platform picker offers (M51). */
+  readonly acceptedFileTypes: readonly string[];
+  readonly onSelectFiles: (files: FileList | null) => void;
+}
+
+export function ChooseAnotherFileButton({
+  acceptedFileTypes,
+  onSelectFiles,
+  tone = "primary",
+}: WorkbookPickerProps & {
+  readonly tone?: "primary" | "secondary";
+}): ReactNode {
+  return (
+    <FileTrigger acceptedFileTypes={acceptedFileTypes} onSelect={onSelectFiles}>
+      <Button tone={tone}>Choose another file</Button>
+    </FileTrigger>
+  );
+}
+
 export interface UploadScreenProps {
   readonly vm: UploadLandingVm;
   readonly nav: SecurityNavigation;

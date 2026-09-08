@@ -9,6 +9,10 @@ import { StatusBanner } from "../primitives/status-banner.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import { describeRowCount, formatCount } from "./delimited-target-screen.js";
 import { ImportStages } from "./import-stages.js";
+import {
+  ChooseAnotherFileButton,
+  type WorkbookPickerProps,
+} from "./upload-screen.js";
 import styles from "./import.module.css";
 
 /**
@@ -139,17 +143,17 @@ export function describeOverBudget(vm: ImportOverBudgetVm): string {
       )} cells.`;
 }
 
-export interface PreflightOverBudgetScreenProps {
+export interface PreflightOverBudgetScreenProps extends WorkbookPickerProps {
   readonly vm: ImportOverBudgetVm;
   readonly nav: SecurityNavigation;
-  readonly onChooseAnotherFile: () => void;
   readonly topBarActions?: ReactNode;
 }
 
 export function PreflightOverBudgetScreen({
   vm,
   nav,
-  onChooseAnotherFile,
+  acceptedFileTypes,
+  onSelectFiles,
   topBarActions,
 }: PreflightOverBudgetScreenProps): ReactNode {
   return (
@@ -197,9 +201,10 @@ export function PreflightOverBudgetScreen({
         </section>
 
         <div className={cx(styles["actions"])}>
-          <Button onPress={onChooseAnotherFile} tone="primary">
-            Choose another file
-          </Button>
+          <ChooseAnotherFileButton
+            acceptedFileTypes={acceptedFileTypes}
+            onSelectFiles={onSelectFiles}
+          />
         </div>
       </div>
     </UnlockedFrame>

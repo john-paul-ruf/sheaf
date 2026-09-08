@@ -10,8 +10,7 @@
  * attempt delay, and CTL-087's capability refusal).
  */
 
-import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import {
   COMPACT_VIEWPORT,
   DERIVE_TIMEOUT_MS,
@@ -24,113 +23,16 @@ import {
   protectDevice,
   screen,
 } from "./fixtures/app.js";
+import {
+  auditable,
+  clipped,
+  overlaps,
+  undersizedTargets,
+} from "./fixtures/a11y.js";
 
 test.afterEach(async ({ page }) => {
   await deleteLocalStore(page);
 });
-
-async function auditable(page: Page, id: string): Promise<void> {
-  await expect(screen(page, id)).toBeVisible({ timeout: DERIVE_TIMEOUT_MS });
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
-  expect(
-    results.violations.map((violation) => ({
-      screen: id,
-      rule: violation.id,
-      nodes: violation.nodes.map((node) => node.html),
-    })),
-  ).toEqual([]);
-}
-
-/**
- * Nothing required is cut off. Two ways that happens: the document scrolls
- * sideways, or a box with hidden overflow is narrower than the text inside it.
- */
-async function clipped(page: Page): Promise<readonly string[]> {
-  return page.evaluate(() => {
-    const problems: string[] = [];
-    const root = document.documentElement;
-    if (root.scrollWidth > root.clientWidth + 1) {
-      problems.push(
-        `document scrolls sideways: ${String(root.scrollWidth)} > ${String(root.clientWidth)}`,
-      );
-    }
-    for (const element of document.querySelectorAll<HTMLElement>(
-      "h1, h2, h3, p, li, label, button, a, strong, output, legend",
-    )) {
-      const box = element.getBoundingClientRect();
-      if (box.width === 0 && box.height === 0) {
-        continue;
-      }
-      const text = (element.textContent ?? "").trim().slice(0, 40);
-      if (box.right > root.clientWidth + 1) {
-        problems.push(`overflows right: ${text}`);
-      }
-      const style = getComputedStyle(element);
-      if (
-        style.overflowX === "hidden" &&
-        element.scrollWidth > element.clientWidth + 1
-      ) {
-        problems.push(`text clipped: ${text}`);
-      }
-    }
-    return problems;
-  });
-}
-
-/** Every control the design promises a 44×44 hit area (excluding inline prose links). */
-async function undersizedTargets(page: Page): Promise<readonly string[]> {
-  return page.evaluate(() => {
-    const small: string[] = [];
-    for (const element of document.querySelectorAll<HTMLElement>(
-      "button, [role='button'], nav a",
-    )) {
-      const box = element.getBoundingClientRect();
-      if (box.width === 0 && box.height === 0) {
-        continue;
-      }
-      if (box.width < 44 || box.height < 44) {
-        small.push(
-          `${(element.textContent ?? element.getAttribute("aria-label") ?? "?")
-            .trim()
-            .slice(0, 30)}: ${String(Math.round(box.width))}x${String(Math.round(box.height))}`,
-        );
-      }
-    }
-    return small;
-  });
-}
-
-/** The sticky bottom bar must never sit on top of the last content (200% text). */
-async function overlaps(page: Page): Promise<readonly string[]> {
-  return page.evaluate(() => {
-    const bar = document.querySelector("nav[aria-label='Primary']:last-of-type");
-    const main = document.querySelector("main");
-    if (bar === null || main === null) {
-      return [];
-    }
-    const barBox = bar.getBoundingClientRect();
-    if (barBox.height === 0) {
-      return [];
-    }
-    const problems: string[] = [];
-    for (const element of main.querySelectorAll<HTMLElement>(
-      "h1, h2, p, button, a, label",
-    )) {
-      const box = element.getBoundingClientRect();
-      if (box.height === 0) {
-        continue;
-      }
-      if (box.bottom > barBox.top && box.top < barBox.bottom) {
-        problems.push(
-          `${(element.textContent ?? "").trim().slice(0, 30)} sits under the bottom bar`,
-        );
-      }
-    }
-    return problems;
-  });
-}
 
 /** Where a navigation actually goes, independent of how it labels itself. */
 async function hrefsOf(navigation: Locator): Promise<readonly string[]> {

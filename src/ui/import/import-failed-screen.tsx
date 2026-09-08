@@ -10,6 +10,10 @@ import { StatusBanner, type StatusTone } from "../primitives/status-banner.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import { formatCount } from "./delimited-target-screen.js";
 import { ImportProgressRegion } from "./import-progress-screen.js";
+import {
+  ChooseAnotherFileButton,
+  type WorkbookPickerProps,
+} from "./upload-screen.js";
 import styles from "./import.module.css";
 
 /**
@@ -86,10 +90,9 @@ export function describeCleanup(cleanup: ImportCleanupVm): string {
   }
 }
 
-export interface ImportFailedScreenProps {
+export interface ImportFailedScreenProps extends WorkbookPickerProps {
   readonly vm: ImportEndedVm;
   readonly nav: SecurityNavigation;
-  readonly onChooseAnotherFile: () => void;
   readonly onReturnToLibrary: () => void;
   /** Present only while the page still holds the file that was picked. */
   readonly onRetrySameFile?: () => void;
@@ -99,7 +102,8 @@ export interface ImportFailedScreenProps {
 export function ImportFailedScreen({
   vm,
   nav,
-  onChooseAnotherFile,
+  acceptedFileTypes,
+  onSelectFiles,
   onReturnToLibrary,
   onRetrySameFile,
   topBarActions,
@@ -152,7 +156,11 @@ export function ImportFailedScreen({
                   Retry same file
                 </Button>
               )}
-              <Button onPress={onChooseAnotherFile}>Choose another file</Button>
+              <ChooseAnotherFileButton
+                acceptedFileTypes={acceptedFileTypes}
+                onSelectFiles={onSelectFiles}
+                tone="secondary"
+              />
               <Button onPress={onReturnToLibrary}>Return to library</Button>
               <Button
                 onPress={() => {
