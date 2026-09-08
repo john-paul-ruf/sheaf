@@ -725,6 +725,10 @@ export function createDataWorkerHandler(
           return imports.beginImportStage(request, ports);
         case "getImportStage":
           return imports.getImportStage(request);
+        case "runInference":
+          return imports.runInference(request);
+        case "applyReviewEdit":
+          return imports.applyReviewEdit(request);
         case "cancelImportStage":
           return imports.cancelImportStage(request);
         default: {

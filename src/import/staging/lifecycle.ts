@@ -42,6 +42,12 @@ import type { EnvelopeStorePort } from "../../application/ports/envelope-store.j
 import type { StagingCatalogPort } from "../../application/ports/staging-catalog.js";
 import type { DetectedFormatV1, ExtensionContradictionV1 } from "../source/sniff.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
+import type { ProposedAppV1 } from "../inference/infer.js";
+import {
+  applyReviewEdit,
+  type ReviewEditResultV1,
+  type ReviewEditV1,
+} from "../inference/review-edits.js";
 import {
   asMap,
   bytesOfLength,
@@ -461,6 +467,55 @@ export async function writeImportStage(
       provisionalKey: loaded.provisionalKey,
     },
     transactionRevision: committed,
+  };
+}
+
+/**
+ * Records the proposal inference produced. The stage becomes authoritative for
+ * it from here (D17): the page holds a copy to render, but every later edit is
+ * applied to *this* value, so a reload cannot resurrect a proposal the user
+ * has already changed.
+ */
+export function stageWithProposal(
+  stage: ImportStageV1,
+  proposal: ProposedAppV1,
+): ImportStageV1 {
+  return {
+    ...stage,
+    stageRevision: stage.stageRevision + 1,
+    proposal,
+    progress: { ...stage.progress, phase: "reviewing" },
+    status: "reviewing",
+  };
+}
+
+/**
+ * Applies one review edit to the staged proposal.
+ *
+ * S03's `applyReviewEdit` is total and pure, so a rejection is a **value**
+ * here as well: the stage relays it and writes nothing (CA-16). An applied
+ * edit is appended to `reviewEdits` in order, which is what lets promotion
+ * replay exactly what the user did.
+ */
+export function stageWithReviewEdit(
+  stage: ImportStageV1,
+  edit: ReviewEditV1,
+): ReviewEditResultV1 & { readonly stage?: ImportStageV1 } {
+  if (stage.proposal === null) {
+    return { kind: "rejected", reason: "unknown-column" };
+  }
+  const result = applyReviewEdit(stage.proposal, edit);
+  if (result.kind === "rejected") {
+    return result;
+  }
+  return {
+    ...result,
+    stage: {
+      ...stage,
+      stageRevision: stage.stageRevision + 1,
+      proposal: result.proposal,
+      reviewEdits: [...stage.reviewEdits, edit],
+    },
   };
 }
 

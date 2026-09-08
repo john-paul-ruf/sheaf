@@ -75,18 +75,25 @@ import {
   IMPORT_STAGE_SCOPE,
   type ImportStageV1,
 } from "../../import/staging/stage.js";
-import { writeImportStage } from "../../import/staging/lifecycle.js";
+import {
+  stageWithProposal,
+  stageWithReviewEdit,
+  writeImportStage,
+} from "../../import/staging/lifecycle.js";
+import { inferProposal } from "../../import/inference/infer.js";
 import {
   isStageChannelInboundV1,
   stageAck,
   stageNack,
 } from "../protocol/stage-channel.js";
 import type {
+  ApplyReviewEditRequestV1,
   BeginImportStageRequestV1,
   CancelImportStageRequestV1,
   DataWorkerResponseV1,
   GetImportStageRequestV1,
   ImportStageViewV1,
+  RunInferenceRequestV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
 import type { LocalCatalogV1 } from "./catalog.js";
@@ -333,6 +340,10 @@ export interface ImportHandlersV1 {
   getImportStage(
     request: GetImportStageRequestV1,
   ): Promise<DataWorkerResponseV1>;
+  runInference(request: RunInferenceRequestV1): Promise<DataWorkerResponseV1>;
+  applyReviewEdit(
+    request: ApplyReviewEditRequestV1,
+  ): Promise<DataWorkerResponseV1>;
   cancelImportStage(
     request: CancelImportStageRequestV1,
   ): Promise<DataWorkerResponseV1>;
@@ -369,6 +380,16 @@ export function createImportHandlers(
   ): StagingPortsV1 => ({ store, crypto, catalog: catalogPort, entropy: deps.entropy });
 
   /**
+   * Every stage rewrite moves the workflow envelope, so every writer has to
+   * move the memo with it. It is one call rather than three copies because
+   * forgetting it once already cost a batch: the next lookup found a storage
+   * id the same transaction had just deleted.
+   */
+  const rememberWorkflow = (stageId: string, workflowStorageId: string): void => {
+    active.set(stageId, { stageId, workflowStorageId });
+  };
+
+  /**
    * Resolves a stage id to its workflow reference, or `undefined` when no
    * live stage carries it. Session memory is the fast path; after a reload the
    * catalog's workflow list is re-read and each entry opened, because the
@@ -403,7 +424,7 @@ export function createImportHandlers(
       }
       crypto.destroyKey(loaded.provisionalKey);
       if (loaded.stage.stageId === stageId) {
-        active.set(stageId, { stageId, workflowStorageId });
+        rememberWorkflow(stageId, workflowStorageId);
         return workflowStorageId;
       }
     }
@@ -498,13 +519,7 @@ export function createImportHandlers(
     );
     crypto.destroyKey(loaded.provisionalKey);
 
-    // Every rewrite moves the workflow envelope, so the memo has to move with
-    // it. Without this the next batch would look up a storage id the same
-    // transaction just deleted.
-    active.set(stageId, {
-      stageId,
-      workflowStorageId: written.loaded.workflowStorageId,
-    });
+    rememberWorkflow(stageId, written.loaded.workflowStorageId);
   }
 
   /**
@@ -603,10 +618,7 @@ export function createImportHandlers(
       // requests; the handle is released here so a lock cannot leave one live.
       crypto.destroyKey(created.loaded.provisionalKey);
       const stageId = created.loaded.stage.stageId;
-      active.set(stageId, {
-        stageId,
-        workflowStorageId: created.loaded.workflowStorageId,
-      });
+      rememberWorkflow(stageId, created.loaded.workflowStorageId);
 
       // `port2` arrived in this request's transfer list (D17). A response
       // never carries one back, so this is the only moment a port crosses.
@@ -641,6 +653,93 @@ export function createImportHandlers(
         hasProposal: stage.proposal !== null,
       };
       return { kind: "getImportStage", stage: view };
+    },
+
+    /**
+     * Inference runs **here**, in the data worker, over the facts accumulated
+     * while staging (D17) — never in the page, which has never seen a fact.
+     * The proposal is written into the stage before it is returned, so the
+     * stage is authoritative from the first moment the page can render it.
+     */
+    async runInference(
+      request: RunInferenceRequestV1,
+    ): Promise<DataWorkerResponseV1> {
+      const opened = await loadStage(request.stageId);
+      if (opened === undefined) {
+        throw new DataWorkerCommandError("integrity");
+      }
+      const { context, catalogPort, loaded } = opened;
+
+      if (loaded.stage.proposal !== null) {
+        // Already inferred. Re-running would discard the user's edits, so the
+        // staged proposal — edits and all — is what comes back.
+        crypto.destroyKey(loaded.provisionalKey);
+        return { kind: "runInference", proposal: loaded.stage.proposal };
+      }
+
+      const facts = channels.get(request.stageId)?.facts ?? [];
+      let proposal;
+      try {
+        // `inferProposal` throws on a summary-less stream by design (S03): a
+        // cancelled parse has nothing exact to propose from, and nothing here
+        // synthesises a summary to make it answer.
+        proposal = inferProposal(facts, { fileName: loaded.stage.fileName });
+      } catch {
+        crypto.destroyKey(loaded.provisionalKey);
+        throw new DataWorkerCommandError("integrity");
+      }
+
+      const written = await writeImportStage(
+        portsFor(catalogPort),
+        context.localRoot,
+        loaded,
+        stageWithProposal(loaded.stage, proposal),
+      );
+      crypto.destroyKey(loaded.provisionalKey);
+      rememberWorkflow(request.stageId, written.loaded.workflowStorageId);
+
+      return { kind: "runInference", proposal };
+    },
+
+    /**
+     * Applies one edit to the staged proposal. A rejection is relayed as a
+     * typed result and writes nothing (CA-16, D23) — the stage never coerces
+     * an impossible edit into one that applied.
+     */
+    async applyReviewEdit(
+      request: ApplyReviewEditRequestV1,
+    ): Promise<DataWorkerResponseV1> {
+      const opened = await loadStage(request.stageId);
+      if (opened === undefined) {
+        throw new DataWorkerCommandError("integrity");
+      }
+      const { context, catalogPort, loaded } = opened;
+
+      const result = stageWithReviewEdit(loaded.stage, request.edit);
+      if (result.kind === "rejected" || result.stage === undefined) {
+        crypto.destroyKey(loaded.provisionalKey);
+        return {
+          kind: "applyReviewEdit",
+          outcome: "rejected",
+          reason:
+            result.kind === "rejected" ? result.reason : "unknown-column",
+        };
+      }
+
+      const written = await writeImportStage(
+        portsFor(catalogPort),
+        context.localRoot,
+        loaded,
+        result.stage,
+      );
+      crypto.destroyKey(loaded.provisionalKey);
+      rememberWorkflow(request.stageId, written.loaded.workflowStorageId);
+
+      return {
+        kind: "applyReviewEdit",
+        outcome: "applied",
+        proposal: result.proposal,
+      };
     },
 
     async cancelImportStage(

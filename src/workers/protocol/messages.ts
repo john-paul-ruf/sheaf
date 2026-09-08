@@ -145,6 +145,42 @@ export interface CancelImportStageRequestV1 {
   readonly stageId: string;
 }
 
+export interface RunInferenceRequestV1 {
+  readonly kind: "runInference";
+  readonly stageId: string;
+}
+
+/**
+ * One review edit, mirroring S03's `ReviewEditV1`. The union is closed and
+ * every member is text or a number, so a malformed edit is a shape the wire
+ * cannot express rather than a value a handler must defend against.
+ */
+export type ReviewEditWireV1 =
+  | { readonly kind: "rename-app"; readonly appName: string }
+  | { readonly kind: "rename-table"; readonly tableName: string }
+  | {
+      readonly kind: "rename-field";
+      readonly columnIndex: number;
+      readonly fieldName: string;
+    }
+  | {
+      readonly kind: "override-type";
+      readonly columnIndex: number;
+      readonly type: ProposedFieldTypeWireV1;
+    }
+  | { readonly kind: "set-header-row"; readonly rowIndex: number | null }
+  | {
+      readonly kind: "edit-enum-options";
+      readonly columnIndex: number;
+      readonly options: readonly string[];
+    };
+
+export interface ApplyReviewEditRequestV1 {
+  readonly kind: "applyReviewEdit";
+  readonly stageId: string;
+  readonly edit: ReviewEditWireV1;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -158,6 +194,8 @@ export type DataWorkerRequestV1 =
   | GetStatusRequestV1
   | BeginImportStageRequestV1
   | GetImportStageRequestV1
+  | RunInferenceRequestV1
+  | ApplyReviewEditRequestV1
   | CancelImportStageRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
@@ -300,6 +338,176 @@ export interface ImportCleanupReceiptViewV1 {
 }
 
 /**
+ * S03's proposal, restated structurally (CA-16 shapes, verbatim).
+ *
+ * It is restated rather than imported because `messages.ts` imports **nothing
+ * at all** — a property `tests/unit/workers/module-boundaries.test.ts` pins,
+ * and the reason the wire contract can be read without following a single
+ * reference. The cost of a second copy is drift, so
+ * `tests/unit/workers/proposal-wire.test.ts` asserts the two are assignable in
+ * both directions: a divergence is a compile error there, not a wire mismatch
+ * at review.
+ *
+ * Nothing here is a byte type, a key, or a cell value: a proposal describes
+ * *columns*, and the only user data in it is the leading rows the review
+ * screen already shows and the handful of examples its evidence names.
+ */
+export type ProposedFieldTypeWireV1 =
+  | { readonly kind: "date" }
+  | { readonly kind: "currency"; readonly currencyCode: string }
+  | { readonly kind: "number" }
+  | { readonly kind: "phone" }
+  | { readonly kind: "email" }
+  | { readonly kind: "url" }
+  | { readonly kind: "address" }
+  | { readonly kind: "boolean" }
+  | { readonly kind: "enum" }
+  | { readonly kind: "text" };
+
+export type SourceValueFormatWireV1 =
+  | { readonly kind: "text" }
+  | { readonly kind: "iso-date" }
+  | { readonly kind: "slash-date"; readonly order: "dmy" | "mdy" }
+  | { readonly kind: "decimal"; readonly currencySymbol: string | null }
+  | { readonly kind: "boolean" }
+  | { readonly kind: "enum" };
+
+/** S03's closed sets, restated as literal unions — never widened to `string`. */
+export type InferenceSubjectWireV1 =
+  | "app-name"
+  | "table-name"
+  | "header-row"
+  | "discarded-rows"
+  | "field-name"
+  | "field-type"
+  | "enum-options";
+
+export type ReviewEditKindWireV1 =
+  | "rename-app"
+  | "rename-table"
+  | "rename-field"
+  | "override-type"
+  | "set-header-row"
+  | "edit-enum-options";
+
+export type ValuePatternWireV1 =
+  | "iso-date"
+  | "slash-date"
+  | "currency-amount"
+  | "decimal-number"
+  | "boolean-word"
+  | "email-address"
+  | "web-url"
+  | "telephone-number";
+
+export type ImportDiagnosticCodeWireV1 =
+  | "text-normalized-nfc"
+  | "unterminated-quote"
+  | "quote-inside-unquoted-field"
+  | "ragged-row"
+  | "replacement-character"
+  | "row-length-bound-reached";
+
+export type EvidenceWireV1 =
+  | {
+      readonly kind: "value-pattern";
+      readonly pattern: ValuePatternWireV1;
+      readonly detail: string | null;
+      readonly matched: number;
+      readonly sampled: number;
+      readonly examples: readonly string[];
+    }
+  | {
+      readonly kind: "distinct-values";
+      readonly distinct: number;
+      readonly sampled: number;
+      readonly options: readonly string[];
+    }
+  | {
+      readonly kind: "header-text";
+      readonly rowIndex: number;
+      readonly text: string;
+    }
+  | { readonly kind: "file-name"; readonly fileName: string }
+  | {
+      readonly kind: "row-shape";
+      readonly rowIndex: number;
+      readonly cellCount: number;
+      readonly valueCount: number;
+    }
+  | {
+      readonly kind: "value-conflict";
+      readonly count: number;
+      readonly examples: readonly {
+        readonly rowIndex: number;
+        readonly sourceText: string;
+      }[];
+    };
+
+export interface InferenceStatementWireV1 {
+  readonly statementId: string;
+  readonly subject: InferenceSubjectWireV1;
+  readonly editKind: ReviewEditKindWireV1 | null;
+  readonly columnIndex: number | null;
+  readonly evidence: readonly EvidenceWireV1[];
+  readonly evidenceFingerprint: string;
+  readonly disposition: "accepted" | "rejected" | "edited";
+}
+
+export interface ImportDiagnosticWireV1 {
+  readonly code: ImportDiagnosticCodeWireV1;
+  readonly severity: "info" | "warning";
+  readonly firstRowIndex: number | null;
+  readonly firstColumnIndex: number | null;
+  readonly occurrences: number;
+}
+
+export interface ProposedFieldWireV1 {
+  readonly columnIndex: number;
+  readonly fieldName: string;
+  readonly isNameGenerated: boolean;
+  readonly type: ProposedFieldTypeWireV1;
+  readonly sourceFormat: SourceValueFormatWireV1;
+  readonly enumOptions: readonly {
+    readonly label: string;
+    readonly occurrences: number;
+  }[];
+  /** Null means "not measured yet", never "none" (S03). */
+  readonly violations: {
+    readonly count: number;
+    readonly examples: readonly {
+      readonly rowIndex: number;
+      readonly sourceText: string;
+    }[];
+  } | null;
+}
+
+export interface ProposedAppWireV1 {
+  readonly fileName: string;
+  readonly appName: string;
+  readonly table: {
+    readonly tableName: string;
+    readonly fields: readonly ProposedFieldWireV1[];
+  };
+  readonly headerRowIndex: number | null;
+  readonly leadingRows: readonly {
+    readonly rowIndex: number;
+    readonly cells: readonly string[];
+  }[];
+  readonly discardedRows: readonly {
+    readonly rowIndex: number;
+    readonly reason: "above-header" | "empty-row";
+    readonly cells: readonly string[];
+  }[];
+  readonly discardedRowCount: number;
+  readonly rowCount: number;
+  /** Always `true`: a proposal comes from a completed stream (D24). */
+  readonly isRowCountExact: true;
+  readonly statements: readonly InferenceStatementWireV1[];
+  readonly diagnostics: readonly ImportDiagnosticWireV1[];
+}
+
+/**
  * A stage's progress and terminal status. Counts only — no cell value, and no
  * file content: the name is the one page-known fact the import flow may echo.
  */
@@ -322,6 +530,28 @@ export interface GetImportStageResponseV1 {
   readonly stage: ImportStageViewV1 | null;
 }
 
+export interface RunInferenceResponseV1 {
+  readonly kind: "runInference";
+  readonly proposal: ProposedAppWireV1;
+}
+
+/**
+ * An edit that could not land comes back as a **result**, not an error (D23):
+ * the stage relays S03's rejection reason and never coerces it into something
+ * that applied (CA-16).
+ */
+export type ApplyReviewEditResponseV1 =
+  | {
+      readonly kind: "applyReviewEdit";
+      readonly outcome: "applied";
+      readonly proposal: ProposedAppWireV1;
+    }
+  | {
+      readonly kind: "applyReviewEdit";
+      readonly outcome: "rejected";
+      readonly reason: string;
+    };
+
 export interface CancelImportStageResponseV1 {
   readonly kind: "cancelImportStage";
   readonly receipt: ImportCleanupReceiptViewV1;
@@ -340,6 +570,8 @@ export type DataWorkerResponseV1 =
   | GetStatusResponseV1
   | BeginImportStageResponseV1
   | GetImportStageResponseV1
+  | RunInferenceResponseV1
+  | ApplyReviewEditResponseV1
   | CancelImportStageResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
