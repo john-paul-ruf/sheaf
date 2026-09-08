@@ -1,0 +1,7 @@
+# A workbook fixture's bytes ARE the test subject: line endings, byte-order
+# marks, and legacy encodings are what the corpus exists to prove. Git's
+# end-of-line conversion (`core.autocrlf=input` here) silently rewrote the CRLF
+# fixtures on the way into the index, which would have made a fresh clone
+# disagree with the tree the corpus was authored in. Nothing under this
+# directory is ever converted.
+* -text
