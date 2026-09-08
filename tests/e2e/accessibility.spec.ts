@@ -270,39 +270,6 @@ test("the rail and the bottom bar offer the same destinations", async ({
   await expect(screen(page, "SCR-011")).toBeVisible();
 });
 
-/**
- * A known gap in M39's shell, recorded as a failing expectation rather than as
- * a comment, so it announces itself the moment it is fixed.
- *
- * Between 900px and 1199px the rail is icon-only: `app-shell.module.css` hides
- * `.railLabel` with `display: none`, which removes it from the accessibility
- * tree as well as from the page, leaving each rail link with no accessible
- * name at all (axe `link-name`, WCAG 2.0 A). Desktop (≥1200px) and compact
- * (<900px) are both clean — the label is rendered there.
- *
- * `src/ui/layout/**` is SESSION-03's lease, not this session's, and the fix is
- * one line: give the rail link an `aria-label`, or make `.railLabel`
- * visually-hidden instead of `display: none`. Reported as an owner correction.
- * When it lands, this test starts passing and Playwright fails it — delete it
- * then.
- */
-test("known M39 gap: the icon-only rail has no accessible name", async ({
-  page,
-}) => {
-  test.fail();
-  test.setTimeout(240_000);
-
-  await openApp(page);
-  await protectDevice(page);
-  await page.setViewportSize({ width: 1024, height: 800 });
-  await expect(screen(page, "SCR-011")).toBeVisible();
-
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
-  expect(results.violations.map((violation) => violation.id)).toEqual([]);
-});
-
 test("all four dialogs trap focus and give it back", async ({ page }) => {
   test.setTimeout(240_000);
 

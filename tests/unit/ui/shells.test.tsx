@@ -140,6 +140,13 @@ describe("AppShell — post-unlock frame", () => {
     expect(link.querySelector('[aria-hidden="true"]')?.textContent).toBe("A");
   });
 
+  it("keeps the rail link's accessible name where the label is not drawn", async () => {
+    await renderShell();
+    // 900–1199px hides `.railLabel`; the name has to survive that.
+    const railLink = query('aside nav a[href="#/library"]');
+    expect(railLink.getAttribute("aria-label")).toBe("All apps");
+  });
+
   it("keeps exactly one main landmark, reachable by skip link", async () => {
     await renderShell();
     const main = query("main");

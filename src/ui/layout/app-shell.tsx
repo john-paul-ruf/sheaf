@@ -20,6 +20,10 @@ export interface ShellDestination {
  * The rail (≥900px) and the bottom bar (<900px) render the same destinations
  * in the same order, so the keyboard path does not change with width and no
  * destination is reachable at one class only.
+ *
+ * The rail is icon-only between 900px and 1199px, where `.railLabel` is not
+ * drawn; each rail link carries the label as `aria-label` so its accessible
+ * name is the same at every width.
  */
 export interface AppShellProps {
   readonly destinations: readonly ShellDestination[];
@@ -53,6 +57,7 @@ export function AppShell({
         <nav aria-label={primaryNavLabel} className={cx(styles["railNav"])}>
           {destinations.map((destination) => (
             <a
+              aria-label={destination.label}
               className={cx(styles["railLink"])}
               href={destination.href}
               key={destination.id}
