@@ -32,36 +32,31 @@ import styles from "./security.module.css";
 const MASKED_CODE = Array.from({ length: 8 }, () => "•".repeat(7)).join("-");
 
 export interface RecoveryCodesScreenProps {
-  readonly vm: RevealCodeVm;
   readonly nav: SecurityNavigation;
-  readonly isRevealOpen: boolean;
   readonly onOpenReveal: () => void;
-  readonly onCloseReveal: () => void;
-  readonly onSubmitPassphrase: (currentPassphrase: string) => void;
+  /**
+   * {@link RevealCodeDialog}, supplied by the composition root.
+   *
+   * It arrives as a node rather than as props because each reveal needs a
+   * *fresh* machine — `dismissed` is final on purpose — and remounting it must
+   * not remount this page. If it did, the button below would be replaced while
+   * the dialog was closing and focus would have nowhere approved to return to.
+   */
+  readonly revealDialog: ReactNode;
+  readonly announcement: string;
   readonly topBarActions?: ReactNode;
 }
 
 export function RecoveryCodesScreen({
-  vm,
   nav,
-  isRevealOpen,
   onOpenReveal,
-  onCloseReveal,
-  onSubmitPassphrase,
+  revealDialog,
+  announcement,
   topBarActions,
 }: RecoveryCodesScreenProps): ReactNode {
-  // MOD-022's own acknowledgement. It gates dismissal only: nothing durable
-  // turns on it, so it belongs to the dialog rather than to a machine.
-  const [isSaved, setIsSaved] = useState(false);
-
-  const close = (): void => {
-    setIsSaved(false);
-    onCloseReveal();
-  };
-
   return (
     <UnlockedFrame
-      announcement={vm.announcement}
+      announcement={announcement}
       area="security"
       nav={nav}
       title="Recovery codes"
@@ -107,26 +102,49 @@ export function RecoveryCodesScreen({
           </p>
         </section>
 
-        <Dialog
-          isDismissable
-          isOpen={isRevealOpen}
-          onOpenChange={(open) => {
-            if (!open) {
-              close();
-            }
-          }}
-          title="Reveal local recovery code"
-          footer={<RevealFooter isSaved={isSaved} onClose={close} vm={vm} />}
-        >
-          <RevealBody
-            isSaved={isSaved}
-            onSavedChange={setIsSaved}
-            onSubmitPassphrase={onSubmitPassphrase}
-            vm={vm}
-          />
-        </Dialog>
+        {revealDialog}
       </div>
     </UnlockedFrame>
+  );
+}
+
+export interface RevealCodeDialogProps {
+  readonly vm: RevealCodeVm;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly onSubmitPassphrase: (currentPassphrase: string) => void;
+}
+
+/** MOD-022 itself: the passphrase gate, the code, and the acknowledgement. */
+export function RevealCodeDialog({
+  vm,
+  isOpen,
+  onClose,
+  onSubmitPassphrase,
+}: RevealCodeDialogProps): ReactNode {
+  // The acknowledgement gates dismissal only: nothing durable turns on it, so
+  // it belongs to the dialog rather than to a machine.
+  const [isSaved, setIsSaved] = useState(false);
+
+  return (
+    <Dialog
+      isDismissable
+      isOpen={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose();
+        }
+      }}
+      title="Reveal local recovery code"
+      footer={<RevealFooter isSaved={isSaved} onClose={onClose} vm={vm} />}
+    >
+      <RevealBody
+        isSaved={isSaved}
+        onSavedChange={setIsSaved}
+        onSubmitPassphrase={onSubmitPassphrase}
+        vm={vm}
+      />
+    </Dialog>
   );
 }
 

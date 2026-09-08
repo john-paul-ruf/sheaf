@@ -23,6 +23,9 @@ export const RECOVERY_CODE_PATTERN =
 /** The one database this build creates. */
 export const LOCAL_DATABASE = "sheaf-local";
 
+/** design.md §Layout Classes: the smallest declared width, where UI dies. */
+export const COMPACT_VIEWPORT = Object.freeze({ width: 320, height: 720 });
+
 /** An Argon2id calibration plus a derivation, on a busy CI machine. */
 export const DERIVE_TIMEOUT_MS = 90_000;
 
@@ -213,6 +216,11 @@ export async function deleteLocalStore(page: Page): Promise<void> {
   await page.evaluate(
     async (name) =>
       new Promise<void>((resolve) => {
+        // A capability-gate spec may have removed it before the page loaded.
+        if (globalThis.indexedDB === undefined) {
+          resolve();
+          return;
+        }
         const request = indexedDB.deleteDatabase(name);
         request.onsuccess = () => {
           resolve();

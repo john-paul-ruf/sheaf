@@ -91,6 +91,19 @@
   justify-items: start;
 }
 
+/*
+ * A standalone link is a tap target, not prose: design.md §Accessibility
+ * Contract puts the floor at 44×44, and CTL-020's own geometry is sized for
+ * links that sit inside a sentence.
+ */
+.routes a,
+.actions a,
+.linkRow > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
 /* --- the three-gate stepper on SCR-002, SCR-008 and SCR-009 --------------- */
 
 .steps {

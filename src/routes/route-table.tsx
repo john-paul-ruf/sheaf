@@ -34,7 +34,10 @@ import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import type { SecurityNavigation } from "../ui/security/frames.js";
 import { PassphraseChangeScreen } from "../ui/security/passphrase-change-screen.js";
-import { RecoveryCodesScreen } from "../ui/security/recovery-codes-screen.js";
+import {
+  RecoveryCodesScreen,
+  RevealCodeDialog,
+} from "../ui/security/recovery-codes-screen.js";
 import { RecoveryScreen } from "../ui/security/recovery-screen.js";
 import { ResetLockedScreen } from "../ui/security/reset-locked-screen.js";
 import { ResetReadableScreen } from "../ui/security/reset-readable-screen.js";
@@ -500,7 +503,8 @@ function PassphraseChangeRoute({
 /**
  * SCR-007's reveal is once per actor: `dismissed` is final, so a second look
  * needs a second machine and therefore a second passphrase entry (MOD-022).
- * The key is what makes that literal.
+ * The key is what makes that literal — and it sits on the *dialog*, not on the
+ * page, so opening a second reveal never replaces the button that opened it.
  */
 function RecoveryCodesRoute({
   topBarActions,
@@ -512,32 +516,35 @@ function RecoveryCodesRoute({
   const [reveal, setReveal] = useState({ key: 0, isOpen: false });
 
   return (
-    <RevealSession
-      isOpen={reveal.isOpen}
-      key={reveal.key}
-      onClose={() => {
-        setReveal((current) => ({ key: current.key + 1, isOpen: false }));
+    <RecoveryCodesScreen
+      // recovery-codes.html, verbatim: what this screen is, in one line.
+      announcement="Each code is labelled by what it can recover."
+      nav={nav}
+      onOpenReveal={() => {
+        setReveal((current) => ({ key: current.key + 1, isOpen: true }));
       }}
-      onOpen={() => {
-        setReveal((current) => ({ ...current, isOpen: true }));
-      }}
+      revealDialog={
+        <RevealSession
+          isOpen={reveal.isOpen}
+          key={reveal.key}
+          onClose={() => {
+            setReveal((current) => ({ ...current, isOpen: false }));
+          }}
+          wiring={wiring}
+        />
+      }
       topBarActions={topBarActions}
-      wiring={wiring}
     />
   );
 }
 
 function RevealSession({
   isOpen,
-  onOpen,
   onClose,
-  topBarActions,
   wiring,
 }: {
   readonly isOpen: boolean;
-  readonly onOpen: () => void;
   readonly onClose: () => void;
-  readonly topBarActions: ReactNode;
   readonly wiring: SecurityWiring;
 }): ReactNode {
   const [snapshot, send] = useMachine(revealCodeMachine, {
@@ -545,18 +552,15 @@ function RevealSession({
   });
 
   return (
-    <RecoveryCodesScreen
-      isRevealOpen={isOpen}
-      nav={nav}
-      onCloseReveal={() => {
+    <RevealCodeDialog
+      isOpen={isOpen}
+      onClose={() => {
         send({ type: "DISMISS" });
         onClose();
       }}
-      onOpenReveal={onOpen}
       onSubmitPassphrase={(currentPassphrase) => {
         send({ type: "SUBMIT", currentPassphrase });
       }}
-      topBarActions={topBarActions}
       vm={selectRevealCodeVm(snapshot)}
     />
   );

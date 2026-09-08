@@ -13,13 +13,13 @@
  */
 
 import { execSync } from "node:child_process";
-import { expect, test } from "@playwright/test";
 import {
   DERIVE_TIMEOUT_MS,
   NEXT_PASSPHRASE,
   PASSPHRASE,
   RECOVERY_CODE_PATTERN,
   RECOVERY_PASSPHRASE,
+  attemptUnlock,
   currentScreen,
   deleteLocalStore,
   fillSecret,
@@ -34,6 +34,7 @@ import {
   selectIdleTimeout,
   unlock,
 } from "./fixtures/app.js";
+import { expect, test } from "./fixtures/no-network.js";
 
 const headRevision = execSync("git rev-parse HEAD").toString().trim();
 
@@ -60,6 +61,7 @@ test("serves the page built from the current revision", async ({ page }) => {
 
 test("first journey: protect, lock, unlock, settle, change, recover, reveal, reset", async ({
   page,
+  network,
 }) => {
   // Argon2id calibrates once and derives on setup and on each unlock.
   test.setTimeout(240_000);
@@ -117,8 +119,55 @@ test("first journey: protect, lock, unlock, settle, change, recover, reveal, res
     "Review reset consequences →",
   ]);
 
+  // --- CA-05 / AD-5: five free failures, the first delay at the sixth ------
+  // The number on screen is the worker's `retryAfterMs`; nothing here derives
+  // a schedule, and only the first delayed step is observed — the doubling
+  // tiers belong to S05's unit vector, not to a browser waiting out an hour.
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    await attemptUnlock(page, "not this device's passphrase");
+    await expect(screen(page, "SCR-003")).toHaveAttribute(
+      "data-state",
+      "locked",
+      { timeout: DERIVE_TIMEOUT_MS },
+    );
+    await expect(screen(page, "SCR-003")).toContainText(
+      "That is not this device's unlock passphrase.",
+    );
+    await expect(screen(page, "SCR-003")).not.toContainText(
+      /Try again in \d+ seconds/,
+    );
+  }
+
+  await attemptUnlock(page, "not this device's passphrase");
+  await expect(screen(page, "SCR-003")).toHaveAttribute(
+    "data-state",
+    "delayed",
+    { timeout: DERIVE_TIMEOUT_MS },
+  );
+  await expect(screen(page, "SCR-003")).toContainText(
+    /Try again in \d+ seconds/,
+  );
+  await expect(
+    page.getByRole("button", { name: "Unlock offline" }),
+  ).toBeDisabled();
+  // D4: session memory only — nothing may suggest the wait outlives the app.
+  await expect(screen(page, "SCR-003")).not.toContainText(
+    /restart|relaunch|next time|remembered/i,
+  );
+
+  // The countdown ends on its own; retry is refused until it does.
+  await expect(screen(page, "SCR-003")).toHaveAttribute(
+    "data-state",
+    "locked",
+    { timeout: 30_000 },
+  );
+
   // --- CAP-02: the same passphrase reopens the same store ------------------
+  // FR-22's offline claim, checked rather than repeated: the unlock that
+  // follows six failures still asks the network for nothing.
+  network.mark();
   await unlock(page);
+  expect(network.since()).toEqual([]);
   await expect(
     page.getByRole("heading", { name: "Your apps will live here." }),
   ).toBeVisible({ timeout: DERIVE_TIMEOUT_MS });
@@ -218,6 +267,47 @@ test("first journey: protect, lock, unlock, settle, change, recover, reveal, res
     .getByRole("checkbox", { name: /I saved this code/ })
     .check();
   await reveal.getByRole("button", { name: "Close" }).click();
+
+  // --- CAP-07 / database.md check 7: a stale confirmation purges nothing ---
+  // The confirm token is bound to the enumeration that issued it. Here another
+  // tab commits between the two phases, so the token this page holds no longer
+  // describes what storage says. S05 owns the refusal; what is asserted here is
+  // the surface half — it refuses, it says so recoverably, and it destroys
+  // nothing.
+  await followHash(page, "#/settings/security/reset");
+  await expect(screen(page, "SCR-009")).toBeVisible();
+  await page.getByRole("button", { name: "Continue to 3 confirmations" }).click();
+
+  const readable = page.getByRole("alertdialog");
+  await readable
+    .getByRole("checkbox", {
+      name: "I understand this reset destroys this device's local store.",
+    })
+    .check();
+  await readable
+    .getByRole("button", { name: "Continue to typed confirmation" })
+    .click();
+  await readable.getByLabel("Type RESET THIS DEVICE").fill("RESET THIS DEVICE");
+
+  const other = await page.context().newPage();
+  await openApp(other);
+  await unlock(other, RECOVERY_PASSPHRASE);
+  await openSecuritySettings(other);
+  await selectIdleTimeout(other, "5 minutes");
+  await other.close();
+
+  await readable.getByRole("button", { name: "Confirm consequence" }).click();
+  await expect(screen(page, "SCR-009")).toContainText(
+    "This device changed after the list was made. Nothing was destroyed.",
+    { timeout: DERIVE_TIMEOUT_MS },
+  );
+  const survived = await readLocalStore(page);
+  expect(survived.bootstrapRows).toBe(1);
+  expect(survived.envelopeRows).toBeGreaterThan(0);
+
+  // Recovery is a fresh enumeration, which reopens all three gates.
+  await page.getByRole("button", { name: "Review the new list" }).click();
+  await expect(screen(page, "SCR-009")).toHaveAttribute("data-stage", "1");
 
   // --- CAP-07: the locked, generic reset destroys the store ----------------
   await lockDevice(page);
