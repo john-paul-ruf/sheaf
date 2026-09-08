@@ -69,6 +69,10 @@ import { closeLocalDatabase } from "../../persistence/envelope-store/db.js";
 import type { LocalBootstrapRowV1 } from "../../migrations/001_local_store_v1.js";
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
 import {
+  createImportHandlers,
+  type ImportSessionContextV1,
+} from "./import-handlers.js";
+import {
   isIdleTimeoutMinutesV1,
   type DataWorkerRequestV1,
   type DataWorkerResponseV1,
@@ -113,6 +117,7 @@ export function createDataWorkerHandler(
   deps: DataWorkerDependencies,
 ): DataWorkerCommandHandler {
   const session = new WorkerSession();
+  const imports = createImportHandlers({ entropy: deps.entropy });
 
   const now = (): number => deps.clock.nowEpochMs();
 
@@ -212,6 +217,25 @@ export function createDataWorkerHandler(
     return decodeLocalCatalog(opened.payload);
   }
 
+  /**
+   * The live session as the import handlers need it. Rebuilt per request, so
+   * a stage command can never act on a catalog the session has moved past.
+   */
+  function importContext(state: UnlockedState): ImportSessionContextV1 {
+    return {
+      localRoot: state.root,
+      catalog: state.catalog,
+      catalogStorageId: state.catalogStorageId,
+      transactionRevision: state.transactionRevision,
+      writerEpoch: state.writerEpoch,
+      adopt: (next) => {
+        session.update(next);
+      },
+      sealCatalog: (catalog, logicalRevision) =>
+        sealCatalog(catalog, state.root, logicalRevision),
+    };
+  }
+
   function view(state: UnlockedState): UnlockedSessionViewV1 {
     return {
       state: "unlocked",
@@ -238,7 +262,7 @@ export function createDataWorkerHandler(
       throw cause;
     }
     session.attempts.recordSuccess();
-    return session.unlock({
+    const unlocked = session.unlock({
       root,
       unlockedVia,
       catalog,
@@ -246,6 +270,14 @@ export function createDataWorkerHandler(
       transactionRevision: row.transactionRevision,
       writerEpoch: row.writerEpoch,
     });
+
+    // M23's unlock-time sweep: a catalog holding a stale workflow reference or
+    // an unfinished cleanup ticket resumes **before the library is reported**,
+    // so a device that crashed mid-import never shows a half-import it is
+    // still carrying. It returns the session as the sweep left it.
+    await imports.sweep(importContext(unlocked));
+    const swept = session.state;
+    return swept.kind === "unlocked" ? swept : unlocked;
   }
 
   // --- CAP-01 -------------------------------------------------------------
@@ -676,6 +708,16 @@ export function createDataWorkerHandler(
           return resetReadable(request.confirmToken);
         case "getStatus":
           return getStatus();
+        case "beginImportStage":
+          return imports.beginImportStage(
+            importContext(requireUnlocked()),
+            request,
+          );
+        case "cancelImportStage":
+          return imports.cancelImportStage(
+            importContext(requireUnlocked()),
+            request,
+          );
         default: {
           const unreachable: never = request;
           void unreachable;
@@ -684,6 +726,7 @@ export function createDataWorkerHandler(
       }
     },
     dispose(): void {
+      imports.dispose();
       session.lock();
       closeLocalDatabase();
     },

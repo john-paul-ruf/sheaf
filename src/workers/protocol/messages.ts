@@ -94,6 +94,54 @@ export interface GetStatusRequestV1 {
   readonly kind: "getStatus";
 }
 
+/**
+ * The import flow's facts, as the page already knows them (CA-12). Everything
+ * here is text and numbers: the file's **bytes never cross this boundary** —
+ * they ride the `MessageChannel` the page creates, straight from the import
+ * worker to the data worker (D17).
+ *
+ * The channel's `port2` travels in this request's **transfer list**, not in
+ * its body. A port is transferable, not a byte type, and naming one here would
+ * put `MessagePort` into a union that must stay describable in text — so the
+ * wire type says nothing about it and `client.send(request, [port2])` carries
+ * it. No response ever returns a port.
+ *
+ * A file **name** is page-known and is allowed in import-flow messages only;
+ * no other request or response may name one, and none may name a cell value.
+ */
+export interface DetectedDelimitedV1 {
+  readonly kind: "delimited";
+  readonly delimiter: string;
+  readonly encoding: string;
+  readonly bomByteLength: number;
+  readonly newline: string;
+}
+
+export interface ImportPreflightFactsV1 {
+  readonly columnCount: number;
+  readonly estimatedRowCount: number;
+  readonly estimatedCellCount: number;
+  /** Always `true`: a bounded sample cannot know a count exactly (D24). */
+  readonly isEstimate: true;
+  readonly sampleRows: readonly (readonly string[])[];
+  readonly bytesSampled: number;
+  readonly sourceByteLength: number;
+}
+
+export interface BeginImportStageRequestV1 {
+  readonly kind: "beginImportStage";
+  readonly fileName: string;
+  readonly detected: DetectedDelimitedV1;
+  readonly preflight: ImportPreflightFactsV1;
+  /** SHA-256 of the source, as 64 lowercase hex characters — text, not bytes. */
+  readonly sourceSha256Hex: string;
+}
+
+export interface CancelImportStageRequestV1 {
+  readonly kind: "cancelImportStage";
+  readonly stageId: string;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -104,7 +152,9 @@ export type DataWorkerRequestV1 =
   | UpdateSettingsRequestV1
   | ResetLockedRequestV1
   | ResetReadableRequestV1
-  | GetStatusRequestV1;
+  | GetStatusRequestV1
+  | BeginImportStageRequestV1
+  | CancelImportStageRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -224,6 +274,32 @@ export interface GetStatusResponseV1 {
   readonly status: SessionStatusViewV1;
 }
 
+/**
+ * Beginning a stage answers with its id and **nothing else** (D17). The page
+ * already holds the port it created; a response that carried one back would
+ * make the channel's direction a runtime detail instead of a fixed fact.
+ */
+export interface BeginImportStageResponseV1 {
+  readonly kind: "beginImportStage";
+  readonly stageId: string;
+}
+
+/**
+ * The "nothing was left behind" fact the cancel surface renders (CAP-11).
+ * `completed` is the literal `true`: this response is only produced after
+ * every ticketed row is absent, so a partial cleanup is not expressible.
+ */
+export interface ImportCleanupReceiptViewV1 {
+  readonly reason: string;
+  readonly deletedCount: number;
+  readonly completed: true;
+}
+
+export interface CancelImportStageResponseV1 {
+  readonly kind: "cancelImportStage";
+  readonly receipt: ImportCleanupReceiptViewV1;
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -234,7 +310,9 @@ export type DataWorkerResponseV1 =
   | UpdateSettingsResponseV1
   | ResetLockedResponseV1
   | ResetReadableResponseV1
-  | GetStatusResponseV1;
+  | GetStatusResponseV1
+  | BeginImportStageResponseV1
+  | CancelImportStageResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

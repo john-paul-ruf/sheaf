@@ -51,9 +51,13 @@ describe("staging and snapshots", () => {
       const imports = importedModules(file);
       expect({ file, imports: imports.filter((name) => name.includes("/crypto/")) })
         .toEqual({ file, imports: [] });
+      // The *module*, not the port of the same name: reaching
+      // `src/application/ports/envelope-store.js` is the approved path.
       expect({
         file,
-        imports: imports.filter((name) => name.includes("envelope-store")),
+        imports: imports.filter((name) =>
+          name.includes("persistence/envelope-store"),
+        ),
       }).toEqual({ file, imports: [] });
       expect({ file, imports: imports.filter((name) => name === "dexie") }).toEqual(
         { file, imports: [] },
@@ -80,14 +84,18 @@ describe("the application ports", () => {
         expect({ file, imports: imports.filter((name) => name.includes(forbidden)) })
           .toEqual({ file, imports: [] });
       }
-      // Durable format types come from the DB-phase-owned migrations, which
-      // is why they are imported rather than restated (Custom Rule 6).
-      expect(
-        imports.every(
+      // Domain types, DB-phase-owned durable formats (imported rather than
+      // restated, Custom Rule 6), and sibling ports.
+      // Nothing else: a port that imported an adapter would stop being one.
+      expect({
+        file,
+        outside: imports.filter(
           (name) =>
-            name.startsWith("../../domain/") || name.startsWith("../../migrations/"),
+            !name.startsWith("../../domain/") &&
+            !name.startsWith("../../migrations/") &&
+            !name.startsWith("./"),
         ),
-      ).toBe(true);
+      }).toEqual({ file, outside: [] });
     }
   });
 });
