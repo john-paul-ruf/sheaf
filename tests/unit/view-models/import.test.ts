@@ -369,6 +369,7 @@ describe("the ended run (SCR-022)", () => {
     actor.send({ type: "START" });
     await settled();
     actor.send({ type: "CANCEL" });
+    fake.emit({ kind: "cancelled", batchesSent: 1 });
     await settled();
 
     const vm = vmOf(actor);
