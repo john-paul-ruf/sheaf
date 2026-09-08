@@ -15,7 +15,7 @@ tagline carries the search.
 The framing sentence, for anyone who needs the shape in three seconds:
 
 > **It's Microsoft Access, rebuilt for a phone — with a live formula engine and
-> end-to-end encrypted sync, and no server anywhere.**
+> end-to-end encrypted sync, and no server of our own.**
 
 ---
 
@@ -85,17 +85,24 @@ language — *"Status looks like a dropdown with four options. Correct?"* — on
 at the start. And because rigidity is what kills tools like this, **the schema
 stays editable forever**, not just during onboarding.
 
-There is no server, and there never will be. The site is a static deploy, and
-the store on the device is always authoritative — the app reads and writes to
-it, online or off, and never waits on a network to start. The product is
-**local-first and cloud-durable**, and the distinction matters: requiring the
-cloud to *run* would put a fragile sign-in on the launch path of the very
-platform we are trying to protect, while requiring it to *persist* costs
-nothing at runtime and solves durability outright.
+There is no server of ours, and there never will be — nothing we run, nothing
+we pay for, nothing that can go down or be sold out from under a user. Storage
+belongs to the user and lives in their account, not ours. The site is a static
+deploy, and the store on the device is always authoritative — the app reads
+and writes to it, online or off, and never waits on a network to start. The
+product is **local-first and cloud-durable**, and the distinction matters:
+requiring the cloud to *run* would put a fragile sign-in on the launch path of
+the very platform we are trying to protect, while requiring it only to
+*persist* costs nothing at runtime and makes durability **achievable and
+observable** — a different and more honest claim than solving it, because a
+home that has been configured is not the same as a backup that is current.
 
-Because local storage on a phone is not durable. iOS reclaims a web app's
-storage after a stretch of disuse, and no amount of care on our side prevents
-it. So **every app a user actually invests in must be given a durable home**
+Because local storage on a phone is not a durable guarantee. It can be
+reclaimed under storage pressure, after long disuse for a site the user never
+installed, or the moment someone deletes the app — and the precise rules
+differ by platform and change between releases, so the product cannot be built
+on them. So **every app a user actually invests in must be given a durable
+home**
 before they are allowed to build on it. That home is a folder in their own
 Google Drive, Dropbox, or OneDrive, or an encrypted bundle file they save
 wherever they like. The requirement is that you say where this lives
@@ -104,17 +111,21 @@ works; it is simply marked *scratch*, and says so, which is exactly what the
 ten-second demo should be.
 
 The honest promise, then, is not that data never leaves the device — it is
-that **the data is never readable by anyone but you.** Everything written to a
-durable home is end-to-end encrypted under a key derived from the user's own
-passphrase, which is what lets a second device sign in, pull the store, and
-decrypt it with nothing ever transferred between the devices themselves. No
-pairing ceremony, no key exchange, no infrastructure. Apple offers no
-third-party web API for iCloud Drive, so iCloud remains an upload source but
-never a durable home — a limitation the product states plainly rather than
-letting users assume otherwise. What falls out is multi-device sync, real
-backup, survival of a lost phone, and the ability to hand an app to a
-colleague — with nothing to run, nothing to pay for, and no third party who
-can read a single row.
+that **nothing written to a durable home is readable by us or by the storage
+provider.** Naming the adversary is both the stronger claim and the truthful
+one. Everything written to a durable home is end-to-end encrypted under a key
+derived from the user's own passphrase, which is what lets a second device
+sign in, pull the store, and decrypt it with nothing ever transferred between
+the devices themselves. No pairing ceremony, no key exchange, no
+infrastructure. The one deliberate exception is **export**: a file the user
+asks for as XLSX, CSV, PNG, or PDF is written in the clear, because its entire
+purpose is to be opened by something else — and the product says so, since an
+exported workbook sitting in a downloads folder carries none of the guarantee.
+Apple offers no third-party web API for iCloud Drive, so iCloud remains an
+upload source but never a durable home — a limitation the product states
+plainly rather than letting users assume otherwise. What falls out is
+multi-device sync, real backup, and survival of a lost phone, with nothing to
+run, nothing to pay for, and no third party who can read a single row.
 
 And because the durable home holds the apps rather than merely backing them
 up, a new device is never a fresh start. Install Sheaf on a tablet, point it
@@ -156,10 +167,6 @@ industry. In practice they share a profile:
 - They are **unwilling or unable to migrate** to a subscription platform, for
   reasons of cost, privacy, IT policy, or plain preference.
 
-**Secondary — the person they hand it to.** A partner, a crew member, a
-bookkeeper, a spouse. Receives a shared app, uses it, edits it, syncs back.
-Never sees a spreadsheet and never needs to.
-
 **Secondary — the chart-first user.** Someone handed a workbook who wants one
 good chart on their phone in ten seconds, and may never create a record at
 all. They are the shortest path to the product's value and the reason charts
@@ -170,10 +177,14 @@ are first-class rather than a dashboard afterthought.
 ## Key Features (high-level)
 
 1. **Upload from anywhere** — phone, tablet, desktop, iCloud, Drive, email
-   attachment. Multi-sheet workbooks at full fidelity in `.xlsx`, `.xlsb`,
-   `.xls`, and `.ods`; `.csv` and `.tsv` as value-only imports that can be
-   added to an existing app so a folder of exports still becomes relational.
-   Format is determined by content, never by file extension.
+   attachment. Multi-sheet workbooks in `.xlsx`, `.xlsb`, `.xls`, and `.ods`
+   are read with all of the structure they declare; `.csv` and `.tsv` declare
+   none, so they import value-only and can be added to an existing app, which
+   is how a folder of exports still becomes relational. Format is determined
+   by content, never by file extension. Across every format one contract
+   holds: **supported structures become interactive, and unsupported content
+   is preserved and visibly identified** — never silently dropped, and never
+   silently inert.
 2. **Structural inference** — real header row located, junk rows discarded,
    several tables on one sheet detected and split, and any table the workbook
    already declares taken as fact rather than guessed at.
@@ -220,20 +231,32 @@ are first-class rather than a dashboard afterthought.
     data: a folder in their own Google Drive, Dropbox, or OneDrive, or an
     encrypted bundle file they save themselves. Apps without one remain usable
     but are marked *scratch* and say plainly that they are not backed up.
-16. **End-to-end encrypted sync, backup, and sharing** — everything leaving
-    the device is encrypted under a passphrase-derived key, so a second device
-    needs only the passphrase and access to the durable home. No server, no
-    readable copy anywhere, no pairing ceremony.
+    Choosing a home is not proof of a current one, so every app surfaces **when
+    it last backed up successfully and how many changes exist only on this
+    device**, with a one-tap way to back up now — because observability
+    without a remedy is only anxiety. A manually saved bundle goes stale the
+    moment a record changes, and is the loudest about it.
+16. **End-to-end encrypted sync and backup** — everything written to a durable
+    home is encrypted under a passphrase-derived key, so a second device needs
+    only the passphrase and access to that home. No server of ours, no readable
+    copy in anyone's cloud, no pairing ceremony. Deliberate exports are the one
+    exception, and are plaintext by design.
 17. **Merge and reconciliation engine** — an append-only change log, compacted
     periodically, resolving divergent copies field by field; powers offline
     write queues, multi-device sync, and re-uploading a newer version of an
     already-imported workbook.
-18. **Graceful behavior at scale** — a pre-flight sizing pass before any
-    parsing begins, sheet-by-sheet selection for large workbooks, a streamed
-    import that never holds a whole workbook in memory, and routing to a
-    desktop browser when a phone genuinely cannot do the import — after which
-    the durable home syncs the finished app back down. Nothing is ever
-    silently truncated; anything omitted is named.
+18. **Graceful behavior at scale** — capacity is five separate budgets, not
+    one: **importing**, **storing**, **querying**, **charting**, and
+    **syncing**. Import is the only one desktop routing can solve, through a
+    pre-flight sizing pass before parsing begins, sheet-by-sheet selection, a
+    streamed import that never holds a whole workbook in memory, and a handoff
+    to a desktop browser when a phone genuinely cannot parse — after which the
+    durable home syncs the finished app back down. The other four remain the
+    phone's problem no matter where the import ran, and charting is the
+    hardest of them, since an aggregate is a full scan that a filter change can
+    re-trigger. Each budget is stated separately, adapts to the device, and
+    degrades visibly. Nothing is ever silently truncated; anything omitted is
+    named.
 19. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
 20. **The shell** — a library of every generated app, each a tile with name,
     row count, theme, and last-opened.
@@ -271,16 +294,17 @@ deferred feature; the vision above is specified complete.
   home already serves every case peer sync was imagined for. Two devices reach
   each other only by way of a durable home, and nothing is ever transferred
   between them directly.
-- **Not a hosted collaborative document.** Sharing happens by handing someone
-  access to an encrypted store — a shared storage folder or a bundle file plus
-  a key — not by joining a live hosted session. No presence cursors, no comment
-  threads, no server-mediated co-editing.
-- **Not a permissions system.** Because there is no identity infrastructure,
-  everyone holding an app's key holds the same access. There are no read-only
-  shares, and removing someone means rotating the key for everyone, which stops
-  their future access but cannot reach into their device and delete what they
-  already hold. The product says this in those words rather than implying a
-  revoke button does more than it does.
+- **Not a sharing product.** There is no sharing at all: no shared folders, no
+  invitations, no links, no recipients, no permissions, no revocation. An app
+  belongs to one storage account and is reachable only from devices signed into
+  that account. Getting data to another person means exporting a file and
+  sending it, after which it is their file and no longer part of this app.
+- **Not a multi-account system.** One account never sees another account's
+  apps, under any circumstance. Discovery is scoped to the signed-in account
+  and to nothing else — a boundary the product enforces, not a default it
+  permits anyone to change.
+- **Not a collaborative document.** No co-editing, no presence, no comment
+  threads, no live session. Multiple devices means one person's devices.
 - **Not linked to the original file.** Import is deliberate and explicit. The
   product never watches, re-reads, or writes back to the source file on disk or
   in cloud storage. Bringing in a newer version is always a user-initiated
@@ -311,32 +335,55 @@ Recorded here so later phases don't relitigate them.
   user invests real data, and is satisfied either by a cloud folder or by an
   encrypted bundle file the user saves themselves, so the requirement is a
   decision rather than an account.
-- **Encryption is mandatory wherever data leaves the device.** An
-  unreadable-by-anyone-but-you guarantee is the product's core claim, and an
-  unencrypted blob in someone's Drive would forfeit it outright.
+- **Durability is achievable and observable, never solved.** A configured
+  durable home is not a current backup. Tokens expire, quotas fill, offline
+  edits queue, and a manually saved bundle is stale the instant a record
+  changes. Every app therefore surfaces its last successful backup and its
+  count of device-only changes, and offers an immediate way to act on it,
+  because observability without a remedy is only anxiety.
+- **Encryption is mandatory for everything written to a durable home, and
+  deliberately absent from exports.** Unreadability by us and by the storage
+  provider is the product's core claim, and an unencrypted blob sitting in
+  someone's Drive would forfeit it outright. An export is the opposite case: a
+  file the user asked for precisely so something else can open it, which
+  encryption would defeat. The distinction is stated to users rather than
+  assumed, since an exported workbook in a downloads folder carries none of the
+  guarantee.
+- **There is no sharing, and account isolation is a boundary rather than a
+  default.** One storage account's apps are never visible to another, under any
+  circumstance. Cutting sharing removed the only reason this product would have
+  needed a trust model, a permission model, or a revocation story — and it
+  removed a provider capability check that narrow application-folder scopes
+  might well have failed, since an application folder is per-account by
+  construction and cannot be handed to a second person. Getting data to another
+  person means exporting a file, which is then theirs.
 - **Passphrase-derived keys in two layers, no public-key infrastructure and no
   pairing.** The passphrase derives a **vault key**, and the vault holds the
-  encrypted index of apps together with each app's own key, wrapped. Per-app
-  keys survive intact, so one app can be shared without the rest, while a
-  device holding nothing but a passphrase can still discover what exists —
-  which a flat per-app model could not do, since a fresh device would have no
-  key with which to read the index. Because the durable home carries the
-  encrypted store, a second device needs only the passphrase, and nothing is
-  transferred device to device. A written recovery code remains available as an
-  alternative to the passphrase. Sharing is delegated to the storage provider's
-  own folder sharing rather than to a trust model the product would have to
-  build and maintain.
-- **A provider that cannot support discovery is not a durable home.** The test
-  is whether a second device, authorised as the same user, can enumerate what
-  the first device wrote — under a permission scope narrow enough to avoid a
-  verification regime, and without hiding the user's own files from them.
-  Dropbox and OneDrive application folders meet it. Google Drive is expected to
-  meet it under per-file scope but is **provisional until verified during the
-  architecture phase**, and is dropped outright if it cannot, rather than kept
-  by widening scope or by burying a user's data where they can't see it.
-  iCloud Drive is already excluded, for the reasons given in the Vision. A
-  saved bundle file and a picked desktop folder remain available and are exempt
-  from the test, since neither claims to be discoverable.
+  encrypted index of apps together with each app's own key, wrapped. A device
+  holding nothing but a passphrase can therefore discover what exists, which a
+  flat per-app model could not do, since a fresh device would have no key with
+  which to read the index. Per-app keys are retained for blast-radius
+  containment rather than for sharing: one compromised app key exposes one app,
+  not the library. Because the durable home carries the encrypted store, a
+  second device needs only the passphrase, and nothing is transferred device to
+  device. A written recovery code remains available as an alternative to the
+  passphrase.
+- **A provider must pass two independent tests, and only two.** The first is
+  **discovery**: can a second device, authorised as the *same* account,
+  enumerate what the first device wrote — under a permission scope narrow
+  enough to avoid a verification regime, and without hiding the user's own
+  files from them. The second is **isolation**: is it structurally impossible
+  for one account to enumerate another's. There is deliberately no third test,
+  because there is no sharing; whether a provider could expose a folder to a
+  second person is a question this product never asks. Dropbox and OneDrive
+  application folders pass both, and pass isolation by construction. Google
+  Drive is expected to pass discovery under per-file scope but is
+  **provisional until verified during the architecture phase**, and is dropped
+  outright if it cannot, rather than kept by widening scope or by burying a
+  user's data where they can't see it. iCloud Drive is already excluded, for
+  the reasons given in the Vision. A saved bundle file and a picked desktop
+  folder are exempt from discovery, since neither claims to be discoverable —
+  but never from isolation.
 - **No secrets, no API keys, no paid infrastructure.** The site is a public
   static deploy from a public repository. Provider integration uses public
   OAuth client identifiers with PKCE and app-folder-scoped permissions, held in
@@ -346,15 +393,23 @@ Recorded here so later phases don't relitigate them.
 - **Storage format is an append-only change log with periodic compaction** —
   so a save writes a delta rather than rewriting a workbook, and so
   reconciliation has the history it needs.
-- **Formula fidelity policy** — as recorded in Key Features 8.
+- **The import contract: supported structures become interactive, unsupported
+  content is preserved and visibly identified.** One rule for everything read
+  out of a workbook — formulas, formatting, charts, layouts — rather than a
+  carve-out invented per feature. Nothing is silently dropped and nothing is
+  silently inert. Preserving content and reproducing its behaviour are separate
+  guarantees, and the product never implies the first is the second.
+- **Formula fidelity policy** — as recorded in Key Features 8, and an instance
+  of the import contract above rather than a rule of its own.
 - **Input formats form a fidelity ladder, not a list.** There is one pipeline;
   the format decides how much of it is reading rather than guessing, because a
   workbook's declared tables, validation rules, and number formats turn
-  inference into fact. Spreadsheet formats import at full fidelity, delimited
-  text imports value-only, and Apple Numbers is refused with instructions to
-  export to Excel first rather than half-parsed by an immature reader. Format
-  is decided by content, since macro files get renamed and legacy systems ship
-  HTML tables under an `.xls` extension.
+  inference into fact. Spreadsheet formats are read with all of the structure
+  they declare, delimited text declares none and imports value-only, and Apple
+  Numbers is refused with instructions to export to Excel first rather than
+  half-parsed by an immature reader. Format is decided by content, since macro
+  files get renamed and legacy systems ship HTML tables under an `.xls`
+  extension.
 - **No sheet is ever silently discarded.** Sheets are classified rather than
   filtered — lookup lists into enum sources, summary tabs into dashboard
   metrics, pivot tables and chart sheets into real charts — and every sheet is
@@ -364,10 +419,15 @@ Recorded here so later phases don't relitigate them.
   wins outright over any inference. Candidate regions with matching headers are
   proposed as one table rather than two, so a spacer row doesn't fracture real
   data, and the review screen confirms the split before it stands.
-- **Scale is a routing decision, not a wall.** Sizing happens before parsing,
-  large workbooks offer sheet-by-sheet selection, import is streamed rather
-  than held in memory, and a workbook too large for a phone is imported on a
-  desktop and synced down through its durable home. Thresholds adapt to the
-  device instead of being fixed, and anything omitted is named.
+- **Import scale is a routing decision; operating scale is not.** Sizing
+  happens before parsing, large workbooks offer sheet-by-sheet selection,
+  import is streamed rather than held in memory, and a workbook too large for a
+  phone is imported on a desktop and synced down through its durable home. That
+  solves importing and nothing else. **Storing, querying, charting, and syncing
+  remain the phone's problem no matter where the import ran**, and each carries
+  its own stated limit — charting most of all, since an aggregate is a full
+  scan that a filter change can re-trigger. Thresholds adapt to the device
+  rather than being fixed, degrade visibly rather than silently, and anything
+  omitted is named.
 - **Product name** — *Sheaf*, with *"Your spreadsheet, as an app on your
   phone"* carrying the descriptive and search burden.
