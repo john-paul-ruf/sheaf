@@ -193,7 +193,20 @@ export function createRecordHandlers(
     if (session === undefined) {
       return { kind, outcome: "unknown-subject", subject: "app" };
     }
-    const result = await run(session);
+
+    let result: CommandResultV1;
+    try {
+      result = await run(session);
+    } catch (cause) {
+      // A replay guard failing after the commit landed disposes the whole
+      // projection (S02's contract). The commit is durable, so the recovery is
+      // to hydrate again from the bytes that now include it — but only if this
+      // dead session is dropped first, or every later request would be
+      // answered from a database that is already closed.
+      registry.close(appId);
+      throw cause;
+    }
+
     switch (result.outcome) {
       case "accepted":
         return {
