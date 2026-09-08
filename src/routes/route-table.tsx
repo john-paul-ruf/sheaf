@@ -8,8 +8,10 @@ import {
   useNavigate,
 } from "react-router";
 import { useMachine } from "@xstate/react";
-import { selectEmptyLibraryVm } from "../application/view-models/library.js";
+import { selectLibraryVm } from "../application/view-models/library.js";
 import {
+  announceRefusal,
+  toErrorVm,
   selectPassphraseChangeVm,
   selectRecoveryVm,
   selectResetVm,
@@ -18,6 +20,7 @@ import {
   selectSetupVm,
   selectUnlockVm,
   selectWelcomeVm,
+  type ErrorVm,
 } from "../application/view-models/security.js";
 import { setupMachine } from "../application/workflows/setup.machine.js";
 import { unlockMachine } from "../application/workflows/unlock.machine.js";
@@ -28,11 +31,19 @@ import { resetMachine } from "../application/workflows/reset.machine.js";
 import { sessionMachine } from "../application/workflows/session.machine.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
-import type { UnlockedSessionViewV1 } from "../workers/protocol/messages.js";
+import type {
+  LibraryAppV1,
+  UnlockedSessionViewV1,
+} from "../workers/protocol/messages.js";
+import type { RecordsServices } from "../application/workflows/records-services.js";
+import { toSecurityError } from "../application/workflows/services.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
+import { LibraryScreen } from "../ui/library/library-screen.js";
+import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
-import type { SecurityNavigation } from "../ui/security/frames.js";
+import { ErrorState } from "../ui/primitives/error-state.js";
+import { UnlockedFrame, type SecurityNavigation } from "../ui/security/frames.js";
 import { PassphraseChangeScreen } from "../ui/security/passphrase-change-screen.js";
 import {
   RecoveryCodesScreen,
@@ -53,6 +64,7 @@ import {
 import {
   ROUTE_HREFS,
   ROUTE_PATHS,
+  appHref,
   fallbackRoute,
   guardRoute,
   type SessionPhase,
@@ -363,13 +375,21 @@ function UnlockedArea({
     <Routes>
       <Route
         element={
-          <EmptyLibraryScreen
-            nav={nav}
+          <LibraryRoute
+            records={wiring.records}
             topBarActions={lockAction}
-            vm={selectEmptyLibraryVm()}
           />
         }
         path={ROUTE_PATHS.library}
+      />
+      <Route
+        element={
+          <LibrarySearchRoute
+            records={wiring.records}
+            topBarActions={lockAction}
+          />
+        }
+        path={ROUTE_PATHS.librarySearch}
       />
       <Route
         element={
@@ -414,6 +434,190 @@ function UnlockedArea({
       />
       <Route element={elsewhere} path="*" />
     </Routes>
+  );
+}
+
+/**
+ * The catalog, read once per mount (CA-09/CAP-14).
+ *
+ * A rejection is *not* folded into an empty list: "no apps yet" and "the
+ * catalog could not be read" are different facts with different next actions,
+ * and rendering STA-025's invitation over a failed read would be the one lie
+ * this surface must never tell.
+ */
+type LibraryApps =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly apps: readonly LibraryAppV1[] }
+  | { readonly kind: "failed"; readonly error: ErrorVm };
+
+function useLibraryApps(records: RecordsServices): {
+  readonly state: LibraryApps;
+  readonly reload: () => void;
+} {
+  const [generation, setGeneration] = useState(0);
+  const [state, setState] = useState<LibraryApps>({ kind: "loading" });
+
+  useEffect(() => {
+    let live = true;
+    setState({ kind: "loading" });
+    void records.listLibrary().then(
+      ({ apps }) => {
+        if (live) setState({ kind: "ready", apps });
+      },
+      (cause: unknown) => {
+        if (live)
+          setState({
+            kind: "failed",
+            error: toErrorVm(toSecurityError(cause)),
+          });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, generation]);
+
+  const reload = useCallback(() => {
+    setGeneration((current) => current + 1);
+  }, []);
+
+  return { state, reload };
+}
+
+function LibraryUnavailable({
+  error,
+  onRetry,
+  topBarActions,
+}: {
+  readonly error: ErrorVm;
+  readonly onRetry: () => void;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  return (
+    <UnlockedFrame
+      announcement={announceRefusal(error)}
+      area="library"
+      nav={nav}
+      title="All apps"
+      topBarActions={topBarActions}
+    >
+      <ErrorState
+        cause={announceRefusal(error)}
+        heading="Sheaf could not list the apps on this device."
+        variant="recoverable"
+        // Offered only where the worker said retrying can help (CA-04).
+        {...(error.retryable
+          ? { action: <Button onPress={onRetry}>Try again</Button> }
+          : {})}
+      />
+    </UnlockedFrame>
+  );
+}
+
+/** SCR-010 when this device holds apps, SCR-011 when it truthfully holds none. */
+function LibraryRoute({
+  records,
+  topBarActions,
+}: {
+  readonly records: RecordsServices;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const { state, reload } = useLibraryApps(records);
+
+  if (state.kind === "loading") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Reading the apps on this device."
+      />
+    );
+  }
+
+  if (state.kind === "failed") {
+    return (
+      <LibraryUnavailable
+        error={state.error}
+        onRetry={reload}
+        topBarActions={topBarActions}
+      />
+    );
+  }
+
+  const vm = selectLibraryVm(state.apps);
+  if (vm.kind === "empty") {
+    return (
+      <EmptyLibraryScreen
+        nav={nav}
+        topBarActions={topBarActions}
+        vm={vm}
+      />
+    );
+  }
+
+  return (
+    <LibraryScreen
+      appHref={appHref}
+      nav={nav}
+      searchHref={ROUTE_HREFS.librarySearch}
+      topBarActions={topBarActions}
+      vm={vm}
+    />
+  );
+}
+
+/**
+ * SCR-012. The query is ephemeral view state — it filters a list this device
+ * already holds, so it is React state rather than a machine or a URL parameter.
+ */
+function LibrarySearchRoute({
+  records,
+  topBarActions,
+}: {
+  readonly records: RecordsServices;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const [query, setQuery] = useState("");
+  const { state, reload } = useLibraryApps(records);
+
+  if (state.kind === "loading") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Reading the apps on this device."
+      />
+    );
+  }
+
+  if (state.kind === "failed") {
+    return (
+      <LibraryUnavailable
+        error={state.error}
+        onRetry={reload}
+        topBarActions={topBarActions}
+      />
+    );
+  }
+
+  const vm = selectLibraryVm(state.apps, query);
+  // There is nothing to search: STA-025's invitation, not STA-026's no-result.
+  if (vm.kind === "empty") {
+    return (
+      <EmptyLibraryScreen
+        nav={nav}
+        topBarActions={topBarActions}
+        vm={vm}
+      />
+    );
+  }
+
+  return (
+    <LibrarySearchScreen
+      appHref={appHref}
+      nav={nav}
+      onSearch={setQuery}
+      topBarActions={topBarActions}
+      vm={vm}
+    />
   );
 }
 

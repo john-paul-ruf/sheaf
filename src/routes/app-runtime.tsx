@@ -25,6 +25,10 @@ import {
   type RecoveryCodeFormatPort,
   type SecurityServices,
 } from "../application/workflows/services.js";
+import {
+  createRecordsServices,
+  type RecordsServices,
+} from "../application/workflows/records-services.js";
 import type { SessionPhase } from "./guards.js";
 
 const clock: ClockPort = { nowEpochMs: () => Date.now() };
@@ -52,9 +56,18 @@ const recoveryCodeFormat: RecoveryCodeFormatPort = {
 
 const passphrasePolicy: PassphrasePolicyPort = wordCountPassphrasePolicy;
 
-/** Everything the machines need, assembled once per runtime. */
+/**
+ * Everything the machines and unlocked routes need, assembled once per runtime.
+ *
+ * The import services are **not** here: they own a second worker and the
+ * channel between it and the data worker, so they are built where that worker
+ * may exist — inside the unlocked area of the route table, which is also the
+ * only place `spawnImportWorker` may be injected from (D17, M36 must-not).
+ */
 export interface SecurityWiring {
   readonly services: SecurityServices;
+  /** Library, app and record reads. No lifecycle: request in, response out. */
+  readonly records: RecordsServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
   readonly clock: ClockPort;
@@ -99,6 +112,7 @@ export function useSheafRuntime(): SheafRuntime {
     const { app, report } = started;
     const wiring: SecurityWiring = {
       services: createSecurityServices(app.client),
+      records: createRecordsServices(app.client),
       policy: passphrasePolicy,
       codeFormat: recoveryCodeFormat,
       clock,

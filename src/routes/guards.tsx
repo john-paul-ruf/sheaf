@@ -30,6 +30,7 @@ export const ROUTE_PATHS = {
   recover: "/recover",
   resetLocked: "/reset",
   library: "/library",
+  librarySearch: "/library/search",
   securitySettings: "/settings/security",
   passphraseChange: "/settings/security/passphrase",
   recoveryCodes: "/settings/security/recovery-codes",
@@ -68,6 +69,7 @@ export const LOCKED_ROUTES: readonly RoutePath[] = Object.freeze([
 /** Reachable only once this session is open. */
 export const UNLOCKED_ROUTES: readonly RoutePath[] = Object.freeze([
   ROUTE_PATHS.library,
+  ROUTE_PATHS.librarySearch,
   ROUTE_PATHS.securitySettings,
   ROUTE_PATHS.passphraseChange,
   ROUTE_PATHS.recoveryCodes,
@@ -79,6 +81,17 @@ export const FIRST_RUN_ROUTES: readonly RoutePath[] = Object.freeze([
   ROUTE_PATHS.welcome,
   ROUTE_PATHS.setup,
 ]);
+
+/**
+ * Where an app opens (CA-07 amendment, S07). The path is **reserved, not
+ * served**: S08 lands `#/app/:appId`, and until it does CA-07's unknown-route
+ * rule is what makes a post-create navigation truthful — it redirects to the
+ * library, where the newly created tile is visible. Adding it to
+ * {@link UNLOCKED_ROUTES} early would render nothing at all.
+ */
+export function appHref(appId: string): string {
+  return `#/app/${encodeURIComponent(appId)}`;
+}
 
 export type RouteGuardResult =
   | { readonly kind: "render" }

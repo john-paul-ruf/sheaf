@@ -1,0 +1,231 @@
+/*
+ * M42 — SCR-010 and SCR-012 (library.html, library-search.html).
+ *
+ * The tile grid is the only structure here: one column at the compact class,
+ * two once a card can hold its facts beside another (design.md §Layout
+ * Classes, "two-column cards where independent"). Nothing collapses below
+ * 320px because the grid's minimum track is a `minmax` floor, not a fixed
+ * width.
+ *
+ * Unlayered by the layer contract: `tokens.css` and `base.css` own the
+ * cascade layers, so a component module always wins on order alone.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.sectionCount {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.tiles {
+  display: grid;
+  gap: var(--space-16);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: grid;
+  gap: var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-level-0);
+}
+
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+/*
+ * D29's five accent ids, each resolved to the M40 tint/ink pair that names it.
+ *
+ * The mocks draw the monogram chip as a solid accent with light text. Marigold
+ * 500 under Sheaf's own action text is about 2.9:1 — under the 4.5:1 the
+ * accessibility contract requires — so the chip uses each hue's *pale* fill
+ * with its *ink* foreground instead. Every one of those pairs already exists
+ * in `tokens.css`; the identity is still the app's own and the product
+ * behaviour is unchanged.
+ */
+.tile[data-accent="leaf"] {
+  --tile-accent: var(--leaf-pale);
+  --tile-accent-ink: var(--leaf-ink);
+}
+
+.tile[data-accent="clay"] {
+  --tile-accent: var(--clay-pale);
+  --tile-accent-ink: var(--clay-ink);
+}
+
+.tile[data-accent="marigold"] {
+  --tile-accent: var(--marigold-pale);
+  --tile-accent-ink: var(--marigold-ink);
+}
+
+.tile[data-accent="river"] {
+  --tile-accent: var(--river-pale);
+  --tile-accent-ink: var(--river-ink);
+}
+
+.tile[data-accent="violet"] {
+  --tile-accent: var(--violet-pale);
+  --tile-accent-ink: var(--violet-ink);
+}
+
+/*
+ * D29: the accent is the app's own identity token. A tile that names an accent
+ * this build does not know falls back to the shell's own panel colours rather
+ * than to a literal, so an unrecognised id is still legible.
+ */
+.glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--space-48);
+  height: var(--space-48);
+  border-radius: var(--radius-card);
+  background: var(--tile-accent, var(--color-panel));
+  color: var(--tile-accent-ink, var(--color-text));
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: 1;
+}
+
+.status {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.tileName {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.facts {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.facts dt {
+  font-weight: var(--weight-control);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+/* Wraps rather than shrinks, so every action stays whole at 320px. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
+
+.card {
+  display: grid;
+  gap: var(--space-16);
+  justify-items: start;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-24) var(--space-20);
+  background: var(--color-surface);
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.searchRow {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.resultLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-16);
+  align-items: baseline;
+}
+
+.resultCount {
+  font-weight: var(--weight-status);
+}
+
+.noResult {
+  display: grid;
+  gap: var(--space-12);
+  justify-items: start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-24) var(--space-20);
+  background: var(--color-panel);
+}

@@ -87,13 +87,11 @@ test("first journey: protect, lock, unlock, settle, change, recover, reveal, res
   const choose = page.getByRole("button", { name: "Choose a workbook" });
   const connect = page.getByRole("button", { name: "Connect a durable home" });
   await expect(choose).toBeVisible();
-  await expect(choose).toBeDisabled();
+  // D5's flip: import landed in F02, so this action is live and goes to SCR-016.
+  await expect(choose).toBeEnabled();
   await expect(connect).toBeVisible();
   await expect(connect).toBeDisabled();
   // CTL-014's contract: a disabled action states its reason in text.
-  await expect(screen(page, "SCR-011")).toContainText(
-    "Uploading a workbook is not available in this release.",
-  );
   await expect(screen(page, "SCR-011")).toContainText(
     "Connecting a durable home is not available in this release.",
   );

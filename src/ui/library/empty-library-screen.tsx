@@ -6,6 +6,7 @@ import type {
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
+import { navigateToUpload } from "./library-screen.js";
 import styles from "./empty-library.module.css";
 
 /**
@@ -28,17 +29,13 @@ const DISABLED_REASON: Readonly<Record<LibraryActionReason, string>> =
       "Connecting a durable home is not available in this release.",
   });
 
-/**
- * Where `upload-workbook` goes. S07 lands the real upload surface; until it
- * does, CA-07's route guard answers an unknown hash truthfully rather than
- * leaving a dead control here.
- */
-const UPLOAD_ROUTE = "#/upload";
-
 export interface EmptyLibraryScreenProps {
   readonly vm: EmptyLibraryVm;
   readonly nav: SecurityNavigation;
-  /** Defaults to navigating to {@link UPLOAD_ROUTE} (the `window.print` idiom). */
+  /**
+   * Defaults to {@link navigateToUpload} — the upload destination this module
+   * states once, so SCR-010, SCR-011 and SCR-012 cannot disagree about it.
+   */
   readonly onChooseWorkbook?: () => void;
   /** Shell-level actions, e.g. locking this device. */
   readonly topBarActions?: ReactNode;
@@ -47,15 +44,9 @@ export interface EmptyLibraryScreenProps {
 export function EmptyLibraryScreen({
   vm,
   nav,
-  onChooseWorkbook,
+  onChooseWorkbook = navigateToUpload,
   topBarActions,
 }: EmptyLibraryScreenProps): ReactNode {
-  const chooseWorkbook =
-    onChooseWorkbook ??
-    ((): void => {
-      window.location.hash = UPLOAD_ROUTE;
-    });
-
   return (
     <UnlockedFrame
       announcement={vm.announcement}
@@ -91,7 +82,7 @@ export function EmptyLibraryScreen({
               action.enabled ? (
                 <Button
                   key={action.id}
-                  onPress={chooseWorkbook}
+                  onPress={onChooseWorkbook}
                   tone={index === 0 ? "primary" : "secondary"}
                 >
                   {action.label}
