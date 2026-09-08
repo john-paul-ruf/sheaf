@@ -34,6 +34,7 @@ const WORKFLOW_FILES = [
 const VIEW_MODEL_FILES = [
   "src/application/view-models/security.ts",
   "src/application/view-models/library.ts",
+  "src/application/view-models/import.ts",
 ];
 
 /** Source with comments removed: a spec citation is not an import. */
