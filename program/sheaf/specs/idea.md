@@ -161,19 +161,30 @@ are first-class rather than a dashboard afterthought.
 ## Key Features (high-level)
 
 1. **Upload from anywhere** — phone, tablet, desktop, iCloud, Drive, email
-   attachment. Multi-sheet workbooks.
+   attachment. Multi-sheet workbooks at full fidelity in `.xlsx`, `.xlsb`,
+   `.xls`, and `.ods`; `.csv` and `.tsv` as value-only imports that can be
+   added to an existing app so a folder of exports still becomes relational.
+   Format is determined by content, never by file extension.
 2. **Structural inference** — real header row located, junk rows discarded,
-   non-table sheets recognized as such.
-3. **Type inference** — date, currency, number, phone, email, URL, address,
-   boolean, enum, free text, reference.
-4. **Relationship detection** — cross-sheet foreign keys, with the user's own
+   several tables on one sheet detected and split, and any table the workbook
+   already declares taken as fact rather than guessed at.
+3. **Sheet classification** — lookup lists become enum sources, summary tabs
+   become dashboard metrics, and pivot tables and chart sheets are rebuilt as
+   real charts, so an app opens with the user's own charts already on it.
+   Every sheet is additionally retained as a read-only snapshot, so no sheet
+   is ever silently lost.
+4. **Type inference** — date, currency, number, phone, email, URL, address,
+   boolean, enum, free text, reference — read from the workbook's own number
+   formats and validation rules wherever they exist, inferred from values only
+   where they don't.
+5. **Relationship detection** — cross-sheet foreign keys, with the user's own
    lookup formulas as the primary signal and key-column matching as the
    secondary one.
-5. **Plain-language review** — one onboarding confirmation screen, in the
+6. **Plain-language review** — one onboarding confirmation screen, in the
    user's words, not the schema's.
-6. **Permanently editable schema** — every inference is revisable at any time,
+7. **Permanently editable schema** — every inference is revisable at any time,
    from inside the app, forever.
-7. **Live formula engine** — computed columns, table metrics, and standalone
+8. **Live formula engine** — computed columns, table metrics, and standalone
    dashboard values, translated off cell addresses, recalculating on edit and
    editable by the user. Clock-volatile functions (`TODAY`, `NOW`) stay live
    and are never stored, so they can never conflict; nondeterministic ones
@@ -181,35 +192,41 @@ are first-class rather than a dashboard afterthought.
    device would break reconciliation. A formula using an unsupported function
    keeps its imported value, shows its original text for rewriting, and leaves
    newly created rows **empty and flagged rather than silently zero**.
-8. **Relational tables with navigable relationships** — tap a customer, see
+9. **Relational tables with navigable relationships** — tap a customer, see
    their orders.
-9. **Full CRUD with mobile-native input** — right keyboard per type, native
-   date picker, bottom-sheet pickers, phone numbers dial, addresses open Maps,
-   validation on every write.
-10. **Query surface** — sticky search, horizontal filter chips, sort.
-11. **First-class charts** — bar, line, pie, scatter, stacked; cross-sheet
+10. **Full CRUD with mobile-native input** — right keyboard per type, native
+    date picker, bottom-sheet pickers, phone numbers dial, addresses open Maps,
+    validation on every write.
+11. **Query surface** — sticky search, horizontal filter chips, sort.
+12. **First-class charts** — bar, line, pie, scatter, stacked; cross-sheet
     charts over detected relationships; saved and pinned to an app's home;
     touch-native, where tapping a bar filters the list beneath it.
-12. **Per-app identity** — built-in themes plus per-app customization: color,
+13. **Per-app identity** — built-in themes plus per-app customization: color,
     accent, density, light/dark, logo.
-13. **Installable, offline-first PWA** — fully usable with no network,
+14. **Installable, offline-first PWA** — fully usable with no network,
     launching straight from the local store rather than waiting on one.
     Home-screen install is encouraged for the experience, not demanded for
     safety, because durability is the durable home's job.
-14. **A durable home for every app** — chosen before a user can invest real
+15. **A durable home for every app** — chosen before a user can invest real
     data: a folder in their own Google Drive, Dropbox, or OneDrive, or an
     encrypted bundle file they save themselves. Apps without one remain usable
     but are marked *scratch* and say plainly that they are not backed up.
-15. **End-to-end encrypted sync, backup, and sharing** — everything leaving
+16. **End-to-end encrypted sync, backup, and sharing** — everything leaving
     the device is encrypted under a passphrase-derived key, so a second device
     needs only the passphrase and access to the durable home. No server, no
     readable copy anywhere, no pairing ceremony.
-16. **Merge and reconciliation engine** — an append-only change log, compacted
+17. **Merge and reconciliation engine** — an append-only change log, compacted
     periodically, resolving divergent copies field by field; powers offline
     write queues, multi-device sync, and re-uploading a newer version of an
     already-imported workbook.
-17. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
-18. **The shell** — a library of every generated app, each a tile with name,
+18. **Graceful behavior at scale** — a pre-flight sizing pass before any
+    parsing begins, sheet-by-sheet selection for large workbooks, a streamed
+    import that never holds a whole workbook in memory, and routing to a
+    desktop browser when a phone genuinely cannot do the import — after which
+    the durable home syncs the finished app back down. Nothing is ever
+    silently truncated; anything omitted is named.
+19. **Export** — XLSX, CSV, chart PNG, and PDF reports, at any time.
+20. **The shell** — a library of every generated app, each a tile with name,
     row count, theme, and last-opened.
 
 ---
@@ -244,6 +261,9 @@ deferred feature; the vision above is specified complete.
   product never watches, re-reads, or writes back to the source file on disk or
   in cloud storage. Bringing in a newer version is always a user-initiated
   merge.
+- **Not a universal file reader.** Apple Numbers, Pages, and PDF are refused
+  with specific instructions for producing an Excel export instead, rather than
+  half-parsed by an immature reader into data the user cannot trust.
 - **Not a BI or data-warehouse tool.** No SQL surface, no joins the user has to
   author, no modeling layer.
 - **No telemetry on user data.** Nothing about the contents of a workbook is
@@ -253,21 +273,12 @@ deferred feature; the vision above is specified complete.
 
 ## Open Questions
 
-To be resolved during the `requirements` phase.
+**None remain.** Every question raised during this phase was put to the builder
+and answered before the phase closed. The answers are recorded below.
 
-- **Input formats.** Beyond `.xlsx`: is `.xls`, `.csv`, `.tsv`, Google Sheets
-  export, and Apple Numbers in the accepted set, and does each get the full
-  inference pipeline or a reduced one?
-- **Non-table sheets.** What happens to a summary tab, a pivot table, a chart
-  sheet, or a page of notes — dropped, preserved read-only, or converted into
-  dashboard content?
-- **Multiple tables on one sheet.** Two side-by-side or stacked tables on a
-  single sheet: detected and split, or one-table-per-sheet as a hard rule?
-- **Scale ceiling.** What is the largest workbook the product commits to
-  handling on a phone — in rows, sheets, and megabytes — and what does it do at
-  the boundary?
+---
 
-### Settled during the idea phase
+## Decisions Settled During the Idea Phase
 
 Recorded here so later phases don't relitigate them.
 
@@ -300,6 +311,28 @@ Recorded here so later phases don't relitigate them.
 - **Storage format is an append-only change log with periodic compaction** —
   so a save writes a delta rather than rewriting a workbook, and so
   reconciliation has the history it needs.
-- **Formula fidelity policy** — as recorded in Key Features 7.
+- **Formula fidelity policy** — as recorded in Key Features 8.
+- **Input formats form a fidelity ladder, not a list.** There is one pipeline;
+  the format decides how much of it is reading rather than guessing, because a
+  workbook's declared tables, validation rules, and number formats turn
+  inference into fact. Spreadsheet formats import at full fidelity, delimited
+  text imports value-only, and Apple Numbers is refused with instructions to
+  export to Excel first rather than half-parsed by an immature reader. Format
+  is decided by content, since macro files get renamed and legacy systems ship
+  HTML tables under an `.xls` extension.
+- **No sheet is ever silently discarded.** Sheets are classified rather than
+  filtered — lookup lists into enum sources, summary tabs into dashboard
+  metrics, pivot tables and chart sheets into real charts — and every sheet is
+  additionally kept as a read-only snapshot. Aggressive classification is only
+  safe because nothing it gets wrong is unrecoverable.
+- **Several tables on one sheet are detected and split.** A declared table
+  wins outright over any inference. Candidate regions with matching headers are
+  proposed as one table rather than two, so a spacer row doesn't fracture real
+  data, and the review screen confirms the split before it stands.
+- **Scale is a routing decision, not a wall.** Sizing happens before parsing,
+  large workbooks offer sheet-by-sheet selection, import is streamed rather
+  than held in memory, and a workbook too large for a phone is imported on a
+  desktop and synced down through its durable home. Thresholds adapt to the
+  device instead of being fixed, and anything omitted is named.
 - **Product name** — *Sheaf*, with *"Your spreadsheet, as an app on your
   phone"* carrying the descriptive and search burden.
