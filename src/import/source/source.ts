@@ -39,6 +39,24 @@ const checkBounds = (offset: number, length: number): void => {
   }
 };
 
+/**
+ * Reads bytes already in hand. Pre-flight uses it to re-read its own bounded
+ * sample through the real parser instead of keeping a second, simpler, and
+ * therefore differently-wrong row splitter.
+ */
+export function bytesSource(bytes: Uint8Array): RandomAccessSource {
+  return {
+    byteLength: bytes.byteLength,
+    slice(offset: number, length: number): Promise<Uint8Array> {
+      checkBounds(offset, length);
+      const start = Math.min(offset, bytes.byteLength);
+      return Promise.resolve(
+        bytes.slice(start, Math.min(start + length, bytes.byteLength)),
+      );
+    },
+  };
+}
+
 /** Reads through `Blob.slice`, so a `File` is never held in memory as bytes. */
 export function blobSource(blob: Blob): RandomAccessSource {
   return {

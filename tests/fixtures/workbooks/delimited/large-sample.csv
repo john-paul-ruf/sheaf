@@ -1,0 +1,21 @@
+Visit ID,Recorded on,Site,Crew,Status,Hours,Quoted amount,Contact email,Notes
+100000,2026-03-02,Ridgeway Depot,North,Scheduled,1.00,$120.00,crew-0@example.org,"Gate code changed, call ahead"
+100001,2026-03-03,Alder Court,South,In progress,1.25,$157.01,crew-1@example.org,
+100002,2026-03-04,Bramble Yard,East,Waiting,1.50,$194.02,crew-2@example.org,
+100003,2026-03-05,Cedar Mill,West,Complete,1.75,$231.03,crew-3@example.org,
+100004,2026-03-06,Dunmore Lot,North,Scheduled,2.00,$268.04,crew-4@example.org,
+100005,2026-03-07,Ridgeway Depot,South,In progress,2.25,$305.05,crew-5@example.org,
+100006,2026-03-08,Alder Court,East,Waiting,2.50,$342.06,crew-6@example.org,
+100007,2026-03-09,Bramble Yard,West,Complete,2.75,$379.07,crew-7@example.org,"Gate code changed, call ahead"
+100008,2026-03-10,Cedar Mill,North,Scheduled,3.00,$416.08,crew-8@example.org,
+100009,2026-03-11,Dunmore Lot,South,In progress,3.25,$453.09,crew-9@example.org,
+100010,2026-03-12,Ridgeway Depot,East,Waiting,3.50,$490.10,crew-10@example.org,
+100011,2026-03-13,Alder Court,West,Complete,3.75,$527.11,crew-11@example.org,
+100012,2026-03-14,Bramble Yard,North,Scheduled,4.00,$564.12,crew-12@example.org,
+100013,2026-03-15,Cedar Mill,South,In progress,4.25,$601.13,crew-13@example.org,
+100014,2026-03-16,Dunmore Lot,East,Waiting,4.50,$638.14,crew-14@example.org,"Gate code changed, call ahead"
+100015,2026-03-17,Ridgeway Depot,West,Complete,4.75,$675.15,crew-15@example.org,
+100016,2026-03-18,Alder Court,North,Scheduled,1.00,$712.16,crew-16@example.org,
+100017,2026-03-19,Bramble Yard,South,In progress,1.25,$749.17,crew-17@example.org,
+100018,2026-03-20,Cedar Mill,East,Waiting,1.50,$786.18,crew-18@example.org,
+100019,2026-03-21,Dunmore Lot,West,Complete,1.75,$823.19,crew-19@example.org,
