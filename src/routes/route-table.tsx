@@ -57,15 +57,19 @@ import {
 import {
   announceRecordCommand,
   selectAppHomeVm,
+  selectChangeHistoryVm,
   selectDeleteRecordDialogVm,
   selectRecordDetailVm,
   selectRecordFormVm,
   selectRecordsListVm,
+  selectRestoreRecordDialogVm,
   toCommandOutcomeVm,
+  type ChangeHistoryEntryVm,
 } from "../application/view-models/records.js";
 import type {
   AppSessionViewV1,
   AppTableViewV1,
+  ChangeHistoryPageViewV1,
   LibraryAppV1,
   RecordDetailViewV1,
   RecordIssueViewV1,
@@ -96,6 +100,8 @@ import {
 } from "../ui/records/record-form-screen.js";
 import { RecordActionsSheet } from "../ui/records/record-actions-sheet.js";
 import { DeleteRecordDialog } from "../ui/records/delete-record-dialog.js";
+import { ChangeHistoryScreen } from "../ui/records/change-history-screen.js";
+import { RestoreRecordDialog } from "../ui/records/restore-record-dialog.js";
 import {
   AppFrame,
   type AppIdentity,
@@ -987,6 +993,16 @@ function OpenedApp({
         element={<RecordFormRoute area={area} mode="edit" />}
         path="/app/:appId/t/:tableId/r/:recordId/edit"
       />
+      <Route
+        element={
+          <ChangeHistoryRoute
+            area={area}
+            clearNotice={clearNotice}
+            {...(notice === null ? {} : { notice })}
+          />
+        }
+        path="/app/:appId/history"
+      />
       <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
     </Routes>
   );
@@ -1451,6 +1467,157 @@ function RecordFormRoute({
       topBarActions={topBarActions}
       vm={vm}
     />
+  );
+}
+
+/**
+ * SCR-032 and MOD-010 — the log, and the restore that makes MOD-009's
+ * "recoverable" true (CAP-17, D22).
+ */
+function ChangeHistoryRoute({
+  area,
+  notice,
+  clearNotice,
+}: {
+  readonly area: AppAreaWiring;
+  readonly notice?: string;
+  readonly clearNotice: () => void;
+}): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
+  const appId = identity.appId;
+
+  const [pages, setPages] = useState<
+    readonly ChangeHistoryPageViewV1[] | null
+  >(null);
+  const [restoring, setRestoring] = useState<ChangeHistoryEntryVm | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    void records.getChangeHistory({ appId }).then(
+      ({ page }) => {
+        if (live) setPages(page === null ? [EMPTY_HISTORY] : [page]);
+      },
+      () => {
+        if (live) setPages([EMPTY_HISTORY]);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, generation]);
+
+  useEffect(
+    () => () => {
+      clearNotice();
+    },
+    [clearNotice],
+  );
+
+  const showMore = useCallback(() => {
+    const last = pages?.at(-1);
+    if (last?.nextCursor == null) return;
+    setBusy(true);
+    void records
+      .getChangeHistory({ appId, cursor: last.nextCursor })
+      .then(({ page }) => {
+        setBusy(false);
+        if (page === null) return;
+        setPages((current) => [...(current ?? []), page]);
+      });
+  }, [records, appId, pages]);
+
+  if (pages === null) {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Reading this app's change history."
+      />
+    );
+  }
+
+  const merged = mergeHistory(pages);
+  const vm = selectChangeHistoryVm(merged);
+
+  // An app with one table is the F02 shape, and then a record's address is
+  // knowable from its id alone. With two, the log does not say which table the
+  // record is in, so it does not pretend to.
+  const onlyTable = session.tables.length === 1 ? session.tables[0] : undefined;
+  const recordHref = (recordId: string): string | null =>
+    onlyTable === undefined
+      ? null
+      : hashHref(recordPath(appId, onlyTable.tableId, recordId));
+
+  const confirmRestore = (): void => {
+    if (restoring === null) return;
+    setBusy(true);
+    void records.restoreRecord({ appId, recordId: restoring.subjectId }).then(
+      (response) => {
+        setBusy(false);
+        setRestoring(null);
+        area.announce(
+          announceRecordCommand(toCommandOutcomeVm(response), "restored"),
+        );
+        if (response.outcome === "rejected") return;
+        area.refresh();
+        setGeneration((current) => current + 1);
+      },
+      () => {
+        setBusy(false);
+        setRestoring(null);
+      },
+    );
+  };
+
+  return (
+    <ChangeHistoryScreen
+      app={identity}
+      busy={busy}
+      fieldNames={fieldNames(session)}
+      nav={nav}
+      onRestore={setRestoring}
+      onShowMore={showMore}
+      overlays={
+        restoring === null ? null : (
+          <RestoreRecordDialog
+            isOpen
+            onCancel={() => {
+              setRestoring(null);
+            }}
+            onConfirm={confirmRestore}
+            vm={selectRestoreRecordDialogVm(restoring, busy)}
+          />
+        )
+      }
+      recordHref={recordHref}
+      topBarActions={topBarActions}
+      vm={vm}
+      {...(notice === undefined ? {} : { notice })}
+    />
+  );
+}
+
+/** A history read that answered nothing: no entries, and no more to come. */
+const EMPTY_HISTORY: ChangeHistoryPageViewV1 = Object.freeze({
+  entries: [],
+  hasMore: false,
+  nextCursor: null,
+});
+
+function mergeHistory(
+  pages: readonly ChangeHistoryPageViewV1[],
+): ChangeHistoryPageViewV1 {
+  const last = pages.at(-1) ?? EMPTY_HISTORY;
+  return { ...last, entries: pages.flatMap((page) => page.entries) };
+}
+
+/** Every field in the app, by id, so a log line can name what moved. */
+function fieldNames(session: AppSessionViewV1): ReadonlyMap<string, string> {
+  return new Map(
+    session.tables.flatMap((table) =>
+      table.fields.map((field) => [field.fieldId, field.displayName] as const),
+    ),
   );
 }
 
