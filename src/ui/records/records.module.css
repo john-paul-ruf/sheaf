@@ -341,6 +341,29 @@
   font-family: var(--font-mono);
 }
 
+/*
+ * CTL-033/035/036's device handoffs. They are anchors, not buttons: the
+ * platform decides what answers a `tel:`, a `mailto:` or a maps address, and
+ * an anchor is what hands it over.
+ */
+.handoff {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-16);
+  background: var(--color-surface);
+  color: var(--color-action);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.handoff:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .issueList {
   display: grid;
   gap: var(--space-4);
@@ -384,6 +407,8 @@
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
+  /* A button centres its contents; a field's value is read from the left. */
+  text-align: left;
 }
 
 .input:focus-visible {
@@ -400,16 +425,31 @@
   font-size: var(--text-caption);
 }
 
+/*
+ * record-create.html's choice row (CTL-037/043). The whole row is the label,
+ * so the hit area is the row rather than the 24px box inside it — the F01
+ * pattern from `security.module.css`.
+ */
 .switchRow {
   display: flex;
   gap: var(--space-12);
   align-items: center;
   min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12) var(--space-16);
+  background: var(--color-surface);
 }
 
 .switchRow input {
+  flex: none;
   width: var(--space-24);
   height: var(--space-24);
+  accent-color: var(--color-action);
+}
+
+.switchState {
+  color: var(--color-text-muted);
 }
 
 .readOnly {

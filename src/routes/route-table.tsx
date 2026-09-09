@@ -55,13 +55,20 @@ import {
   type PickedWorkbookV1,
 } from "../platform/file-pick.js";
 import {
+  announceRecordCommand,
   selectAppHomeVm,
+  selectDeleteRecordDialogVm,
+  selectRecordDetailVm,
+  selectRecordFormVm,
   selectRecordsListVm,
+  toCommandOutcomeVm,
 } from "../application/view-models/records.js";
 import type {
   AppSessionViewV1,
   AppTableViewV1,
   LibraryAppV1,
+  RecordDetailViewV1,
+  RecordIssueViewV1,
   RecordPageViewV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
@@ -82,9 +89,17 @@ import { LibraryScreen } from "../ui/library/library-screen.js";
 import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
 import { AppHomeScreen } from "../ui/records/app-home-screen.js";
 import { RecordsScreen } from "../ui/records/records-screen.js";
-import type {
-  AppIdentity,
-  AppNavigation,
+import { RecordDetailScreen } from "../ui/records/record-detail-screen.js";
+import {
+  RecordFormScreen,
+  type AuthoredEntryIntentV1,
+} from "../ui/records/record-form-screen.js";
+import { RecordActionsSheet } from "../ui/records/record-actions-sheet.js";
+import { DeleteRecordDialog } from "../ui/records/delete-record-dialog.js";
+import {
+  AppFrame,
+  type AppIdentity,
+  type AppNavigation,
 } from "../ui/records/app-frame.js";
 import type { FieldTypeVm } from "../ui/records/values.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
@@ -114,6 +129,7 @@ import {
   appHistoryPath,
   appHref,
   appPath,
+  editRecordPath,
   fallbackRoute,
   guardRoute,
   hashHref,
@@ -840,6 +856,16 @@ function OpenedApp({
   readonly topBarActions: ReactNode;
 }): ReactNode {
   const [state, setState] = useState<OpenedAppState>({ kind: "opening" });
+  /**
+   * A confirmed write's own sentence, held for the screen the person lands on
+   * (M37's `announceRecordCommand`). It is set *after* the worker confirmed a
+   * durable commit and never before: invariant 1 is that acknowledgement
+   * follows the commit, so an optimistic banner is not a thing this area can
+   * render.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
+  /** Bumped by a write, so counts and rows are re-read rather than guessed. */
+  const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -858,7 +884,15 @@ function OpenedApp({
     return () => {
       live = false;
     };
-  }, [records, appId]);
+  }, [records, appId, generation]);
+
+  const refresh = useCallback(() => {
+    setGeneration((current) => current + 1);
+  }, []);
+
+  const clearNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
 
   // An operational write, once per visit: it caches when the app was opened
   // and authors no event (database.md § Events that do not exist).
@@ -910,6 +944,16 @@ function OpenedApp({
     })),
   };
 
+  const area: AppAreaWiring = {
+    identity,
+    nav,
+    records,
+    session,
+    topBarActions,
+    announce: setNotice,
+    refresh,
+  };
+
   return (
     <Routes>
       <Route
@@ -924,21 +968,43 @@ function OpenedApp({
         }
         path="/app/:appId"
       />
+      <Route element={<RecordsRoute area={area} />} path="/app/:appId/t/:tableId" />
+      <Route
+        element={<RecordFormRoute area={area} mode="create" />}
+        path="/app/:appId/t/:tableId/new"
+      />
       <Route
         element={
-          <RecordsRoute
-            identity={identity}
-            nav={nav}
-            records={records}
-            session={session}
-            topBarActions={topBarActions}
+          <RecordDetailRoute
+            area={area}
+            clearNotice={clearNotice}
+            {...(notice === null ? {} : { notice })}
           />
         }
-        path="/app/:appId/t/:tableId"
+        path="/app/:appId/t/:tableId/r/:recordId"
+      />
+      <Route
+        element={<RecordFormRoute area={area} mode="edit" />}
+        path="/app/:appId/t/:tableId/r/:recordId/edit"
       />
       <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
     </Routes>
   );
+}
+
+/**
+ * What every app-area route is given: the open app, where its surfaces live,
+ * the worker edge, and the two things a write needs — a way to say what
+ * happened once it is durable, and a way to have the app re-read.
+ */
+interface AppAreaWiring {
+  readonly identity: AppIdentity;
+  readonly nav: AppNavigation;
+  readonly records: RecordsServices;
+  readonly session: AppSessionViewV1;
+  readonly topBarActions: ReactNode;
+  readonly announce: (sentence: string) => void;
+  readonly refresh: () => void;
 }
 
 /**
@@ -991,19 +1057,8 @@ function AppUnavailable({
 }
 
 /** SCR-025/SCR-026 — one table, paged, searched in the projection. */
-function RecordsRoute({
-  identity,
-  nav,
-  records,
-  session,
-  topBarActions,
-}: {
-  readonly identity: AppIdentity;
-  readonly nav: AppNavigation;
-  readonly records: RecordsServices;
-  readonly session: AppSessionViewV1;
-  readonly topBarActions: ReactNode;
-}): ReactNode {
+function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
   const { tableId = "" } = useParams();
   const table = session.tables.find(
     (candidate) => candidate.tableId === tableId,
@@ -1093,6 +1148,308 @@ function RecordsRoute({
       }
       topBarActions={topBarActions}
       vm={selectRecordsListVm(table, merged)}
+    />
+  );
+}
+
+/**
+ * SCR-027 — one record, with SHT-010 and MOD-009 over it.
+ *
+ * The delete is confirmed, then performed, then *acknowledged from the
+ * receipt*: `announceRecordCommand` is M37's sentence for the outcome the
+ * worker actually returned, so a rejected or already-deleted record says so
+ * rather than pretending (invariant 1, CA-12).
+ */
+function RecordDetailRoute({
+  area,
+  notice,
+  clearNotice,
+}: {
+  readonly area: AppAreaWiring;
+  readonly notice?: string;
+  readonly clearNotice: () => void;
+}): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
+  const { tableId = "", recordId = "" } = useParams();
+  const navigate = useNavigate();
+  const appId = identity.appId;
+
+  const [record, setRecord] = useState<RecordDetailViewV1 | null | undefined>(
+    undefined,
+  );
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void records.getRecord({ appId, recordId }).then(
+      ({ record: found }) => {
+        if (live) setRecord(found);
+      },
+      () => {
+        if (live) setRecord(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, recordId]);
+
+  // The acknowledgement belongs to the arrival, not to the address: leaving
+  // this screen is what ends it.
+  useEffect(
+    () => () => {
+      clearNotice();
+    },
+    [clearNotice],
+  );
+
+  const table = session.tables.find(
+    (candidate) => candidate.tableId === tableId,
+  );
+  if (table === undefined) return <Navigate replace to={appPath(appId)} />;
+
+  if (record === undefined) {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Reading this record on this device."
+      />
+    );
+  }
+
+  if (record === null) {
+    return (
+      <RecordAbsent area={area} tableId={tableId} />
+    );
+  }
+
+  const vm = selectRecordDetailVm(table, record);
+  const deleteVm = selectDeleteRecordDialogVm(vm, busy);
+
+  const confirmDelete = (): void => {
+    setBusy(true);
+    void records.deleteRecord({ appId, recordId }).then(
+      (response) => {
+        const outcome = toCommandOutcomeVm(response);
+        setBusy(false);
+        setDeleting(false);
+        area.announce(announceRecordCommand(outcome, "deleted"));
+        if (outcome.kind === "rejected") return;
+        area.refresh();
+        void navigate(tablePath(appId, tableId));
+      },
+      () => {
+        setBusy(false);
+        setDeleting(false);
+      },
+    );
+  };
+
+  return (
+    <RecordDetailScreen
+      app={identity}
+      editHref={hashHref(editRecordPath(appId, tableId, recordId))}
+      nav={nav}
+      onOpenActions={() => {
+        setActionsOpen(true);
+      }}
+      overlays={
+        <>
+          <RecordActionsSheet
+            editHref={hashHref(editRecordPath(appId, tableId, recordId))}
+            historyHref={hashHref(appHistoryPath(appId))}
+            isOpen={actionsOpen}
+            onClose={() => {
+              setActionsOpen(false);
+            }}
+            onDelete={() => {
+              setActionsOpen(false);
+              setDeleting(true);
+            }}
+            recordLabel={
+              vm.label === null ? "This record" : vm.label.displayName
+            }
+          />
+          <DeleteRecordDialog
+            isOpen={deleting}
+            onCancel={() => {
+              setDeleting(false);
+            }}
+            onConfirm={confirmDelete}
+            vm={deleteVm}
+          />
+        </>
+      }
+      recordsHref={hashHref(tablePath(appId, tableId))}
+      topBarActions={topBarActions}
+      vm={vm}
+      {...(notice === undefined ? {} : { notice })}
+    />
+  );
+}
+
+/** A record id this table does not hold — deleted, or never. */
+function RecordAbsent({
+  area,
+  tableId,
+}: {
+  readonly area: AppAreaWiring;
+  readonly tableId: string;
+}): ReactNode {
+  const navigate = useNavigate();
+  return (
+    <AppFrame
+      announcement="That record is not in this table."
+      app={area.identity}
+      area="records"
+      currentTableId={tableId}
+      nav={area.nav}
+      title="Record"
+      topBarActions={area.topBarActions}
+    >
+      <ErrorState
+        action={
+          <Button
+            onPress={() => {
+              void navigate(tablePath(area.identity.appId, tableId));
+            }}
+            tone="primary"
+          >
+            Back to the list
+          </Button>
+        }
+        cause="It may have been deleted. A deleted record stays in this app's change history, where it can be restored."
+        heading="That record is not in this table."
+        variant="recoverable"
+      />
+    </AppFrame>
+  );
+}
+
+/**
+ * SCR-028 and SCR-029 — the one form, in its two modes (CAP-16, D23).
+ *
+ * A refusal is a **result**, so it is caught here as a value: the report's
+ * issues go back into the view model, the screen renders them at field level
+ * in user language, and nothing was written. Only an `accepted` outcome moves
+ * the person, and only after the worker confirmed the commit (invariant 1).
+ */
+function RecordFormRoute({
+  area,
+  mode,
+}: {
+  readonly area: AppAreaWiring;
+  readonly mode: "create" | "edit";
+}): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
+  const { tableId = "", recordId = "" } = useParams();
+  const navigate = useNavigate();
+  const appId = identity.appId;
+
+  const [record, setRecord] = useState<RecordDetailViewV1 | null | undefined>(
+    mode === "create" ? null : undefined,
+  );
+  const [issues, setIssues] = useState<readonly RecordIssueViewV1[] | null>(
+    null,
+  );
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (mode === "create") return undefined;
+    let live = true;
+    void records.getRecord({ appId, recordId }).then(
+      ({ record: found }) => {
+        if (live) setRecord(found);
+      },
+      () => {
+        if (live) setRecord(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, recordId, mode]);
+
+  const table = session.tables.find(
+    (candidate) => candidate.tableId === tableId,
+  );
+  if (table === undefined) return <Navigate replace to={appPath(appId)} />;
+
+  if (record === undefined) {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Reading this record on this device."
+      />
+    );
+  }
+
+  if (mode === "edit" && record === null) {
+    return (
+      <RecordAbsent area={area} tableId={tableId} />
+    );
+  }
+
+  const vm = selectRecordFormVm({
+    table,
+    busy,
+    ...(record === null ? {} : { record }),
+    ...(issues === null ? {} : { issues }),
+  });
+
+  const save = (entries: readonly AuthoredEntryIntentV1[]): void => {
+    setBusy(true);
+    const written =
+      mode === "create"
+        ? records.createRecord({ appId, tableId, values: entries })
+        : records.patchRecord({ appId, recordId, changes: entries });
+
+    void written.then(
+      (response) => {
+        setBusy(false);
+        const action = mode === "create" ? "created" : "saved";
+        const said = announceRecordCommand(toCommandOutcomeVm(response), action);
+
+        if (response.outcome === "rejected") {
+          // D23: the whole report, at field level, and nothing was written.
+          setIssues(response.report.issues);
+          area.announce(said);
+          return;
+        }
+        if (response.outcome === "unknown-subject") {
+          area.announce(said);
+          void navigate(tablePath(appId, tableId));
+          return;
+        }
+
+        // Accepted: the commit is durable, so this is where it is said.
+        setIssues(null);
+        area.announce(said);
+        area.refresh();
+        void navigate(
+          recordPath(appId, tableId, response.receipt.recordId),
+        );
+      },
+      () => {
+        setBusy(false);
+      },
+    );
+  };
+
+  return (
+    <RecordFormScreen
+      app={identity}
+      cancelHref={
+        mode === "create"
+          ? hashHref(tablePath(appId, tableId))
+          : hashHref(recordPath(appId, tableId, recordId))
+      }
+      nav={nav}
+      onSave={save}
+      topBarActions={topBarActions}
+      vm={vm}
     />
   );
 }
