@@ -22,8 +22,20 @@
  * `#/upload` and `#/import` — and nothing else. `#/import` is one route whose
  * *stage* is chosen by the import machine rather than by the URL, because the
  * stage is a fact about a run in progress and a stage-named path could be deep
- * linked into a run that is not there. `#/app/…` is reserved and deliberately
- * absent: see {@link appHref}.
+ * linked into a run that is not there.
+ *
+ * S08's amendment (CA-07 amendment 2) serves the app area, which S07 reserved:
+ * `#/app/{appId}`, `#/app/{appId}/t/{tableId}` and its `/new`, `.../r/{recordId}`
+ * and its `/edit`, and `#/app/{appId}/history`. They are unlocked-only like
+ * every other app path. They are matched by *shape* rather than listed, because
+ * an app id is data — {@link isAppAreaPath} is the whole addition to the guard,
+ * and `guardRoute` stays a pure function of the phase and the path.
+ *
+ * **An unknown app id is not an unknown route.** The guard cannot tell one
+ * from the other — it reads no catalog, by agreement — so a well-formed path
+ * whose app does not exist renders, and the app area answers with the truthful
+ * "not on this device" notice rather than a blank screen. Redirecting here
+ * would require the guard to know something CA-07 forbids it from knowing.
  *
  * `tests/e2e/route-guards.spec.ts` drives this matrix through the real entry,
  * deep links included.
@@ -94,18 +106,64 @@ export const FIRST_RUN_ROUTES: readonly RoutePath[] = Object.freeze([
 ]);
 
 /**
- * Where an app opens (CA-07 amendment, S07). The path is **reserved, not
- * served**: S08 lands `#/app/:appId`, and until it does CA-07's unknown-route
- * rule is what makes a post-create navigation truthful — it redirects to the
- * library, where the newly created tile is visible. Adding it to
- * {@link UNLOCKED_ROUTES} early would render nothing at all.
+ * The app area (CA-07 amendment 2, S08). Every path an app serves is built
+ * here, so the URL scheme has exactly one home — a screen states where it
+ * goes, this file decides what that spells.
+ *
+ * The ids are percent-encoded: they are opaque text from the domain, and a
+ * path segment is not the place to find out that one of them held a slash.
  */
 export function appPath(appId: string): string {
   return `/app/${encodeURIComponent(appId)}`;
 }
 
+export function appHistoryPath(appId: string): string {
+  return `${appPath(appId)}/history`;
+}
+
+export function tablePath(appId: string, tableId: string): string {
+  return `${appPath(appId)}/t/${encodeURIComponent(tableId)}`;
+}
+
+export function newRecordPath(appId: string, tableId: string): string {
+  return `${tablePath(appId, tableId)}/new`;
+}
+
+export function recordPath(
+  appId: string,
+  tableId: string,
+  recordId: string,
+): string {
+  return `${tablePath(appId, tableId)}/r/${encodeURIComponent(recordId)}`;
+}
+
+export function editRecordPath(
+  appId: string,
+  tableId: string,
+  recordId: string,
+): string {
+  return `${recordPath(appId, tableId, recordId)}/edit`;
+}
+
+/** A path as an anchor's `href`. The `#` prefix belongs here, not at call sites. */
+export function hashHref(path: string): string {
+  return `#${path}`;
+}
+
 export function appHref(appId: string): string {
-  return `#${appPath(appId)}`;
+  return hashHref(appPath(appId));
+}
+
+/**
+ * The six app-area shapes, as one expression. An id may be any non-empty run
+ * of characters that is not a separator, so a path with an extra segment is
+ * *not* an app path and falls to the phase's fallback exactly as before.
+ */
+const APP_AREA_PATH =
+  /^\/app\/[^/]+(?:\/history|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
+
+export function isAppAreaPath(path: string): boolean {
+  return APP_AREA_PATH.test(path);
 }
 
 export type RouteGuardResult =
@@ -157,6 +215,10 @@ export function guardRoute(
   const path = canonicalize(pathname);
   const allowed = allowedRoutes(phase);
   if ((allowed as readonly string[]).includes(path)) {
+    return RENDER;
+  }
+  // The app area is unlocked-only, like every other app path (amendment 2).
+  if (phase === "unlocked" && isAppAreaPath(path)) {
     return RENDER;
   }
   return redirect(fallbackRoute(phase));

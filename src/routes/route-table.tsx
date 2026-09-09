@@ -13,6 +13,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useParams,
 } from "react-router";
 import { useMachine } from "@xstate/react";
 import {
@@ -53,8 +54,15 @@ import {
   pickWorkbookFile,
   type PickedWorkbookV1,
 } from "../platform/file-pick.js";
+import {
+  selectAppHomeVm,
+  selectRecordsListVm,
+} from "../application/view-models/records.js";
 import type {
+  AppSessionViewV1,
+  AppTableViewV1,
   LibraryAppV1,
+  RecordPageViewV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
 import type { RecordsServices } from "../application/workflows/records-services.js";
@@ -72,6 +80,13 @@ import { UploadScreen } from "../ui/import/upload-screen.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { LibraryScreen } from "../ui/library/library-screen.js";
 import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
+import { AppHomeScreen } from "../ui/records/app-home-screen.js";
+import { RecordsScreen } from "../ui/records/records-screen.js";
+import type {
+  AppIdentity,
+  AppNavigation,
+} from "../ui/records/app-frame.js";
+import type { FieldTypeVm } from "../ui/records/values.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -96,10 +111,16 @@ import {
 import {
   ROUTE_HREFS,
   ROUTE_PATHS,
+  appHistoryPath,
   appHref,
   appPath,
   fallbackRoute,
   guardRoute,
+  hashHref,
+  isAppAreaPath,
+  newRecordPath,
+  recordPath,
+  tablePath,
   type SessionPhase,
 } from "./guards.js";
 
@@ -416,6 +437,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
+      <AppArea records={wiring.records} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -475,6 +497,7 @@ function UnlockedArea({
         />
         <Route element={elsewhere} path="*" />
       </Routes>
+      </AppArea>
     </ImportArea>
   );
 }
@@ -751,6 +774,360 @@ function ImportStageScreens({
         />
       );
   }
+}
+
+/**
+ * The app area — one opened app, for as long as the user is inside it
+ * (CAP-15–CAP-17; CA-07 amendment 2).
+ *
+ * **The session sits above the router, for the same reason the import actor
+ * does.** `#/app/{id}`, its tables, its records and its history are many paths
+ * over one opened app: opening is a hydration, and re-hydrating on every
+ * navigation between two of those paths would throw away the projection the
+ * next screen is about to read. So the app is opened when the area is entered
+ * and closed when it is left, and the rest of the unlocked area renders as
+ * `children` while no app path is current.
+ *
+ * **An unknown app id is answered, not hidden.** `openApp` returns
+ * `session: null` for an id no catalog entry carries — removed, purged, or
+ * never — and that is a *fact to state*, so the area renders the library
+ * destination with the truthful notice and the way back. The guard could not
+ * do this: CA-07 lets it know the phase and the path and nothing else, so it
+ * cannot tell an unknown app from an unknown route.
+ */
+function AppArea({
+  records,
+  topBarActions,
+  children,
+}: {
+  readonly records: RecordsServices;
+  readonly topBarActions: ReactNode;
+  /** The rest of the unlocked area, rendered when no app path is current. */
+  readonly children: ReactNode;
+}): ReactNode {
+  const { pathname } = useLocation();
+  const path = pathname.replace(/\/+$/u, "");
+
+  if (!isAppAreaPath(path)) {
+    return children;
+  }
+
+  const appId = decodeURIComponent(path.split("/")[2] ?? "");
+  return (
+    <OpenedApp
+      appId={appId}
+      key={appId}
+      records={records}
+      topBarActions={topBarActions}
+    />
+  );
+}
+
+type OpenedAppState =
+  | { readonly kind: "opening" }
+  | { readonly kind: "open"; readonly session: AppSessionViewV1 }
+  /** No catalog entry carries this id (CA-12's idempotent read). */
+  | { readonly kind: "absent" }
+  | { readonly kind: "failed"; readonly error: ErrorVm };
+
+function OpenedApp({
+  appId,
+  records,
+  topBarActions,
+}: {
+  readonly appId: string;
+  readonly records: RecordsServices;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const [state, setState] = useState<OpenedAppState>({ kind: "opening" });
+
+  useEffect(() => {
+    let live = true;
+    void records.openApp({ appId }).then(
+      ({ session }) => {
+        if (!live) return;
+        setState(
+          session === null ? { kind: "absent" } : { kind: "open", session },
+        );
+      },
+      (cause: unknown) => {
+        if (live)
+          setState({ kind: "failed", error: toErrorVm(toSecurityError(cause)) });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId]);
+
+  // An operational write, once per visit: it caches when the app was opened
+  // and authors no event (database.md § Events that do not exist).
+  useEffect(() => {
+    void records.noteAppOpened({ appId });
+  }, [records, appId]);
+
+  // Leaving the app frees its projection. Closing an app that is not open is
+  // the same request already answered, so this is safe to run unconditionally.
+  useEffect(
+    () => () => {
+      void records.closeApp({ appId });
+    },
+    [records, appId],
+  );
+
+  if (state.kind === "opening") {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label="Opening this app on this device."
+      />
+    );
+  }
+
+  if (state.kind !== "open") {
+    return (
+      <AppUnavailable
+        {...(state.kind === "failed" ? { error: state.error } : {})}
+        topBarActions={topBarActions}
+      />
+    );
+  }
+
+  const { session } = state;
+  const identity: AppIdentity = {
+    appId,
+    displayName: session.displayName,
+    theme: session.theme,
+  };
+  const nav: AppNavigation = {
+    library: ROUTE_HREFS.library,
+    appHome: appHref(appId),
+    appHistory: hashHref(appHistoryPath(appId)),
+    tables: session.tables.map((table) => ({
+      tableId: table.tableId,
+      displayName: table.displayName,
+      href: hashHref(tablePath(appId, table.tableId)),
+    })),
+  };
+
+  return (
+    <Routes>
+      <Route
+        element={
+          <AppHomeScreen
+            nav={nav}
+            newRecordHref={(tableId) => hashHref(newRecordPath(appId, tableId))}
+            tableHref={(tableId) => hashHref(tablePath(appId, tableId))}
+            topBarActions={topBarActions}
+            vm={selectAppHomeVm(session)}
+          />
+        }
+        path="/app/:appId"
+      />
+      <Route
+        element={
+          <RecordsRoute
+            identity={identity}
+            nav={nav}
+            records={records}
+            session={session}
+            topBarActions={topBarActions}
+          />
+        }
+        path="/app/:appId/t/:tableId"
+      />
+      <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
+    </Routes>
+  );
+}
+
+/**
+ * CA-07 amendment 2's truthful notice: the library destination, saying what
+ * happened, with the way back. Nothing here guesses *why* the app is not
+ * there — removed, purged, or a link from somewhere else — because the read
+ * that answered `null` does not know either.
+ */
+function AppUnavailable({
+  error,
+  topBarActions,
+}: {
+  readonly error?: ErrorVm;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const navigate = useNavigate();
+  return (
+    <UnlockedFrame
+      announcement={
+        error === undefined
+          ? "That app is not on this device."
+          : announceRefusal(error)
+      }
+      area="library"
+      nav={nav}
+      title="All apps"
+      topBarActions={topBarActions}
+    >
+      <ErrorState
+        action={
+          <Button
+            onPress={() => {
+              void navigate(ROUTE_PATHS.library);
+            }}
+            tone="primary"
+          >
+            See all apps
+          </Button>
+        }
+        cause={
+          error === undefined
+            ? "No app on this device carries that address. It may have been removed, or the link may be from another device."
+            : announceRefusal(error)
+        }
+        heading="That app is not on this device."
+        variant="recoverable"
+      />
+    </UnlockedFrame>
+  );
+}
+
+/** SCR-025/SCR-026 — one table, paged, searched in the projection. */
+function RecordsRoute({
+  identity,
+  nav,
+  records,
+  session,
+  topBarActions,
+}: {
+  readonly identity: AppIdentity;
+  readonly nav: AppNavigation;
+  readonly records: RecordsServices;
+  readonly session: AppSessionViewV1;
+  readonly topBarActions: ReactNode;
+}): ReactNode {
+  const { tableId = "" } = useParams();
+  const table = session.tables.find(
+    (candidate) => candidate.tableId === tableId,
+  );
+
+  const [search, setSearch] = useState("");
+  const [pages, setPages] = useState<readonly RecordPageViewV1[] | null>(null);
+  const [busy, setBusy] = useState(true);
+
+  const appId = identity.appId;
+
+  useEffect(() => {
+    if (table === undefined) return undefined;
+    let live = true;
+    setBusy(true);
+    void records
+      .queryRecords({
+        appId,
+        tableId,
+        search: search === "" ? null : search,
+      })
+      .then(
+        ({ page }) => {
+          if (!live) return;
+          setPages(page === null ? [emptyPage(tableId)] : [page]);
+          setBusy(false);
+        },
+        () => {
+          // A read that could not be answered is an empty list, not a lie
+          // about the count: `emptyPage` states zero for a table it could not
+          // read, and the screen offers the first record rather than claiming
+          // a search matched nothing.
+          if (!live) return;
+          setPages([emptyPage(tableId)]);
+          setBusy(false);
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, tableId, search, table]);
+
+  const showMore = useCallback(() => {
+    const last = pages?.at(-1);
+    if (last === undefined || last.nextCursor === null) return;
+    setBusy(true);
+    void records
+      .queryRecords({
+        appId,
+        tableId,
+        cursor: last.nextCursor,
+        search: search === "" ? null : search,
+      })
+      .then(({ page }) => {
+        setBusy(false);
+        if (page === null) return;
+        setPages((current) => [...(current ?? []), page]);
+      });
+  }, [records, appId, tableId, search, pages]);
+
+  if (table === undefined) {
+    // The app is open and this table is not in it; its home is what is true.
+    return <Navigate replace to={appPath(appId)} />;
+  }
+
+  const merged = mergePages(pages);
+  if (merged === null) {
+    return (
+      <BusyIndicator
+        cancellation="unavailable"
+        label={`Reading ${table.displayName} on this device.`}
+      />
+    );
+  }
+
+  return (
+    <RecordsScreen
+      app={identity}
+      busy={busy}
+      fieldTypes={fieldTypes(table)}
+      nav={nav}
+      newRecordHref={hashHref(newRecordPath(appId, tableId))}
+      onSearch={setSearch}
+      onShowMore={showMore}
+      recordHref={(recordId) =>
+        hashHref(recordPath(appId, tableId, recordId))
+      }
+      topBarActions={topBarActions}
+      vm={selectRecordsListVm(table, merged)}
+    />
+  );
+}
+
+/**
+ * Pages accumulate; the counts come from the newest one.
+ *
+ * `totalCount` is the table's, not the page's, so taking the last page's copy
+ * is taking the freshest reading of the same number — nothing here adds
+ * anything up (CA-14).
+ */
+function mergePages(
+  pages: readonly RecordPageViewV1[] | null,
+): RecordPageViewV1 | null {
+  if (pages === null) return null;
+  const last = pages.at(-1);
+  if (last === undefined) return null;
+  return { ...last, records: pages.flatMap((page) => page.records) };
+}
+
+/** A page for a table whose read answered nothing at all. */
+function emptyPage(tableId: string): RecordPageViewV1 {
+  return {
+    tableId,
+    scope: { kind: "table" },
+    records: [],
+    hasMore: false,
+    nextCursor: null,
+    totalCount: 0,
+    isTotalExact: true,
+  };
+}
+
+function fieldTypes(table: AppTableViewV1): ReadonlyMap<string, FieldTypeVm> {
+  return new Map(table.fields.map((field) => [field.fieldId, field.type]));
 }
 
 /**

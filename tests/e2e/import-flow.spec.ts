@@ -156,16 +156,17 @@ test("the import journey: a messy CSV becomes a durable app", async ({
   // --- CAP-13's surface: the one accept ------------------------------------
   await page.getByRole("button", { name: /^Create / }).click();
 
-  // Post-create lands on `#/app/{appId}`, which S08 serves. Until it does,
-  // CA-07's unknown-route rule sends it to the library — where the new tile is
-  // (a planned interim, asserted as such).
-  await expect(screen(page, "SCR-010")).toBeVisible({
+  // Post-create lands on the real app home (CA-07 amendment 2 — S08 serves
+  // `#/app/{appId}`, so what S07 asserted as an interim library landing is
+  // now the app itself).
+  await expect(screen(page, "SCR-024")).toBeVisible({
     timeout: PARSE_TIMEOUT_MS,
   });
-  expect(page.url()).toContain("#/library");
-  await expect(screen(page, "SCR-010")).toContainText("Field Log");
-  await expect(screen(page, "SCR-010")).toContainText("Scratch · not backed up");
-  await expect(screen(page, "SCR-010")).toContainText("1 app is on this device.");
+  expect(page.url()).toContain("#/app/");
+  await expect(screen(page, "SCR-024")).toContainText("Field Log");
+  await expect(screen(page, "SCR-024")).toContainText("Visits");
+  await expect(screen(page, "SCR-024")).toContainText("40 records");
+  await expect(screen(page, "SCR-024")).toContainText("On this device only");
 
   // --- CAP-13: it survives a reload, which is a lock and a fresh worker ----
   await openApp(page);
@@ -177,6 +178,8 @@ test("the import journey: a messy CSV becomes a durable app", async ({
     timeout: DERIVE_TIMEOUT_MS,
   });
   await expect(screen(page, "SCR-010")).toContainText("Field Log");
+  await expect(screen(page, "SCR-010")).toContainText("Scratch · not backed up");
+  await expect(screen(page, "SCR-010")).toContainText("1 app is on this device.");
 
   // --- CAP-14: search finds it, and states the scope it searched -----------
   await followHash(page, "#/library/search");
@@ -400,11 +403,17 @@ test("axe and 320px: the library and import surfaces", async ({ page }) => {
   expect(await clipped(page)).toEqual([]);
   expect(await undersizedTargets(page)).toEqual([]);
 
-  // SCR-010 and SCR-012, once an app exists.
+  // SCR-024, then SCR-010 and SCR-012, once an app exists.
   await page.getByRole("button", { name: /^Create / }).click();
-  await expect(screen(page, "SCR-010")).toBeVisible({
+  await expect(screen(page, "SCR-024")).toBeVisible({
     timeout: PARSE_TIMEOUT_MS,
   });
+  await auditable(page, "SCR-024");
+  expect(await clipped(page)).toEqual([]);
+  expect(await undersizedTargets(page)).toEqual([]);
+
+  await followHash(page, "#/library");
+  await expect(screen(page, "SCR-010")).toBeVisible();
   await auditable(page, "SCR-010");
   expect(await clipped(page)).toEqual([]);
   expect(await undersizedTargets(page)).toEqual([]);

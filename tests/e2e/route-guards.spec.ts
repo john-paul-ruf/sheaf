@@ -92,8 +92,8 @@ const UNLOCKED: Matrix = [
   // The stage is the machine's, not the URL's: no run is in flight, so the
   // import route lands on the one screen that is true.
   ["#/import", "SCR-016", "#/upload"],
-  // Reserved, not served: S08 lands `#/app/:appId`.
-  ["#/app/anything", "SCR-011", "#/library"],
+  // `#/app/…` is served by S08 and has its own case below: the guard renders
+  // it (it is a well-formed app path) and the app area answers for the id.
   ["#/settings/security", "SCR-005", "#/settings/security"],
   ["#/settings/security/passphrase", "SCR-006", "#/settings/security/passphrase"],
   [
@@ -142,6 +142,49 @@ test("locked: deep links reach only the five locked routes", async ({
     // FR-22/FR-23: nothing behind the unlock is named on any of these.
     await expect(page.getByRole("link", { name: "All apps" })).toHaveCount(0);
   }
+});
+
+/**
+ * CA-07 amendment 2's one interesting row.
+ *
+ * The guard reads the phase and the path and nothing else, so it cannot tell
+ * an unknown *app* from an unknown *route* — a well-formed app path therefore
+ * renders, and the app area answers with the truthful notice and the way back.
+ * The URL is left alone so a reload retries the same address rather than
+ * quietly rewriting what the person followed.
+ */
+test("unlocked: an app path whose app is not on this device says so", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+
+  await openApp(page);
+  await protectDevice(page);
+
+  for (const entry of [
+    "#/app/anything",
+    "#/app/anything/t/nothing",
+    "#/app/anything/history",
+  ]) {
+    await followHash(page, entry);
+    await expect(
+      page.getByRole("heading", { name: "That app is not on this device." }),
+    ).toBeVisible();
+    expect(page.url()).toContain(entry);
+  }
+
+  // An extra segment is not an app path at all, so the unknown-route rule
+  // applies and the library is where it lands.
+  await followHash(page, "#/app/anything/t/nothing/deeper");
+  await expect
+    .poll(async () => currentScreen(page))
+    .toBe("SCR-011");
+  expect(page.url()).toContain("#/library");
+
+  // The way back is a real control, not a browser button.
+  await followHash(page, "#/app/anything");
+  await page.getByRole("button", { name: "See all apps" }).click();
+  await expect(screen(page, "SCR-011")).toBeVisible();
 });
 
 test("unlocked: the locked routes redirect to the library", async ({

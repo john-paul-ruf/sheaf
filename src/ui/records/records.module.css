@@ -1,0 +1,531 @@
+/*
+ * M44 — the app and records surfaces (app-home.html, records.html,
+ * records-empty.html, record-detail.html, record-create.html,
+ * record-edit.html, change-history.html).
+ *
+ * Unlayered by the layer contract: `tokens.css` and `base.css` own the cascade
+ * layers, so a component module always wins on order alone.
+ *
+ * Two geometry decisions carry the design bindings:
+ *
+ * 1. **The search tools stay put while records scroll** (design.md § Records
+ *    and data entry). They stick under M39's top bar, whose height is 68px at
+ *    every layout class (`app-shell.module.css`). That 68 is the one literal
+ *    here: the shell's bar height has no token, and minting one is not this
+ *    session's to do.
+ * 2. **One list, densified — never a second copy of the rows.** records.html
+ *    draws phone cards and a desktop table as two blocks; the accessibility
+ *    contract requires that "the desktop table … does not create a separate
+ *    keyboard order", so the same list is laid out as cards up to the desktop
+ *    class and as dense rows above it. Same DOM, same labels, same order.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.note {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+  box-shadow: var(--shadow-level-0);
+}
+
+.cardTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.facts {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.facts dt {
+  font-weight: var(--weight-control);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+/* Wraps rather than shrinks, so every action stays whole at 320px. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
+
+/* ---- SCR-024 app home ---------------------------------------------------- */
+
+.hero {
+  display: grid;
+  gap: var(--space-16);
+  border-radius: var(--radius-panel);
+  padding: var(--space-24) var(--space-20);
+  background: var(--app-ink, var(--ink-950));
+  color: var(--white);
+}
+
+.heroIdentity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+.monogram {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--space-48);
+  height: var(--space-48);
+  border-radius: var(--radius-card);
+  background: var(--color-selected-on-ink);
+  color: var(--ink-950);
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: 1;
+}
+
+.heroTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.heroFacts {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  font-size: var(--text-supporting);
+}
+
+.heroFacts dt {
+  font-weight: var(--weight-control);
+}
+
+.heroFacts dd {
+  margin: 0;
+  color: var(--paper-200);
+}
+
+/*
+ * On dark app chrome the action colour is Leaf on Ink — about 2:1, under the
+ * 4.5:1 the accessibility contract requires — so a link inside the hero takes
+ * the shell's on-ink pair instead, and its focus ring takes the on-ink ring
+ * (tokens.css: "Sprout on ink"). Both are existing tokens; nothing is minted.
+ */
+.hero a {
+  color: var(--color-selected-on-ink);
+}
+
+.hero a:focus-visible,
+.hero a[data-focus-visible] {
+  outline-color: var(--focus-ring-color-on-ink);
+}
+
+.tableList {
+  display: grid;
+  gap: var(--space-16);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---- SCR-025 / SCR-026 the record list ----------------------------------- */
+
+.tools {
+  position: sticky;
+  top: 68px; /* M39's top bar; see the note above. */
+  z-index: var(--z-sticky);
+  display: grid;
+  gap: var(--space-8);
+  margin: 0 calc(var(--gutter-compact) * -1);
+  padding: var(--space-12) var(--gutter-compact);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-canvas);
+}
+
+.toolsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-end;
+}
+
+.searchField {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.scopeLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-16);
+  align-items: baseline;
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.recordList {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recordCard {
+  display: grid;
+  gap: var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+  box-shadow: var(--shadow-level-0);
+}
+
+.recordLabel {
+  font-size: var(--text-body);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.supporting {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-16);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}
+
+.supporting dt {
+  font-weight: var(--weight-control);
+}
+
+.supporting dd {
+  margin: 0 var(--space-8) 0 0;
+}
+
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.flag {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.flag[data-severity="blocking"] {
+  background: var(--color-danger-tint);
+  color: var(--color-danger-ink);
+}
+
+.emptyState {
+  display: grid;
+  gap: var(--space-12);
+  justify-items: start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-24) var(--space-20);
+  background: var(--color-panel);
+}
+
+/* ---- SCR-027 record detail ----------------------------------------------- */
+
+.fieldList {
+  display: grid;
+  gap: var(--space-16);
+  margin: 0;
+}
+
+.fieldRow {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-12);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fieldRow:last-child {
+  border-bottom: 0;
+}
+
+.fieldLabel {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.fieldValue {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+.absent {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.preserved {
+  font-family: var(--font-mono);
+}
+
+.issueList {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issue {
+  color: var(--color-danger-ink);
+  font-size: var(--text-supporting);
+}
+
+.issue[data-severity="warning"] {
+  color: var(--color-warning-ink);
+}
+
+/* ---- SCR-028 / SCR-029 the record form ----------------------------------- */
+
+.form {
+  display: grid;
+  gap: var(--space-20);
+}
+
+.fieldGroup {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.label {
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input[data-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.description {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+.switchRow {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+.switchRow input {
+  width: var(--space-24);
+  height: var(--space-24);
+}
+
+.readOnly {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+}
+
+/*
+ * The primary actions sit in the thumb zone on compact. M39 already reserves
+ * 96px plus the safe area under the page, so this bar occupies reserved space
+ * rather than covering the last field (design.md § Layout Classes).
+ */
+.thumbActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+  padding-top: var(--space-12);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ---- SHT-001 / SHT-010 sheets -------------------------------------------- */
+
+.sheetList {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheetOption {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  width: 100%;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+}
+
+.sheetOption[data-selected="true"] {
+  border-color: var(--color-action);
+  background: var(--color-panel);
+  font-weight: var(--weight-status);
+}
+
+.sheetOption:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ---- SCR-032 change history ---------------------------------------------- */
+
+.entryList {
+  display: grid;
+  gap: var(--space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry {
+  display: grid;
+  gap: var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.entryTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-status);
+}
+
+@media (min-width: 600px) {
+  .tools {
+    margin-left: calc(var(--gutter-wide) * -1);
+    margin-right: calc(var(--gutter-wide) * -1);
+    padding-left: var(--gutter-wide);
+    padding-right: var(--gutter-wide);
+  }
+}
+
+@media (min-width: 900px) {
+  .tools {
+    margin-left: calc(var(--gutter-desktop) * -1);
+    margin-right: calc(var(--gutter-desktop) * -1);
+    padding-left: var(--gutter-desktop);
+    padding-right: var(--gutter-desktop);
+  }
+}
+
+/*
+ * Desktop: the same rows, denser — one line per record with its label and its
+ * supporting facts side by side (design.md § Records and data entry, "Desktop
+ * tables may be dense but preserve the same labels and states").
+ */
+@media (min-width: 1200px) {
+  .recordCard {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+    gap: var(--space-16);
+    align-items: baseline;
+    padding: var(--space-12) var(--space-16);
+  }
+
+  .recordList {
+    gap: var(--space-8);
+  }
+}
