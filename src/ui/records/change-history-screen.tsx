@@ -108,10 +108,11 @@ export function ChangeHistoryScreen({
           </p>
         </div>
 
+        {/* The sentence is the whole banner: it is M37's own words for the
+            outcome the worker confirmed, and a title above it could only
+            repeat them. */}
         {notice !== undefined && (
-          <StatusBanner title="Saved on this device" tone="success">
-            {notice}
-          </StatusBanner>
+          <StatusBanner title={notice} tone="success" />
         )}
 
         {vm.emptiness === null ? (
