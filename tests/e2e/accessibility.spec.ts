@@ -29,6 +29,12 @@ import {
   overlaps,
   undersizedTargets,
 } from "./fixtures/a11y.js";
+import {
+  chooseOption,
+  importDemoApp,
+  openRecord,
+  openTable,
+} from "./fixtures/records.js";
 
 test.afterEach(async ({ page }) => {
   await deleteLocalStore(page);
@@ -86,6 +92,98 @@ test("axe: the unlocked surfaces", async ({ page }) => {
   await auditable(page, "SCR-009");
 });
 
+/**
+ * The app-area surfaces S08 adds: SCR-024–029 and SCR-032, plus the two sheets
+ * and the two dialogs that open over them (SHT-001, SHT-010, MOD-009,
+ * MOD-010).
+ *
+ * They are audited in one journey rather than one per test, because reaching
+ * them means importing the demo file — and an audit of a screen reached by any
+ * other route would be an audit of a screen no person can get to.
+ */
+test("axe: the app, records and history surfaces", async ({ page }) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+  const { appHash } = await importDemoApp(page);
+  await auditable(page, "SCR-024");
+
+  await openTable(page, "Visits");
+  await auditable(page, "SCR-025");
+
+  // SCR-026, the no-result variant.
+  await page.getByLabel("Search Visits", { exact: true }).fill("payroll 2024");
+  await auditable(page, "SCR-026");
+  await page.getByRole("button", { name: "Clear search" }).first().click();
+
+  await openRecord(page, "Visits", "1018");
+  await auditable(page, "SCR-027");
+
+  // SHT-010, then MOD-009 over it.
+  await page.getByRole("button", { name: "Record actions…" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await auditable(page, "SCR-027");
+  await page.getByRole("button", { name: "Delete record…" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await auditable(page, "SCR-027");
+  await page.getByRole("button", { name: "Cancel safely" }).click();
+
+  // SCR-029, and SHT-001 over it.
+  await page.getByRole("link", { name: "Edit this record" }).click();
+  await auditable(page, "SCR-029");
+  await page.getByRole("button", { name: /^Site / }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await auditable(page, "SCR-029");
+  await page.getByRole("button", { name: "Clear value" }).click();
+
+  // A refusal rendered at field level is still an audited surface.
+  await page.getByLabel("Quoted amount", { exact: true }).fill("not a number");
+  await page.getByRole("button", { name: "Save on this device" }).click();
+  await expect(
+    page.getByText("This value is not the kind this field holds."),
+  ).toBeVisible();
+  await auditable(page, "SCR-029");
+
+  // SCR-028, the create form.
+  await followHash(page, "#/upload");
+  await followHash(page, appHash);
+  await openTable(page, "Visits");
+  await page.getByRole("link", { name: "Add a record", exact: true }).first().click();
+  await auditable(page, "SCR-028");
+
+  // SCR-032, empty (nothing has been authored yet) and then with an entry.
+  await followHash(page, `${appHash}/history`);
+  await auditable(page, "SCR-032");
+});
+
+/** SCR-032 with a restorable entry, and MOD-010 over it. */
+test("axe: the change history, once something has changed", async ({ page }) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+  const { appHash } = await importDemoApp(page);
+  await openTable(page, "Visits");
+  await openRecord(page, "Visits", "1002");
+
+  await page.getByRole("link", { name: "Edit this record" }).click();
+  await chooseOption(page, "Status", "Complete");
+  await page.getByRole("button", { name: "Save on this device" }).click();
+  await expect(screen(page, "SCR-027")).toBeVisible();
+
+  await page.getByRole("button", { name: "Record actions…" }).click();
+  await page.getByRole("button", { name: "Delete record…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete record", exact: true }).click();
+  await expect(screen(page, "SCR-025")).toBeVisible();
+
+  await followHash(page, `${appHash}/history`);
+  await auditable(page, "SCR-032");
+  await page.getByRole("button", { name: "Restore record…" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await auditable(page, "SCR-032");
+});
+
 test("compact phone: nothing required is clipped at 320px", async ({
   page,
 }) => {
@@ -140,6 +238,62 @@ test("200% text: bottom actions wrap, and never cover content", async ({
   await expect(screen(page, "SCR-005")).toBeVisible();
   expect(await overlaps(page)).toEqual([]);
   expect(await clipped(page)).toEqual([]);
+});
+
+/**
+ * The same claim on the two surfaces a person spends the most time in: a list
+ * that scrolls under a sticky search, and a form whose primary action sits in
+ * the thumb zone. M39 reserves the bottom bar's height under the page, so at
+ * 200% the actions wrap rather than land on top of the last field.
+ */
+test("200% text: the records list and the record form stay readable", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+
+  await page.setViewportSize(COMPACT_VIEWPORT);
+  await openApp(page);
+  await protectDevice(page);
+  await importDemoApp(page);
+  await openTable(page, "Visits");
+
+  await page.addStyleTag({ content: "html { font-size: 32px; }" });
+  await expect(screen(page, "SCR-025")).toBeVisible();
+  expect(await overlaps(page)).toEqual([]);
+  expect(await clipped(page)).toEqual([]);
+
+  await page.getByRole("link", { name: "Add a record", exact: true }).first().click();
+  await expect(screen(page, "SCR-028")).toBeVisible();
+  expect(await overlaps(page)).toEqual([]);
+  expect(await clipped(page)).toEqual([]);
+});
+
+/**
+ * Exactly one primary navigation, on both sides of the rail breakpoint —
+ * inside a generated app as well as in the shell. The app area has its own
+ * destinations (M44's frame over M39's shell), and it must not add a second
+ * navigation to either class.
+ */
+test("the app area offers one primary navigation per layout class", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+
+  await page.setViewportSize(COMPACT_VIEWPORT);
+  await openApp(page);
+  await protectDevice(page);
+  await importDemoApp(page);
+
+  const navigation = page.getByRole("navigation", { name: "Primary" });
+  await expect(navigation).toHaveCount(1);
+  const compactHrefs = await hrefsOf(navigation);
+  expect(compactHrefs).toContain("#/library");
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await expect(navigation).toHaveCount(1);
+  await expect(navigation).toBeVisible();
+  expect(await hrefsOf(navigation)).toEqual(compactHrefs);
+  await expect(screen(page, "SCR-024")).toBeVisible();
 });
 
 test("the rail and the bottom bar offer the same destinations", async ({

@@ -22,6 +22,13 @@ import {
   screen,
   attemptUnlock,
 } from "./fixtures/app.js";
+import {
+  chooseOption,
+  importDemoApp,
+  openRecord,
+  openTable,
+  PARSE_TIMEOUT_MS,
+} from "./fixtures/records.js";
 import { expect, test } from "./fixtures/no-network.js";
 
 test.afterEach(async ({ page }) => {
@@ -78,6 +85,57 @@ test("a fresh load of the locked device asks the network for nothing new", async
 
   expect(network.unexpected).toEqual([]);
   // Every request this journey made was to the origin the build is served from.
+  expect(
+    network.all.filter((entry) => !entry.includes("127.0.0.1")),
+  ).toEqual([]);
+});
+
+/**
+ * S08's extension: the *import* and the *records* journeys are as silent as the
+ * security ones (invariant 12).
+ *
+ * The file is read by the page, parsed by a worker on this device, committed
+ * to IndexedDB on this device, and read back from there. Nothing about that
+ * needs a network, and the strongest form of that claim is the one asserted
+ * here: **after the app is open, authoring a record makes no request at all**,
+ * to any origin, not even the one Sheaf was served from.
+ *
+ * Scope, restated so F08 does not think this is the policy: this is behaviour,
+ * not enforcement. There is still no CSP and no egress allowlist — those are
+ * F08/M64.
+ */
+test("import and CRUD leave this device entirely alone", async ({
+  page,
+  network,
+}) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+
+  // The import: two workers, a channel, and the WASM they need — all of it
+  // from the origin this build is served from, and nowhere else.
+  await importDemoApp(page);
+  expect(network.unexpected).toEqual([]);
+
+  await openTable(page, "Visits");
+  await openRecord(page, "Visits", "1002");
+
+  // The CRUD leg, with everything already loaded: not "no egress" but "no
+  // request".
+  network.mark();
+  await page.getByRole("link", { name: "Edit this record" }).click();
+  await expect(screen(page, "SCR-029")).toBeVisible();
+  await chooseOption(page, "Status", "Complete");
+  await page.getByLabel("Quoted amount", { exact: true }).fill("512.75");
+  await page.getByRole("button", { name: "Save on this device" }).click();
+  await expect(screen(page, "SCR-027")).toBeVisible({
+    timeout: PARSE_TIMEOUT_MS,
+  });
+  await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
+  expect(network.since()).toEqual([]);
+
+  expect(network.unexpected).toEqual([]);
   expect(
     network.all.filter((entry) => !entry.includes("127.0.0.1")),
   ).toEqual([]);
