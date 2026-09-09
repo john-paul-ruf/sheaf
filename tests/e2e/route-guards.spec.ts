@@ -37,6 +37,7 @@ import {
   protectDevice,
   screen,
 } from "./fixtures/app.js";
+import { importDemoApp } from "./fixtures/records.js";
 
 test.afterEach(async ({ page }) => {
   await deleteLocalStore(page);
@@ -185,6 +186,31 @@ test("unlocked: an app path whose app is not on this device says so", async ({
   await followHash(page, "#/app/anything");
   await page.getByRole("button", { name: "See all apps" }).click();
   await expect(screen(page, "SCR-011")).toBeVisible();
+});
+
+/**
+ * The one row in the matrix that is not a property of the *route*.
+ *
+ * `#/library/search` renders SCR-011 while this device holds no app — there is
+ * nothing to search, so STA-025's invitation is the truthful screen — and
+ * SCR-012 once one exists. The matrix above is driven with an empty library,
+ * so the second half is stated here rather than left implied.
+ */
+test("unlocked: the library search route follows what the device holds", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+
+  await followHash(page, "#/library/search");
+  await expect.poll(async () => currentScreen(page)).toBe("SCR-011");
+
+  await importDemoApp(page);
+  await followHash(page, "#/library/search");
+  await expect.poll(async () => currentScreen(page)).toBe("SCR-012");
+  expect(page.url()).toContain("#/library/search");
 });
 
 test("unlocked: the locked routes redirect to the library", async ({
