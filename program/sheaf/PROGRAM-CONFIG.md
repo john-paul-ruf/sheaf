@@ -116,6 +116,19 @@ Test modules: M56, M57, M58, M60, M61 all grew; M59, M62, M63, M64 are still
 planned. Arch fragments now exist for M58 and M61 (created by Roshi at the F02
 final pass, see the fragment-reconciliation note above).
 
+### F03 planned modules (Planner, 2026-09-22 — `prompts/workbook-fidelity/`)
+
+F03 (`workbook-fidelity`) creates M03 (parser/reference-extraction subset only;
+IR, catalog, graph and evaluator stay F04), M15, M16, M17, M18, M20 and **M65**
+(new ID, see the import table), and extends M01, M02, M12, M13, M14, M19, M21,
+M22, M23, M32, M33, M34, M35, M36, M37, M43, M44, M54 and the M56/M57/M58/M60/M61
+test modules. Planned edges added by F03: M14 → M65 (inventory interface only —
+**M14 never imports an adapter**; the import worker composes the adapter
+registry, D35), M15–M20 → M13 + M65, M16 → M17 (shared BIFF/BIFF12 `Ptg`
+formula decoder), M21 → M03 + M65, M13 → `@zip.js/zip.js` from exactly one file
+(`src/import/source/zip.ts`, D30). Arch fragments for M03/M15/M16/M17/M18/M20/M65
+were seeded at F03 planning.
+
 ### Domain (pure; no outward imports)
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
@@ -158,6 +171,7 @@ final pass, see the fragment-reconciliation note above).
 | M21 | Inference | src/import/inference/ | Evidence-weighted schema/type/relationship proposals, rejection memory | M01, M02, M03, workbook facts | — |
 | M22 | Snapshots | src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted source chunks, inert inventory | M08, M11 (via ports) | — |
 | M23 | Staging | src/import/staging/ | Provisional encrypted import model, atomic promotion, no-partial-app guarantee | M08, M11 (via ports) | — |
+| M65 | Workbook facts | src/import/facts/ | The format-neutral `WorkbookFact` stream vocabulary every adapter emits (v2: sheets, typed values, formats, formulas, declared tables, validations, merges, preserved parts), the adapter/inventory interfaces, and the fact→canonical-CBOR value mapping. Added at F03 planning (the M19 fragment's "relocate `facts.ts` unchanged" instruction; IDs are never reused, so it takes the next free ID) | M01 (`values` only) | workbook-facts.ts, adapter.ts |
 
 ### Infrastructure — sync and export
 
