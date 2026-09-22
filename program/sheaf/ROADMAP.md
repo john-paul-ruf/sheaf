@@ -190,3 +190,4 @@ branches.
 | Gate | Date | Revision | Verdict | Feedback disposition |
 |------|------|----------|---------|----------------------|
 | GATE-F01 | 2026-09-08 | 2c0248a6f1764a67695c761bcb5df4dfc5b27714 | approve | none — human: "approved"; F02 planning proceeds via Forge (human-initiated) |
+| GATE-F02 | 2026-09-22 | 5ab3b07fab3ea5384ff428248929aef8efbea923 | approve | none — human: "approve"; carried F02 deferrals (M37 announcement pluralization, MOD-010 original-values on a deleted record, ChangeHistory tableId for multi-table) become F03 Step 1 inputs with owners; F03 planning proceeds via Planner (human-initiated) |
