@@ -76,8 +76,8 @@ test("CAP-37: a danger issue line on a dark app's background, in Clay 300, passe
 
   // Dark: the same line, in the system's dark-mode danger text, and axe passes.
   await refusedEdit(page, appHash);
-  expect(await issueColor(page)).toBe(CLAY_300);
   await auditable(page, "SCR-029");
+  expect(await issueColor(page)).toBe(CLAY_300);
   await page.screenshot({ path: "test-results/dark-semantics/320-issue-dark.png", fullPage: true });
 
   expect(network.unexpected).toEqual([]);
