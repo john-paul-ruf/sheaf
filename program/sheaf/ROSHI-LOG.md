@@ -811,3 +811,140 @@ M37's live-region pluralization; M39's top-bar height token.
 - Roshi did not choose product behavior, clear dispatch, mark evidence verified,
   re-slice anything, or turn a finding into a mid-run human prompt. GATE-F02
   remains the human's, unchanged.
+
+
+---
+
+## 2026-09-22 — planning-completeness pass, cycle **F03 / workbook-fidelity** (before wave 1: S01 ∥ S03)
+
+Scoped, read-only pass per the envelope. Read in full before writing: `STATE.md`
+(workbook-fidelity), all eight `SESSION-NN.md` prompts, `PROGRAM-CONFIG.md`,
+this log's F01/F02 entries, and `src/migrations/005_projection_v1.sql` (to
+check two contract claims against the actual SQL, not against the prompt's own
+restatement of it). Orchestrator's own typecheck/lint/test re-run at `04e09b7`
+(code ≡ `5ab3b07`) is taken as given. No `arch/` fragment touched, no session
+file or `STATE.md` edited, no product code read for correctness beyond the two
+migration checks below.
+
+### Verified clean (no defect found)
+
+- **Wave-1 `Owns` are disjoint.** S01's fourteen paths and S03's twenty-six
+  paths share no path; the Wave Plan's prose claim matches the Files/Owns
+  tables exactly.
+- **Two contract claims checked against the actual SQL, not restated prose.**
+  S02's `decisionKindOf` table (10 subjects) is byte-identical to migration
+  005's `decision_kind` CHECK list (`005_projection_v1.sql:309-310`). S03's
+  CA-20 description of the relationship guard ("source field is a `reference`
+  field of the source table; target field is the target table's
+  `keyFieldId`") is exactly `trg_relationships_insert_guard` /
+  `_update_guard` (`005_projection_v1.sql:623-652`), and `detection_source`'s
+  CHECK (`declared`,`lookup-formula`,`key-match`,`user`) matches S03's prompt
+  verbatim. No contract mismatch in either.
+- **Named envelope paths checked for owner gaps — none found.** No session
+  touches `vitest.config.ts`, `playwright.config.ts`, `eslint.config.js`,
+  `index.html`, or `src/application/view-models/security.ts` (correct: D42
+  adds no new `DATA_WORKER_ERROR_KINDS_V1`/`RefusalV1` member, so the
+  exhaustive map that file holds needs no edit). `src/bootstrap/**` beyond
+  `import-worker.ts` (S06's one file) is untouched — nothing in the plan needs
+  more of it. `harness.html` needs no edit (`import.meta.glob` reachability,
+  already the standing fragment-policy fact). `tests/browser/worker/runtime.ts`
+  is not owned by anyone in wave 1 (S03 is explicitly told not to edit it) and
+  becomes reachable to S06 only via S06's `tests/browser/worker/**` glob later
+  — S06's own prompt text confirms this ("edit `runtime.ts` only if you must,
+  it is in your lease now"). All committed fixture directories
+  (`tests/fixtures/workbooks/{build,ooxml,unsafe}/**` S01,
+  `{biff,xlsb}/**` S04, `{ods,html-table}/**` S05, `append/**` S06) are
+  disjoint and each written by exactly one session — the lease-shape
+  convention holding without needing to fire.
+- **The named shared-`dist/` hazard is real but already covered, and does not
+  widen.** S01 (CP4) and S03 (CP2–CP4), the two wave-1 sessions, both run
+  `pnpm test:browser` against the shared webServer/`dist/` build — exactly the
+  hazard the envelope names, mitigated by Orchestrator's `.program/locks/dist`
+  serialization. Wave 2 (S02, S04, S05) runs **no** browser suite at all — checked
+  each session's own Verification section — so the exposure does not grow past
+  wave 1. No other shared mutable path found.
+- **The first narrow journey (S06 CP3) is reachable.** Real entry
+  (`import.worker.ts` → `data.worker.ts`), real bridge (protocol v2 /
+  stage-channel), a named seed (S01 CP4's pinned `fieldwork-q3.xlsx`, reused
+  verbatim by S02's CP3/CP4 pins and by S06's journey spec — not
+  re-described), reset/reopen (fresh worker + raw IndexedDB decode of every
+  root, explicitly including source + snapshot manifests, closing this log's
+  standing CL-04 finding's source half), an exact invocation
+  (`SHEAF_PW_PORT=<port> pnpm test:browser workbook-journey`), and a named
+  harness owner (S06, with explicit permission to edit `runtime.ts`). Every
+  fact it depends on (S02's `inferWorkbook`/`decisionKindOf`, S03's
+  queries/resolver/snapshot format, S01's fixture + OOXML adapter) is produced
+  by a session strictly before S06 in the Dependency Graph. No gap.
+
+### Findings
+
+**F1 (mechanical owner-correction; does not touch wave 1).** STATE's
+Dependency Graph names five serial lease handoffs explicitly, but four real
+ones — all downstream of wave 1, all already correctly *sequenced* by
+`S01→{S02,S04,S05}→S06→S07→S08`, so none is a concurrency risk — are missing
+from that list:
+
+1. `src/import/inference/**` (S02 → S06) is entirely absent; S06's Files
+   table modifies `src/import/inference/infer.ts` and its Owns includes the
+   whole directory.
+2. `tests/unit/import/{refusal,preflight,sniff}.test.ts` (S01 → S06) is
+   omitted — the paired *source* move (`src/import/{facts,preflight,...}/**`
+   S01 → S06) is listed, but not these three test files S01 also owns and S06
+   also owns.
+3. `tests/browser/worker/{app,usage-journey,relationships}.spec.ts` +
+   `workbook-app-fixture.ts` (S03 → S06, subsumed into S06's
+   `tests/browser/worker/**` glob) is omitted; only `src/workers/**` is
+   listed for the S03 → S06 handoff, a different tree.
+4. `tests/unit/ui/primitives/**` (S07 → S08) is omitted alongside the listed
+   `src/ui/primitives/**` move.
+
+The pattern is the same shape each time: a serial handoff is declared for a
+*source* directory and its paired *test* directory is left off the list. This
+is a documentation-completeness gap in STATE.md's own summary, not a lease
+conflict — every one of these paths is genuinely serial by the Dependency
+Graph's own topological order, and no two sessions holding it can run
+concurrently. Recommend Orchestrator add the four lines the next time it
+touches STATE.md; nothing here changes a wave-1 lease or blocks dispatch.
+**Worth a Vow-3 note** (no threshold applies, recording once): `PLANNER.md`
+could state that a declared serial-lease-handoff line for a source directory
+should name its paired test directory in the same line. 1 cycle, 4 in-plan
+instances (all within this one Dependency Graph).
+
+**F2 (mechanical owner-correction; stale inherited-obligation disposition,
+evidence-backed).** STATE's inherited-obligations table carries: *"F02 S07 |
+promotionIssues fieldId mapping → M37 | Assigned S06 CP3 (wire carries
+fieldId) → S07 CP3 (VM)."* Checked against the current tree at `04e09b7`: the
+wire-and-VM half is **already landed**, not open work. `fieldId` is carried
+end to end today — `src/import/staging/promotion.ts:334` (`fieldId:
+issue.fieldId` on every promotion-rejection record), through
+`RecordIssueViewV1.fieldId` (`src/application/view-models/import.ts:427`),
+mapped at `import.ts:838-839` (`promotionIssues: (…).map((issue) => ({
+fieldId: issue.fieldId, … }))`). What is **not** landed: `src/ui/import/
+review-screen.tsx:339-345` (the current F02 surface) renders only an
+aggregate count ("N values were refused…"), never the per-field detail the
+data already carries. So "S06 CP3 (wire carries fieldId)" describes work
+that is already done and should not be read as new F03 scope for S06; the
+open item is entirely S07 CP3's — consuming the already-present `fieldId` in
+the rewritten multi-table "Needs attention" section to name the specific
+field. Recommend Orchestrator correct the disposition text so S06 is not
+asked to redo satisfied work and S07 knows precisely what remains open.
+
+No other gap found in the reviewed scope: every CAP-19..27 row names a
+producer/integration-owner/checkpoint; every CA-17..24 + CA-07 am.3 row names
+a producer and correction owner; every inherited obligation besides F2 above
+carries a named assignment, owned deferral, or an explicit "not F03 scope"
+disposition; no circular prerequisite in the Dependency Graph; no capability
+split avoidably across sessions beyond the architecture's own layering
+(library → stage → surface, unchanged from F02's shape).
+
+### Verification of this pass
+
+- Both migration-SQL checks (F1's decision-kind list, F2's fieldId chain) were
+  read from `src/migrations/005_projection_v1.sql` and the current `src/`
+  tree directly, not taken from a session prompt's own restatement.
+- No `arch/` fragment touched (out of scope for a planning-completeness pass);
+  `STATE.md`, `MASTER.md`, session prompts, `src/`, `tests/`, `specs/`,
+  `mocks/` untouched. This entry and nothing else was written.
+- Did not redesign the plan, edit a session file or `STATE.md`, choose
+  product behavior, or clear dispatch. F1/F2 are reported for Orchestrator to
+  route; neither changes a wave-1 lease, so nothing here need block S01 ∥ S03.
