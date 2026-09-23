@@ -125,18 +125,12 @@ export function toPromotionRejectionVm(reason: string): PromotionRejectionVm {
 
 // --- SCR-016 upload landing (upload.html) -----------------------------------
 
-/** upload.html's two format groups. Availability is D19's, not the mock's. */
+/** upload.html's two format groups, in its order. Both are read (D19 retired). */
 export interface AcceptedFormatGroupVm {
   readonly id: "value-only" | "spreadsheet-structure";
   /** upload.html, verbatim. */
   readonly label: string;
   readonly extensions: readonly string[];
-  /**
-   * `later-release` is D19 stated at the landing rather than only at the
-   * refusal: promising a format the next screen refuses would be the
-   * untruthful order to learn it in.
-   */
-  readonly availability: "available" | "later-release";
 }
 
 export interface UploadLandingVm {
@@ -151,18 +145,16 @@ export interface UploadLandingVm {
 
 const FORMAT_GROUPS: readonly AcceptedFormatGroupVm[] = Object.freeze([
   Object.freeze({
-    id: "value-only" as const,
-    // upload.html, verbatim.
-    label: "Value-only",
-    extensions: Object.freeze(["csv", "tsv"]),
-    availability: "available" as const,
-  }),
-  Object.freeze({
     id: "spreadsheet-structure" as const,
     // upload.html, verbatim.
     label: "Spreadsheet structure",
     extensions: Object.freeze(["xlsx", "xlsb", "xls", "ods"]),
-    availability: "later-release" as const,
+  }),
+  Object.freeze({
+    id: "value-only" as const,
+    // upload.html, verbatim.
+    label: "Value-only",
+    extensions: Object.freeze(["csv", "tsv"]),
   }),
 ]);
 
@@ -349,6 +341,8 @@ export interface WorkbookPreflightVm {
   readonly fileName: string;
   readonly format: WorkbookFormatVm;
   readonly sourceByteLength: number;
+  /** The name's extension, lowercased; `null` when the name has none. */
+  readonly declaredExtension: string | null;
   readonly contradiction: WorkbookContradictionVm | null;
   /** Every inventoried sheet, in workbook order — none is dropped (FR-5). */
   readonly sheets: readonly WorkbookSheetRowVm[];
@@ -382,12 +376,16 @@ export interface ImportProgressVm {
 
 // --- SCR-021 refusal (import-refused.html) ----------------------------------
 
+/**
+ * The refusals SCR-021 renders. `workbook-format-later-release` stays declared
+ * on the wire with no producer (D42) but has no card: this page accepts
+ * workbooks, and the machine ends a run that receives one anyway.
+ */
 export type RefusalCopyTokenV1 =
   | "macro-content"
   | "numbers-file"
   | "pages-file"
   | "pdf-file"
-  | "workbook-format-later-release"
   | "binary-unreadable";
 
 export type UnreadableDetailVm = Extract<
@@ -402,8 +400,6 @@ export interface ImportRefusedVm {
   readonly refusal: RefusalCopyTokenV1;
   /** S03's remedy id; the pairing with the kind is held by the wire type. */
   readonly remedy: string;
-  /** Only for `workbook-format-later-release` (D19): which family it was. */
-  readonly laterReleaseFormat: string | null;
   /**
    * Only for `binary-unreadable`: which class of problem made the file
    * unreadable or unsafe (D42) — a closed token, never file content.
@@ -935,6 +931,7 @@ function selectWorkbookPreflightVm(snapshot: ImportSnapshot): WorkbookPreflightV
     fileName: report.fileName,
     format: report.format,
     sourceByteLength: report.sourceByteLength,
+    declaredExtension: facts.declaredExtension,
     contradiction:
       report.formatContradiction === null
         ? null
@@ -1024,8 +1021,12 @@ function selectOverBudgetVm(snapshot: ImportSnapshot): ImportOverBudgetVm {
 
 function selectRefusedVm(snapshot: ImportSnapshot): ImportRefusedVm {
   const refusal = snapshot.context.refusal;
+  // `refused` is entered for neither of the two excluded kinds: an over-budget
+  // refusal is SCR-019's and a later-release one ends the run (D42).
   const kind: RefusalCopyTokenV1 =
-    refusal === undefined || refusal.kind === "over-import-budget"
+    refusal === undefined ||
+    refusal.kind === "over-import-budget" ||
+    refusal.kind === "workbook-format-later-release"
       ? "binary-unreadable"
       : refusal.kind;
 
@@ -1035,10 +1036,6 @@ function selectRefusedVm(snapshot: ImportSnapshot): ImportRefusedVm {
     fileName: refusal?.fileName ?? snapshot.context.fileName,
     refusal: kind,
     remedy: refusal?.remedy ?? "choose-another-file",
-    laterReleaseFormat:
-      refusal !== undefined && refusal.kind === "workbook-format-later-release"
-        ? refusal.format
-        : null,
     unreadableDetail:
       refusal !== undefined && refusal.kind === "binary-unreadable" ? refusal.detail : null,
     libraryUnchanged: true,

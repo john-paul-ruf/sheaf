@@ -1,0 +1,63 @@
+/*
+ * CTL-043 checkbox. Unlayered on purpose — see the layer note in
+ * ../theme/base.css.
+ */
+
+.root {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-12);
+  align-items: start;
+  min-height: 44px; /* --target-min; literal so the geometry gate can read it */
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.root[data-selected="true"] {
+  border-color: var(--color-action);
+}
+
+.root[data-focus-visible="true"] {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.root[data-disabled="true"] {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.box {
+  display: grid;
+  place-items: center;
+  width: var(--space-20);
+  height: var(--space-20);
+  margin-top: 2px;
+  border: 2px solid var(--color-border-input);
+  border-radius: var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-action-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  line-height: 1;
+}
+
+.root[data-selected="true"] .box {
+  border-color: var(--color-action);
+  background: var(--color-action);
+}
+
+.label {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.reason {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+}

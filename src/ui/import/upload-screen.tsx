@@ -12,14 +12,16 @@ import { ImportProgressRegion } from "./import-progress-screen.js";
 import styles from "./import.module.css";
 
 /**
- * SCR-016 — the upload landing (upload.html, CAP-09, FR-1/FR-2).
+ * SCR-016 — the upload landing (upload.html, CAP-09, CAP-19, FR-1/FR-2).
  *
- * **The format cards say what this release does, not what the mock hoped.**
- * upload.html promises that a workbook's "tables, validation, number formats,
- * formulas, and sheets are read where declared". F02 reads none of that: it
- * identifies workbook containers and refuses them (D19). Promising it here
- * and refusing it on the next screen would be the untruthful order to learn it
- * in, so the group carries `availability` and this surface prints the fact.
+ * **Both format groups are read.** Workbooks are sized, streamed and reviewed
+ * (F03), so the "Spreadsheet structure" group carries upload.html's own
+ * promise and D19's later-release label is gone with the refusal it announced.
+ *
+ * **"See table targeting" is a picker, not a link.** SCR-017 places a
+ * delimited file the parser has already measured, so there is no targeting
+ * screen without a file; the value-only group's action therefore opens the
+ * picker narrowed to CSV and TSV, and names what it does.
  *
  * **The picker is not narrowed to what Sheaf can read.** Format is decided by
  * content (FR-1), and SCR-021 exists to refuse a Numbers, Pages or PDF file by
@@ -31,21 +33,16 @@ import styles from "./import.module.css";
  * not exist is the same defect as a dead control.
  */
 
-const AVAILABILITY: Readonly<
-  Record<AcceptedFormatGroupVm["availability"], string>
-> = Object.freeze({
-  available: "Read in this release",
-  // D19, stated at the landing rather than only at the refusal.
-  "later-release": "Arrives in a later release",
-});
-
+/** upload.html, verbatim. */
 const GROUP_DETAIL: Readonly<Record<AcceptedFormatGroupVm["id"], string>> =
   Object.freeze({
-    // delimited-import.html: what a value-only import claims, and what it does not.
-    "value-only": "Values become one new table. No workbook structure is claimed.",
     "spreadsheet-structure":
-      "Sheaf recognises these files and refuses them whole. Nothing partial is added to the library.",
+      "Tables, validation, number formats, formulas, and sheets are read where declared.",
+    "value-only": "Create a new app or add a new table to one you already have.",
   });
+
+/** The value-only group's picker: the two formats SCR-017 places. */
+const DELIMITED_FILE_TYPES: readonly string[] = Object.freeze([".csv", ".tsv"]);
 
 /**
  * What every screen that offers "choose another file" actually needs.
@@ -65,12 +62,14 @@ export function ChooseAnotherFileButton({
   acceptedFileTypes,
   onSelectFiles,
   tone = "primary",
+  label = "Choose another file",
 }: WorkbookPickerProps & {
   readonly tone?: "primary" | "secondary";
+  readonly label?: string;
 }): ReactNode {
   return (
     <FileTrigger acceptedFileTypes={acceptedFileTypes} onSelect={onSelectFiles}>
-      <Button tone={tone}>Choose another file</Button>
+      <Button tone={tone}>{label}</Button>
     </FileTrigger>
   );
 }
@@ -140,16 +139,21 @@ export function UploadScreen({
           <ul className={cx(styles["groups"])}>
             {vm.formats.map((group) => (
               <li className={cx(styles["card"])} key={group.id}>
-                <div className={cx(styles["cardHead"])}>
-                  <h3 className={cx(styles["cardTitle"])}>{group.label}</h3>
-                  <span className={cx(styles["badge"])}>
-                    {AVAILABILITY[group.availability]}
-                  </span>
-                </div>
-                <p className={cx(styles["extensions"])}>
-                  {group.extensions.join(", ")}
-                </p>
+                <span className={cx(styles["extensions"])}>{group.label}</span>
+                <h3 className={cx(styles["cardTitle"])}>
+                  {group.extensions.map((extension) => extension.toUpperCase()).join(", ")}
+                </h3>
                 <p className={cx(styles["lede"])}>{GROUP_DETAIL[group.id]}</p>
+                {group.id === "value-only" && (
+                  <div className={cx(styles["actions"])}>
+                    <ChooseAnotherFileButton
+                      acceptedFileTypes={DELIMITED_FILE_TYPES}
+                      label="Choose a CSV or TSV file"
+                      onSelectFiles={onSelectFiles}
+                      tone="secondary"
+                    />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -159,7 +163,7 @@ export function UploadScreen({
           title="Macros are refused, never stripped"
           tone="warning"
         >
-          Numbers, Pages, and PDF are also refused, each with its own export
+          Numbers, Pages, and PDF are also refused with exact Excel-export
           instructions. No refusal leaves a partial app.
         </StatusBanner>
       </div>

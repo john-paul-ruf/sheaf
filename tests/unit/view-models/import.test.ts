@@ -149,7 +149,7 @@ function reviewVm(vm: ImportVm): ImportReviewVm {
 }
 
 describe("the upload landing (SCR-016)", () => {
-  it("says which formats this release can actually take (D19)", () => {
+  it("offers both format groups as read, in upload.html's order (D19 retired)", () => {
     const vm = vmOf(start(services()));
     if (vm.screen !== "SCR-016") {
       throw new Error("expected the landing");
@@ -157,16 +157,14 @@ describe("the upload landing (SCR-016)", () => {
     expect(vm.busy).toBe(false);
     expect(vm.formats).toEqual([
       {
-        id: "value-only",
-        label: "Value-only",
-        extensions: ["csv", "tsv"],
-        availability: "available",
-      },
-      {
         id: "spreadsheet-structure",
         label: "Spreadsheet structure",
         extensions: ["xlsx", "xlsb", "xls", "ods"],
-        availability: "later-release",
+      },
+      {
+        id: "value-only",
+        label: "Value-only",
+        extensions: ["csv", "tsv"],
       },
     ]);
   });

@@ -246,6 +246,37 @@
   gap: var(--space-16);
 }
 
+/* --- SCR-018 / SCR-019 workbook checklist (CTL-043) ----------------------- */
+
+.sheetList {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheetRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sheetName {
+  font-weight: var(--weight-control);
+  overflow-wrap: anywhere;
+}
+
+/* The handoff text, shown when the browser would not copy it. */
+.instructions {
+  margin: 0;
+  font-family: var(--font-interface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- SCR-020 progress ------------------------------------------------------ */
 
 /*

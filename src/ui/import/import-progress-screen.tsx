@@ -23,6 +23,12 @@ import styles from "./import.module.css";
  * is what the accessibility contract asks for; the row count is text, so no
  * row is announced individually.
  *
+ * **A workbook names the sheet being read.** import-progress.html's "Sheet 3
+ * of 7 · Open Jobs" is exactly what the parser reports while a workbook
+ * streams (CA-24), so it is shown as that, and in the progress region's name
+ * too, so assistive technology hears the sheet without hearing every row.
+ * Still no percentage: per-sheet row counts are pre-flight estimates (D24).
+ *
  * **MOD-007 asks before it promises.** The dialog states the cancellation
  * contract — import-progress.html's own words — and the *claim* that nothing
  * remains is not made here at all: it is made on SCR-022, and only when the
@@ -46,19 +52,33 @@ const PHASE_ACTION: Readonly<Record<ImportPhaseVm, string>> = Object.freeze({
   done: "Finishing the last batch",
 });
 
+export type ImportSheetVm = NonNullable<ImportProgressVm["sheet"]>;
+
+/** "Sheet k of n", as import-progress.html writes it. */
+export function describeSheetOrdinal(sheet: ImportSheetVm): string {
+  return `Sheet ${formatCount(sheet.ordinal)} of ${formatCount(sheet.count)}`;
+}
+
 export interface ImportProgressRegionProps {
   readonly phase: ImportPhaseVm;
+  /** The sheet being read, named to assistive technology with the stage. */
+  readonly sheet?: ImportSheetVm | null;
   readonly children?: ReactNode;
 }
 
 /** The one progress region SCR-016's detection and SCR-020 both render. */
 export function ImportProgressRegion({
   phase,
+  sheet = null,
   children,
 }: ImportProgressRegionProps): ReactNode {
   return (
     <ProgressBar
-      aria-label={PHASE_ACTION[phase]}
+      aria-label={
+        sheet === null
+          ? PHASE_ACTION[phase]
+          : `${PHASE_ACTION[phase]} · ${describeSheetOrdinal(sheet)}: ${sheet.name}`
+      }
       className={cx(styles["progressRow"])}
       isIndeterminate
     >
@@ -110,7 +130,15 @@ export function ImportProgressScreen({
         </div>
 
         <section className={cx(styles["card"])}>
-          <ImportProgressRegion phase={vm.phase}>
+          {vm.sheet !== null && (
+            <div className={cx(styles["intro"])}>
+              <span className={cx(styles["eyebrow"])}>
+                {describeSheetOrdinal(vm.sheet)}
+              </span>
+              <h2 className={cx(styles["cardTitle"])}>{vm.sheet.name}</h2>
+            </div>
+          )}
+          <ImportProgressRegion phase={vm.phase} sheet={vm.sheet}>
             <span className={cx(styles["progressCount"])}>
               {vm.rowsSoFar === 1
                 ? "1 row is durable"

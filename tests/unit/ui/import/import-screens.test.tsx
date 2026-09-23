@@ -20,10 +20,7 @@ import {
   CANCELLATION_CONTRACT,
   ImportProgressScreen,
 } from "../../../../src/ui/import/import-progress-screen.js";
-import {
-  ImportRefusedScreen,
-  RELEASE_SCOPE,
-} from "../../../../src/ui/import/import-refused-screen.js";
+import { ImportRefusedScreen } from "../../../../src/ui/import/import-refused-screen.js";
 import {
   PreflightFitsScreen,
   PreflightOverBudgetScreen,
@@ -52,16 +49,14 @@ describe("SCR-016 — the upload landing says what this release reads", () => {
     step: "choosingFile",
     formats: [
       {
-        id: "value-only",
-        label: "Value-only",
-        extensions: ["csv", "tsv"],
-        availability: "available",
-      },
-      {
         id: "spreadsheet-structure",
         label: "Spreadsheet structure",
         extensions: ["xlsx", "xlsb", "xls", "ods"],
-        availability: "later-release",
+      },
+      {
+        id: "value-only",
+        label: "Value-only",
+        extensions: ["csv", "tsv"],
       },
     ],
     busy: false,
@@ -69,7 +64,7 @@ describe("SCR-016 — the upload landing says what this release reads", () => {
     announcement: "Choose the workbook you already use.",
   };
 
-  it("states D19 at the landing rather than only at the refusal", async () => {
+  it("offers both groups as read, in upload.html's words, with D19 retired", async () => {
     await render(
       <UploadScreen
         acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
@@ -80,14 +75,30 @@ describe("SCR-016 — the upload landing says what this release reads", () => {
     );
 
     expect(query('[data-screen="SCR-016"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("Read in this release");
-    expect(document.body.textContent).toContain("Arrives in a later release");
-    // upload.html's workbook promise is exactly what F02 does not do.
-    expect(document.body.textContent).not.toContain(
-      "formulas, and sheets are read where declared",
+    expect(document.body.textContent).toContain("XLSX, XLSB, XLS, ODS");
+    expect(document.body.textContent).toContain(
+      "Tables, validation, number formats, formulas, and sheets are read where declared.",
     );
+    expect(document.body.textContent).toContain(
+      "Create a new app or add a new table to one you already have.",
+    );
+    expect(document.body.textContent).not.toContain("later release");
     // No affordance is described that this release does not have.
     expect(document.body.textContent).not.toContain("drop a file here");
+  });
+
+  it("leads the value-only group to table targeting through a CSV/TSV picker", async () => {
+    await render(
+      <UploadScreen
+        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+        nav={nav}
+        onSelectFiles={noop}
+        vm={vm}
+      />,
+    );
+    const inputs = queryAll<HTMLInputElement>('input[type="file"]');
+    expect(inputs.map((input) => input.getAttribute("accept"))).toContain(".csv,.tsv");
+    expect(document.body.textContent).toContain("Choose a CSV or TSV file");
   });
 
   it("offers the refused formats too, so their refusal is reachable", async () => {
@@ -100,8 +111,8 @@ describe("SCR-016 — the upload landing says what this release reads", () => {
       />,
     );
 
-    const input = query<HTMLInputElement>('input[type="file"]');
-    const accept = input.getAttribute("accept") ?? "";
+    const input = queryAll<HTMLInputElement>('input[type="file"]')[0];
+    const accept = input?.getAttribute("accept") ?? "";
     for (const extension of [".csv", ".tsv", ".xlsx", ".numbers", ".pdf"]) {
       expect(accept).toContain(extension);
     }
@@ -162,6 +173,8 @@ describe("SCR-017 — the delimited target keeps its estimate flagged", () => {
       nav={nav}
       acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
       onSelectFiles={noop}
+      onChooseApp={noop}
+      onChooseNewApp={noop}
       onContinue={noop}
       onSetAppName={noop}
       onSetTableName={noop}
@@ -387,7 +400,7 @@ describe("SCR-020 — progress states what it knows, and MOD-007 asks first", ()
 describe("SCR-021 — every refusal names the file and ends somewhere real", () => {
   function refused(
     refusal: RefusalCopyTokenV1,
-    laterReleaseFormat: string | null = null,
+    unreadableDetail: ImportRefusedVm["unreadableDetail"] = null,
   ): ImportRefusedVm {
     return {
       screen: "SCR-021",
@@ -395,8 +408,7 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
       fileName: "quarterly.pdf",
       refusal,
       remedy: "pdf-export-from-source",
-      laterReleaseFormat,
-      unreadableDetail: null,
+      unreadableDetail,
       libraryUnchanged: true,
       announcement: "quarterly.pdf cannot become a Sheaf app.",
     };
@@ -407,11 +419,10 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     "numbers-file",
     "pages-file",
     "pdf-file",
-    "workbook-format-later-release",
     "binary-unreadable",
   ];
 
-  it.each(TOKENS)("%s renders its own card, the file, and the scope", async (
+  it.each(TOKENS)("%s renders its own card and the file, with no release caveat", async (
     token,
   ) => {
     await render(
@@ -429,38 +440,60 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
     expect(document.body.textContent).toContain(
       "The refusal is whole-file. Nothing partial was added to the library.",
     );
-    // Every remedy is followed by what this release can actually read.
-    expect(document.body.textContent).toContain(RELEASE_SCOPE);
+    // D19 retired: no card may still say workbooks arrive later.
+    expect(document.body.textContent).not.toContain("later release");
   });
 
-  it("names the workbook family D19 refused, from the refusal not the name", async () => {
-    const { rerender } = await render(
+  it("macro variant: MOD-005 names the file and refuses wholly, SCR-021 keeps the remedy", async () => {
+    await render(
       <ImportRefusedScreen
         nav={nav}
         acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
         onSelectFiles={noop}
         onReturnToLibrary={noop}
-        vm={refused("workbook-format-later-release", "ooxml")}
+        vm={{ ...refused("macro-content"), fileName: "payroll.xlsm", remedy: "reupload-macro-free-copy" }}
       />,
     );
-    expect(document.body.textContent).toContain("an Excel workbook (.xlsx)");
-    expect(document.body.textContent).toContain(
-      "Export the sheet you need as CSV or TSV.",
+    const dialog = query('[role="dialog"]');
+    expect(dialog.textContent).toContain("“payroll.xlsm” contains macros");
+    expect(dialog.textContent).toContain(
+      "Sheaf never runs or strips macros, so no app was created. Save a macro-free .xlsx copy and choose it instead.",
     );
+    expect(dialog.textContent).toContain("Choose macro-free copy");
+    expect(document.body.textContent).toContain("Macro-enabled workbook");
+    expect(document.body.textContent).toContain("Choose that macro-free copy here.");
 
-    await rerender(
-      <ImportRefusedScreen
-        nav={nav}
-        acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
-        onSelectFiles={noop}
-        onReturnToLibrary={noop}
-        vm={refused("workbook-format-later-release", "ods")}
-      />,
-    );
-    expect(document.body.textContent).toContain(
-      "an OpenDocument spreadsheet (.ods)",
-    );
+    const close = queryAll<HTMLButtonElement>("button").find((button) => button.textContent === "Close");
+    await interact(() => {
+      close?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
+
+  it.each([
+    ["expansion-limit", "Unsafe compression", "Part of the file expands to far more data than its stored size."],
+    ["truncated-container", "Incomplete file", "The file ends before its own structure says it should."],
+    ["directory-loop", "Unsafe file structure", "The file's internal directory points back into itself."],
+    ["impossible-dimension", "Impossible sheet size", "A sheet declares a size no spreadsheet can have."],
+    ["entity-declaration", "Unsafe XML", "The workbook's XML declares entities, which Sheaf never expands."],
+    ["encrypted-workbook", "Password-protected workbook", "Remove the password, save a copy, then choose that copy here."],
+  ] as const)(
+    "D43 watchpoint — unsafe-container refusal detail: %s is named from its token",
+    async (detail, heading, sentence) => {
+      await render(
+        <ImportRefusedScreen
+          nav={nav}
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+          onSelectFiles={noop}
+          onReturnToLibrary={noop}
+          vm={refused("binary-unreadable", detail)}
+        />,
+      );
+      expect(document.body.textContent).toContain(heading);
+      expect(document.body.textContent).toContain(sentence);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    },
+  );
 
   it("keeps the approved per-format instructions for Numbers, Pages and PDF", async () => {
     const { rerender } = await render(
@@ -685,7 +718,6 @@ describe("every import action meets the minimum hit area", () => {
           fileName: "budget.numbers",
           refusal: "numbers-file",
           remedy: "numbers-export-xlsx",
-          laterReleaseFormat: null,
           unreadableDetail: null,
           libraryUnchanged: true,
           announcement: "budget.numbers cannot become a Sheaf app.",

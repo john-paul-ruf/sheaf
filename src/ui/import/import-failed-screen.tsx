@@ -9,7 +9,8 @@ import { Dialog } from "../primitives/dialog.js";
 import { StatusBanner, type StatusTone } from "../primitives/status-banner.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import { formatCount } from "./delimited-target-screen.js";
-import { ImportProgressRegion } from "./import-progress-screen.js";
+import { UNREADABLE_DETAIL_SENTENCE } from "./import-refused-screen.js";
+import { describeSheetOrdinal, ImportProgressRegion } from "./import-progress-screen.js";
 import {
   ChooseAnotherFileButton,
   type WorkbookPickerProps,
@@ -31,10 +32,58 @@ import styles from "./import.module.css";
  * as though something went wrong; import-failed.html's cancelled variant is
  * the one whose words are used.
  *
- * MOD-008 asks for "named stage/sheet, cleanup fact, retry path". The stage is
- * the failure reason (a delimited import has no sheet to name), the cleanup
- * fact is the receipt above, and the retry path is on the page behind it.
+ * MOD-008 asks for "named stage/sheet, cleanup fact, retry path". A streamed
+ * failure carries its stage, the sheet ordinal and a closed diagnostic
+ * (CA-24): import-failed.html shows the raw diagnostic token beside the
+ * sentence, so both are shown, and the sheet is named from the selection
+ * pre-flight showed. With no detail the stage is the failure reason. The
+ * cleanup fact is the receipt, and the retry path is on the page behind it.
  */
+
+type ImportFailureDetailVm = NonNullable<ImportEndedVm["detail"]>;
+
+/** import-failed.html's "Failed stage" names. */
+const FAILED_STAGE: Readonly<Record<ImportFailureDetailVm["stage"], string>> =
+  Object.freeze({
+    container: "Container",
+    "sheet-stream": "Cell stream",
+    stage: "Staging",
+  });
+
+function diagnosticSentence(detail: ImportFailureDetailVm): string {
+  return detail.diagnostic === "parse-failed"
+    ? "The file could not be read all the way through."
+    : UNREADABLE_DETAIL_SENTENCE[detail.diagnostic];
+}
+
+/** The mock's lede: what happened, then where ("while parsing sheet 3 of 7"). */
+function describeFailure(detail: ImportFailureDetailVm): string {
+  return detail.sheet === null
+    ? diagnosticSentence(detail)
+    : `${diagnosticSentence(detail)} It stopped while reading ${describeSheetOrdinal(
+        detail.sheet,
+      ).toLowerCase()}.`;
+}
+
+/** Stage, sheet and diagnostic as MOD-008 and the page both list them. */
+function FailureFacts({ detail }: { readonly detail: ImportFailureDetailVm }): ReactNode {
+  return (
+    <>
+      <dt>Failed stage</dt>
+      <dd>{FAILED_STAGE[detail.stage]}</dd>
+      {detail.sheet !== null && (
+        <>
+          <dt>Sheet</dt>
+          <dd>{detail.sheet.name}</dd>
+        </>
+      )}
+      <dt>Diagnostic</dt>
+      <dd>
+        <code>{detail.diagnostic}</code>
+      </dd>
+    </>
+  );
+}
 
 /**
  * Why a run ended, taken from the view model itself rather than from the
@@ -125,10 +174,16 @@ export function ImportFailedScreen({
           <h1 className={cx(styles["title"])}>
             {cancelled
               ? "You cancelled the import."
-              : `${vm.fileName} could not be imported.`}
+              : vm.detail !== null && vm.detail.sheet !== null
+                ? `${vm.detail.sheet.name} could not be read.`
+                : `${vm.fileName} could not be imported.`}
           </h1>
-          {vm.reason !== null && (
-            <p className={cx(styles["lede"])}>{FAILURE_REASON[vm.reason]}</p>
+          {vm.detail !== null ? (
+            <p className={cx(styles["lede"])}>{describeFailure(vm.detail)}</p>
+          ) : (
+            vm.reason !== null && (
+              <p className={cx(styles["lede"])}>{FAILURE_REASON[vm.reason]}</p>
+            )
           )}
         </div>
 
@@ -149,6 +204,14 @@ export function ImportFailedScreen({
             >
               {describeCleanup(vm.cleanup)}
             </StatusBanner>
+
+            {vm.detail !== null && (
+              <dl className={cx(styles["facts"])}>
+                <dt>File</dt>
+                <dd>{vm.fileName}</dd>
+                <FailureFacts detail={vm.detail} />
+              </dl>
+            )}
 
             <div className={cx(styles["actions"])}>
               {onRetrySameFile !== undefined && (
@@ -192,12 +255,18 @@ export function ImportFailedScreen({
             <dd>{vm.fileName}</dd>
             <dt>Outcome</dt>
             <dd>{cancelled ? "Cancelled by you" : "Did not complete"}</dd>
-            <dt>Stage</dt>
-            <dd>
-              {vm.reason === null
-                ? "Stopped at your request"
-                : FAILURE_REASON[vm.reason]}
-            </dd>
+            {vm.detail === null ? (
+              <>
+                <dt>Stage</dt>
+                <dd>
+                  {vm.reason === null
+                    ? "Stopped at your request"
+                    : FAILURE_REASON[vm.reason]}
+                </dd>
+              </>
+            ) : (
+              <FailureFacts detail={vm.detail} />
+            )}
             <dt>Cleanup</dt>
             <dd>{describeCleanup(vm.cleanup)}</dd>
           </dl>

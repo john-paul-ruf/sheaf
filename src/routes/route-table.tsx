@@ -52,6 +52,7 @@ import {
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import { spawnImportWorker } from "../bootstrap/import-worker.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
+import { copyText } from "../platform/clipboard.js";
 import {
   WORKBOOK_FILE_EXTENSIONS,
   pickWorkbookFile,
@@ -92,6 +93,7 @@ import {
 import { ReviewScreen } from "../ui/import/review-screen.js";
 import type { ReviewEditIntentV1 } from "../ui/import/review-edit-dialog.js";
 import { UploadScreen } from "../ui/import/upload-screen.js";
+import { WorkbookPreflightScreen } from "../ui/import/workbook-preflight-screen.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { LibraryScreen } from "../ui/library/library-screen.js";
 import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
@@ -705,6 +707,12 @@ function ImportStageScreens({
           nav={nav}
           acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
           onSelectFiles={onSelectFiles}
+          onChooseApp={(appId) => {
+            send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId } });
+          }}
+          onChooseNewApp={() => {
+            send({ type: "SET_DESTINATION", destination: { kind: "new-app" } });
+          }}
           onContinue={() => {
             send({ type: "CONTINUE" });
           }}
@@ -719,27 +727,57 @@ function ImportStageScreens({
         />
       );
     case "SCR-018":
-      if (vm.step !== "fits") return null;
+    case "SCR-019":
+      if (vm.step === "fits") {
+        return (
+          <PreflightFitsScreen
+            nav={nav}
+            onBack={() => {
+              send({ type: "BACK" });
+            }}
+            onStart={() => {
+              send({ type: "START" });
+            }}
+            topBarActions={topBarActions}
+            vm={vm}
+          />
+        );
+      }
+      if (vm.step === "overBudget") {
+        return (
+          <PreflightOverBudgetScreen
+            nav={nav}
+            acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
+            onSelectFiles={onSelectFiles}
+            topBarActions={topBarActions}
+            vm={vm}
+          />
+        );
+      }
       return (
-        <PreflightFitsScreen
+        <WorkbookPreflightScreen
+          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
           nav={nav}
-          onBack={() => {
-            send({ type: "BACK" });
+          onCancel={() => {
+            send({ type: "CANCEL" });
           }}
+          onClearAll={() => {
+            send({ type: "CLEAR_ALL" });
+          }}
+          onCopyHandoff={() => {
+            const text = vm.handoff?.instructions;
+            if (text === undefined) return;
+            void copyText(text).then((result) => {
+              send({ type: "COPY_HANDOFF", result });
+            });
+          }}
+          onSelectFiles={onSelectFiles}
           onStart={() => {
             send({ type: "START" });
           }}
-          topBarActions={topBarActions}
-          vm={vm}
-        />
-      );
-    case "SCR-019":
-      if (vm.step !== "overBudget") return null;
-      return (
-        <PreflightOverBudgetScreen
-          nav={nav}
-          acceptedFileTypes={WORKBOOK_FILE_EXTENSIONS}
-          onSelectFiles={onSelectFiles}
+          onToggleSheet={(sheetIndex) => {
+            send({ type: "TOGGLE_SHEET", sheetIndex });
+          }}
           topBarActions={topBarActions}
           vm={vm}
         />

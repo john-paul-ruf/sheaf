@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type {
   ImportRefusedVm,
   RefusalCopyTokenV1,
+  UnreadableDetailVm,
 } from "../../application/view-models/import.js";
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
-import { StatusBanner } from "../primitives/status-banner.js";
+import { Dialog } from "../primitives/dialog.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import {
   ChooseAnotherFileButton,
@@ -14,27 +15,24 @@ import {
 import styles from "./import.module.css";
 
 /**
- * SCR-021 — the refusals (import-refused.html, MOD-005/006, CAP-09, FR-2).
+ * SCR-021 — the refusals (import-refused.html, MOD-005/006, CAP-09, CAP-19,
+ * FR-2).
  *
- * **Six tokens, one card each, no fallthrough.** The map is a total
- * `Record<RefusalCopyTokenV1, …>`, so a seventh refusal kind added upstream is
- * a compile error here rather than a card that silently prints nothing.
+ * **Five tokens, one card each, no fallthrough.** The map is a total
+ * `Record<RefusalCopyTokenV1, …>`, so a refusal kind added upstream is a
+ * compile error here rather than a card that silently prints nothing. D19's
+ * later-release card is gone with the refusal it explained: this page accepts
+ * workbooks, and the kind has no producer (D42).
  *
- * **D19's later-release card is composed, not invented.** XLSX/XLSB/XLS/ODS and
- * HTML tables are identified and refused whole in this release; the card keeps
- * import-refused.html's structure — what happened, why, what to do — and fills
- * it with the one fact this release actually has. The family name comes from
- * the refusal, never from the extension the user typed.
+ * **A macro workbook is refused whole, and says so first (MOD-005).**
+ * import-refused.html's macro card is the page; MOD-005 opens over it with
+ * import.html's blocked-file sentence — the file named, the macros named, the
+ * remedy offered — so the refusal is announced before the page is read.
  *
- * **Every remedy has to end somewhere this release can read.** The mock's
- * Numbers instruction ends at an exported `.xlsx`, which F02 refuses; the
- * approved wording is kept (D19 names it) and the release fact is stated once,
- * for every card, so no instruction dead-ends silently.
- *
- * `macro-content` has no F02 producer — S03's classifier reaches it only for
- * containers F03 opens — but the token exists, so its card does too, and its
- * final "choose the macro-free copy here" step is not printed while workbook
- * formats are still refused.
+ * **An unsafe container names its reason (D42, D43).** `binary-unreadable`
+ * carries a closed detail token, and each token gets a heading and a sentence
+ * composed in this card's own structure — what happened, why, what to do —
+ * from nothing but that token. No file content is ever shown.
  */
 
 interface RefusalCardV1 {
@@ -45,77 +43,98 @@ interface RefusalCardV1 {
   readonly steps: readonly string[];
 }
 
-const LATER_RELEASE_FORMAT: Readonly<Record<string, string>> = Object.freeze({
-  ooxml: "an Excel workbook (.xlsx)",
-  xlsb: "an Excel binary workbook (.xlsb)",
-  xls: "a legacy Excel workbook (.xls)",
-  ods: "an OpenDocument spreadsheet (.ods)",
-  html: "an HTML table",
+/**
+ * What each closed unreadable-detail token means, in one sentence. SCR-022
+ * uses the same sentences for a parse that failed mid-stream (CA-24).
+ */
+export const UNREADABLE_DETAIL_SENTENCE: Readonly<Record<UnreadableDetailVm, string>> =
+  Object.freeze({
+    "truncated-container": "The file ends before its own structure says it should.",
+    "expansion-limit": "Part of the file expands to far more data than its stored size.",
+    "directory-loop": "The file's internal directory points back into itself.",
+    "impossible-dimension": "A sheet declares a size no spreadsheet can have.",
+    "entity-declaration": "The workbook's XML declares entities, which Sheaf never expands.",
+    "encrypted-workbook": "The workbook is protected with a password, so its cells cannot be read.",
+    "malformed-structure": "The file's internal structure is damaged.",
+    "unrecognized-content":
+      "Sheaf could not recognise this file's contents as a spreadsheet or as delimited text.",
+  });
+
+const UNREADABLE_HEADING: Readonly<Record<UnreadableDetailVm, string>> = Object.freeze({
+  "truncated-container": "Incomplete file",
+  "expansion-limit": "Unsafe compression",
+  "directory-loop": "Unsafe file structure",
+  "impossible-dimension": "Impossible sheet size",
+  "entity-declaration": "Unsafe XML",
+  "encrypted-workbook": "Password-protected workbook",
+  "malformed-structure": "Damaged file",
+  "unrecognized-content": "Unreadable file",
 });
 
-function laterReleaseCard(format: string | null): RefusalCardV1 {
-  const family =
-    format === null ? "a workbook" : (LATER_RELEASE_FORMAT[format] ?? "a workbook");
+/** import-refused.html's shape of remedy, for a file a fresh copy may fix. */
+const FRESH_COPY_STEPS: readonly string[] = Object.freeze([
+  "Open the file in the application that made it.",
+  "Save a fresh copy, then choose that copy here.",
+]);
+
+function unreadableCard(detail: UnreadableDetailVm | null): RefusalCardV1 {
+  const token = detail ?? "unrecognized-content";
   return {
-    heading: "Workbook format",
-    body: `Sheaf can tell this file is ${family}, but this release does not read workbook structure. Refusing it whole is how Sheaf avoids claiming a table it has not read.`,
-    steps: [
-      "Open the workbook in the application that made it.",
-      "Export the sheet you need as CSV or TSV.",
-      "Choose that delimited file here.",
-    ],
+    heading: UNREADABLE_HEADING[token],
+    body: `${UNREADABLE_DETAIL_SENTENCE[token]} Sheaf stopped before reading any cell.`,
+    steps:
+      token === "unrecognized-content"
+        ? []
+        : token === "encrypted-workbook"
+          ? [
+              "Open the workbook in the application that made it.",
+              "Remove the password, save a copy, then choose that copy here.",
+            ]
+          : FRESH_COPY_STEPS,
   };
 }
 
 /** import-refused.html, verbatim where the mock has the words. */
-const REFUSAL_CARD: Readonly<Record<RefusalCopyTokenV1, RefusalCardV1>> =
-  Object.freeze({
-    "macro-content": {
-      heading: "Macro-enabled workbook",
-      body: "Macros can contain behavior Sheaf cannot safely preserve or execute. Sheaf will not strip them and pretend the workbook is unchanged.",
-      steps: [
-        "Open the workbook in Microsoft Excel.",
-        "Save a copy as Excel Workbook (.xlsx).",
-      ],
-    },
-    "numbers-file": {
-      heading: "Apple Numbers",
-      body: "Numbers keeps its tables in its own document format, which Sheaf does not read.",
-      steps: [
-        "In Numbers: Share → Export and Send → Excel, then choose the exported XLSX.",
-      ],
-    },
-    "pages-file": {
-      heading: "Apple Pages",
-      body: "Pages is a document, not a workbook, so there is no cell model to read.",
-      steps: [
-        "Copy tabular data into Numbers or Excel and export as XLSX, CSV, or TSV.",
-      ],
-    },
-    "pdf-file": {
-      heading: "PDF",
-      body: "A PDF has no reliable cell model. Guessing one would invent values you never wrote.",
-      steps: [
-        "Return to the spreadsheet that produced the PDF and export XLSX or delimited text.",
-      ],
-    },
-    "workbook-format-later-release": laterReleaseCard(null),
-    "binary-unreadable": {
-      heading: "Unreadable file",
-      body: "Sheaf could not recognise this file's contents as a spreadsheet or as delimited text.",
-      steps: [],
-    },
-  });
+const REFUSAL_CARD: Readonly<
+  Record<Exclude<RefusalCopyTokenV1, "binary-unreadable">, RefusalCardV1>
+> = Object.freeze({
+  "macro-content": {
+    heading: "Macro-enabled workbook",
+    body: "Macros can contain behavior Sheaf cannot safely preserve or execute. Sheaf will not strip them and pretend the workbook is unchanged.",
+    steps: [
+      "Open the workbook in Microsoft Excel.",
+      "Save a copy as Excel Workbook (.xlsx).",
+      "Choose that macro-free copy here.",
+    ],
+  },
+  "numbers-file": {
+    heading: "Apple Numbers",
+    body: "Numbers keeps its tables in its own document format, which Sheaf does not read.",
+    steps: [
+      "In Numbers: Share → Export and Send → Excel, then choose the exported XLSX.",
+    ],
+  },
+  "pages-file": {
+    heading: "Apple Pages",
+    body: "Pages is a document, not a workbook, so there is no cell model to read.",
+    steps: [
+      "Copy tabular data into Numbers or Excel and export as XLSX, CSV, or TSV.",
+    ],
+  },
+  "pdf-file": {
+    heading: "PDF",
+    body: "A PDF has no reliable cell model. Guessing one would invent values you never wrote.",
+    steps: [
+      "Return to the spreadsheet that produced the PDF and export XLSX or delimited text.",
+    ],
+  },
+});
 
 export function refusalCard(vm: ImportRefusedVm): RefusalCardV1 {
-  return vm.refusal === "workbook-format-later-release"
-    ? laterReleaseCard(vm.laterReleaseFormat)
+  return vm.refusal === "binary-unreadable"
+    ? unreadableCard(vm.unreadableDetail)
     : REFUSAL_CARD[vm.refusal];
 }
-
-/** D19, said once so no instruction above it can dead-end unnoticed. */
-export const RELEASE_SCOPE =
-  "This release reads CSV and TSV. Workbook formats arrive in a later release.";
 
 export interface ImportRefusedScreenProps extends WorkbookPickerProps {
   readonly vm: ImportRefusedVm;
@@ -133,6 +152,8 @@ export function ImportRefusedScreen({
   topBarActions,
 }: ImportRefusedScreenProps): ReactNode {
   const card = refusalCard(vm);
+  const isMacro = vm.refusal === "macro-content";
+  const [macroNoticeOpen, setMacroNoticeOpen] = useState(isMacro);
 
   return (
     <UnlockedFrame
@@ -170,19 +191,53 @@ export function ImportRefusedScreen({
               ))}
             </ol>
           )}
+          {isMacro && (
+            <div className={cx(styles["actions"])}>
+              <ChooseAnotherFileButton
+                acceptedFileTypes={acceptedFileTypes}
+                label="Choose macro-free copy"
+                onSelectFiles={onSelectFiles}
+              />
+            </div>
+          )}
         </section>
-
-        <StatusBanner title="What this release reads" tone="info">
-          {RELEASE_SCOPE}
-        </StatusBanner>
 
         <div className={cx(styles["actions"])}>
           <ChooseAnotherFileButton
             acceptedFileTypes={acceptedFileTypes}
             onSelectFiles={onSelectFiles}
+            tone={isMacro ? "secondary" : "primary"}
           />
           <Button onPress={onReturnToLibrary}>Return to library</Button>
         </div>
+
+        <Dialog
+          footer={
+            <>
+              <Button
+                onPress={() => {
+                  setMacroNoticeOpen(false);
+                }}
+              >
+                Close
+              </Button>
+              <ChooseAnotherFileButton
+                acceptedFileTypes={acceptedFileTypes}
+                label="Choose macro-free copy"
+                onSelectFiles={onSelectFiles}
+              />
+            </>
+          }
+          isOpen={macroNoticeOpen}
+          onOpenChange={setMacroNoticeOpen}
+          title={`“${vm.fileName}” contains macros`}
+        >
+          {/* import.html's blocked-file language, with the real file name. */}
+          <p>
+            Sheaf never runs or strips macros, so no app was created. Save a
+            macro-free .xlsx copy and choose it instead.
+          </p>
+        </Dialog>
       </div>
     </UnlockedFrame>
   );
