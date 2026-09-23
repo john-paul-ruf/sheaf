@@ -375,6 +375,79 @@ export interface ProjectionRelationshipV1 {
   readonly toTableName: string;
 }
 
+/**
+ * One typed-lane predicate of a records query (CA-29). It names a field and
+ * carries **values only** — the projection turns it into a prepared
+ * statement and binds every value, so no member can carry SQL. M35's filter
+ * compiler produces these from the domain's `FilterV1`.
+ */
+export type ProjectionFilterTermV1 =
+  /** An enum option or a referenced record, by id (`idx_cells_field_id`). */
+  | { readonly kind: "id-in"; readonly fieldId: FieldId; readonly ids: readonly Uint8Array[] }
+  /** A date (epoch day) or boolean (0/1) lane, inclusive; a null bound is open. */
+  | {
+      readonly kind: "integer-range";
+      readonly fieldId: FieldId;
+      readonly min: number | null;
+      readonly max: number | null;
+    }
+  /** Canonical decimals, inclusive; compared through the 20-byte order key, never a float. */
+  | {
+      readonly kind: "decimal-range";
+      readonly fieldId: FieldId;
+      readonly min: string | null;
+      readonly max: string | null;
+    }
+  /** Text equality or containment, case-insensitive over NFC (the lane text and the operand both folded). */
+  | { readonly kind: "text-equals" | "text-contains"; readonly fieldId: FieldId; readonly text: string }
+  /** A reference holding a key or a record that resolves nowhere (D36). */
+  | { readonly kind: "reference-broken"; readonly fieldId: FieldId }
+  /**
+   * Empty means missing or blank. An authored field is judged from its
+   * authored value; a computed field from whether it has a result to show.
+   */
+  | { readonly kind: "is-empty" | "not-empty"; readonly fieldId: FieldId; readonly isComputed: boolean };
+
+/** Which lane a sort reads, by the field's type. */
+export type ProjectionSortKeyKindV1 =
+  | "text"
+  | "decimal"
+  | "integer"
+  /** An enum sorts by its options' order, not by id. */
+  | "option-ordinal"
+  /** A reference sorts by its parent's label (else key) field. */
+  | "reference-label";
+
+export interface ProjectionRecordSortV1 {
+  readonly fieldId: FieldId;
+  readonly direction: "asc" | "desc";
+  readonly key: ProjectionSortKeyKindV1;
+}
+
+/** A row's sort key as SQLite orders it; null is a row with no value (sorted last). */
+export type ProjectionSortValueV1 = Uint8Array | number | null;
+
+/** A keyset position: the last row's sort key, then its row key (ties). */
+export interface ProjectionQueryCursorV1 {
+  readonly recordPk: number;
+  readonly sortValue: ProjectionSortValueV1;
+}
+
+/**
+ * A searched/filtered/sorted page (CA-29, D53). `total` is an exact count of
+ * matches, or null when the candidate budget stopped the count — then
+ * `partial` states exactly how many candidate rows were examined out of how
+ * many the table holds. A partial page never carries a total.
+ */
+export interface ProjectionRecordQueryResultV1 {
+  readonly records: readonly ProjectionRecordSummaryV1[];
+  readonly hasMore: boolean;
+  /** Pass back as `after`; null when the page ended the scope. */
+  readonly next: ProjectionQueryCursorV1 | null;
+  readonly total: number | null;
+  readonly partial: { readonly scanned: number; readonly tableTotal: number } | null;
+}
+
 export type ProjectionQueryV1 =
   | { readonly kind: "app-state" }
   | { readonly kind: "list-tables" }
@@ -448,7 +521,23 @@ export type ProjectionQueryV1 =
   /** A table's formulas, or every formula when null. */
   | { readonly kind: "list-formulas"; readonly tableId: TableId | null }
   /** Every metric and dashboard value's current result. */
-  | { readonly kind: "scalar-results" };
+  | { readonly kind: "scalar-results" }
+  /**
+   * Search ∧ typed filters ∧ one sort over one table (CA-29), examining at
+   * most `candidateBudget` candidate rows (D53).
+   */
+  | {
+      readonly kind: "query-records";
+      readonly tableId: TableId;
+      /** Null or wordless text: no search. */
+      readonly search: string | null;
+      readonly filters: readonly ProjectionFilterTermV1[];
+      /** Null keeps row-key order. */
+      readonly sort: ProjectionRecordSortV1 | null;
+      readonly after: ProjectionQueryCursorV1 | null;
+      readonly limit: number;
+      readonly candidateBudget: number;
+    };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -475,6 +564,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
   readonly "list-formulas": readonly ProjectionFormulaV1[];
   readonly "scalar-results": readonly ProjectionScalarResultV1[];
+  readonly "query-records": ProjectionRecordQueryResultV1;
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

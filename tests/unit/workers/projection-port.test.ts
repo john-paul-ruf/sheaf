@@ -123,7 +123,8 @@ describe("the projection port and the projection engine", () => {
       "list-inference-decisions": true,
       "list-formulas": true,
       "scalar-results": true,
+      "query-records": true,
     };
-    expect(Object.keys(kinds)).toHaveLength(23);
+    expect(Object.keys(kinds)).toHaveLength(24);
   });
 });

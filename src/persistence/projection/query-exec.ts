@@ -63,9 +63,17 @@ import {
   assertUsable,
   selectRow,
   selectRows,
+  selectRowsOnce,
   type ProjectionHandleV1,
   type SqlParam,
 } from "./engine.js";
+import {
+  candidateBoundaryStatement,
+  candidateCountStatement,
+  matchCountStatement,
+  pageStatement,
+  type QueryScopeV1,
+} from "./filter-sql.js";
 import { idKey } from "./record-rows.js";
 import {
   COUNT_CHILDREN,
@@ -113,6 +121,8 @@ import type {
   ProjectionQueryV1,
   ProjectionRecordDetailV1,
   ProjectionRecordPageResultV1,
+  ProjectionRecordQueryResultV1,
+  ProjectionSortValueV1,
   ProjectionDeletedRecordV1,
   ProjectionFormulaV1,
   ProjectionInertItemV1,
@@ -274,6 +284,8 @@ function runQuery(
           };
         }),
       );
+    case "query-records":
+      return answer(queryRecords(handle, query));
     default: {
       const unreachable: never = query;
       return unreachable;
@@ -323,6 +335,83 @@ function searchRecords(
       : [SEARCH_RECORDS_AFTER, [match, query.tableId, query.afterRecordPk]],
     query.limit,
   );
+}
+
+/**
+ * Search ∧ filters ∧ sort within a candidate budget (CA-29, D53).
+ *
+ * The candidates are the table's rows, narrowed by the search when there is
+ * one; they are what the plan examines, and the budget counts them. When the
+ * scope holds more candidates than the budget admits, only the first
+ * `candidateBudget` of them in row-key order are examined: the page is
+ * answered from those, the count of matches is **not** reported (it could not
+ * be completed), and `partial` states exactly how many were examined out of
+ * how many the table holds. Within the budget the count is `count(*)` and
+ * exact.
+ */
+function queryRecords(
+  handle: ProjectionHandleV1,
+  query: Extract<ProjectionQueryV1, { kind: "query-records" }>,
+): ProjectionRecordQueryResultV1 {
+  const bounded = boundedLimit(query.limit);
+  const budget = query.candidateBudget;
+  if (!Number.isSafeInteger(budget) || budget < 1) {
+    throw new CodecError("a candidate budget must be a positive integer");
+  }
+  const match = query.search === null ? null : toFtsMatchQuery(query.search);
+  if (query.search !== null && match === null) {
+    // Text with no words matches nothing, rather than everything.
+    return { records: [], hasMore: false, next: null, total: 0, partial: null };
+  }
+
+  const unbounded: QueryScopeV1 = { tableId: query.tableId, match, boundaryPk: null };
+  const candidates = countOf(handle, candidateCountStatement(unbounded, budget + 1));
+  const boundaryPk =
+    candidates > budget
+      ? numberAt(firstRow(handle, candidateBoundaryStatement(unbounded, budget)), 0)
+      : null;
+  const scope: QueryScopeV1 = { ...unbounded, boundaryPk };
+
+  const statement = pageStatement(handle, scope, query.filters, query.sort, query.after, bounded + 1);
+  const rows = selectRowsOnce(handle, statement.sql, statement.parameters);
+  const page = rows.slice(0, bounded);
+  const last = page.at(-1);
+
+  return {
+    records: page.map((row) => toRecordSummary(handle, row)),
+    hasMore: rows.length > bounded,
+    next:
+      rows.length > bounded && last !== undefined
+        ? { recordPk: numberAt(last, 0), sortValue: sortValueAt(last, 7) }
+        : null,
+    total: boundaryPk === null ? countOf(handle, matchCountStatement(handle, scope, query.filters)) : null,
+    partial:
+      boundaryPk === null
+        ? null
+        : {
+            scanned: budget,
+            tableTotal: Number(selectRow(handle, COUNT_RECORDS_FOR_TABLE, [query.tableId])?.[0] ?? 0),
+          },
+  };
+}
+
+const firstRow = (handle: ProjectionHandleV1, statement: { readonly sql: string; readonly parameters: readonly SqlParam[] }): Row => {
+  const row = selectRowsOnce(handle, statement.sql, statement.parameters)[0];
+  if (row === undefined) {
+    throw new CodecError("a records query expected a row it did not find");
+  }
+  return row;
+};
+
+const countOf = (handle: ProjectionHandleV1, statement: { readonly sql: string; readonly parameters: readonly SqlParam[] }): number =>
+  numberAt(firstRow(handle, statement), 0);
+
+function sortValueAt(row: Row, index: number): ProjectionSortValueV1 {
+  const value = row[index];
+  if (value === null || value === undefined) return null;
+  if (value instanceof Uint8Array) return value;
+  if (typeof value === "number" || typeof value === "bigint") return Number(value);
+  throw new CodecError("a sort value is not a key, an integer, or null");
 }
 
 function pageChangeHistory(

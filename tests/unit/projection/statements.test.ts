@@ -85,6 +85,8 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   SELECT_ALL_INFERENCE_DECISIONS: 0,
   SELECT_INFERENCE_DECISIONS_OF_KIND: 1,
   COUNT_RECORDS_FOR_TABLE: 1,
+  // A fragment, not a statement: the records query composes it (filter-sql.ts).
+  RECORD_SUMMARY_COLUMNS: 0,
   PAGE_RECORDS_FIRST: 2,
   PAGE_RECORDS_AFTER: 3,
   SEARCH_RECORDS_FIRST: 3,

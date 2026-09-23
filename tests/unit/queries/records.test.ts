@@ -15,6 +15,12 @@ import {
   planRecordPage,
   recordQuery,
 } from "../../../src/application/queries/records.js";
+import { QUERY_CANDIDATE_ROW_BUDGET } from "../../../src/application/queries/budgets.js";
+import type {
+  ProjectionEnginePort,
+  ProjectionQueryV1,
+  ProjectionRecordQueryResultV1,
+} from "../../../src/application/ports/projection.js";
 import {
   isRestorable,
   planHistoryPage,
@@ -159,6 +165,69 @@ describe("planRecordPage", () => {
     expect(page.hasMore).toBe(false);
     expect(page.scope).toEqual({ kind: "search", text: "quarry" });
     expect(page.totalCount).toBe(2);
+  });
+});
+
+describe("planRecordPage with filters or a sort (CA-29)", () => {
+  /** A port that answers the records query with a fixed result and remembers what it was asked. */
+  const queryingPort = (answer: ProjectionRecordQueryResultV1) => {
+    const asked: ProjectionQueryV1[] = [];
+    const port: ProjectionEnginePort = {
+      execute: ((query: ProjectionQueryV1) => {
+        asked.push(query);
+        return query.kind === "count-records" ? 12 : answer;
+      }) as ProjectionEnginePort["execute"],
+      applyEvents: () => Promise.resolve({ recalculatedFieldIds: [] }),
+      refreshVolatile: () => Promise.resolve([]),
+    };
+    return { port, asked };
+  };
+  const SORT = { fieldId: SITE, direction: "asc" as const, key: "text" as const };
+
+  it("runs the records query with D53's budget, and reports its exact total", () => {
+    const { port, asked } = queryingPort({ records: [], hasMore: false, next: null, total: 3, partial: null });
+    const page = planRecordPage(port, recordQuery({ tableId: TABLE_ID, sort: SORT }));
+    expect(asked.find((query) => query.kind === "query-records")).toMatchObject({
+      candidateBudget: QUERY_CANDIDATE_ROW_BUDGET,
+      sort: SORT,
+      filters: [],
+      after: null,
+    });
+    expect(page.total).toBe(3);
+    expect(page.partial).toBeNull();
+    expect(page.totalCount).toBe(12);
+  });
+
+  it("passes a sorted cursor's value with its row key, and an injected budget", () => {
+    const { port, asked } = queryingPort({ records: [], hasMore: false, next: null, total: 0, partial: null });
+    planRecordPage(port, recordQuery({ tableId: TABLE_ID, sort: SORT, cursor: 7, cursorSortValue: 42 }), 5);
+    expect(asked.find((query) => query.kind === "query-records")).toMatchObject({
+      after: { recordPk: 7, sortValue: 42 },
+      candidateBudget: 5,
+    });
+  });
+
+  it("names a partial page's cause and remedy, and carries no total", () => {
+    const { port } = queryingPort({
+      records: [],
+      hasMore: true,
+      next: { recordPk: 9, sortValue: null },
+      total: null,
+      partial: { scanned: 5, tableTotal: 12 },
+    });
+    const page = planRecordPage(port, recordQuery({ tableId: TABLE_ID, sort: SORT }), 5);
+    expect(page.total).toBeNull();
+    expect(page.partial).toEqual({ scanned: 5, tableTotal: 12, cause: "query-budget", remedy: "narrow-filters" });
+    expect(page.nextCursor).toBe(9);
+    expect(page.nextSortValue).toBeNull();
+  });
+
+  it("keeps a plain browse's total as the table's count, and counts no search", () => {
+    const browse = planRecordPage(projectionOf(["North", "South"]), recordQuery({ tableId: TABLE_ID }));
+    expect(browse.total).toBe(2);
+    const search = planRecordPage(projectionOf(["North yard"]), recordQuery({ tableId: TABLE_ID, search: "yard" }));
+    expect(search.total).toBeNull();
+    expect(search.partial).toBeNull();
   });
 });
 

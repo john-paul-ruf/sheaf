@@ -250,6 +250,7 @@ export class FakeProjection implements ProjectionEnginePort {
       case "list-sheet-snapshots":
       case "list-inert-items":
       case "list-inference-decisions":
+      case "query-records":
         // Commands never ask; the real engine answers these in the browser.
         throw new Error(`the fake projection keeps no ${query.kind} read`);
       case "app-state":

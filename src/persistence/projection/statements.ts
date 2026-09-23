@@ -484,7 +484,12 @@ SELECT 1 FROM records WHERE record_id = ? AND table_id = ?;`;
 export const COUNT_RECORDS_FOR_TABLE =
   "SELECT count(*) AS exact_count FROM records WHERE table_id = ?;";
 
-const RECORD_SUMMARY_COLUMNS = `
+/**
+ * A record summary's columns, in `query-exec.ts`'s read order. Exported as a
+ * fragment for the records query `filter-sql.ts` composes (CA-29): one
+ * definition, so a composed page and a fixed page read the same row.
+ */
+export const RECORD_SUMMARY_COLUMNS = `
        r.record_pk, r.record_id, r.table_id, r.record_revision, r.authored_cbor,
        (SELECT count(*) FROM record_issues AS i
          WHERE i.record_pk = r.record_pk AND i.severity = 'blocking')

@@ -41,6 +41,7 @@ import type {
 import type { EvaluationClockReadingV1 } from "../../domain/formulas/evaluate.js";
 import type { ProjectionSchemaCacheV1, Sha256Fn } from "./types.js";
 import { READ_USER_VERSION } from "./statements.js";
+import { registerAuthoredFunctions } from "./authored-functions.js";
 
 /** Every value the engine binds. Bytes are BLOBs; bigints are narrowed first. */
 export type SqlParam = string | number | Uint8Array | null;
@@ -131,6 +132,7 @@ export async function openProjection(
     // Referential integrity is on for the whole connection before any row
     // exists; migration 005 sets it too, and neither place assumes the other.
     database.exec("PRAGMA foreign_keys = ON;");
+    registerAuthoredFunctions(database);
     await migrateProjectionSchema(migrationHost(handle), migrationScripts());
   } catch (cause) {
     disposeProjection(handle);
@@ -250,6 +252,33 @@ export function selectRows(
     }
   } finally {
     release(statement);
+  }
+  return rows;
+}
+
+/**
+ * Runs a query composed for one request (a records query's filters and sort)
+ * and finalizes it. Composed statements are built from closed fragments with
+ * bound values, but their shapes vary with the request, so they are not kept
+ * in the statement cache, which would otherwise grow with every combination.
+ */
+export function selectRowsOnce(
+  handle: ProjectionHandleV1,
+  sql: string,
+  parameters: readonly SqlParam[],
+): readonly (readonly SqlValue[])[] {
+  assertUsable(handle);
+  const statement = handle.database.prepare(sql);
+  const rows: SqlValue[][] = [];
+  try {
+    if (parameters.length > 0) {
+      statement.bind(parameters as SqlValue[]);
+    }
+    while (statement.step()) {
+      rows.push(statement.get([]));
+    }
+  } finally {
+    statement.finalize();
   }
   return rows;
 }
