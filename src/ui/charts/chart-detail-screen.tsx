@@ -32,8 +32,10 @@ export interface ChartDetailScreenProps {
   /** SHT-017's next page; absent when there is none to read. */
   readonly onShowMoreRows?: () => void;
   readonly rowsBusy?: boolean;
-  /** SCR-034 on this chart, once its route exists. */
+  /** SCR-034 on this chart. */
   readonly editHref?: string;
+  /** A confirmed write's sentence ("Saved on this device."), announced once. */
+  readonly announcement?: string;
   readonly topBarActions?: ReactNode;
 }
 
@@ -54,6 +56,7 @@ export function ChartDetailScreen({
   onShowMoreRows,
   rowsBusy = false,
   editHref,
+  announcement,
   topBarActions,
 }: ChartDetailScreenProps): ReactNode {
   const [selected, setSelected] = useState<number | null>(null);
@@ -62,7 +65,14 @@ export function ChartDetailScreen({
   const noun = MARK_NOUN[vm.type];
 
   return (
-    <AppFrame app={app} area="charts" nav={nav} title="Chart detail" {...(topBarActions === undefined ? {} : { topBarActions })}>
+    <AppFrame
+      app={app}
+      area="charts"
+      nav={nav}
+      title="Chart detail"
+      {...(announcement === undefined ? {} : { announcement })}
+      {...(topBarActions === undefined ? {} : { topBarActions })}
+    >
       <div className={cx(styles["page"])} data-chart={vm.chartId ?? "draft"} data-screen="SCR-033">
         <section aria-labelledby="chart-title" className={cx(styles["intro"])}>
           <span className={cx(styles["eyebrow"])}>{`Charts · ${vm.tableName}`}</span>

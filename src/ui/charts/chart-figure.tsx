@@ -23,9 +23,11 @@ export interface ChartFigureProps {
   readonly onSelectMark: (mark: ChartMarkVm) => void;
   /** The accessible name of a mark's button; the detail and the home say it differently. */
   readonly markLabel?: (mark: ChartMarkVm, text: string) => string;
+  /** False for a builder's preview, which filters nothing: its summary still says every fact. */
+  readonly showMarks?: boolean;
 }
 
-export function ChartFigure({ vm, selectedMark, onSelectMark, markLabel }: ChartFigureProps): ReactNode {
+export function ChartFigure({ vm, selectedMark, onSelectMark, markLabel, showMarks = true }: ChartFigureProps): ReactNode {
   const data = useMemo(() => canvasDataOf(vm), [vm]);
   const select = (index: number): void => {
     const mark = vm.marks[index];
@@ -36,7 +38,7 @@ export function ChartFigure({ vm, selectedMark, onSelectMark, markLabel }: Chart
       <div aria-label={describeChartGroup(vm)} role="group">
         <ChartCanvas data={data} onMark={select} selectedMark={selectedMark} />
       </div>
-      {vm.type !== "scatter" && vm.marks.length > 0 && (
+      {showMarks && vm.type !== "scatter" && vm.marks.length > 0 && (
         <ul aria-label="Chart marks" className={cx(styles["markList"])}>
           {vm.marks.map((mark) => {
             const name = describeMark(mark);

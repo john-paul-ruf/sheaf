@@ -244,8 +244,115 @@
   align-items: center;
 }
 
+/* ---- SCR-034 the builder ------------------------------------------------- */
+
+.builder {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.builderColumn {
+  display: grid;
+  gap: var(--space-16);
+  align-content: start;
+  min-width: 0;
+}
+
+.card {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8);
+}
+
+.typeCard {
+  display: grid;
+  gap: var(--space-4);
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.typeCard[aria-pressed="true"] {
+  border-width: 3px;
+  border-color: var(--app-primary, var(--color-action));
+  font-weight: var(--weight-control);
+}
+
+.typeCard:focus-visible,
+.pill:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.typeCard:disabled {
+  background: var(--color-disabled-fill);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.pill {
+  justify-self: start;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-8) var(--space-16);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: var(--weight-control);
+  cursor: pointer;
+}
+
+.pill[aria-pressed="true"] {
+  border-width: 3px;
+  border-color: var(--app-primary, var(--color-action));
+}
+
+.hint {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-body);
+}
+
+.failure {
+  color: var(--color-danger-ink);
+  font-size: var(--text-supporting);
+}
+
+.goodBadge {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
 @media (min-width: 900px) {
   .canvasBox {
     height: 20rem;
+  }
+
+  /* chart-builder.html: settings on the left, the live preview on the right. */
+  .builder {
+    grid-template-columns: minmax(18rem, 0.64fr) minmax(0, 1.36fr);
+    align-items: start;
   }
 }

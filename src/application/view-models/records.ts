@@ -52,6 +52,8 @@ import type {
   ChartGroupingWireV1,
   ChartKeyWireV1,
   ChartMarkWireV1,
+  ChartMeasureWireV1,
+  StructureRelationshipViewV1,
   AppSessionViewV1,
   AppStructureViewV1,
   AppTableViewV1,
@@ -2718,5 +2720,183 @@ export function appendTablePage(current: ChartDetailVm, next: ChartDetailVm): Ch
       total: next.table.total,
       hasMore: next.table.hasMore,
     },
+  };
+}
+
+// --- SCR-034 the chart builder (chart-builder.html; CAP-33) -------------------
+
+/** chart-builder.html's four type cards, and its "Stacked bar" pill. */
+export const CHART_TYPE_CHOICES = Object.freeze([
+  { type: "bar", label: "Bar", hint: "Compare categories" },
+  { type: "line", label: "Line", hint: "Change over time" },
+  { type: "pie", label: "Pie", hint: "Parts of a whole" },
+  { type: "scatter", label: "Scatter", hint: "Compare two numbers" },
+  { type: "stacked", label: "Stacked bar", hint: null },
+] as const);
+
+/** One choice in a builder list: the key a select holds, and what it says. */
+export interface ChartChoiceVm<Value> {
+  readonly key: string;
+  readonly label: string;
+  readonly value: Value;
+}
+
+/** A relationship whose parent fields the grouping may use ("Include related …"). */
+export interface ChartRelationshipChoiceVm {
+  readonly relationshipId: string;
+  readonly parentName: string;
+  /** chart-builder.html, verbatim with the app's own names. */
+  readonly sentence: string;
+  readonly isIncluded: boolean;
+}
+
+export interface ChartBuilderVm {
+  readonly screen: "SCR-034";
+  readonly definition: ChartDefinitionWireV1;
+  readonly tables: readonly ChartChoiceVm<string>[];
+  readonly relationships: readonly ChartRelationshipChoiceVm[];
+  /** Fields of the table, related parents' fields when included, dates by day, month and year. */
+  readonly groupings: readonly ChartChoiceVm<ChartGroupingWireV1>[];
+  readonly measures: readonly ChartChoiceVm<ChartMeasureWireV1>[];
+  /** Number and currency fields: a scatter's axes. */
+  readonly numbers: readonly ChartChoiceVm<string>[];
+  /** The key of each current choice, as the selects hold them. */
+  readonly selected: {
+    readonly groupBy: string | null;
+    readonly seriesBy: string | null;
+    readonly measure: string | null;
+    readonly x: string | null;
+    readonly y: string | null;
+  };
+  /** Why the chart cannot be saved yet; null when it can. */
+  readonly saveBlocker: string | null;
+  /** Why a scatter cannot be chosen for this table; null when it can. */
+  readonly scatterBlocker: string | null;
+}
+
+const CATEGORY_KINDS: ReadonlySet<FieldTypeWireV1["kind"]> = new Set(["enum", "reference", "boolean", "text", "phone", "email", "url", "address"]);
+const NUMBER_KINDS: ReadonlySet<FieldTypeWireV1["kind"]> = new Set(["number", "currency"]);
+
+export const groupingKey = (group: ChartGroupingWireV1): string =>
+  group.kind === "field"
+    ? `field:${group.fieldId}`
+    : group.kind === "date"
+      ? `date:${group.fieldId}:${group.unit}`
+      : `related:${group.relationshipId}:${group.referenceFieldId}:${group.fieldId}`;
+
+export const measureKey = (measure: ChartMeasureWireV1): string =>
+  measure.kind === "count" ? "count" : `${measure.kind}:${measure.fieldId}`;
+
+const activeFields = (table: AppTableViewV1): readonly AppFieldViewV1[] =>
+  [...table.fields].filter((field) => field.isActive).sort((left, right) => left.fieldOrdinal - right.fieldOrdinal);
+
+/**
+ * SCR-034's choices for a definition in progress. `included` names the
+ * relationships whose parent fields the person asked to group by; the
+ * builder never offers a join of its own (FR-13, D54).
+ */
+export function selectChartBuilderVm(input: {
+  readonly tables: readonly AppTableViewV1[];
+  readonly relationships: readonly StructureRelationshipViewV1[];
+  readonly definition: ChartDefinitionWireV1;
+  readonly included: ReadonlySet<string>;
+}): ChartBuilderVm {
+  const { tables, definition, included } = input;
+  const table = tables.find((candidate) => candidate.tableId === definition.tableId);
+  const fields = table === undefined ? [] : activeFields(table);
+  const outgoing = input.relationships.filter((relationship) => relationship.isActive && relationship.fromTableId === definition.tableId);
+
+  const groupings: ChartChoiceVm<ChartGroupingWireV1>[] = fields.flatMap<ChartChoiceVm<ChartGroupingWireV1>>((field) => {
+    if (field.type.kind === "date") {
+      return (["day", "month", "year"] as const).map((unit) => {
+        const value: ChartGroupingWireV1 = { kind: "date", fieldId: field.fieldId, unit };
+        return { key: groupingKey(value), label: `${field.displayName} (${unit})`, value };
+      });
+    }
+    if (!CATEGORY_KINDS.has(field.type.kind)) return [];
+    const value: ChartGroupingWireV1 = { kind: "field", fieldId: field.fieldId };
+    return [{ key: groupingKey(value), label: field.displayName, value }];
+  });
+  for (const relationship of outgoing) {
+    if (!included.has(relationship.relationshipId)) continue;
+    const parent = tables.find((candidate) => candidate.tableId === relationship.toTableId);
+    for (const field of parent === undefined ? [] : activeFields(parent)) {
+      if (!CATEGORY_KINDS.has(field.type.kind)) continue;
+      const value: ChartGroupingWireV1 = {
+        kind: "related-field",
+        relationshipId: relationship.relationshipId,
+        referenceFieldId: relationship.fromFieldId,
+        fieldId: field.fieldId,
+      };
+      groupings.push({ key: groupingKey(value), label: `${relationship.toTableName} → ${field.displayName}`, value });
+    }
+  }
+
+  const numbers = fields.filter((field) => NUMBER_KINDS.has(field.type.kind));
+  const tableName = table?.displayName ?? UNKNOWN_FIELD;
+  const measures: ChartChoiceVm<ChartMeasureWireV1>[] = [
+    { key: "count", label: `Count of ${tableName.toLowerCase()}`, value: { kind: "count" } },
+    ...numbers.flatMap((field) =>
+      (
+        [
+          ["sum", `Sum of ${field.displayName.toLowerCase()}`],
+          ["average", `Average ${field.displayName.toLowerCase()}`],
+          ["min", `Lowest ${field.displayName.toLowerCase()}`],
+          ["max", `Highest ${field.displayName.toLowerCase()}`],
+        ] as const
+      ).map(([kind, label]) => {
+        const value = { kind, fieldId: field.fieldId };
+        return { key: measureKey(value), label, value };
+      }),
+    ),
+  ];
+
+  const isScatter = definition.type === "scatter";
+  return {
+    screen: "SCR-034",
+    definition,
+    tables: [...tables]
+      .sort((left, right) => left.tableOrdinal - right.tableOrdinal)
+      .map((candidate) => ({ key: candidate.tableId, label: candidate.displayName, value: candidate.tableId })),
+    relationships: outgoing.map((relationship) => ({
+      relationshipId: relationship.relationshipId,
+      parentName: relationship.toTableName,
+      sentence: `Uses the connection Sheaf found from ${relationship.fromTableName} to ${relationship.toTableName}.`,
+      isIncluded: included.has(relationship.relationshipId),
+    })),
+    groupings,
+    measures,
+    numbers: numbers.map((field) => ({ key: field.fieldId, label: field.displayName, value: field.fieldId })),
+    selected: {
+      groupBy: isScatter ? null : groupingKey(definition.groupBy),
+      seriesBy: isScatter || definition.seriesBy === null ? null : groupingKey(definition.seriesBy),
+      measure: isScatter ? null : measureKey(definition.measure),
+      x: isScatter ? definition.x : null,
+      y: isScatter ? definition.y : null,
+    },
+    saveBlocker: definition.name.trim() === "" ? "Name the chart to save it." : null,
+    scatterBlocker: numbers.length === 0 ? `${tableName} has no number column to plot.` : null,
+  };
+}
+
+/**
+ * A new chart's first definition (chart-builder.html's defaults): a bar of
+ * the table's first groupable field, counting records, pinned to app home.
+ * Null when the table has nothing a chart can group by.
+ */
+export function defaultChartDefinition(table: AppTableViewV1): ChartDefinitionWireV1 | null {
+  const fields = activeFields(table);
+  const first = fields.find((field) => CATEGORY_KINDS.has(field.type.kind) || field.type.kind === "date");
+  if (first === undefined) return null;
+  return {
+    name: "",
+    tableId: table.tableId,
+    filters: [],
+    pinned: true,
+    type: "bar",
+    groupBy: first.type.kind === "date" ? { kind: "date", fieldId: first.fieldId, unit: "month" } : { kind: "field", fieldId: first.fieldId },
+    seriesBy: null,
+    measure: { kind: "count" },
+    sort: "category",
   };
 }

@@ -134,7 +134,7 @@ import {
 } from "./app-area-hooks.js";
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
-import { ChartDetailRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
+import { ChartBuilderRoute, ChartDetailRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -164,6 +164,7 @@ import {
   appPath,
   appSnapshotsPath,
   chartPath,
+  editChartPath,
   editRecordPath,
   fallbackRoute,
   guardRoute,
@@ -1104,7 +1105,12 @@ function OpenedApp({
         path="/app/:appId/history"
       />
       <Route element={<SnapshotsRoute area={area} />} path="/app/:appId/snapshots" />
-      <Route element={<ChartDetailRoute area={area} />} path="/app/:appId/charts/:chartId" />
+      <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/new" />
+      <Route
+        element={<ChartDetailRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}
+        path="/app/:appId/charts/:chartId"
+      />
+      <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/:chartId/edit" />
       <Route
         element={<SnapshotViewerRoute area={area} />}
         path="/app/:appId/snapshots/:sheetId"
@@ -1144,6 +1150,7 @@ function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   });
   return (
     <AppHomeScreen
+      chartEditHref={(chartId) => hashHref(editChartPath(appId, chartId))}
       chartHref={(chartId) => hashHref(chartPath(appId, chartId))}
       nav={nav}
       newRecordHref={(tableId) => hashHref(newRecordPath(appId, tableId))}
