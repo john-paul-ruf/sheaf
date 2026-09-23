@@ -8,8 +8,8 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  * The frame every generated-app surface sits in (M44 over M39).
  *
  * It is a sibling of M41's `UnlockedFrame`, not a variant of it: the shell
- * destinations inside an app are the app's own (home, a table, its sheet
- * snapshots, its change history) plus the way back out, and design.md § Shell and generated-app
+ * destinations inside an app are the app's own (home, a table, its charts,
+ * its sheet snapshots, its change history) plus the way back out, and design.md § Shell and generated-app
  * boundary is explicit that the two levels are different places. Exactly one
  * navigation is exposed at any width — M39's rail and bottom bar are the same
  * destinations, and only one of them is displayed — so the app area adds no
@@ -49,6 +49,8 @@ export interface AppNavigation {
   readonly appHistory: string;
   /** SCR-030, every imported sheet (CA-07 amendment 3). */
   readonly appSnapshots: string;
+  /** SCR-053, the app's charts (CA-07 amendment 4, D63); absent where no route serves it. */
+  readonly charts?: string;
   readonly tables: readonly AppTableLink[];
 }
 
@@ -128,6 +130,17 @@ export function AppFrame({
             ...(area === "records" && currentTableId === table.tableId
               ? { isCurrent: true }
               : {}),
+          },
+        ]),
+    ...(nav.charts === undefined
+      ? []
+      : [
+          {
+            id: "app-charts",
+            label: "Charts",
+            href: nav.charts,
+            glyph: "▥",
+            ...(area === "charts" ? { isCurrent: true } : {}),
           },
         ]),
     {

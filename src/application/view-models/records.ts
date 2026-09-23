@@ -53,6 +53,7 @@ import type {
   ChartKeyWireV1,
   ChartMarkWireV1,
   ChartMeasureWireV1,
+  ChartViewV1,
   StructureRelationshipViewV1,
   AppSessionViewV1,
   AppStructureViewV1,
@@ -2898,5 +2899,73 @@ export function defaultChartDefinition(table: AppTableViewV1): ChartDefinitionWi
     seriesBy: null,
     measure: { kind: "count" },
     sort: "category",
+  };
+}
+
+// --- SCR-053 the charts index (charts.html; DF-2) ----------------------------
+
+/** How a row's second line names the grouping (charts.html: "grouped through Customers → Region"). */
+export type ChartIndexGroupingVm =
+  | { readonly kind: "field" }
+  | { readonly kind: "date"; readonly fieldName: string; readonly unit: "day" | "month" | "year" }
+  | { readonly kind: "related"; readonly parentName: string; readonly fieldName: string }
+  | { readonly kind: "points" };
+
+export interface ChartIndexRowVm {
+  readonly chartId: string;
+  readonly name: string;
+  readonly type: ChartDefinitionWireV1["type"];
+  readonly tableName: string;
+  readonly grouping: ChartIndexGroupingVm;
+  /** The origin marker: rebuilt from a workbook, or made here. */
+  readonly provenance: "imported" | "user";
+  readonly pinned: boolean;
+  /** Hand back as `expectedRevision` to toggle the pin. */
+  readonly chartRevision: number;
+}
+
+export interface ChartsIndexVm {
+  readonly screen: "SCR-053";
+  /** charts.html: "Sorted by name". */
+  readonly rows: readonly ChartIndexRowVm[];
+  readonly pinnedCount: number;
+  readonly announcement: string;
+}
+
+/** SCR-053: every chart of the app, imported or made here, by name. */
+export function selectChartsIndexVm(charts: readonly ChartViewV1[], tables: readonly AppTableViewV1[]): ChartsIndexVm {
+  const tableName = (tableId: string): string => tables.find((table) => table.tableId === tableId)?.displayName ?? UNKNOWN_FIELD;
+  const fieldName = (fieldId: string): string => fieldNamed(tables, fieldId)?.displayName ?? UNKNOWN_FIELD;
+  const grouping = (definition: ChartDefinitionWireV1): ChartIndexGroupingVm => {
+    if (definition.type === "scatter") return { kind: "points" };
+    const group = definition.groupBy;
+    if (group.kind === "date") return { kind: "date", fieldName: fieldName(group.fieldId), unit: group.unit };
+    if (group.kind === "related-field") {
+      const parent = tables.find((table) => table.fields.some((field) => field.fieldId === group.fieldId));
+      return { kind: "related", parentName: parent?.displayName ?? UNKNOWN_FIELD, fieldName: fieldName(group.fieldId) };
+    }
+    return { kind: "field" };
+  };
+  const rows = [...charts]
+    .map((chart) => ({
+      chartId: chart.chartId,
+      name: chart.definition.name,
+      type: chart.definition.type,
+      tableName: tableName(chart.definition.tableId),
+      grouping: grouping(chart.definition),
+      provenance: chart.provenance,
+      pinned: chart.definition.pinned,
+      chartRevision: chart.chartRevision,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name) || left.chartId.localeCompare(right.chartId));
+  const pinnedCount = rows.filter((row) => row.pinned).length;
+  return {
+    screen: "SCR-053",
+    rows,
+    pinnedCount,
+    announcement:
+      rows.length === 0
+        ? "No charts yet."
+        : `${plural(rows.length, "chart", "charts")} · ${String(pinnedCount)} pinned to app home.`,
   };
 }

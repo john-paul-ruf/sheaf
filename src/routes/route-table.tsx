@@ -134,7 +134,7 @@ import {
 } from "./app-area-hooks.js";
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
-import { ChartBuilderRoute, ChartDetailRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
+import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -164,6 +164,7 @@ import {
   appPath,
   appSnapshotsPath,
   chartPath,
+  chartsPath,
   editChartPath,
   editRecordPath,
   fallbackRoute,
@@ -1052,6 +1053,7 @@ function OpenedApp({
     appHome: appHref(appId),
     appHistory: hashHref(appHistoryPath(appId)),
     appSnapshots: hashHref(appSnapshotsPath(appId)),
+    charts: hashHref(chartsPath(appId)),
     tables: session.tables.map((table) => ({
       tableId: table.tableId,
       displayName: table.displayName,
@@ -1105,6 +1107,7 @@ function OpenedApp({
         path="/app/:appId/history"
       />
       <Route element={<SnapshotsRoute area={area} />} path="/app/:appId/snapshots" />
+      <Route element={<ChartsIndexRoute area={area} />} path="/app/:appId/charts" />
       <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/new" />
       <Route
         element={<ChartDetailRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}

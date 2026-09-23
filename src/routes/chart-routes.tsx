@@ -15,11 +15,18 @@ import {
   defaultChartDefinition,
   selectChartBuilderVm,
   selectChartDetailVm,
+  selectChartsIndexVm,
   type ChartDetailVm,
   type ChartMarkVm,
 } from "../application/view-models/records.js";
-import type { AppTableViewV1, ChartCommandOutcomeWireV1, ChartDefinitionWireV1 } from "../workers/protocol/messages.js";
+import type {
+  AppTableViewV1,
+  ChartCommandOutcomeWireV1,
+  ChartDefinitionWireV1,
+  ChartViewV1,
+} from "../workers/protocol/messages.js";
 import { ChartBuilderScreen } from "../ui/charts/chart-builder-screen.js";
+import { ChartsIndexScreen } from "../ui/charts/charts-index-screen.js";
 import { ChartDetailScreen } from "../ui/charts/chart-detail-screen.js";
 import { ChartSavedDialog } from "../ui/charts/chart-saved-dialog.js";
 import { DiscardDraftDialog } from "../ui/charts/discard-draft-dialog.js";
@@ -29,7 +36,7 @@ import { Button } from "../ui/primitives/button.js";
 import { cx } from "../ui/primitives/class-names.js";
 import type { AppAreaWiring } from "./app-area-hooks.js";
 import { filterIntentState } from "./filter-intent.js";
-import { appPath, chartPath, editChartPath, hashHref, tablePath } from "./guards.js";
+import { appPath, chartPath, chartsPath, editChartPath, hashHref, newChartPath, tablePath } from "./guards.js";
 
 /** The one way a mark filters the list: its intent, its chart's name, its records' labels. */
 export function openMarkRecords(
@@ -267,7 +274,7 @@ export function ChartBuilderRoute({ area }: { readonly area: AppAreaWiring }): R
   }, [charts, appId, definition, session.tables]);
 
   const leave = useCallback(() => {
-    void navigate(existingId === null ? appPath(appId) : chartPath(appId, existingId));
+    void navigate(existingId === null ? chartsPath(appId) : chartPath(appId, existingId));
   }, [navigate, appId, existingId]);
 
   if (state.kind === "reading" || (state.kind === "ready" && definition === null)) {
@@ -377,6 +384,58 @@ export function ChartBuilderRoute({ area }: { readonly area: AppAreaWiring }): R
         </>
       }
       vm={vm}
+    />
+  );
+}
+
+/**
+ * SCR-053 at `#/app/{id}/charts` (DF-2): every chart, and its pin toggle. A
+ * toggle is a user change (a `chart.saved`), so the list is re-read from the
+ * worker once it is durable rather than flipped in place.
+ */
+export function ChartsIndexRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
+  const { charts, identity, nav, session, topBarActions } = area;
+  const appId = identity.appId;
+  const [listed, setListed] = useState<readonly ChartViewV1[] | null>(null);
+  const [pinning, setPinning] = useState<string | null>(null);
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    void charts.listCharts({ appId }).then(
+      ({ charts: read }) => {
+        if (live) setListed(read ?? []);
+      },
+      () => {
+        if (live) setListed([]);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [charts, appId, generation]);
+
+  if (listed === null) {
+    return <BusyIndicator cancellation="unavailable" label="Reading this app's charts on this device." />;
+  }
+  return (
+    <ChartsIndexScreen
+      app={identity}
+      chartHref={(chartId) => hashHref(chartPath(appId, chartId))}
+      nav={nav}
+      newChartHref={hashHref(newChartPath(appId))}
+      onTogglePin={(row) => {
+        setPinning(row.chartId);
+        void charts
+          .setChartPin({ appId, chartId: row.chartId, expectedRevision: row.chartRevision, pinned: !row.pinned })
+          .finally(() => {
+            setPinning(null);
+            setGeneration((current) => current + 1);
+          });
+      }}
+      pinning={pinning}
+      topBarActions={topBarActions}
+      vm={selectChartsIndexVm(listed, session.tables)}
     />
   );
 }

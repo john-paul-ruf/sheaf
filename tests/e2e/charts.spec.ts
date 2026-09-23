@@ -7,13 +7,16 @@
  * Every step is a person's: the builder's cards and selects, MOD-013, the
  * chart's mark list, SHT-012, SHT-017, the records chips.
  *
- * The journey, at 320px and at desktop width: build a bar chart of Quoted
- * amount summed by Site → the preview draws all eight sites within budget →
+ * The journey, at 320px and at desktop width: the app's Charts destination
+ * (SCR-053) is empty → New chart → build a bar chart of Quoted amount summed
+ * by Site → the preview draws all eight sites within budget →
  * save it named and pinned → app home shows it → its accessibility table
  * matches the preview → a mark chosen from the keyboard path opens SHT-012 →
  * applying it filters the records list to exactly that site's five visits,
  * the heading names the chart, and clearing restores all forty → a reload
- * and unlock find the chart still there (a durable `chart.saved`). The
+ * and unlock find the chart still there (a durable `chart.saved`) → the index
+ * lists it, made here and on app home, and its pin toggled off takes it off
+ * app home. The
  * canvas is proven drawn by reading its pixels. At desktop, MOD-012 keeps an
  * unsaved chart as a local draft and restores it. Axe runs on each surface,
  * nothing is clipped at 320px, and no request leaves the origin.
@@ -135,8 +138,18 @@ test.describe("the charts journey", () => {
       await protectDevice(page);
       const { appHash } = await importDemoApp(page);
 
+      // --- SCR-053: the app's Charts destination, empty, then SCR-034 -----------
+      await page.getByRole("link", { name: "Charts", exact: true }).first().click();
+      const index = screen(page, "SCR-053");
+      await expect(index).toBeVisible();
+      await expect(index.locator('[data-empty="no-charts"]')).toContainText("No charts yet");
+      await page.screenshot({ path: testInfo.outputPath(`scr-053-empty-${layout.name}.png`), fullPage: true });
+      await expectGeometry(page);
+      await auditable(page, "SCR-053");
+      await index.getByRole("link", { name: "New chart" }).first().click();
+
       // --- SCR-034: build, preview, save and pin --------------------------------
-      await openBuilder(page, appHash);
+      await expect(screen(page, "SCR-034")).toBeVisible();
       await buildQuotedBySite(page);
       await page.getByLabel("Chart name", { exact: true }).fill("Quoted by site");
       await page.screenshot({ path: testInfo.outputPath(`scr-034-${layout.name}.png`), fullPage: true });
@@ -222,6 +235,26 @@ test.describe("the charts journey", () => {
       await screen(page, "SCR-024").getByRole("link", { name: "View data table" }).click();
       await expect(screen(page, "SCR-033").locator('[data-summary="true"]')).toHaveText(SUMMARY);
 
+      // --- SCR-053: the saved chart, its origin, and its pin toggled off --------
+      await page.getByRole("link", { name: "Charts", exact: true }).first().click();
+      const row = screen(page, "SCR-053").locator("[data-chart-row]");
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText("Quoted by site");
+      await expect(row).toContainText("Bar · Visits");
+      await expect(row).toContainText("Made here");
+      await expect(row).toContainText("On app home");
+      const pin = row.getByRole("button", { name: "Pin to app home: Quoted by site" });
+      await expect(pin).toHaveAttribute("aria-pressed", "true");
+      await page.screenshot({ path: testInfo.outputPath(`scr-053-${layout.name}.png`), fullPage: true });
+      await expectGeometry(page);
+      await auditable(page, "SCR-053");
+      await pin.click();
+      await expect(pin).toHaveAttribute("aria-pressed", "false");
+      await expect(screen(page, "SCR-053")).toContainText("1 chart · 0 pinned to app home");
+      await followHash(page, appHash);
+      await expect(screen(page, "SCR-024")).toBeVisible();
+      await expect(screen(page, "SCR-024").locator("[data-pinned-chart]")).toHaveCount(0);
+
       if (layout.name === "desktop") {
         // --- MOD-012: an unsaved chart kept as a local draft (D61) --------------
         await openBuilder(page, appHash);
@@ -231,15 +264,15 @@ test.describe("the charts journey", () => {
         await expect(leave).toContainText("Discard chart draft");
         await page.screenshot({ path: testInfo.outputPath(`mod-012-${layout.name}.png`) });
         await leave.getByRole("button", { name: "Save draft locally" }).click();
-        await expect(screen(page, "SCR-024")).toBeVisible();
+        await expect(screen(page, "SCR-053")).toBeVisible();
 
         await openBuilder(page, appHash);
         await expect(page.getByText("Draft saved locally", { exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: /Group by$/u })).toContainText("Follow up");
         await page.getByRole("button", { name: "Cancel" }).click();
         await page.getByRole("alertdialog").getByRole("button", { name: "Leave" }).click();
-        // Leaving waits for the discard, then goes home; reopen only once it has.
-        await expect(screen(page, "SCR-024")).toBeVisible();
+        // Leaving waits for the discard, then goes to the index; reopen only once it has.
+        await expect(screen(page, "SCR-053")).toBeVisible();
         await openBuilder(page, appHash);
         await expect(page.getByText("Draft saved locally", { exact: true })).toHaveCount(0);
       }
