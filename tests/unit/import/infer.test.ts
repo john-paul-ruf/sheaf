@@ -10,6 +10,8 @@ import {
 } from "../../../src/import/inference/values.js";
 import { generateLargeDelimited } from "../../fixtures/workbooks/delimited/generate-large.js";
 import { parseFixture, parseText } from "./parse-harness.js";
+import { parseFormula } from "../../../src/domain/formulas/index.js";
+import { streamWorkbookFixture, workbookFixturePaths } from "../staging/workbook-streams.js";
 
 const proposalOf = async (
   fixture: string,
@@ -478,4 +480,33 @@ describe("evidence fingerprints", () => {
       statement(proposal, "field-type:5").evidenceFingerprint,
     );
   });
+});
+
+describe("M03 over every adapter's decoded formula text (D34)", () => {
+  // BIFF/XLSB `Ptg` streams and ODS OpenFormula are decompiled to Excel text
+  // by their adapters; inference reads lookups out of that text with M03's
+  // parser. Every decoded text in every corpus must parse, or a relationship
+  // its lookup declares would go unseen. A `null` text is a shared-formula
+  // child or an undecodable stream, which M65 states as such.
+  for (const directory of ["ooxml", "xlsb", "biff", "ods"] as const) {
+    it(`parses every ${directory} formula text the adapter decoded`, async () => {
+      let texts = 0;
+      const unparsed: string[] = [];
+      for (const path of await workbookFixturePaths(directory)) {
+        const sized = await streamWorkbookFixture(path);
+        if (sized === null) continue;
+        const stream = await streamWorkbookFixture(path, { selection: sized.report.sheets.map((sheet) => sheet.sheetIndex) });
+        for (const item of stream?.items ?? []) {
+          if (item.kind !== "batch") continue;
+          for (const fact of item.facts) {
+            if (fact.kind !== "formula" || fact.text === null) continue;
+            texts += 1;
+            if (parseFormula(fact.text).kind !== "parsed") unparsed.push(`${path}: ${fact.text}`);
+          }
+        }
+      }
+      expect(texts).toBeGreaterThan(0);
+      expect(unparsed).toEqual([]);
+    });
+  }
 });

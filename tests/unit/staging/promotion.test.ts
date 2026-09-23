@@ -27,7 +27,13 @@ import {
   writeImportStage,
   type LoadedImportStageV1,
 } from "../../../src/import/staging/lifecycle.js";
-import { INERT_REASON_OF, promoteImport, PROMOTION_REJECTIONS } from "../../../src/import/staging/promotion.js";
+import {
+  allocateSchema,
+  buildRecords,
+  INERT_REASON_OF,
+  promoteImport,
+  PROMOTION_REJECTIONS,
+} from "../../../src/import/staging/promotion.js";
 import {
   checkpointSemanticBody,
   decodeAppHead,
@@ -38,8 +44,8 @@ import { IMPORT_STAGE_PAYLOAD_KIND, IMPORT_STAGE_SCOPE } from "../../../src/impo
 import { decodeEventSegment } from "../../../src/persistence/codecs/event-commit.js";
 import type { EnvelopeKeyRefV1 } from "../../../src/application/ports/envelope-crypto.js";
 import type { WorkbookFactStreamItemV2 } from "../../../src/import/facts/index.js";
-import { stagingHarness, type StagingHarnessV1 } from "./fakes.js";
-import { streamWorkbookFixture } from "./workbook-streams.js";
+import { SequenceEntropy, stagingHarness, type StagingHarnessV1 } from "./fakes.js";
+import { WORKBOOK_FIXTURE_DIRECTORIES, streamWorkbookFixture, workbookFixturePaths } from "./workbook-streams.js";
 
 const SELECTED = [0, 1, 2, 3, 4, 5];
 
@@ -372,5 +378,57 @@ describe("promoting the demo workbook (CA-19/20/22)", () => {
     expect(harness.store.has(loaded.stageStorageId)).toBe(true);
     void IMPORT_STAGE_SCOPE;
     void IMPORT_STAGE_PAYLOAD_KIND;
+  });
+});
+
+describe("the row plan (CA-19)", () => {
+  it("places every readable fixture's rows exactly as inference counted them, in all five corpora", async () => {
+    let planned = 0;
+    for (const directory of WORKBOOK_FIXTURE_DIRECTORIES) {
+      for (const path of await workbookFixturePaths(directory)) {
+        const sized = await streamWorkbookFixture(path);
+        if (sized === null) continue;
+        const stream = await streamWorkbookFixture(path, { selection: sized.report.sheets.map((sheet) => sheet.sheetIndex) });
+        if (stream === null || stream.failure !== null) continue;
+        const proposal = inferWorkbook(stream.items, {
+          fileName: path,
+          sheetSelection: null,
+          rejectionMemory: new Set(),
+          fingerprintOf: (input) => input,
+          existingApp: null,
+        });
+        const entropy = new SequenceEntropy();
+        // `buildRecords` refuses a plan whose counts differ from the proposal's.
+        const built = await buildRecords(entropy, proposal, allocateSchema(entropy, proposal), stream.items);
+        const expected = proposal.tables.reduce((sum, table) => sum + table.rowCount, 0);
+        expect(built.records, path).toHaveLength(expected);
+        planned += 1;
+      }
+    }
+    expect(planned).toBeGreaterThan(40);
+  });
+
+  it("follows the stream: a table declared after its rows takes only the rows after it, as inference did", async () => {
+    // S05's ODS pair states each sheet's table after the sheet's rows; the
+    // review proposed a one-row declared table beside a region, and the app
+    // must be that proposal — not a second reading of the rows.
+    const stream = await streamWorkbookFixture("ods/fieldwork-jobs-customers.ods");
+    if (stream === null) throw new Error("the ODS pair did not size");
+    const proposal = inferWorkbook(stream.items, {
+      fileName: "fieldwork-jobs-customers.ods",
+      sheetSelection: null,
+      rejectionMemory: new Set(),
+      fingerprintOf: (input) => input,
+      existingApp: null,
+    });
+    expect(proposal.tables.map((table) => `${table.tableKey}:${String(table.rowCount)}`)).toEqual([
+      "s0.t0:1",
+      "s0.r0:59",
+      "s1.t0:1",
+      "s1.r0:11",
+    ]);
+    const entropy = new SequenceEntropy();
+    const built = await buildRecords(entropy, proposal, allocateSchema(entropy, proposal), stream.items);
+    expect(built.records).toHaveLength(72);
   });
 });

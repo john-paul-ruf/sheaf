@@ -13,14 +13,15 @@
  */
 
 import { expect, test, type Page } from "@playwright/test";
+import { overSegmentCsv } from "../../fixtures/workbooks/append/over-segment.js";
 import type {
   DataWorkerRequestV1,
   DataWorkerResponseV1,
   RecordReferenceViewV1,
 } from "../../../src/workers/protocol/messages.js";
-import { PASSPHRASE, command, installFixture, start, teardown } from "./runtime.js";
+import { PASSPHRASE, command, installFixture, readStore, start, teardown } from "./runtime.js";
 import { readWorkbookRoots } from "./workbook-roots.js";
-import { runWorkbookImport } from "./workbook-runtime.js";
+import { installBytes, runWorkbookImport } from "./workbook-runtime.js";
 
 const JOURNEY_TIMEOUT_MS = 240_000;
 const WORKBOOK_FLOWS = ["delimited", "workbook"] as const;
@@ -261,4 +262,236 @@ test("the first narrow journey: demo workbook → review → multi-table app →
     expect(snapshot, snapshot.name).toMatchObject({ manifestDigestMatches: true, firstChunkDigestMatches: true });
   }
   expect(roots.snapshots.find((snapshot) => snapshot.name === "Jobs")?.firstChunkRows).toBeGreaterThan(0);
+});
+
+// ------------------------------------------------ CP4: every format (CAP-27) --
+
+/** Imports one fixture through the real workers with the workbook flow, and promotes it. */
+async function importAndPromote(page: Page, path: string, fileName: string) {
+  await installFixture(page, path, fileName);
+  const run = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS });
+  const terminal = run.events.find((event) => ["refused", "completed", "failed", "cancelled"].includes(event.kind));
+  if (terminal?.kind !== "completed") throw new Error(`${path} did not stage: ${JSON.stringify(terminal)}`);
+  const stageId = run.stageId as string;
+  const inferred = await ask(page, { kind: "runInference", stageId });
+  const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: fileName });
+  if (promoted.outcome !== "promoted") throw new Error(`${path} did not promote: ${promoted.reason}`);
+  const opened = await ask(page, { kind: "openApp", appId: promoted.appId });
+  const sheets = await ask(page, { kind: "listSheetSnapshots", appId: promoted.appId });
+  return {
+    events: run.events,
+    proposal: inferred.proposal,
+    promoted,
+    tables: (opened.session?.tables ?? []).map((table) => ({
+      name: table.displayName,
+      count: table.recordCount,
+      fields: table.fields.map((field) => `${field.displayName}:${field.type.kind}`),
+    })),
+    sheets: (sheets.sheets ?? []).map((sheet) => sheet.displayName),
+  };
+}
+
+async function unlockedPage(page: Page): Promise<void> {
+  await start(page);
+  expect((await command(page, { kind: "setup", passphrase: PASSPHRASE })).ok).toBe(true);
+}
+
+for (const [path, fileName] of [
+  ["xlsb/fieldwork-jobs.xlsb", "fieldwork-jobs.xlsb"],
+  ["ods/fieldwork-jobs-customers.ods", "fieldwork-jobs-customers.ods"],
+] as const) {
+  test(`CAP-27: the ${fileName} demo pair keeps its lookup-formula relationship through the real workers`, async ({ page }) => {
+    test.setTimeout(JOURNEY_TIMEOUT_MS);
+    await unlockedPage(page);
+    const result = await importAndPromote(page, path, fileName);
+
+    expect(result.proposal.relationships.some((relationship) => relationship.detectionSource === "lookup-formula")).toBe(true);
+    expect(result.tables.some((table) => table.fields.includes("Customer ID:reference"))).toBe(true);
+    const roots = await readWorkbookRoots(page, PASSPHRASE);
+    expect(roots.checkpoint.relationships.length).toBeGreaterThan(0);
+    expect(roots.checkpoint.relationships.every((relationship) => relationship.source === "lookup-formula")).toBe(true);
+    expect(roots.snapshots.every((snapshot) => snapshot.manifestDigestMatches)).toBe(true);
+    expect(roots.checkpoint.semanticMatches).toBe(true);
+  });
+}
+
+test("CAP-27: a BIFF .xls becomes an app with its tables and a snapshot per sheet", async ({ page }) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await unlockedPage(page);
+  const result = await importAndPromote(page, "biff/formulas.xls", "formulas.xls");
+
+  expect(result.tables.map((table) => table.name)).toEqual(["Jobs", "Customers"]);
+  expect(result.sheets).toEqual(["Jobs", "Customers", "Calc"]);
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.head.snapshotManifestCount).toBe(3);
+  expect(roots.checkpoint.relationships.map((relationship) => relationship.source)).toEqual(["lookup-formula"]);
+});
+
+test("CAP-27: the legacy HTML pair becomes tables; no key-match reaches S02's threshold", async ({ page }) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await unlockedPage(page);
+  const result = await importAndPromote(page, "html-table/fieldwork-jobs-customers.html", "fieldwork-jobs-customers.html");
+
+  expect(result.tables.map((table) => `${table.name}:${String(table.count)}`)).toEqual(["Jobs:60", "Customers:12"]);
+  // The pair carries the demo's broken key on 2 of 60 jobs: containment
+  // 58/60 is below KEY_MATCH_CONTAINMENT (0.98), so no relationship is
+  // proposed and the column stays text — asserted as it is, not as planned.
+  expect(result.proposal.relationships).toEqual([]);
+  expect(result.tables[0]?.fields).toContain("Customer ID:text");
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.checkpoint.relationships).toEqual([]);
+  expect(roots.head.snapshotManifestCount).toBe(result.sheets.length);
+});
+
+for (const [path, fileName] of [
+  ["xlsb/macro-vba.xlsb", "macro-vba.xlsb"],
+  ["biff/macro-vba.xls", "macro-vba.xls"],
+  ["ods/basic-macro.ods", "basic-macro.ods"],
+  ["unsafe/payroll.xlsm", "payroll.xlsm"],
+] as const) {
+  test(`CAP-19: ${fileName} is refused as macro content before any stage exists`, async ({ page }) => {
+    test.setTimeout(JOURNEY_TIMEOUT_MS);
+    await unlockedPage(page);
+    const before = await readStore(page);
+    await installFixture(page, path, fileName);
+    const run = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS });
+
+    expect(run.events.find((event) => event.kind === "refused")).toEqual({
+      kind: "refused",
+      refusal: { kind: "macro-content", fileName, remedy: "reupload-macro-free-copy" },
+    });
+    expect(run.stageId).toBeNull();
+    expect(await readStore(page)).toEqual(before);
+  });
+}
+
+test("F02's refusal fixtures, with the workbook flow accepted, are exactly what S04/S05 made them", async ({ page }) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await unlockedPage(page);
+
+  // ledger.xls is a header-only CFB stub: unreadable, and nothing staged.
+  const before = await readStore(page);
+  await installFixture(page, "refusals/ledger.xls", "ledger.xls");
+  const ledger = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS });
+  expect(ledger.events.find((event) => event.kind === "refused")).toEqual({
+    kind: "refused",
+    refusal: { kind: "binary-unreadable", fileName: "ledger.xls", remedy: "choose-another-file", detail: "malformed-structure" },
+  });
+  expect(await readStore(page)).toEqual(before);
+
+  // legacy-export.xls is HTML named .xls: the contradiction is stated, the table read.
+  const legacy = await importAndPromote(page, "refusals/legacy-export.xls", "legacy-export.xls");
+  const report = legacy.events.find((event) => event.kind === "workbook-preflight");
+  expect(report?.kind === "workbook-preflight" && report.report.formatContradiction).toEqual({
+    declaredExtension: "xls",
+    detectedFormat: "html-table",
+  });
+  expect(legacy.tables.map((table) => table.name)).toEqual(["Table 1"]);
+  expect(legacy.sheets).toEqual(["Table 1"]);
+
+  // site-plan.ods is an ODS whose one sheet holds no table: it fits, stages
+  // and is reviewed, and creating an app from it is refused as `empty-table`
+  // — a typed result, with nothing written.
+  await installFixture(page, "refusals/site-plan.ods", "site-plan.ods");
+  const sitePlan = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS });
+  expect(sitePlan.events.find((event) => event.kind === "workbook-preflight")).toMatchObject({
+    report: { format: "ods", route: "fits", sheets: [{ name: "Table 1" }] },
+  });
+  expect(sitePlan.events.some((event) => event.kind === "completed")).toBe(true);
+  const sitePlanStage = sitePlan.stageId as string;
+  await ask(page, { kind: "runInference", stageId: sitePlanStage });
+  expect(await ask(page, { kind: "promoteImport", stageId: sitePlanStage, acceptedName: "Site Plan" })).toMatchObject({
+    outcome: "rejected",
+    reason: "empty-table",
+  });
+  expect((await ask(page, { kind: "cancelImportStage", stageId: sitePlanStage })).receipt.completed).toBe(true);
+});
+
+// --------------------------------------- CP4: append into an app (D38, CA-23) --
+
+/** Imports a delimited file into an existing app as a new table. */
+async function appendInto(page: Page, appId: string) {
+  const run = await runWorkbookImport(page, { destinationAppId: appId });
+  expect(run.events.some((event) => event.kind === "completed")).toBe(true);
+  const stageId = run.stageId as string;
+  const inferred = await ask(page, { kind: "runInference", stageId });
+  const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: "ignored for an append" });
+  return { stageId, proposal: inferred.proposal, promoted };
+}
+
+test("CAP-26: a CSV appended into the demo app is one import commit, a new table, and survives a restart", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const before = await readWorkbookRoots(page, PASSPHRASE);
+
+  await installFixture(page, "delimited/crew-roster.tsv", "crew-roster.tsv");
+  const appended = await appendInto(page, appId);
+  expect(appended.proposal.tables.map((table) => table.tableName)).toEqual(["Crew Roster"]);
+  expect(appended.promoted).toMatchObject({ outcome: "promoted", appId, rowCount: 4, tableCount: 1 });
+
+  const tablesOf = async () =>
+    (await ask(page, { kind: "openApp", appId })).session?.tables.map((table) => `${table.displayName}:${String(table.recordCount)}`);
+  const opened = await tablesOf();
+  expect(opened).toHaveLength(6);
+  expect(opened?.at(-1)).toBe("Crew Roster:4");
+  const crew = (await ask(page, { kind: "openApp", appId })).session?.tables.find((table) => table.displayName === "Crew Roster");
+  const page1 = await ask(page, { kind: "queryRecords", appId, tableId: crew?.tableId as string });
+  expect(page1.page?.totalCount).toBe(4);
+  const sheets = await ask(page, { kind: "listSheetSnapshots", appId });
+  expect(sheets.sheets?.map((sheet) => sheet.displayName).at(-1)).toBe("crew-roster.tsv");
+
+  // The durable shape (CA-23): the checkpoint is untouched, the head grew by
+  // one segment, one source manifest, one snapshot manifest.
+  const after = await readWorkbookRoots(page, PASSPHRASE);
+  expect(after.checkpoint).toEqual(before.checkpoint);
+  expect(after.head.sourceManifestCount).toBe(before.head.sourceManifestCount + 1);
+  expect(after.head.snapshotManifestCount).toBe(before.head.snapshotManifestCount + 1);
+  expect(after.head.semanticMatches).toBe(true);
+  expect(after.events.commits).toBe(2);
+  expect(after.events.chainOk).toBe(true);
+  const appendKinds = after.events.kinds[1] ?? [];
+  expect(appendKinds[0]).toBe("table.created");
+  expect(appendKinds.filter((kind) => kind === "record.created")).toHaveLength(4);
+  expect(appendKinds).not.toContain("import.accepted");
+
+  // Restart: the tail builds the table again from the commit alone.
+  await page.evaluate(() => {
+    window.__sheafApp?.dispose();
+  });
+  await page.goto("/harness.html");
+  await start(page);
+  expect((await command(page, { kind: "unlock", passphrase: PASSPHRASE })).ok).toBe(true);
+  expect(await tablesOf()).toEqual(opened);
+  const library = await ask(page, { kind: "listLibrary" });
+  expect(library.apps[0]?.tableCount).toBe(6);
+});
+
+test("CAP-26: an append whose name is taken is named apart; one too large for a segment is refused, the app untouched", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+
+  // A file whose stem is an existing table's name (D38).
+  await installFixture(page, "delimited/crew-roster.tsv", "Jobs.tsv");
+  const collided = await appendInto(page, appId);
+  expect(collided.proposal.tables.map((table) => table.tableName)).toEqual(["Jobs 2"]);
+  expect(collided.promoted.outcome).toBe("promoted");
+
+  // More rows than one segment's 10,000 events can carry.
+  const before = await readWorkbookRoots(page, PASSPHRASE);
+  await installBytes(page, new TextEncoder().encode(overSegmentCsv()), "over-segment.csv");
+  const run = await runWorkbookImport(page, { destinationAppId: appId });
+  expect(run.events.some((event) => event.kind === "completed")).toBe(true);
+  const stageId = run.stageId as string;
+  await ask(page, { kind: "runInference", stageId });
+  const refused = await ask(page, { kind: "promoteImport", stageId, acceptedName: "x" });
+  expect(refused).toMatchObject({ outcome: "rejected", reason: "append-too-large" });
+  // Nothing of the app moved: same head, same checkpoint, same commits.
+  expect(await readWorkbookRoots(page, PASSPHRASE)).toEqual(before);
+  // The stage is still there to cancel, and cancelling cleans it.
+  const receipt = await ask(page, { kind: "cancelImportStage", stageId });
+  expect(receipt.receipt.completed).toBe(true);
 });

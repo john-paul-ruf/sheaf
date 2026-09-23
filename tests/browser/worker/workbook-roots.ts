@@ -169,14 +169,17 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
       records += roots.decodeRecordPage(payload).records.length;
     }
 
-    // The event segment and its chain.
-    const segmentRef = head.eventSegments[0];
-    if (segmentRef === undefined) throw new Error("no event segment");
-    const segmentBytes = await open(segmentRef.storageId, "app.events", "app.event-segment");
-    const segment = commits.decodeEventSegment(segmentBytes);
+    // Every event segment, and the chain over all their commits.
+    const segmentCommits = [];
+    let segmentDigestsMatch = true;
+    for (const segmentRef of head.eventSegments) {
+      const segmentBytes = await open(segmentRef.storageId, "app.events", "app.event-segment");
+      segmentDigestsMatch &&= same(await hash.sha256(segmentBytes), segmentRef.semanticSha256);
+      segmentCommits.push(...commits.decodeEventSegment(segmentBytes).commits);
+    }
     let chainOk = true;
     try {
-      await commits.verifyCommitChain(segment.commits, hash.sha256);
+      await commits.verifyCommitChain(segmentCommits, hash.sha256);
     } catch {
       chainOk = false;
     }
@@ -256,10 +259,10 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
       },
       pages: { count: checkpoint.recordPages.length, records, digestsMatch },
       events: {
-        commits: segment.commits.length,
-        kinds: segment.commits.map((commit) => commit.events.map((event) => event.kind)),
+        commits: segmentCommits.length,
+        kinds: segmentCommits.map((commit) => commit.events.map((event) => event.kind)),
         chainOk,
-        digestMatches: same(await hash.sha256(segmentBytes), segmentRef.semanticSha256),
+        digestMatches: segmentDigestsMatch,
       },
       source: {
         fileName: source.fileName,

@@ -90,6 +90,31 @@ export function toReviewEditRejectionVm(reason: string): ReviewEditRejectionVm {
     : "unrecognised-rejection";
 }
 
+/**
+ * M23's closed promotion rejections, restated like the edit rejections above
+ * and pinned against `PROMOTION_REJECTIONS` by `tests/unit/view-models/import.test.ts`.
+ * `append-too-large` is D38's: an append whose one commit would not fit one
+ * event segment. The words are the surface's (S07, D43); this is the token.
+ */
+export const PROMOTION_REJECTION_TOKENS = Object.freeze([
+  "schema-invalid",
+  "record-invalid",
+  "no-proposal",
+  "empty-table",
+  "append-too-large",
+] as const);
+
+export type PromotionRejectionTokenV1 = (typeof PROMOTION_REJECTION_TOKENS)[number];
+
+/** A reason outside the closed list is named as unrecognised, never guessed. */
+export type PromotionRejectionVm = PromotionRejectionTokenV1 | "unrecognised-rejection";
+
+export function toPromotionRejectionVm(reason: string): PromotionRejectionVm {
+  return (PROMOTION_REJECTION_TOKENS as readonly string[]).includes(reason)
+    ? (reason as PromotionRejectionTokenV1)
+    : "unrecognised-rejection";
+}
+
 // --- SCR-016 upload landing (upload.html) -----------------------------------
 
 /** upload.html's two format groups. Availability is D19's, not the mock's. */
@@ -426,6 +451,8 @@ export interface ImportReviewVm {
   readonly editRejection: ReviewEditRejectionVm | null;
   /** A promotion that refused wrote nothing; its issues name every field. */
   readonly promotionIssues: readonly RecordIssueViewV1[];
+  /** Why the last promotion refused, as a closed token; `null` when none did. */
+  readonly promotionRejection: PromotionRejectionVm | null;
   readonly confirm: ImportPromotionConfirmVm;
   readonly announcement: string;
 }
@@ -839,6 +866,8 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
       context.editRejection === undefined
         ? null
         : toReviewEditRejectionVm(context.editRejection),
+    promotionRejection:
+      context.promotionRejection === undefined ? null : toPromotionRejectionVm(context.promotionRejection.reason),
     promotionIssues: (context.promotionRejection?.issues ?? []).map((issue) => ({
       fieldId: issue.fieldId,
       kind: issue.kind,

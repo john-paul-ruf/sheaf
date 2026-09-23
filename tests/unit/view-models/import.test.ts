@@ -14,9 +14,16 @@
 import { describe, expect, it } from "vitest";
 import { createActor } from "xstate";
 import { REVIEW_EDIT_REJECTIONS } from "../../../src/import/inference/review-edits.js";
+import {
+  PROMOTION_REJECTIONS,
+  type PromotionRejectionV1,
+} from "../../../src/import/staging/promotion.js";
 import { importMachine } from "../../../src/application/workflows/import.machine.js";
 import {
   REVIEW_EDIT_REJECTION_TOKENS,
+  PROMOTION_REJECTION_TOKENS,
+  toPromotionRejectionVm,
+  type PromotionRejectionTokenV1,
   selectImportVm,
   toReviewEditRejectionVm,
   type DelimitedTargetVm,
@@ -674,5 +681,50 @@ describe("the review-edit rejection list", () => {
     expect(toReviewEditRejectionVm("something-new")).toBe(
       "unrecognised-rejection",
     );
+  });
+});
+
+describe("the promotion rejection list (D42)", () => {
+  it("is exactly M23's closed list, append-too-large included, in both directions", () => {
+    expect([...PROMOTION_REJECTION_TOKENS]).toEqual([...PROMOTION_REJECTIONS]);
+    type MissingHere = Exclude<PromotionRejectionV1, PromotionRejectionTokenV1>;
+    type ExtraHere = Exclude<PromotionRejectionTokenV1, PromotionRejectionV1>;
+    const noneMissing: MissingHere extends never ? true : false = true;
+    const noneExtra: ExtraHere extends never ? true : false = true;
+    expect(noneMissing && noneExtra).toBe(true);
+    expect(toPromotionRejectionVm("append-too-large")).toBe("append-too-large");
+    expect(toPromotionRejectionVm("something-else")).toBe("unrecognised-rejection");
+  });
+
+  it("carries an append that did not fit to review as its token", async () => {
+    const fake = services({
+      runInference: resolves({
+        kind: "runInference" as const,
+        proposal: wireProposal({ table: { tableName: "Visits", fields: [field()] } }),
+      }),
+      promoteImport: resolves({
+        kind: "promoteImport" as const,
+        outcome: "rejected" as const,
+        reason: "append-too-large",
+        issues: [],
+      }),
+    });
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+    fake.emit(preflightEvent());
+    actor.send({ type: "CONTINUE" });
+    actor.send({ type: "START" });
+    await settled();
+    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    actor.send({ type: "CREATE_APP" });
+    await settled();
+    await settled();
+
+    const vm = reviewVm(vmOf(actor));
+    expect(vm.promotionRejection).toBe("append-too-large");
+    expect(vm.promotionIssues).toEqual([]);
   });
 });

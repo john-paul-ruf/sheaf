@@ -131,6 +131,13 @@ export function createDataWorkerHandler(
     entropy: deps.entropy,
     clock: deps.clock,
     getContext: () => importContext(requireUnlocked()),
+    // An append lands in an app the record tier holds open (D38).
+    apps: {
+      open: (appId) => records.appSession(appId),
+      close: (appId) => {
+        records.closeAppSession(appId);
+      },
+    },
   });
   // The app tier composes the same store and crypto adapters the import tier
   // uses; one worker, one database owner, one set of keys.

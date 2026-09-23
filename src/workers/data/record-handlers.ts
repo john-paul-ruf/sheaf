@@ -172,6 +172,13 @@ export interface RecordHandlersV1 {
   ): Promise<ReadonlyMap<string, number>>;
   /** Lock: every projection destroyed, every app key zeroized. */
   disposeAll(): void;
+  /**
+   * The open session of a catalog app, hydrating it if needed; `undefined`
+   * when no app carries the id. The import tier appends through it (D38).
+   */
+  appSession(appId: string): Promise<AppSessionV1 | undefined>;
+  /** Drops an app's session, so the next read hydrates from the head as it now is. */
+  closeAppSession(appId: string): void;
 }
 
 export function createRecordHandlers(
@@ -731,6 +738,12 @@ export function createRecordHandlers(
 
     disposeAll(): void {
       registry.disposeAll();
+    },
+
+    appSession: withApp,
+
+    closeAppSession(appId: string): void {
+      registry.close(appId);
     },
   };
 }

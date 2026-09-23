@@ -178,6 +178,7 @@ function reviewVm(overrides: Partial<ImportReviewVm> = {}): ImportReviewVm {
     isNeedsAttentionExact: true,
     editRejection: null,
     promotionIssues: [],
+    promotionRejection: null,
     confirm: {
       appName: "Field Log Messy",
       canCreate: true,

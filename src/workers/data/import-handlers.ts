@@ -83,6 +83,7 @@ import { asStorageId16, decodeStorageId16, encodeStorageId16 } from "../../domai
 import {
   IMPORT_STAGE_PAYLOAD_KIND,
   IMPORT_STAGE_SCOPE,
+  type ImportDestinationV1,
   type ImportStageV1,
   type StagedSheetSummaryV1,
 } from "../../import/staging/stage.js";
@@ -92,6 +93,17 @@ import {
   writeImportStage,
 } from "../../import/staging/lifecycle.js";
 import { delimitedStream } from "../../import/inference/infer.js";
+import { applyRejectionMemory, type RejectionMemoryV1 } from "../../import/inference/rejection-memory.js";
+import { decisionKindOf, WORKBOOK_INFERENCE_SUBJECTS } from "../../import/inference/statements.js";
+import { appendTable } from "../../import/staging/append.js";
+import { planInferenceDecisions } from "../../application/queries/snapshots.js";
+import { projectionReferenceResolver } from "../../application/commands/execute-command.js";
+import type { ProjectionInferenceDecisionV1 } from "../../application/ports/projection.js";
+import { asDomainId } from "../../domain/model/ids.js";
+import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
+import type { AppSessionV1 } from "./app-session.js";
+import type { LoadedAppV1 } from "./event-store.js";
+import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
 import { inferWorkbook } from "../../import/inference/workbook.js";
 import type { ProposedRuleConditionV1, ProposedWorkbookV1 } from "../../import/inference/workbook-proposal.js";
 import { decodeFactStreamItem, encodeFactStreamItem } from "../../import/staging/fact-codec.js";
@@ -339,6 +351,41 @@ class SessionCatalogPort implements StagingCatalogPort {
     return sealed;
   }
 
+  /**
+   * Seals the catalog an append needs: the app entry repointed at its new head
+   * with its counts refreshed, the staging workflow dropped, the ticket named.
+   */
+  async sealWithAppendedApp(input: {
+    readonly appId: AppId;
+    readonly appHeadStorageId: string;
+    readonly rowCount: number;
+    readonly tableCount: number;
+    readonly removeWorkflowStorageId: string;
+    readonly addCleanupTicketStorageId: string;
+    readonly logicalRevision: number;
+  }): Promise<SealedCatalogV1> {
+    const appId = encodeDomainId(input.appId);
+    if (!this.#catalog.apps.some((entry) => entry.appId === appId)) {
+      throw new DataWorkerCommandError("integrity");
+    }
+    const next: LocalCatalogV1 = {
+      ...this.#catalog,
+      catalogRevision: this.#catalog.catalogRevision + 1,
+      apps: this.#catalog.apps.map((entry) =>
+        entry.appId === appId
+          ? { ...entry, appHeadStorageId: input.appHeadStorageId, rowCountCache: input.rowCount, tableCount: input.tableCount }
+          : entry,
+      ),
+      activeWorkflowStorageIds: this.#catalog.activeWorkflowStorageIds.filter(
+        (id) => id !== input.removeWorkflowStorageId,
+      ),
+      cleanupTicketStorageIds: [...this.#catalog.cleanupTicketStorageIds, input.addCleanupTicketStorageId],
+    };
+    const sealed = await this.context.sealCatalog(next, input.logicalRevision);
+    this.#pending = { catalog: next, storageId: sealed.storageId };
+    return sealed;
+  }
+
   adopt(catalogStorageId: string, transactionRevision: number): void {
     const pending = this.#pending;
     if (pending === undefined || pending.storageId !== catalogStorageId) {
@@ -486,6 +533,14 @@ export interface ImportHandlerDependenciesV1 {
   readonly getContext: () => ImportSessionContextV1;
   readonly store?: EnvelopeStorePort;
   readonly crypto?: EnvelopeCryptoPort;
+  /** The app tier's sessions, for an append into an existing app (D38). */
+  readonly apps?: ImportAppAccessV1;
+}
+
+/** How the import tier reaches an existing app: the record tier's own sessions. */
+export interface ImportAppAccessV1 {
+  open(appId: string): Promise<AppSessionV1 | undefined>;
+  close(appId: string): void;
 }
 
 /**
@@ -514,6 +569,70 @@ export function proposalWire(proposal: ProposedWorkbookV1): ProposedWorkbookWire
 const noRejectionMemory = (): string => {
   throw new Error("a new app has no rejection memory to match");
 };
+
+const hexOf = (bytes: Uint8Array): string => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+/** An app id from the wire; a malformed one is the request's fault. */
+const appIdOf = (text: string) => {
+  try {
+    return decodeDomainId("app", text);
+  } catch {
+    throw new DataWorkerCommandError("malformed-request");
+  }
+};
+
+/** One recorded decision, from the checkpoint's projection or from a tail commit. */
+export interface RecordedDecisionV1 {
+  readonly decisionKind: string | null;
+  readonly evidenceFingerprint: Uint8Array;
+  readonly disposition: string;
+}
+
+/**
+ * The decisions an app's tail commits recorded after its checkpoint (an
+ * append's `inference-decision.recorded`, CA-23). They reach the projection's
+ * history but not its `inference_decisions` rows until a later checkpoint
+ * materializes them, so rejection memory reads them from the commits.
+ */
+export function tailDecisionsOf(app: Pick<LoadedAppV1, "checkpoint" | "commits">): readonly RecordedDecisionV1[] {
+  const covered = new Map(
+    app.checkpoint.frontier.map((entry) => [encodeDomainId(asDomainId("device", entry.deviceId)), entry.commitSequence]),
+  );
+  const decisions: RecordedDecisionV1[] = [];
+  for (const commit of app.commits) {
+    if (commit.deviceCommitSequence <= (covered.get(encodeDomainId(asDomainId("device", commit.deviceId))) ?? 0n)) continue;
+    for (const event of commit.events) {
+      if (event.kind !== "inference-decision.recorded") continue;
+      const decoded = decodeTailEventPayload(event.kind, event.payload as DecodedValue);
+      if (decoded.kind !== "inference-decision.recorded") continue;
+      const statement = decoded.payload.statement;
+      const subject: unknown = statement instanceof Map ? (statement as ReadonlyMap<unknown, unknown>).get("subject") : undefined;
+      const known = WORKBOOK_INFERENCE_SUBJECTS.find((candidate) => candidate === subject);
+      decisions.push({
+        decisionKind: known === undefined ? null : decisionKindOf(known),
+        evidenceFingerprint: decoded.payload.evidenceFingerprint,
+        disposition: decoded.payload.disposition,
+      });
+    }
+  }
+  return decisions;
+}
+
+/**
+ * D44's rejection memory for an app: every **rejected** decision it holds —
+ * the projection's rows (the checkpoint's) and its tail's — as
+ * `${decisionKind}:${hex fingerprint}`, the key M21 matches statements by.
+ */
+export function rejectionMemoryOf(
+  projected: readonly Pick<ProjectionInferenceDecisionV1, "decisionKind" | "evidenceFingerprint" | "disposition">[],
+  tail: readonly RecordedDecisionV1[],
+): RejectionMemoryV1 {
+  return new Set(
+    [...projected, ...tail]
+      .filter((decision) => decision.disposition === "rejected" && decision.decisionKind !== null)
+      .map((decision) => `${String(decision.decisionKind)}:${hexOf(decision.evidenceFingerprint)}`),
+  );
+}
 
 /** Where a live stage's workflow reference is remembered between requests. */
 export interface ActiveStageV1 {
@@ -874,6 +993,156 @@ export function createImportHandlers(
     channels.delete(stageId);
   }
 
+  const sealTicket =
+    (context: ImportSessionContextV1) =>
+    (input: { readonly storageId: StorageId16; readonly ticketId: string; readonly storageIds: readonly string[]; readonly logicalRevision: number }) =>
+      crypto.seal({
+        scope: "local.cleanup",
+        storageId: input.storageId,
+        logicalRevision: BigInt(input.logicalRevision),
+        payloadKind: "local.cleanup-ticket",
+        payload: encodeCleanupTicket({
+          ticketVersion: 1,
+          ticketId: input.ticketId,
+          reason: "import-promoted",
+          storageIds: [...input.storageIds].sort(),
+          cursor: 0,
+          createdAtRevision: input.logicalRevision,
+        }),
+        compression: "deflate-raw-v1",
+        key: context.localRoot,
+      });
+
+  /** The open app an append stage lands in, or `null` for a new-app stage. */
+  async function appendTargetOf(stage: ImportStageV1): Promise<AppSessionV1 | null> {
+    if (stage.destination.kind !== "existing-app") return null;
+    const session = await deps.apps?.open(encodeDomainId(stage.destination.appId as AppId));
+    if (session === undefined) {
+      throw new DataWorkerCommandError("integrity");
+    }
+    return session;
+  }
+
+  /** Applies stored rejections, with each statement's fingerprint digested by M08. */
+  async function withRejectionMemory(
+    proposal: ProposedWorkbookV1,
+    memory: RejectionMemoryV1,
+  ): Promise<ProposedWorkbookV1> {
+    if (memory.size === 0) return proposal;
+    const digests = new Map<string, string>();
+    for (const statement of proposal.statements) {
+      const digest = await crypto.sha256(new TextEncoder().encode(statement.evidenceFingerprint));
+      digests.set(statement.evidenceFingerprint, hexOf(digest));
+    }
+    return applyRejectionMemory(proposal, memory, (input) => digests.get(input) ?? "");
+  }
+
+  /**
+   * The append (D38, CA-23): one import-class commit into the app, through
+   * M23's `appendTable`, validated against the app's projection. The app's
+   * session is dropped after the commit, so the next read hydrates the new
+   * table from the tail (S03's tail apply).
+   */
+  async function appendIntoApp(
+    stageId: string,
+    context: ImportSessionContextV1,
+    catalogPort: SessionCatalogPort,
+    loaded: LoadedImportStageV1,
+    facts: readonly WorkbookFactStreamItemV2[],
+  ): Promise<DataWorkerResponseV1> {
+    let session: AppSessionV1 | null;
+    try {
+      session = await appendTargetOf(loaded.stage);
+    } catch (cause) {
+      crypto.destroyKey(loaded.provisionalKey);
+      throw cause;
+    }
+    if (session === null) {
+      crypto.destroyKey(loaded.provisionalKey);
+      throw new DataWorkerCommandError("internal");
+    }
+    const { projection, repository } = session;
+    const app = repository.loaded();
+    const chain = repository.chainState();
+    const tables = projection
+      .execute({ kind: "list-tables" })
+      .map((table) => ({ ...table, fields: projection.execute({ kind: "list-fields", tableId: table.tableId }) }));
+    const appIdText = encodeDomainId(session.appId);
+    const entry = context.catalog.apps.find((candidate) => candidate.appId === appIdText);
+
+    const result = await appendTable(
+      {
+        ports: portsFor(catalogPort),
+        clock: deps.clock,
+        encodeRecordCreated: (record, importedInvalid) =>
+          encodeRecordEventPayload({ kind: "record.created", payload: { record, importedInvalid } }),
+        commitCatalog: (input) => catalogPort.sealWithAppendedApp(input),
+        sealCleanupTicket: sealTicket(context),
+      },
+      {
+        loaded,
+        facts,
+        deviceId: deviceIdOf(context),
+        target: {
+          appId: session.appId,
+          appKey: session.appKey,
+          head: app.head,
+          headStorageId: app.headStorageId,
+          chain: {
+            deviceCommitSequence: chain.deviceCommitSequence,
+            lastCommitSha256: chain.lastCommitSha256,
+            lastHybridTime: chain.lastHybridTime,
+            frontier: chain.frontier,
+            commits: app.commits,
+          },
+          tables,
+          enumOptions: tables.flatMap((table) =>
+            table.fields
+              .filter((field) => field.type.kind === "enum")
+              .flatMap((field) => projection.execute({ kind: "list-enum-options", fieldId: field.fieldId })),
+          ),
+          relationships: projection.execute({ kind: "list-relationships", tableId: null }).map((row) => row.relationship),
+          sheetCount: projection.execute({ kind: "list-sheet-snapshots" }).length,
+          referenceExists: projectionReferenceResolver(projection),
+          rowCountBefore:
+            entry?.rowCountCache ??
+            tables.reduce((sum, table) => sum + projection.execute({ kind: "count-records", tableId: table.tableId }), 0),
+        },
+      },
+    );
+
+    if (result.kind === "rejected") {
+      // Nothing was written: the app and the stage are exactly as they were.
+      crypto.destroyKey(loaded.provisionalKey);
+      return {
+        kind: "promoteImport",
+        outcome: "rejected",
+        reason: result.reason,
+        issues: (result.report?.issues ?? []).map((issue) => ({
+          fieldId: issue.fieldId === null ? null : encodeDomainId(issue.fieldId),
+          kind: issue.kind,
+          severity: issue.severity,
+          messageKey: issue.messageKey,
+        })),
+      };
+    }
+
+    crypto.destroyKey(loaded.provisionalKey);
+    // The session's head is the one this commit superseded.
+    deps.apps?.close(appIdText);
+    closeChannel(stageId);
+    active.delete(stageId);
+    await processCleanupTickets(portsFor(catalogPort), context.localRoot);
+    return {
+      kind: "promoteImport",
+      outcome: "promoted",
+      appId: appIdText,
+      rowCount: result.receipt.rowCount,
+      tableCount: 1,
+      flaggedRecordCount: result.receipt.flaggedRecordCount,
+    };
+  }
+
   return {
     async beginImportStage(
       request: BeginImportStageRequestV1,
@@ -883,11 +1152,17 @@ export function createImportHandlers(
       if (request.fileName.length === 0) {
         throw new DataWorkerCommandError("malformed-request");
       }
-      if ((request.destination ?? { kind: "new-app" }).kind !== "new-app") {
-        // Appending into an existing app arrives with the append path (D38).
-        throw new DataWorkerCommandError("malformed-request");
-      }
       const { detected, preflight } = request;
+      const requested = request.destination ?? { kind: "new-app" };
+      let destination: ImportDestinationV1 = { kind: "new-app" };
+      if (requested.kind === "existing-app") {
+        // FR-1's into-existing path is value-only (D38): a delimited file, into
+        // an app this catalog holds.
+        if (detected.kind !== "delimited" || !context.catalog.apps.some((app) => app.appId === requested.appId)) {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        destination = { kind: "existing-app", appId: appIdOf(requested.appId) };
+      }
       let input: CreateImportStageInputV1;
       if (detected.kind === "workbook") {
         if (!("kind" in preflight) || !WORKBOOK_FORMATS_WIRE.includes(detected.format)) {
@@ -912,7 +1187,7 @@ export function createImportHandlers(
         input = {
           fileName: request.fileName,
           format: "delimited",
-          destination: { kind: "new-app" },
+          destination,
           detected: {
             kind: "delimited",
             delimiter: detected.delimiter as "," | "\t" | ";" | "|",
@@ -1002,6 +1277,7 @@ export function createImportHandlers(
         // statements and fingerprints are F02's. `inferWorkbook` throws on a
         // summary-less stream by design: a cancelled parse has nothing exact
         // to propose from, and nothing here synthesises a summary.
+        const target = await appendTargetOf(stage);
         proposal = inferWorkbook(stage.format === "delimited" ? delimitedStream(facts) : facts, {
           fileName: stage.fileName,
           // Every inventoried sheet, selected or not: the unselected ones are
@@ -1016,11 +1292,25 @@ export function createImportHandlers(
                   visibility: sheet.visibility,
                   isSelected: stage.selectedSheets.includes(sheet.sheetIndex),
                 })),
-          // A new app has no decisions to remember (D44).
+          // Memory is applied below, once its digests are known (M08 is async).
           rejectionMemory: new Set(),
           fingerprintOf: noRejectionMemory,
-          existingApp: null,
+          // An append's new table is named apart from the app's own (D38).
+          existingApp:
+            target === null
+              ? null
+              : { tableNames: target.projection.execute({ kind: "list-tables" }).map((table) => table.displayName) },
         });
+        if (target !== null) {
+          // D44's production consumer: the target app's own decisions.
+          proposal = await withRejectionMemory(
+            proposal,
+            rejectionMemoryOf(
+              planInferenceDecisions(target.projection, null),
+              tailDecisionsOf(target.repository.loaded()),
+            ),
+          );
+        }
       } catch {
         crypto.destroyKey(loaded.provisionalKey);
         throw new DataWorkerCommandError("integrity");
@@ -1104,6 +1394,9 @@ export function createImportHandlers(
         crypto.destroyKey(loaded.provisionalKey);
         throw new DataWorkerCommandError("integrity");
       }
+      if (loaded.stage.destination.kind === "existing-app") {
+        return appendIntoApp(request.stageId, context, catalogPort, loaded, facts);
+      }
 
       const result = await promoteStagedImport(
         {
@@ -1111,23 +1404,7 @@ export function createImportHandlers(
           clock: deps.clock,
           localRoot: context.localRoot,
           commitCatalog: (input) => catalogPort.sealWithAppEntry(input),
-          sealCleanupTicket: (input) =>
-            crypto.seal({
-              scope: "local.cleanup",
-              storageId: input.storageId,
-              logicalRevision: BigInt(input.logicalRevision),
-              payloadKind: "local.cleanup-ticket",
-              payload: encodeCleanupTicket({
-                ticketVersion: 1,
-                ticketId: input.ticketId,
-                reason: "import-promoted",
-                storageIds: [...input.storageIds].sort(),
-                cursor: 0,
-                createdAtRevision: input.logicalRevision,
-              }),
-              compression: "deflate-raw-v1",
-              key: context.localRoot,
-            }),
+          sealCleanupTicket: sealTicket(context),
         },
         {
           loaded,

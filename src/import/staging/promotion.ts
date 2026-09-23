@@ -88,12 +88,6 @@ import {
   type CellValueV1,
 } from "../../domain/model/values.js";
 import type { DomainEventV1 } from "../../migrations/004_event_format_v1.js";
-import {
-  encodeEventSegment,
-  sealEventCommit,
-  verifyCommitChain,
-  type EventCommitBodyV1,
-} from "../../persistence/codecs/event-commit.js";
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
 import type { EntropyPort } from "../../application/ports/entropy.js";
 import type { ClockPort } from "../../application/ports/clock.js";
@@ -142,17 +136,23 @@ import type { LoadedImportStageV1, StagingPortsV1 } from "./lifecycle.js";
 import { readProvisionalKeyBytes, stagedChunkStorageIds } from "./lifecycle.js";
 import { RowPlan, sourceTextAt, walkRows, type PlannedRowV1 } from "./row-plan.js";
 import { cborMap } from "./proposal-codec.js";
+import { EMPTY_IMPORT_CHAIN, sealImportCommit } from "./import-commit.js";
 import { serializeEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
 
 const ID_BYTES = 16;
 const STORAGE_ID_BYTES = 16;
 
-/** Promotion refuses for reasons a person can act on; each is a closed token. */
+/**
+ * Promotion refuses for reasons a person can act on; each is a closed token.
+ * `append-too-large` is an append's alone (D38, D42): the one commit it would
+ * write does not fit one event segment.
+ */
 export const PROMOTION_REJECTIONS = Object.freeze([
   "schema-invalid",
   "record-invalid",
   "no-proposal",
   "empty-table",
+  "append-too-large",
 ] as const);
 
 export type PromotionRejectionV1 = (typeof PROMOTION_REJECTIONS)[number];
@@ -261,8 +261,9 @@ const roleOf = (role: ProposedSheetV1["classification"][number]): role is SheetR
 export function allocateSchema(
   entropy: EntropyPort,
   proposal: ProposedWorkbookV1,
-  options: { readonly firstTableOrdinal?: number; readonly takenTableNames?: readonly string[] } = {},
+  options: { readonly firstTableOrdinal?: number; readonly schemaRevision?: bigint } = {},
 ): AllocatedSchemaV2 {
+  const schemaRevision = options.schemaRevision ?? SCHEMA_REVISION_AFTER;
   const sheets: SheetPlanV1[] = proposal.sheets
     .filter((sheet) => sheet.isSelected)
     .map((proposed, ordinal) => ({ proposed, sheetId: createDomainId("sheet", entropy), ordinal }));
@@ -286,7 +287,7 @@ export function allocateSchema(
             displayLabel: option.label,
             optionOrdinal,
             isActive: true,
-            schemaRevision: SCHEMA_REVISION_AFTER,
+            schemaRevision,
           });
         });
       }
@@ -303,7 +304,7 @@ export function allocateSchema(
           // rows the file actually contains, and FR-4 keeps them instead.
           isRequired: false,
           isActive: true,
-          schemaRevision: SCHEMA_REVISION_AFTER,
+          schemaRevision,
         },
       };
     });
@@ -322,7 +323,7 @@ export function allocateSchema(
         labelFieldId: fieldOf(head.labelColumnKey),
         sourceSheetId: sheetIdOf(head.sheetKey),
         isActive: true,
-        schemaRevision: SCHEMA_REVISION_AFTER,
+        schemaRevision,
       },
     };
   });
@@ -355,7 +356,7 @@ export function allocateSchema(
       toKeyFieldId: toField.definition.fieldId,
       detectionSource: relationship.detectionSource,
       isActive: true,
-      schemaRevision: SCHEMA_REVISION_AFTER,
+      schemaRevision,
     });
     relationshipByChildColumn.set(`${from.head.tableKey}|${fromField.proposed.columnKey}`, {
       toTableKey: to.head.tableKey,
@@ -385,7 +386,7 @@ export function allocateSchema(
           messageParameters: { fieldLabel: target.definition.displayName },
         },
         isActive: rule.isActive,
-        schemaRevision: SCHEMA_REVISION_AFTER,
+        schemaRevision,
       },
     ];
   });
@@ -452,6 +453,8 @@ export async function buildRecords(
   proposal: ProposedWorkbookV1,
   schema: AllocatedSchemaV2,
   facts: readonly WorkbookFactStreamItemV2[],
+  /** An app the rows join (an append): its records resolve too. */
+  options: { readonly referenceExists?: ReferenceResolver } = {},
 ): Promise<BuiltRecordsV2 & { readonly discarded: ReadonlyMap<number, ReadonlyMap<number, "above-header" | "empty-row">> }> {
   const stream = planningStream(proposal, facts);
   const extents = tableRowExtents(stream);
@@ -464,6 +467,7 @@ export async function buildRecords(
   // Pass 1: keyed tables' identities, and each parent's key text → record.
   const firstPlan = new RowPlan(proposal, extents);
   await walkRows(stream, {
+    declaredTable: (sheetIndex) => firstPlan.declare(sheetIndex),
     row(row) {
       for (const placement of firstPlan.place(row)) {
         if (placement.kind !== "data") continue;
@@ -489,7 +493,8 @@ export async function buildRecords(
   firstPlan.assertMatches(proposal);
 
   // Pass 2: every record, through the one validator with the real predicate.
-  const referenceExists: ReferenceResolver = (tableId, recordId) => live.has(liveKey(tableId, recordId));
+  const referenceExists: ReferenceResolver = (tableId, recordId) =>
+    live.has(liveKey(tableId, recordId)) || (options.referenceExists?.(tableId, recordId) ?? false);
   const contexts = new Map(schema.tables.map((plan) => [plan.head.tableKey, contextFor(schema, plan, referenceExists)]));
   const cursors = new Map<string, number>();
   const records: StoredRecordV1[] = [];
@@ -521,6 +526,7 @@ export async function buildRecords(
   };
 
   await walkRows(stream, {
+    declaredTable: (sheetIndex) => secondPlan.declare(sheetIndex),
     row(row) {
       for (const placement of secondPlan.place(row)) {
         if (placement.kind === "discarded") {
@@ -1032,32 +1038,19 @@ export async function promoteImport(
     })),
   });
 
-  const commitBody: EventCommitBodyV1 = {
-    eventFormatVersion: 1,
-    commitId,
+  // The one import-class commit, sealed by the one builder (`import-commit.ts`).
+  const { segmentPayload } = await sealImportCommit({
+    entropy,
+    sha256,
     appId,
+    commitId,
     deviceId: input.deviceId,
-    deviceCommitSequence: 1n,
-    previousDeviceCommitSha256: null,
-    basisFrontier: [],
-    hybridTime: { wallTimeMs: BigInt(nowMs), logicalCounter: 0 },
-    eventClass: "import",
+    chain: EMPTY_IMPORT_CHAIN,
+    nowMs,
     schemaRevisionBefore: 0n,
     schemaRevisionAfter: SCHEMA_REVISION_AFTER,
     events,
-  };
-  const commit = await sealEventCommit(commitBody, sha256);
-  // D27: one segment per commit at this scale.
-  const segmentPayload = encodeEventSegment({
-    eventFormatVersion: 1,
-    segmentId: createDomainId("segment", entropy),
-    appId,
-    commits: [commit],
-    resultingFrontier: frontier,
-    semanticSha256: await sha256(commit.commitSha256),
   });
-  // D27's accumulated-set rule: at promotion the app has exactly one commit.
-  await verifyCommitChain([commit], sha256);
   const segmentRef = await sealer.seal("app.events", "app.event-segment", segmentPayload);
 
   const headBody: Omit<AppHeadV1, "semanticSha256"> = {
