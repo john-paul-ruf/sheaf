@@ -134,3 +134,20 @@ modules it covers.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-03 staple folded
   into the contract; "S04" rewritten as the module that actually consumes it;
   the F03 heuristic gaps recorded in scope rather than only in the session record.
+
+<!-- workbook-fidelity SESSION-02 -->
+### workbook-fidelity SESSION-02 (2026-09-22, commits 43ba6a1..3e99aa1)
+
+**M21 — Inference (`src/import/inference/`) — workbook tier (CA-19 producer)**
+
+New files (Custom Rule 7 where not in the plan's Files table): `workbook.ts` (`inferWorkbook`), `regions.ts` (builder, header rules, discards), `types.ts` (column stats + declared/value typing), `keys.ts`, `relationships.ts`, `classify.ts`, `rejection-memory.ts`, **`workbook-proposal.ts` (CR7: the proposal's types, split out so inference and edits share them without importing each other)**. Modified: `statements.ts`, `values.ts`, `infer.ts`, `review-edits.ts`.
+
+- **Additive, never widening.** Every F02 union (`EvidenceV1`, `INFERENCE_SUBJECTS`, `REVIEW_EDIT_KINDS`, `REVIEW_EDIT_REJECTIONS`, `SourceValueFormatV1`, `ProposedAppV1`, `DISCARD_REASONS`) is byte-identical: they are pinned member-for-member by other leases (`staging/proposal-codec.ts` exhaustive `encodeEvidence`, `tests/unit/workers/proposal-wire.test.ts` MutuallyAssignable, `tests/unit/view-models/import.test.ts` rejection tokens). Workbook supersets: `WORKBOOK_INFERENCE_SUBJECTS`, `WORKBOOK_REVIEW_EDIT_KINDS`, `WorkbookEvidenceV1 = EvidenceV1 | WorkbookStructureEvidenceV1`, `WORKBOOK_REVIEW_EDIT_REJECTIONS`, `WorkbookSourceValueFormatV1` (+ `serial-date{system}`), `WORKBOOK_DISCARD_REASONS` (+ `totals-row`).
+- `inferWorkbook(items, {fileName, sheetSelection, rejectionMemory, fingerprintOf, existingApp}) → ProposedWorkbookV1`; throws without a summary. Delimited stream (no `sheet` fact) = one sheet/one table with F02's statements and **F02 fingerprint inputs** (`isDelimited: true`); `inferProposal` is now a thin adapter over it (F02 shape unchanged until S06 migrates).
+- `ProposedWorkbookV1 {fileName, isDelimited, appName, sheets, tables, relationships, recordRules, inertItems, inertCounts, statements, diagnostics, isRowCountExact: true}`; keys: sheet `s<i>`, declared table `s<i>.t<n>`, region table `s<i>.r<n>` (= its region key), column `<tableKey>.c<sheetColumn>`, relationship `rel:<childColumnKey>`, rule `rule:<columnKey>`; statement id `<subject>:<targetKey>`.
+- Merged regions are separate `ProposedTableV2` entries with `joinedToTableKey` (head's fields typed over merged stats); reject/restore of `table-merge`/`table-split` toggles the join.
+- `decisionKindOf(subject)` (total; `app-name`/`table-name`/`field-name`/`table-key`/`table-label` → null); `INFERENCE_DECISION_KINDS` and `SHEET_ROLES` restated (M21 may not import `domain/model/snapshots.ts`) and pinned against it by `tests/unit/import/inference/statements.test.ts`.
+- Fingerprint v2: `["sheaf.inference.v2", subject, sheetName, tableIdentity (declared name | r<n>), column?, ...qualitative terms]`; `previously-rejected` never enters it.
+- `applyWorkbookReviewEdit(proposal, edit) → ReviewEditResultV2` over `WorkbookReviewEditV1` (13 kinds); total/pure/idempotent, marks at most the named statement (`edited`; `rejected` for rejections).
+- Thresholds: `KEY_SKETCH_LIMIT = 10_000`, `KEY_MATCH_CONTAINMENT = 0.98`, `KEY_MATCH_MINIMUM_VALUES = 8`, `LABEL_DISTINCT_SHARE = 0.8`, `IDENTIFIER_WORDS = id, code, no, key, #`, `DECLARED_FORMAT_SHARE = 0.5`, `VALIDATION_ENUM_OPTION_LIMIT = 64`, `SUMMARY_MAX_USED_CELLS = 500`, `SHEET_REGION_LIMIT = 32`, `SHEET_VALIDATION_LIMIT = 256`, `SHEET_PRESERVED_PART_LIMIT = 4096`, `COLUMN_LOOKUP_LIMIT = 8`.
+- Edges as landed: M21 → M65 (`facts`), M21 → M03 (`domain/formulas`), M21 → M01 (`values`, `schema`, `events`). The F02 `review-edits.ts` → `infer.ts` runtime import was redirected to `regions.ts`/`types.ts` (types-only from `infer.ts`) so `infer → workbook → rejection-memory → review-edits` has no runtime cycle.
