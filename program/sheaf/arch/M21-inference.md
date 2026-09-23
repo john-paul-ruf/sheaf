@@ -173,3 +173,13 @@ rejection-memory → review-edits` has no runtime cycle.
   "F03 note" placeholders about reference/relationship inference replaced with
   the landed contract; the HTML key-match known limit recorded once, here,
   rather than only in the Final Report.
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (M21 — import inference (`src/import/inference/`))
+
+- `inferProposal` removed from `infer.ts` (types + `delimitedStream` kept). Tests use the F02 view helper `tests/unit/import/delimited-proposal.ts`.
+- New `formulas.ts`: `translateProposedFormula`, `refreshFormulas(proposal, ids)`, `deriveFormulaSurface`. Fill-down proof via `relativeShapeKey`. Shared-formula children take their master's shape. Nondeterministic metric/dashboard values → unsupported `value-not-kept`.
+- New `charts.ts`: `mapChartPart` (D55: single series only; bar/column/stacked/line/pie/doughnut/scatter; pivots map to bar), `chartMappingEvidence`, `deriveChartSurface`. Area, multi-series, two-sheet and sparkline charts → `chart-not-rebuilt`.
+- New `rules.ts`: `ruleConditionOf` maps workbook validations to rule IR v2 (`compare` / `between` / `not-between`, measure `text-length`).
+- `workbook-proposal.ts`: adds `ProposedFormulaV1`, `ProposedChartV1`, `formulas`, `charts` and `lastDataRowIndex`, plus `FORMULA_KEEP_REASONS`. CP4: a formula whose text could not be read is never proposed; it stays an inert `formula-not-live-yet` item (migration 005 requires `original_text`), so `unreadable` is dropped from `FORMULA_KEEP_REASONS` and from the wire `FormulaKeepReasonWireV1`. `regions.ts` captures table footers (totals row → table metrics). Statements gain the `formula` / `chart` subjects and the `formula-outcome` / `chart-mapping` evidence.
+- Boundary: inference imports no `ids.ts`. Identities are injected as `FormulaIdentitiesV1`.

@@ -233,3 +233,11 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
 
 - Exported codecs `encodeFilter`/`decodeFilter` (L1706/L1712), `encodeChartDefinition`/`decodeChartDefinition` (L1796/L1817), `CheckpointChartV1 {definition, ordinal, provenance, chartRevision}` (L1857), `encodeCheckpointChart`/`decodeCheckpointChart` (L1864/L1872).
 - Checkpoint `charts` root: `CheckpointManifestV1.charts?` (L856), resolved default `[]` (L899); key sets F02, F03, **F04-formula** (`F03 + formulas`, L2109 — the shape S03 wrote) and full **F04** (`+ charts`, L2112). The encoder always writes the full set; F02/F03/F04-formula bytes decode to `charts: []`. **S07 CP2 writes imported charts here with `provenance: "imported"`.**
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (M23 — import staging (`src/import/staging/`))
+
+- New `formula-identities.ts`: `reviewFormulaIdentities(entropy)` (review stand-ins), `allocatedFormulaIdentities(identities)` (promotion).
+- New `live-structure.ts`: `importedFormulasOf`, `liveComputedFieldsOf`, `importedChartsOf`.
+- `promotion.ts`: writes the formulas root, computed field defs with `formulaId` (via the roots `encodeFieldDef`), and the charts root pinned per D65 (first sheet with a valid rebuilt chart). Also applies the D51 value policy (live computed values are omitted from record pages; frozen and unsupported values are kept) and promotes rules as irVersion 2.
+- The staged proposal codec accepts both the F03 and F04 key sets. `review-edits.ts` / `lifecycle.ts` take formula identities.

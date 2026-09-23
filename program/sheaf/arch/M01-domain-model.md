@@ -157,3 +157,9 @@ not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
 
 - `F04_CHART_EVENT_KINDS = ["chart.saved", "chart.deleted"]` (L276, both already in migration 004), folded into `DomainEventKindV1` and `DomainEventOfV1` (payload map `F04ChartEventPayloadsV1`).
 - `CHART_PROVENANCES = ["imported", "user"]` (L380, migration 005 `charts.provenance` CHECK), `ChartStateV1` (L389: `definition, displayName, pinned, ordinal, provenance, chartRevision`), `ChartSavedPayloadV1` (L401: `ChartStateV1 & {chartId, priorSha256|null}`), `ChartDeletedPayloadV1` (L408: `{chartId, prior: ChartStateV1}`). Chart payloads are concrete (M01 owns `ChartDefinitionV1`); a chart is not schema — its commit leaves `schemaRevision` unchanged.
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (M01 / M32 / M33 — domain snapshots, worker protocol, data handlers)
+
+- CA-33: `chart-not-rebuilt` and `formula-not-supported` are added to PRESERVED/INERT reason keys, `INERT_REASON_OF`, both wire unions and the copy maps.
+- `import-handlers.ts`: refreshes formulas after rejection memory. The proposal wire carries formulas, charts and rules.

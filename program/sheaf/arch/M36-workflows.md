@@ -171,3 +171,9 @@ single-table shape underneath them.
 ### F04 delta — SESSION-05 (M36 workflows — `src/application/workflows/records-services.ts`)
 
 - `ChartServices` + `createChartServices(port)` live here (not in a new `chart-services.ts`): `tests/unit/workflows/module-boundaries.test.ts` enumerates the directory's files and is outside S05's lease (Custom Rule 7, the S08 precedent).
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (M36 / M37 / M43 — view-models and UI (import review))
+
+- `import.ts` VM: `ReviewCalculationVm`, `ReviewChartVm` (with `isPinned`), `ReviewRuleVm`. `records.ts` inert sentences revised (exported types unchanged).
+- `src/ui/import/review-screen.tsx`: calculation articles (reject/restore/why), rule descriptions, "N formulas keep working" count, dashboard sheet copy. `review-evidence.tsx`: formula-outcome evidence copy.

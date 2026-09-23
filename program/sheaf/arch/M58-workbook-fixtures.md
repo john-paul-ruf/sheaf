@@ -105,3 +105,9 @@ checkpoint digest now goes through `checkpointSemanticBody`.
 - New fixture `ooxml/charts.xlsx` (FIDELITY_WORKBOOKS): nine charts covering clustered/stacked/percentStacked bars, line, pie, doughnut, scatter, area, and a series spanning two sheets.
 - `ooxml/pivot-table.xlsx`: a real cache over `Data!A1:B4`, one row field, and data fields for sum (default) and count. The pivot is at `Summary!A3:C5`.
 - `ooxml/fieldwork-q3.xlsx`: the Overview chart is now a clustered column chart, "Quoted by status", with name `Jobs!$E$1`, cat `Jobs!$D$2:$D$61`, val `Jobs!$E$2:$E$61`. Every `DEMO_*` pin is unchanged.
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (M58 / M65 — tests and fixtures)
+
+- New fixture `tests/fixtures/workbooks/ooxml/formulas-live.xlsx`. `demo-counts.ts` exports `DEMO_LIVE_STRUCTURE_STATEMENTS`.
+- `tests/browser/worker/workbook-roots.ts` exposes the formulas, charts and computedFields roots.
