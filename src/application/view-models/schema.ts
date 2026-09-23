@@ -602,7 +602,9 @@ export function describeChange(change: SchemaChangeWireV1, structure: AppStructu
     case "rename-field":
       return `Rename ${lookup.name(change.fieldId)} to “${change.name}”`;
     case "change-field-type":
-      return `Change ${lookup.name(change.fieldId)} to ${typeLabel(change.type)}`;
+      return change.optionLabels !== undefined && change.optionLabels.length > 0
+        ? `Change ${lookup.name(change.fieldId)} to ${typeLabel(change.type)} with the choices ${change.optionLabels.join(", ")}`
+        : `Change ${lookup.name(change.fieldId)} to ${typeLabel(change.type)}`;
     case "set-required":
       return change.isRequired ? `Make ${lookup.name(change.fieldId)} required` : `Make ${lookup.name(change.fieldId)} optional`;
     case "deactivate-field":

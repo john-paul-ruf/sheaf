@@ -331,7 +331,12 @@ export function toRequest(change: SchemaChangeWireV1): SchemaChangeRequestV1 {
     case "rename-field":
       return { kind: change.kind, fieldId: idOf("field", change.fieldId), name: change.name };
     case "change-field-type":
-      return { kind: change.kind, fieldId: idOf("field", change.fieldId), type: typeOf(change.type) };
+      return {
+        kind: change.kind,
+        fieldId: idOf("field", change.fieldId),
+        type: typeOf(change.type),
+        ...(change.optionLabels === undefined ? {} : { optionLabels: change.optionLabels }),
+      };
     case "set-required":
       return { kind: change.kind, fieldId: idOf("field", change.fieldId), isRequired: change.isRequired };
     case "deactivate-field":

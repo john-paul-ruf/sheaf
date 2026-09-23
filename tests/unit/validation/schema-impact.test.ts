@@ -138,6 +138,24 @@ describe("analyzeSchemaChange (CA-28, D57)", () => {
     ]);
   });
 
+  it("converts text to a choice list by exact label against the named choices only, keeping and flagging the rest", () => {
+    const named: EnumOptionDefV1 = { ...option(id("option", 32), "C-1", 0), fieldId: CUSTOMER };
+    const report = analyzeSchemaChange(
+      { kind: "change-field-type", fieldId: CUSTOMER, type: { kind: "enum" }, enumOptions: [named, { ...named, optionId: id("option", 33), displayLabel: "Old", optionOrdinal: 1, isActive: false }] },
+      schema,
+      records,
+      env,
+    );
+    expect(report).toMatchObject({ total: 5, affected: 2, converted: 1, keptAndFlagged: 1, unchanged: 3 });
+    expect(report.patches).toEqual([
+      { recordId: id("record", 1), fieldId: CUSTOMER, value: enumValue(named.optionId) },
+      { recordId: id("record", 2), fieldId: CUSTOMER, value: invalidPreservedValue("C-9") },
+    ]);
+    // With no choices named, nothing is derived from the column: every value is kept and flagged.
+    const unnamed = analyzeSchemaChange({ kind: "change-field-type", fieldId: CUSTOMER, type: { kind: "enum" } }, schema, records, env);
+    expect(unnamed).toMatchObject({ affected: 2, converted: 0, keptAndFlagged: 2 });
+  });
+
   it("counts required, removed enum options, and failing rules", () => {
     expect(analyzeSchemaChange({ kind: "set-required", fieldId: CUSTOMER, isRequired: true }, schema, records, env)).toMatchObject({
       missingNow: 3,

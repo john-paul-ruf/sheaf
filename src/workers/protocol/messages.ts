@@ -580,7 +580,13 @@ export type SchemaChangeWireV1 =
       readonly optionLabels: readonly string[];
     }
   | { readonly kind: "rename-field"; readonly fieldId: string; readonly name: string }
-  | { readonly kind: "change-field-type"; readonly fieldId: string; readonly type: FieldTypeWireV1 }
+  | {
+      readonly kind: "change-field-type";
+      readonly fieldId: string;
+      readonly type: FieldTypeWireV1;
+      /** Becoming a choice list: the choices the person names, in order (required then). */
+      readonly optionLabels?: readonly string[];
+    }
   | { readonly kind: "set-required"; readonly fieldId: string; readonly isRequired: boolean }
   | { readonly kind: "deactivate-field" | "reactivate-field"; readonly fieldId: string }
   | { readonly kind: "reorder-fields"; readonly tableId: string; readonly fieldIds: readonly string[] }

@@ -602,3 +602,57 @@ describe("records beside computed columns (D51, CA-26, invariant 5)", () => {
     SLOW,
   );
 });
+
+describe("text becomes a choice list with the choices a person names (FR-15, D57, CA-28)", () => {
+  it(
+    "refuses it with no choices, then converts by exact label and keeps the rest flagged, in one commit that a fresh worker reads back",
+    async () => {
+      await handler.handle({ kind: "lock" });
+      handler.dispose();
+      handler = createTestHandler().handler;
+      await open(handler);
+      const customers = tableNamed(await structure(), "Customers");
+      const name = fieldNamed(customers, "Name");
+      const unnamed = (
+        await ask(handler, { kind: "previewSchemaChange", appId, change: { kind: "change-field-type", fieldId: name.fieldId, type: { kind: "enum" } } })
+      ).preview;
+      expect(unnamed?.refusal).toMatchObject({ kind: "transition", refusals: [{ messageKey: "schema.enum-field-without-options" }] });
+
+      const texts = (await records(customers.tableId)).map((record) => {
+        const value = record.values.find((entry) => entry.fieldId === name.fieldId)?.value;
+        return value?.kind === "text" ? value.text : null;
+      });
+      const chosen = texts.find((text) => text !== null)!;
+      const converted = texts.filter((text) => text !== null && text.trim() === chosen.trim()).length;
+      const kept = texts.filter((text) => text !== null && text.length > 0).length - converted;
+      expect(kept).toBeGreaterThan(0);
+
+      const applied = await change({
+        kind: "change-field-type",
+        fieldId: name.fieldId,
+        type: { kind: "enum" },
+        optionLabels: [chosen, "Nobody by this name"],
+      });
+      expect(applied.impact).toMatchObject({ converted, keptAndFlagged: kept, affected: converted + kept, unchanged: texts.length - converted - kept });
+      // field.changed + enum.changed + one record.patched per rewritten value.
+      expect(applied.eventCount).toBe(2 + converted + kept);
+      const history = (await ask(handler, { kind: "getChangeHistory", appId, limit: 200 })).page!.entries;
+      const commit = history.filter((entry) => entry.commitId === history[0]!.commitId).map((entry) => entry.eventKind);
+      expect(commit.filter((kind) => kind === "field.changed")).toHaveLength(1);
+      expect(commit.filter((kind) => kind === "enum.changed")).toHaveLength(1);
+      expect(commit.filter((kind) => kind === "record.patched")).toHaveLength(converted + kept);
+
+      await handler.handle({ kind: "lock" });
+      handler.dispose();
+      handler = createTestHandler().handler;
+      await open(handler);
+      const reopened = fieldNamed(tableNamed(await structure(), "Customers"), "Name");
+      expect(reopened.type).toEqual({ kind: "enum" });
+      expect(reopened.enumOptions.map((option) => `${option.label}:${option.isActive}`)).toEqual([`${chosen}:true`, "Nobody by this name:true"]);
+      const values = (await records(customers.tableId)).map((record) => record.values.find((entry) => entry.fieldId === name.fieldId)?.value);
+      expect(values.filter((value) => value?.kind === "option" && value.optionId === reopened.enumOptions[0]!.optionId)).toHaveLength(converted);
+      expect(values.filter((value) => value?.kind === "invalid")).toHaveLength(kept);
+    },
+    SLOW,
+  );
+});

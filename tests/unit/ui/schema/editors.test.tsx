@@ -59,6 +59,33 @@ describe("a type change (CA-28, D57)", () => {
     expect(queryAll('[data-dialog="MOD-014"]')).toHaveLength(0);
   });
 
+  it("text to a choice list asks for the choices by name, and sends exactly those (FR-15, D57)", async () => {
+    const schema = fakeSchema({ previews: [preview("change-field-type", { converted: 2, keptAndFlagged: 1, unchanged: 0 })] });
+    await open(schema, IDS.name);
+    await choose("What kind of information?", "enum");
+    expect(button("Change type").disabled).toBe(true);
+    expect(query('[data-editor="new-choices"]').textContent).toContain("A value that matches a choice exactly becomes that choice.");
+    expect(document.body.textContent).toContain("Name at least one choice first.");
+
+    const input = (): HTMLInputElement => query<HTMLInputElement>('[data-editor="new-choices"] input');
+    await typeInto(input(), "North");
+    await press("Add choice");
+    await typeInto(input(), "South");
+    await press("Add choice");
+    await press("Change type");
+    await settle();
+
+    expect(sent(schema, "previewSchemaChange")).toEqual([
+      {
+        appId: "app-field-log",
+        change: { kind: "change-field-type", fieldId: IDS.name, type: { kind: "enum" }, optionLabels: ["North", "South"] },
+      },
+    ]);
+    expect(dialog().textContent).toContain("Change Name to Choice list with the choices North, South");
+    expect(dialog().textContent).toContain("2 values convert to Choice list.");
+    expect(dialog().textContent).toContain("1 value does not fit and is kept as it was, flagged for review.");
+  });
+
   it("re-previews a stale preview and shows the new counts; nothing is applied blindly", async () => {
     const schema = fakeSchema({
       previews: [

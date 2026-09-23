@@ -612,6 +612,61 @@ describe("command outcomes", () => {
       }).sentence,
     ).toBe("This value did not pass one of the table's own rules.");
   });
+
+  describe("says a record rule from its own parameters, never a value (CAP-36, D62, CA-12)", () => {
+    const ruleIssue = (messageKey: string, messageParameters: Record<string, string>) => ({
+      fieldId: null,
+      kind: "record-rule",
+      severity: "blocking" as const,
+      messageKey,
+      messageParameters,
+    });
+    const dateField = (fieldId: string, displayName: string) => ({
+      fieldId,
+      displayName,
+      fieldOrdinal: 0,
+      type: { kind: "date" as const },
+      isRequired: false,
+      isActive: true,
+      enumOptions: [],
+    });
+    const fields = [dateField("f-1", "Finish by"), dateField("f-2", "Start date")];
+
+    it("compares two fields in the words their kind takes, as the mock shows", () => {
+      const issue = ruleIssue("rule-compare", { ruleLabel: "Finish after start", leftLabel: "Finish by", operator: "ge", rightLabel: "Start date" });
+      expect(toIssueVm(issue, fields).sentence).toBe("Finish by must be on or after Start date.");
+      // Without the table's fields the kind is unknown: neutral words, still true.
+      expect(toIssueVm(issue).sentence).toBe("Finish by must not come before Start date.");
+    });
+
+    it("names a literal by its kind and the rule, never by its value", () => {
+      const sentence = toIssueVm(
+        ruleIssue("rule-compare", { ruleLabel: "No negative quotes", leftLabel: "Quoted amount", operator: "ge", valueType: "decimal" }),
+      ).sentence;
+      expect(sentence).toBe("Quoted amount must be at least the number set in the rule “No negative quotes”.");
+    });
+
+    it("says a range rule in words true for both between and not between", () => {
+      expect(toIssueVm(ruleIssue("rule-between", { ruleLabel: "Sensible hours", fieldLabel: "Hours", valueType: "decimal" })).sentence).toBe(
+        "Hours is outside what the rule “Sensible hours” allows.",
+      );
+    });
+
+    it("falls back to the generic sentence when a parameter it needs is missing or unknown", () => {
+      const generic = "This value did not pass one of the table's own rules.";
+      expect(toIssueVm(ruleIssue("rule-compare", { ruleLabel: "X", leftLabel: "A", operator: "between-ish" })).sentence).toBe(generic);
+      expect(toIssueVm(ruleIssue("rule-between", { ruleLabel: "X" })).sentence).toBe(generic);
+    });
+
+    it("reaches the record form's refusal with the table's field kinds", () => {
+      const vm = selectRecordFormVm({
+        table: { tableId: "t-1", displayName: "Jobs", tableOrdinal: 0, recordCount: 1, isRecordCountExact: true, fields },
+        issues: [ruleIssue("rule-compare", { ruleLabel: "Finish after start", leftLabel: "Finish by", operator: "ge", rightLabel: "Start date" })],
+      });
+      expect(vm.recordIssues.map((issue) => issue.sentence)).toEqual(["Finish by must be on or after Start date."]);
+      expect(vm.canSave).toBe(false);
+    });
+  });
 });
 
 describe("the change history (SCR-032)", () => {

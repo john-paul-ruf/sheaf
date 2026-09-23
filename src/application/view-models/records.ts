@@ -1214,7 +1214,7 @@ export function selectRecordDetailVm(
   const fields = fieldsInOrder(table);
   const byField = new Map(record.values.map((entry) => [entry.fieldId, entry]));
   const indexed = new Set(record.indexedFieldIds);
-  const issues = record.issues.map(toIssueVm);
+  const issues = record.issues.map((issue) => toIssueVm(issue, table.fields));
   const parents = context.related?.parents ?? record.references ?? [];
   const byReference = referencesByField(parents);
   const fieldById = new Map(table.fields.map((field) => [field.fieldId, field]));
@@ -1447,7 +1447,7 @@ export function selectRecordFormVm(input: {
 }): RecordFormVm {
   const { table, record } = input;
   const mode = record === undefined ? "create" : "edit";
-  const issues = (input.issues ?? record?.issues ?? []).map(toIssueVm);
+  const issues = (input.issues ?? record?.issues ?? []).map((issue) => toIssueVm(issue, table.fields));
   const byField = new Map(
     (record?.values ?? []).map((entry) => [entry.fieldId, entry]),
   );
@@ -1600,7 +1600,11 @@ export interface RecordIssueVm {
   readonly sentence: string;
 }
 
-export function toIssueVm(issue: RecordIssueViewV1): RecordIssueVm {
+/**
+ * `fields`: the table's fields, so a rule comparing two of them is said in the
+ * words their kind takes ("is on or after" for days). Without them, neutral words.
+ */
+export function toIssueVm(issue: RecordIssueViewV1, fields: readonly AppFieldViewV1[] = []): RecordIssueVm {
   const token = ISSUE_TOKENS[issue.messageKey] ?? "unrecognised";
   return {
     fieldId: issue.fieldId,
@@ -1608,8 +1612,85 @@ export function toIssueVm(issue: RecordIssueViewV1): RecordIssueVm {
     severity: issue.severity,
     token,
     parameters: issue.messageParameters,
-    sentence: ISSUE_SENTENCE[token],
+    sentence: ruleSentence(issue, fields) ?? ISSUE_SENTENCE[token],
   };
+}
+
+// --- a record rule, said from its own parameters (D52, D62) -------------------
+
+type RuleOrderKind = "date" | "number" | "text" | "neutral";
+
+/** "{left} must ... {right}." by the kind of value compared; `neutral` fits any kind. */
+const RULE_MUST_WORDS: Readonly<Record<RuleOrderKind, Readonly<Record<string, string>>>> = Object.freeze({
+  date: { lt: "must be before", le: "must be on or before", gt: "must be after", ge: "must be on or after", eq: "must be", ne: "must not be" },
+  number: { lt: "must be less than", le: "must be at most", gt: "must be greater than", ge: "must be at least", eq: "must be", ne: "must not be" },
+  text: { lt: "must come before", le: "must be or come before", gt: "must come after", ge: "must be or come after", eq: "must be", ne: "must not be" },
+  neutral: { lt: "must come before", le: "must not come after", gt: "must come after", ge: "must not come before", eq: "must be the same as", ne: "must differ from" },
+});
+
+/** A rule literal's value kind (a cell value kind), as its order kind and the word naming it. */
+const LITERAL_KINDS: Readonly<Record<string, readonly [RuleOrderKind, string]>> = Object.freeze({
+  date: ["date", "day"],
+  decimal: ["number", "number"],
+  text: ["text", "text"],
+});
+
+function orderKindOfField(type: FieldTypeWireV1 | undefined): RuleOrderKind {
+  switch (type?.kind) {
+    case "date":
+      return "date";
+    case "number":
+    case "currency":
+      return "number";
+    case "text":
+    case "phone":
+    case "email":
+    case "url":
+    case "address":
+      return "text";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * `rule-compare` / `rule-between`: composed from the issue's own labels,
+ * operator and literal kind, never a value (CA-12). An unknown key, or a
+ * parameter missing, is `null`: the fail-closed generic sentence stands.
+ * `rule-between` is shared by "between" and "not between" (the issue does not
+ * say which), so its sentence holds for both.
+ */
+function ruleSentence(issue: RecordIssueViewV1, fields: readonly AppFieldViewV1[]): string | null {
+  const parameters = issue.messageParameters;
+  const text = (name: string): string | null => {
+    const value = parameters[name];
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  };
+  const ruleLabel = text("ruleLabel");
+  if (ruleLabel === null) return null;
+  switch (issue.messageKey) {
+    case "rule-compare": {
+      const left = text("leftLabel");
+      const operator = text("operator");
+      if (left === null || operator === null) return null;
+      const right = text("rightLabel");
+      if (right !== null) {
+        const kinds = [left, right].map((label) => orderKindOfField(fields.find((field) => field.displayName === label)?.type));
+        const words = RULE_MUST_WORDS[kinds[0] === kinds[1] ? (kinds[0] ?? "neutral") : "neutral"][operator];
+        return words === undefined ? null : `${left} ${words} ${right}.`;
+      }
+      const literal = LITERAL_KINDS[text("valueType") ?? ""];
+      const words = RULE_MUST_WORDS[literal?.[0] ?? "neutral"][operator];
+      if (words === undefined) return null;
+      return `${left} ${words} the ${literal?.[1] ?? "value"} set in the rule “${ruleLabel}”.`;
+    }
+    case "rule-between": {
+      const field = text("fieldLabel");
+      return field === null ? null : `${field} is outside what the rule “${ruleLabel}” allows.`;
+    }
+    default:
+      return null;
+  }
 }
 
 // --- command outcomes --------------------------------------------------------
@@ -1660,7 +1741,7 @@ export function toCommandOutcomeVm(
     case "rejected":
       return {
         kind: "rejected",
-        issues: outcome.report.issues.map(toIssueVm),
+        issues: outcome.report.issues.map((issue) => toIssueVm(issue)),
       };
     default:
       return { kind: "unknown-subject", subject: outcome.subject };
@@ -1904,7 +1985,7 @@ export function selectRestoreRecordDialogVm(
     validation:
       options.rejection === undefined
         ? { kind: "checked-on-restore" }
-        : { kind: "rejected", issues: options.rejection.map(toIssueVm) },
+        : { kind: "rejected", issues: options.rejection.map((issue) => toIssueVm(issue, table?.fields)) },
     assurance:
       "Restore validates against the current schema before writing a new append-only event.",
     busy: options.busy === true,

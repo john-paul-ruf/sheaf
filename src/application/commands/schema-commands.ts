@@ -120,7 +120,13 @@ export type SchemaChangeRequestV1 =
       readonly optionLabels: readonly string[];
     }
   | { readonly kind: "rename-field"; readonly fieldId: FieldId; readonly name: string }
-  | { readonly kind: "change-field-type"; readonly fieldId: FieldId; readonly type: FieldTypeV1 }
+  | {
+      readonly kind: "change-field-type";
+      readonly fieldId: FieldId;
+      readonly type: FieldTypeV1;
+      /** Becoming a choice list: the choices the person names, in order. Required then; ignored otherwise. */
+      readonly optionLabels?: readonly string[];
+    }
   | { readonly kind: "set-required"; readonly fieldId: FieldId; readonly isRequired: boolean }
   | { readonly kind: "deactivate-field"; readonly fieldId: FieldId }
   | { readonly kind: "reactivate-field"; readonly fieldId: FieldId }
@@ -691,7 +697,34 @@ function resolve(
     case "change-field-type": {
       const field = fieldById(before, request.fieldId);
       if (field !== undefined && isComputedField(field)) return refuse({ kind: "invalid-change", reason: "computed-field" });
-      return fieldEdit(request.fieldId, (current) => ({ ...current, type: request.type }), request);
+      const change: SchemaChangeV1 = { kind: "change-field-type", fieldId: request.fieldId, type: request.type };
+      if (field === undefined || request.type.kind !== "enum" || field.type.kind === "enum") {
+        return fieldEdit(request.fieldId, (current) => ({ ...current, type: request.type }), change);
+      }
+      // Becoming a choice list: the person's named choices, never the column's
+      // own values. Options from an earlier choice-list life stay, inactive, after
+      // them (IDs are stable). No named choice leaves the field without options,
+      // which the transition refuses as before.
+      const created: EnumOptionDefV1[] = (request.optionLabels ?? [])
+        .map(nameOf)
+        .filter((label): label is string => label !== null)
+        .map((displayLabel, optionOrdinal) => ({
+          optionId: createDomainId("option", deps.entropy),
+          fieldId: field.fieldId,
+          displayLabel,
+          optionOrdinal,
+          isActive: true,
+          schemaRevision: next,
+        }));
+      const earlier = deps.projection
+        .execute({ kind: "list-enum-options", fieldId: field.fieldId })
+        .map((option, index) => ({ ...option, isActive: false, optionOrdinal: created.length + index, schemaRevision: next }));
+      const enumOptions = created.length === 0 ? [] : [...created, ...earlier];
+      const after = withField(before, { ...field, type: request.type, schemaRevision: next });
+      return plain(
+        enumOptions.length === 0 ? change : { ...change, enumOptions },
+        { ...after, enumOptions: [...before.enumOptions.filter((option) => !same(option.fieldId, field.fieldId)), ...enumOptions] },
+      );
     }
     case "set-required":
       return fieldEdit(request.fieldId, (field) => ({ ...field, isRequired: request.isRequired }), request);
@@ -1088,8 +1121,25 @@ async function draftEvents(deps: SchemaCommandDependenciesV1, prepared: Prepared
     case "set-required":
     case "deactivate-field":
     case "reactivate-field":
+      fieldChanged(change.fieldId);
+      break;
     case "change-field-type":
       fieldChanged(change.fieldId);
+      // The field is a choice list before its options name it (migration 005's guard).
+      if (change.enumOptions !== undefined) {
+        const prior = deps.projection.execute({ kind: "list-enum-options", fieldId: change.fieldId });
+        drafts.push({
+          subject: { tableId: (fieldById(after, change.fieldId) as FieldDefV1).tableId, fieldId: change.fieldId },
+          event: {
+            kind: "enum.changed",
+            payload: {
+              fieldId: change.fieldId,
+              priorOptionSetSha256: prior.length === 0 ? null : await deps.definitionDigest({ kind: "options", options: prior }),
+              options: change.enumOptions,
+            },
+          },
+        });
+      }
       break;
     case "reorder-fields":
       for (const field of tableById(after, change.tableId)?.fields ?? []) {

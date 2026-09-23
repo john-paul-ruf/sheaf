@@ -45,8 +45,15 @@ export interface FieldEditorProps {
 export function FieldEditor({ field, tables, onPropose, onOpenActions, onEditCalculation }: FieldEditorProps): ReactNode {
   const [name, setName] = useState(field.name);
   const [kind, setKind] = useState<FieldTypeKindVm>(field.type.kind);
+  const [choices, setChoices] = useState<readonly string[]>([]);
+  const [choice, setChoice] = useState("");
   const isComputed = field.calculation !== null;
   const trimmed = name.normalize("NFC").trim();
+  // Becoming a choice list: the person names its choices (FR-15); none are guessed from the column.
+  const isBecomingChoiceList = kind === "enum" && field.type.kind !== "enum";
+  const typeBlocker =
+    kind === field.type.kind ? "Choose another kind first." : isBecomingChoiceList && choices.length === 0 ? "Name at least one choice first." : null;
+  const newChoice = choice.normalize("NFC").trim();
 
   return (
     <section aria-labelledby="field-title" className={cx(styles["panel"])} data-structure-detail={field.fieldId}>
@@ -89,19 +96,65 @@ export function FieldEditor({ field, tables, onPropose, onOpenActions, onEditCal
             options={typeChoicesFor(field.type)}
             value={kind}
           />
-          {kind === field.type.kind ? (
-            <Button disabledReason="Choose another kind first." isDisabled>
+          {typeBlocker !== null ? (
+            <Button disabledReason={typeBlocker} isDisabled>
               Change type
             </Button>
           ) : (
             <Button
               onPress={() => {
-                onPropose({ kind: "change-field-type", fieldId: field.fieldId, type: typeForChoice(kind, field.type) });
+                onPropose({
+                  kind: "change-field-type",
+                  fieldId: field.fieldId,
+                  type: typeForChoice(kind, field.type),
+                  ...(isBecomingChoiceList ? { optionLabels: choices } : {}),
+                });
               }}
             >
               Change type
             </Button>
           )}
+        </div>
+      )}
+
+      {!isComputed && isBecomingChoiceList && (
+        <div className={cx(styles["stack"])} data-editor="new-choices">
+          <span className={cx(styles["listTitle"])} id={`new-choices-${field.fieldId}`}>
+            Choices
+          </span>
+          <p className={cx(styles["lede"])}>A value that matches a choice exactly becomes that choice. Any other value is kept and flagged.</p>
+          {choices.length > 0 && (
+            <ol aria-labelledby={`new-choices-${field.fieldId}`} className={cx(styles["rows"])}>
+              {choices.map((label, index) => (
+                <li className={cx(styles["row"])} key={label}>
+                  <span aria-hidden="true" className={cx(styles["leading"])}>
+                    {index + 1}
+                  </span>
+                  <span>{label}</span>
+                  <div className={cx(styles["rowActions"])}>
+                    <Button onPress={() => { setChoices((current) => current.filter((_, at) => at !== index)); }}>{`Remove ${label}`}</Button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+          <div className={cx(styles["inlineForm"])}>
+            <TextField label={`New choice for ${field.name}`} onChange={setChoice} value={choice} />
+            {newChoice === "" || choices.includes(newChoice) ? (
+              <Button disabledReason={newChoice === "" ? "Name the new choice first." : "That choice is already listed."} isDisabled>
+                Add choice
+              </Button>
+            ) : (
+              <Button
+                onPress={() => {
+                  setChoices((current) => [...current, newChoice]);
+                  setChoice("");
+                }}
+              >
+                Add choice
+              </Button>
+            )}
+          </div>
         </div>
       )}
 

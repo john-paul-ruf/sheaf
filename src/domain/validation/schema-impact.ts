@@ -60,7 +60,17 @@ export type SchemaChangeV1 =
   | { readonly kind: "set-table-key"; readonly tableId: TableId; readonly keyFieldId: FieldId | null }
   | { readonly kind: "create-field"; readonly field: FieldDefV1; readonly enumOptions: readonly EnumOptionDefV1[] }
   | { readonly kind: "rename-field"; readonly fieldId: FieldId; readonly name: string }
-  | { readonly kind: "change-field-type"; readonly fieldId: FieldId; readonly type: FieldTypeV1 }
+  | {
+      readonly kind: "change-field-type";
+      readonly fieldId: FieldId;
+      readonly type: FieldTypeV1;
+      /**
+       * Becoming a choice list: the field's complete option list after the
+       * change, the person's named choices active (FR-15, D57). Values convert
+       * by exact label against these, never against the column's own values.
+       */
+      readonly enumOptions?: readonly EnumOptionDefV1[];
+    }
   | { readonly kind: "set-required"; readonly fieldId: FieldId; readonly isRequired: boolean }
   | { readonly kind: "deactivate-field"; readonly fieldId: FieldId }
   | { readonly kind: "reactivate-field"; readonly fieldId: FieldId }
@@ -285,7 +295,7 @@ export function analyzeSchemaChange(
   const perRecord = ((): ((record: RecordUnderValidationV1) => void) | null => {
     switch (change.kind) {
       case "change-field-type": {
-        const options = optionsOf(schema, change.fieldId);
+        const options = change.enumOptions ?? optionsOf(schema, change.fieldId);
         return (record) => {
           const before = valueIn(record, change.fieldId);
           const conversion = convertValueForType(before, change.type, options);
