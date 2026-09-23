@@ -71,8 +71,12 @@ import {
 import {
   createImportStage,
   readImportStage,
+  type CreateImportStageInputV1,
   type StagingPortsV1,
 } from "../../import/staging/lifecycle.js";
+import type { WorkbookFormatV1 } from "../../import/facts/index.js";
+import { IMPORT_BUDGET_V1 } from "../../import/preflight/budgets.js";
+import type { DetectedFormatV1 } from "../../import/source/sniff.js";
 import type { PreflightReportV1 } from "../../import/preflight/preflight.js";
 import type { WorkbookFactStreamItemV2 } from "../../import/facts/index.js";
 import { encodeFactStreamItem } from "../../import/staging/fact-codec.js";
@@ -81,6 +85,7 @@ import {
   IMPORT_STAGE_PAYLOAD_KIND,
   IMPORT_STAGE_SCOPE,
   type ImportStageV1,
+  type StagedSheetSummaryV1,
 } from "../../import/staging/stage.js";
 import {
   stageWithProposal,
@@ -99,6 +104,10 @@ import type {
   PromoteImportRequestV1,
   CancelImportStageRequestV1,
   DataWorkerResponseV1,
+  DetectedDelimitedV1,
+  ImportPreflightFactsV1,
+  WorkbookSheetSummaryWireV1,
+  WorkbookStageFactsV1,
   GetImportStageRequestV1,
   ImportStageViewV1,
   RunInferenceRequestV1,
@@ -351,8 +360,9 @@ class SessionCatalogPort implements StagingCatalogPort {
  */
 function preflightFrom(
   request: BeginImportStageRequestV1,
+  detected: DetectedDelimitedV1,
+  preflight: ImportPreflightFactsV1,
 ): PreflightReportV1 {
-  const { preflight, detected } = request;
   if (
     !Number.isSafeInteger(preflight.columnCount) ||
     preflight.columnCount < 0 ||
@@ -378,6 +388,85 @@ function preflightFrom(
     bytesSampled: preflight.bytesSampled,
   };
 }
+
+const SHEET_KINDS_WIRE: readonly WorkbookSheetSummaryWireV1["sheetKind"][] = ["worksheet", "chartsheet", "dialogsheet"];
+const VISIBILITIES_WIRE: readonly WorkbookSheetSummaryWireV1["visibility"][] = ["visible", "hidden", "very-hidden"];
+const WORKBOOK_FORMATS_WIRE: readonly WorkbookFormatV1[] = ["xlsx", "xlsb", "xls", "ods", "html-table"];
+
+const isEstimate = (value: number | null): boolean => value === null || (Number.isSafeInteger(value) && value >= 0);
+
+/**
+ * The workbook inventory and selection the page relayed, checked before a
+ * stage exists: every sheet well-formed and named once, the selection
+ * non-empty, ascending, inventoried, and within the D31 cell budget. The
+ * import worker validates the same selection again at `proceed` against the
+ * report it computed itself, so a page cannot widen what is parsed.
+ */
+function workbookFactsFrom(
+  facts: WorkbookStageFactsV1,
+): { readonly inventory: readonly StagedSheetSummaryV1[]; readonly selectedSheets: readonly number[] } {
+  const inventory = facts.sheets.map((sheet): StagedSheetSummaryV1 => {
+    if (
+      !Number.isSafeInteger(sheet.sheetIndex) ||
+      sheet.sheetIndex < 0 ||
+      typeof sheet.name !== "string" ||
+      !SHEET_KINDS_WIRE.includes(sheet.sheetKind) ||
+      !VISIBILITIES_WIRE.includes(sheet.visibility) ||
+      !isEstimate(sheet.estimatedRowCount) ||
+      !isEstimate(sheet.estimatedCellCount)
+    ) {
+      throw new DataWorkerCommandError("malformed-request");
+    }
+    return {
+      sheetIndex: sheet.sheetIndex,
+      name: sheet.name,
+      sheetKind: sheet.sheetKind,
+      visibility: sheet.visibility,
+      estimatedRowCount: sheet.estimatedRowCount,
+      estimatedCellCount: sheet.estimatedCellCount,
+    };
+  });
+  const selected = facts.selectedSheets;
+  const cells = selected.reduce(
+    (sum, index) => sum + (inventory.find((sheet) => sheet.sheetIndex === index)?.estimatedCellCount ?? 0),
+    0,
+  );
+  if (
+    new Set(inventory.map((sheet) => sheet.sheetIndex)).size !== inventory.length ||
+    selected.length === 0 ||
+    selected.some(
+      (index, position) =>
+        !Number.isSafeInteger(index) ||
+        (position > 0 && index <= (selected[position - 1] as number)) ||
+        !inventory.some((sheet) => sheet.sheetIndex === index),
+    ) ||
+    cells > IMPORT_BUDGET_V1.maxEstimatedCells ||
+    !Number.isSafeInteger(facts.sourceByteLength) ||
+    facts.sourceByteLength < 0
+  ) {
+    throw new DataWorkerCommandError("malformed-request");
+  }
+  return { inventory, selectedSheets: [...selected] };
+}
+
+/** The container family a workbook format lives in: the stage's `detected`. */
+const detectedOfWorkbook = (format: WorkbookFormatV1): DetectedFormatV1 => {
+  switch (format) {
+    case "xlsx":
+    case "xlsb":
+      return { kind: "zip-container", container: "ooxml" };
+    case "ods":
+      return { kind: "zip-container", container: "ods" };
+    case "xls":
+      return { kind: "cfb" };
+    case "html-table":
+      return { kind: "html-table" };
+    default: {
+      const unreachable: never = format;
+      return unreachable;
+    }
+  }
+};
 
 export interface ImportHandlerDependenciesV1 {
   readonly entropy: EntropyPort;
@@ -729,33 +818,55 @@ export function createImportHandlers(
       ports: readonly MessagePort[],
     ): Promise<DataWorkerResponseV1> {
       const context = deps.getContext();
-      if (request.detected.kind !== "delimited") {
-        // Every other format is refused before a stage exists (FR-2): there is
-        // nothing to clean up because nothing was created.
+      if (request.fileName.length === 0) {
         throw new DataWorkerCommandError("malformed-request");
       }
-      const catalogPort = new SessionCatalogPort(context);
-      const created = await createImportStage(
-        portsFor(catalogPort),
-        context.localRoot,
-        {
+      if ((request.destination ?? { kind: "new-app" }).kind !== "new-app") {
+        // Appending into an existing app arrives with the append path (D38).
+        throw new DataWorkerCommandError("malformed-request");
+      }
+      const { detected, preflight } = request;
+      let input: CreateImportStageInputV1;
+      if (detected.kind === "workbook") {
+        if (!("kind" in preflight) || !WORKBOOK_FORMATS_WIRE.includes(detected.format)) {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        const { inventory, selectedSheets } = workbookFactsFrom(preflight);
+        input = {
           fileName: request.fileName,
-          detected: {
-            kind: "delimited",
-            delimiter: request.detected.delimiter as "," | "\t" | ";" | "|",
-            encoding: request.detected
-              .encoding as PreflightReportV1["encoding"],
-            bomByteLength: request.detected.bomByteLength,
-            newline: request.detected.newline as PreflightReportV1["newline"],
-          },
+          format: detected.format,
+          destination: { kind: "new-app" },
+          detected: detectedOfWorkbook(detected.format),
           contradiction: null,
-          preflight: preflightFrom(request),
-          sourceByteLength: request.preflight.sourceByteLength,
+          preflight: null,
+          inventory,
+          sourceByteLength: preflight.sourceByteLength,
+          selectedSheets,
+        };
+      } else {
+        if ("kind" in preflight) {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        input = {
+          fileName: request.fileName,
           format: "delimited",
           destination: { kind: "new-app" },
+          detected: {
+            kind: "delimited",
+            delimiter: detected.delimiter as "," | "\t" | ";" | "|",
+            encoding: detected.encoding as PreflightReportV1["encoding"],
+            bomByteLength: detected.bomByteLength,
+            newline: detected.newline as PreflightReportV1["newline"],
+          },
+          contradiction: null,
+          preflight: preflightFrom(request, detected, preflight),
+          inventory: null,
+          sourceByteLength: preflight.sourceByteLength,
           selectedSheets: [0],
-        },
-      );
+        };
+      }
+      const catalogPort = new SessionCatalogPort(context);
+      const created = await createImportStage(portsFor(catalogPort), context.localRoot, input);
 
       // The provisional key stays sealed in its workflow envelope between
       // requests; the handle is released here so a lock cannot leave one live.

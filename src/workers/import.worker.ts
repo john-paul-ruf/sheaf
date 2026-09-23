@@ -17,18 +17,22 @@
  */
 
 import {
+  IMPORT_FLOWS_V1,
   IMPORT_PROTOCOL_VERSION,
   isImportWorkerRequestMessageV1,
+  type ImportFlowV1,
   type ImportWorkerEventMessageV1,
   type ImportWorkerEventV1,
 } from "./protocol/import-messages.js";
 import {
+  acceptedSelection,
   preflightFile,
   streamFacts,
   streamSource,
+  streamWorkbookFacts,
   type PreflightOutcomeForRunV1,
+  type StreamFactsResultV1,
 } from "./import/parse-session.js";
-import { isDelimitedSniff } from "../import/preflight/preflight.js";
 
 /**
  * The worker global, narrowed to what this file uses — the same reason
@@ -68,9 +72,22 @@ function emit(event: ImportWorkerEventV1): void {
   scope.postMessage(message);
 }
 
-async function startImport(file: Blob, fileName: string): Promise<void> {
+/**
+ * The flows a request declares, read defensively: structured clone delivers
+ * `unknown`, and anything that is not a list of known flows is F02's default.
+ */
+const flowsOf = (value: unknown): readonly ImportFlowV1[] =>
+  Array.isArray(value) && value.every((flow) => (IMPORT_FLOWS_V1 as readonly unknown[]).includes(flow))
+    ? (value as readonly ImportFlowV1[])
+    : ["delimited"];
+
+async function startImport(
+  file: Blob,
+  fileName: string,
+  acceptedFlows: readonly ImportFlowV1[],
+): Promise<void> {
   run.cancelled = false;
-  const outcome = await preflightFile(file, fileName, emit);
+  const outcome = await preflightFile(file, fileName, emit, acceptedFlows);
   run.preflight = outcome;
 
   if (outcome.kind === "refused") {
@@ -80,13 +97,23 @@ async function startImport(file: Blob, fileName: string): Promise<void> {
     return;
   }
 
-  emit({
-    kind: "preflight",
-    detected: outcome.sniff.format,
-    declaredExtension: outcome.sniff.declaredExtension,
-    contradiction: outcome.sniff.contradiction,
-    report: outcome.report,
-  });
+  emit(
+    outcome.kind === "workbook"
+      ? {
+          kind: "workbook-preflight",
+          detected: outcome.sniff.format,
+          declaredExtension: outcome.sniff.declaredExtension,
+          contradiction: outcome.sniff.contradiction,
+          report: outcome.report,
+        }
+      : {
+          kind: "preflight",
+          detected: outcome.sniff.format,
+          declaredExtension: outcome.sniff.declaredExtension,
+          contradiction: outcome.sniff.contradiction,
+          report: outcome.report,
+        },
+  );
   emit({
     kind: "progress",
     phase: "waiting-for-stage",
@@ -96,37 +123,58 @@ async function startImport(file: Blob, fileName: string): Promise<void> {
   });
 }
 
-async function proceed(): Promise<void> {
+async function proceed(selectedSheets: unknown): Promise<void> {
   const outcome = run.preflight;
   const port = run.port;
 
-  if (outcome === undefined || outcome.kind !== "proceed" || port === undefined) {
+  if (
+    outcome === undefined ||
+    outcome.kind === "refused" ||
+    port === undefined ||
+    run.streaming
+  ) {
     emit({ kind: "failed", reason: "malformed-request" });
     return;
   }
-  if (!isDelimitedSniff(outcome.sniff)) {
-    emit({ kind: "failed", reason: "parse-failed" });
-    return;
-  }
-  if (run.streaming) {
-    emit({ kind: "failed", reason: "malformed-request" });
-    return;
-  }
-
-  run.streaming = true;
-  const result = await streamFacts({
-    source: outcome.source,
-    sniff: outcome.sniff,
-    port,
-    // Read fresh on every check, so a cancel that arrives mid-parse is seen
-    // at the next batch boundary rather than at the next run.
-    cancellation: {
-      get aborted(): boolean {
-        return run.cancelled;
-      },
+  // Read fresh on every check, so a cancel that arrives mid-parse is seen at
+  // the next batch boundary rather than at the next run.
+  const cancellation = {
+    get aborted(): boolean {
+      return run.cancelled;
     },
-    emit,
-  });
+  };
+
+  let result: StreamFactsResultV1;
+  if (outcome.kind === "workbook") {
+    // Validated before a sheet is read: only inventoried sheets, none twice,
+    // within the budget. Anything else ends the run with nothing sent.
+    const selection = acceptedSelection(
+      outcome.report,
+      Array.isArray(selectedSheets) && selectedSheets.every(Number.isSafeInteger)
+        ? (selectedSheets as readonly number[])
+        : undefined,
+    );
+    if (selection === null) {
+      emit({ kind: "failed", reason: "malformed-request" });
+      return;
+    }
+    run.streaming = true;
+    result = await streamWorkbookFacts({
+      source: outcome.source,
+      report: outcome.report,
+      selection,
+      port,
+      cancellation,
+      emit,
+    });
+  } else {
+    if (selectedSheets !== undefined) {
+      emit({ kind: "failed", reason: "malformed-request" });
+      return;
+    }
+    run.streaming = true;
+    result = await streamFacts({ source: outcome.source, sniff: outcome.sniff, port, cancellation, emit });
+  }
   run.streaming = false;
 
   switch (result.outcome) {
@@ -137,10 +185,14 @@ async function proceed(): Promise<void> {
         source: outcome.source,
         port,
         startSeq: result.batchesSent,
-        cancellation: { get aborted(): boolean { return run.cancelled; } },
+        cancellation,
       });
       if (!retained.ok) {
-        emit({ kind: "failed", reason: "stage-rejected" });
+        emit({
+          kind: "failed",
+          reason: "stage-rejected",
+          detail: { stage: "stage", sheetOrdinal: null, diagnostic: "parse-failed" },
+        });
         return;
       }
       emit({
@@ -154,11 +206,20 @@ async function proceed(): Promise<void> {
       emit({ kind: "cancelled", batchesSent: result.batchesSent });
       return;
     case "stage-rejected":
-      emit({ kind: "failed", reason: "stage-rejected" });
+      emit(withDetail("stage-rejected", result));
       return;
     default:
-      emit({ kind: "failed", reason: "parse-failed" });
+      emit(withDetail("parse-failed", result));
   }
+}
+
+function withDetail(
+  reason: "stage-rejected" | "parse-failed",
+  result: StreamFactsResultV1,
+): ImportWorkerEventV1 {
+  return result.detail === null
+    ? { kind: "failed", reason }
+    : { kind: "failed", reason, detail: result.detail };
 }
 
 scope.addEventListener("message", (event: MessageEvent<unknown>) => {
@@ -173,11 +234,11 @@ scope.addEventListener("message", (event: MessageEvent<unknown>) => {
       // The channel port rides the transfer list, never the request body.
       const [port] = event.ports;
       run.port = port;
-      void startImport(request.file, request.fileName);
+      void startImport(request.file, request.fileName, flowsOf(request.acceptedFlows));
       return;
     }
     case "proceed":
-      void proceed();
+      void proceed(request.selectedSheets);
       return;
     case "cancelImport":
       // Cooperative: the parser notices at the next batch boundary, so a row

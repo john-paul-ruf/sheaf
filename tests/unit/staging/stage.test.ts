@@ -127,6 +127,7 @@ async function stage(
     sourceSha256: digest(120),
     sourceByteLength: preflight.sourceByteLength,
     preflight,
+    inventory: null,
     selectedSheets: [0],
     sourceChunks: [source],
     factChunks: [facts],
@@ -234,7 +235,7 @@ describe("encodeImportStage / decodeImportStage", () => {
     const decoded = decodeImportStage(encodeImportStage(await stage()));
     // `isEstimate` is the literal `true` in the type and is not on the wire,
     // so no stored byte can contradict it.
-    expect(decoded.preflight.isEstimate).toBe(true);
+    expect(decoded.preflight?.isEstimate).toBe(true);
     expect(
       (decodeCanonical(encodeImportStage(await stage())) as Map<string, CborValue>)
         .get("preflight"),

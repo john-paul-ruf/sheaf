@@ -67,6 +67,7 @@ import {
   type ImportDestinationV1,
   type ImportFormatV1,
   type ImportStageV1,
+  type StagedSheetSummaryV1,
 } from "./stage.js";
 
 const WORKFLOW_SCOPE = "local.workflow" as const;
@@ -113,7 +114,8 @@ export interface CreateImportStageInputV1 {
   readonly destination: ImportDestinationV1;
   readonly detected: DetectedFormatV1;
   readonly contradiction: ExtensionContradictionV1 | null;
-  readonly preflight: PreflightReportV1;
+  readonly preflight: PreflightReportV1 | null;
+  readonly inventory: readonly StagedSheetSummaryV1[] | null;
   readonly sourceByteLength: number;
   readonly selectedSheets: readonly number[];
 }
@@ -234,6 +236,7 @@ export async function createImportStage(
     sourceSha256: null,
     sourceByteLength: input.sourceByteLength,
     preflight: input.preflight,
+    inventory: input.inventory,
     selectedSheets: input.selectedSheets,
     sourceChunks: [],
     factChunks: [],

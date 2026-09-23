@@ -47,6 +47,35 @@ const BEGIN: BeginImportStageRequestV1 = {
   },
 };
 
+/** The demo workbook as its `workbook-preflight` report sized it (Archive deselected). */
+const BEGIN_WORKBOOK: BeginImportStageRequestV1 = {
+  kind: "beginImportStage",
+  fileName: "fieldwork-q3.xlsx",
+  detected: { kind: "workbook", format: "xlsx" },
+  preflight: {
+    kind: "workbook",
+    sheets: [
+      ["Jobs", 610],
+      ["Customers", 52],
+      ["Crew", 160],
+      ["Visits", 164],
+      ["Materials", 9],
+      ["Overview", 12],
+      ["Archive 2018", 8004],
+    ].map(([name, cells], sheetIndex) => ({
+      sheetIndex,
+      name: name as string,
+      sheetKind: "worksheet" as const,
+      visibility: "visible" as const,
+      estimatedRowCount: null,
+      estimatedCellCount: cells as number,
+    })),
+    selectedSheets: [0, 1, 2, 3, 4, 5],
+    sourceByteLength: 70_000,
+    isEstimate: true,
+  },
+};
+
 let worker: TestHandler;
 
 async function setup(handler = worker.handler): Promise<void> {
@@ -136,6 +165,60 @@ describe("beginImportStage", () => {
 
       await expect(
         worker.handler.handle({ ...BEGIN, fileName: "" }),
+      ).rejects.toThrow(DataWorkerCommandError);
+    },
+    CRYPTO_TIMEOUT_MS,
+  );
+});
+
+describe("beginImportStage for a workbook (CA-24)", () => {
+  it(
+    "stages the inventory and the selection, and answers with the id alone",
+    async () => {
+      await setup();
+      const before = await countEnvelopeRows();
+      const stageId = await begin(worker.handler, BEGIN_WORKBOOK);
+
+      expect(await countEnvelopeRows()).toBe(before + 3);
+      const stage = await worker.handler.handle({ kind: "getImportStage", stageId });
+      expect(stage).toMatchObject({ kind: "getImportStage", stage: { stageId, status: "staging" } });
+    },
+    CRYPTO_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses a selection that is empty, unsorted, uninventoried, or over the budget — and writes nothing",
+    async () => {
+      await setup();
+      const before = await countEnvelopeRows();
+      const facts = BEGIN_WORKBOOK.preflight as Extract<BeginImportStageRequestV1["preflight"], { kind: "workbook" }>;
+      const heavy = facts.sheets.map((sheet) => ({ ...sheet, estimatedCellCount: 60_000 }));
+      for (const preflight of [
+        { ...facts, selectedSheets: [] },
+        { ...facts, selectedSheets: [2, 1] },
+        { ...facts, selectedSheets: [0, 7] },
+        { ...facts, sheets: heavy, selectedSheets: [0, 1, 2, 3, 4] },
+      ]) {
+        await expect(worker.handler.handle({ ...BEGIN_WORKBOOK, preflight })).rejects.toThrow(DataWorkerCommandError);
+      }
+      // A workbook with delimited sample facts, and delimited with an inventory.
+      await expect(worker.handler.handle({ ...BEGIN_WORKBOOK, preflight: BEGIN.preflight })).rejects.toThrow(
+        DataWorkerCommandError,
+      );
+      await expect(worker.handler.handle({ ...BEGIN, preflight: BEGIN_WORKBOOK.preflight })).rejects.toThrow(
+        DataWorkerCommandError,
+      );
+      expect(await countEnvelopeRows()).toBe(before);
+    },
+    CRYPTO_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses a workbook into an existing app: value-only append is delimited (FR-1)",
+    async () => {
+      await setup();
+      await expect(
+        worker.handler.handle({ ...BEGIN_WORKBOOK, destination: { kind: "existing-app", appId: "AAAAAAAAAAAAAAAAAAAAAA" } }),
       ).rejects.toThrow(DataWorkerCommandError);
     },
     CRYPTO_TIMEOUT_MS,

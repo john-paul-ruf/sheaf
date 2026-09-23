@@ -24,15 +24,30 @@
  *
  * Progress is an **event**, not a response: it has no request to correlate to
  * and the page renders it as it arrives.
+ *
+ * **Protocol v2 (F03, CA-24) is additive.** A page declares the flows it can
+ * render (`acceptedFlows`, D48); a workbook answers with `workbook-preflight`
+ * instead of `preflight` only when the page accepts `"workbook"` — otherwise
+ * it is refused as a later release, exactly as in F02. `proceed` carries the
+ * selected sheets of a workbook, progress names the sheet being read, and a
+ * failure may carry a closed `detail`. Every F02 message is still valid and
+ * means what it meant.
  */
 
 import type { DetectedFormatV1, SniffResultV1 } from "../../import/source/sniff.js";
 import type { PreflightReportV1 } from "../../import/preflight/preflight.js";
 import type { RefusalV1 } from "../../import/preflight/refusal.js";
+import type { WorkbookPreflightReportV1 } from "../../import/preflight/workbook.js";
+import type { UnreadableDetailV1 } from "../../import/source/bounds.js";
 
 export const IMPORT_PROTOCOL_VERSION = 1;
 
 // --- requests ---------------------------------------------------------------
+
+/** The flows a page can render (D48): `delimited` is F02's; `workbook` is F03's. */
+export const IMPORT_FLOWS_V1 = Object.freeze(["delimited", "workbook"] as const);
+
+export type ImportFlowV1 = (typeof IMPORT_FLOWS_V1)[number];
 
 /** `port1` of the page's channel travels in this request's transfer list. */
 export interface StartImportRequestV1 {
@@ -40,12 +55,25 @@ export interface StartImportRequestV1 {
   readonly file: Blob;
   /** The declared name. Format is decided by content, never by this (FR-1). */
   readonly fileName: string;
+  /**
+   * The flows this page can render (D48). Absent means `["delimited"]`: a
+   * workbook is then refused as `workbook-format-later-release`, which is the
+   * F02 truth for a page that has no workbook surfaces.
+   */
+  readonly acceptedFlows?: readonly ImportFlowV1[];
 }
 
 export interface ProceedImportRequestV1 {
   readonly kind: "proceed";
   /** Echoed back on every later event so the page can correlate a run. */
   readonly stageId: string;
+  /**
+   * The workbook sheets to import, by sheet index (D39, D47). Required for a
+   * workbook and refused for a delimited file; it must be non-empty, name only
+   * inventoried sheets, and fit the estimated-cell budget — otherwise the run
+   * ends `failed{reason: "malformed-request"}` before a sheet is read.
+   */
+  readonly selectedSheets?: readonly number[];
 }
 
 export interface CancelImportRequestV1 {
@@ -80,6 +108,15 @@ export interface ImportProgressEventV1 {
   readonly currentAction: ImportWorkerPhaseV1;
   /** Batches whose ack has come back — the durable count, not the sent one. */
   readonly batchesAcked: number;
+  /**
+   * Present exactly while a workbook's sheets stream: the sheet being read,
+   * one-based among the selected sheets ("Sheet k of n"), and its name. A
+   * sheet name is file content the page already showed at pre-flight; like the
+   * file name it may ride import-flow events only.
+   */
+  readonly sheetOrdinal?: number;
+  readonly sheetCount?: number;
+  readonly sheetName?: string;
 }
 
 export interface ImportPreflightEventV1 {
@@ -88,6 +125,19 @@ export interface ImportPreflightEventV1 {
   readonly declaredExtension: string | null;
   readonly contradiction: SniffResultV1["contradiction"];
   readonly report: PreflightReportV1;
+}
+
+/**
+ * A workbook's metadata-only sizing (CA-18): every sheet inventoried, the
+ * route, and the default selection. Sent instead of `preflight` only to a page
+ * that accepts the `workbook` flow.
+ */
+export interface ImportWorkbookPreflightEventV1 {
+  readonly kind: "workbook-preflight";
+  readonly detected: DetectedFormatV1;
+  readonly declaredExtension: string | null;
+  readonly contradiction: SniffResultV1["contradiction"];
+  readonly report: WorkbookPreflightReportV1;
 }
 
 export interface ImportRefusedEventV1 {
@@ -114,11 +164,27 @@ export interface ImportCancelledEventV1 {
 export interface ImportFailedEventV1 {
   readonly kind: "failed";
   readonly reason: "parse-failed" | "stage-rejected" | "malformed-request";
+  /**
+   * Where it failed, once streaming had begun (SCR-022/MOD-008): the stage of
+   * the run, the one-based sheet ordinal when a sheet was being read, and a
+   * closed token — an unsafe-container detail, or `parse-failed` when nothing
+   * finer is known. Never a message, a cell, or a path.
+   */
+  readonly detail?: ImportFailureDetailV1;
+}
+
+export const IMPORT_FAILURE_STAGES_V1 = Object.freeze(["container", "sheet-stream", "stage"] as const);
+
+export interface ImportFailureDetailV1 {
+  readonly stage: (typeof IMPORT_FAILURE_STAGES_V1)[number];
+  readonly sheetOrdinal: number | null;
+  readonly diagnostic: UnreadableDetailV1 | "parse-failed";
 }
 
 export type ImportWorkerEventV1 =
   | ImportProgressEventV1
   | ImportPreflightEventV1
+  | ImportWorkbookPreflightEventV1
   | ImportRefusedEventV1
   | ImportCompletedEventV1
   | ImportCancelledEventV1

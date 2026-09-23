@@ -83,13 +83,8 @@ export type RefusalV1 =
       readonly kind: "binary-unreadable";
       readonly fileName: string;
       readonly remedy: "choose-another-file";
-      /**
-       * Which class of problem made the file unreadable (D42): a closed token,
-       * never file content. Every M14 producer sets it. It is optional only
-       * until S06 migrates the one F02 producer outside M14
-       * (`workers/import/parse-session.ts`), which cannot set it before then.
-       */
-      readonly detail?: UnreadableDetailV1;
+      /** Which class of problem made the file unreadable (D42): a closed token, never file content. */
+      readonly detail: UnreadableDetailV1;
     };
 
 /**
@@ -137,9 +132,37 @@ const ooxmlFormat = (declaredExtension: string | null): LaterReleaseFormatV1 =>
   declaredExtension === "xlsb" ? "xlsb" : "ooxml";
 
 /**
- * Routes a detected format to its refusal, or `null` when the file may proceed
- * to delimited pre-flight. Budget refusals are not decided here — they need
- * sizing, so {@link import("./preflight.js").preflightDelimited} issues them.
+ * F02's answer for a workbook-shaped file, kept verbatim for a page that does
+ * not accept the workbook flow (D48): `workbook-format-later-release`, naming
+ * the family the container is. `null` for anything that is not a workbook
+ * container — delimited text, or a file {@link classifyRefusal} refuses.
+ */
+export function laterReleaseRefusal(sniff: SniffResultV1): RefusalV1 | null {
+  const fileName = sniff.declaredName;
+  const format: DetectedFormatV1 = sniff.format;
+  switch (format.kind) {
+    case "cfb":
+      return laterRelease(fileName, "xls");
+    case "html-table":
+      return laterRelease(fileName, "html");
+    case "zip-container":
+      return format.container === "ods"
+        ? laterRelease(fileName, "ods")
+        : format.container === "ooxml"
+          ? laterRelease(fileName, ooxmlFormat(sniff.declaredExtension))
+          : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Routes a detected format to its refusal, or `null` when the file may go on
+ * to pre-flight: delimited text to `preflightDelimited`, a workbook container
+ * (CFB, OOXML/ODS zip, HTML table) to `preflightWorkbook` — which the import
+ * worker reaches only for a page that accepts workbooks, and which decides
+ * macro, unsafe and unreadable content from the container itself. Budget
+ * refusals are not decided here: they need sizing.
  */
 export function classifyRefusal(sniff: SniffResultV1): RefusalV1 | null {
   const fileName = sniff.declaredName;
@@ -153,17 +176,15 @@ export function classifyRefusal(sniff: SniffResultV1): RefusalV1 | null {
     case "binary":
       return unreadable(fileName, "unrecognized-content");
     case "cfb":
-      return laterRelease(fileName, "xls");
     case "html-table":
-      return laterRelease(fileName, "html");
+      return null;
     case "zip-container":
       switch (format.container) {
         case "iwork":
           return iworkRefusal(fileName, sniff.declaredExtension);
         case "ods":
-          return laterRelease(fileName, "ods");
         case "ooxml":
-          return laterRelease(fileName, ooxmlFormat(sniff.declaredExtension));
+          return null;
         case "unknown":
           return unreadable(fileName, "unrecognized-content");
         default: {

@@ -449,6 +449,13 @@ export const importMachine = setup({
                   : ("service-error" as const),
             })),
           },
+          {
+            // This page declares no workbook flow (D48), so the worker has no
+            // reason to send one; if it does, the run ends rather than waiting.
+            guard: ({ event }) => event.event.kind === "workbook-preflight",
+            target: "failing",
+            actions: assign({ failure: "malformed-request" as const }),
+          },
         ],
       },
     },

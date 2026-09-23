@@ -128,11 +128,56 @@ export interface ImportPreflightFactsV1 {
   readonly sourceByteLength: number;
 }
 
+/** The workbook formats a stage can hold (M65's `WORKBOOK_FORMATS`, restated). */
+export type WorkbookFormatWireV1 = "xlsx" | "xlsb" | "xls" | "ods" | "html-table";
+
+/** A workbook, by the container format pre-flight identified from content. */
+export interface DetectedWorkbookV1 {
+  readonly kind: "workbook";
+  readonly format: WorkbookFormatWireV1;
+}
+
+/** One inventoried sheet, as the `workbook-preflight` report sized it (CA-18). */
+export interface WorkbookSheetSummaryWireV1 {
+  readonly sheetIndex: number;
+  readonly name: string;
+  readonly sheetKind: "worksheet" | "chartsheet" | "dialogsheet";
+  readonly visibility: "visible" | "hidden" | "very-hidden";
+  /** `null` when nothing declared it — never 0 standing in for unknown. */
+  readonly estimatedRowCount: number | null;
+  readonly estimatedCellCount: number | null;
+}
+
+/**
+ * A workbook stage's pre-flight facts: every inventoried sheet (review lists
+ * the unselected ones as excluded, D39) and the selection the page will send
+ * with `proceed` (D47). Estimates only (D24).
+ */
+export interface WorkbookStageFactsV1 {
+  readonly kind: "workbook";
+  readonly sheets: readonly WorkbookSheetSummaryWireV1[];
+  readonly selectedSheets: readonly number[];
+  readonly sourceByteLength: number;
+  readonly isEstimate: true;
+}
+
+/**
+ * Where an import lands. `existing-app` adds a delimited file to an app as a
+ * new table (D38); a workbook always becomes a new app (FR-1's value-only
+ * append). The app id is the catalog's text id.
+ */
+export type ImportDestinationWireV1 =
+  | { readonly kind: "new-app" }
+  | { readonly kind: "existing-app"; readonly appId: string };
+
 export interface BeginImportStageRequestV1 {
   readonly kind: "beginImportStage";
   readonly fileName: string;
-  readonly detected: DetectedDelimitedV1;
-  readonly preflight: ImportPreflightFactsV1;
+  /** `delimited` pairs with F02's sample facts; `workbook` with its inventory. */
+  readonly detected: DetectedDelimitedV1 | DetectedWorkbookV1;
+  readonly preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1;
+  /** Absent means a new app — every F02 request. */
+  readonly destination?: ImportDestinationWireV1;
 }
 
 export interface GetImportStageRequestV1 {

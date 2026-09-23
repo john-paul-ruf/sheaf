@@ -31,6 +31,7 @@ const WORKER_FILES = [
 const IMPORT_WORKER_FILES = [
   "src/workers/import.worker.ts",
   "src/workers/import/parse-session.ts",
+  "src/workers/import/adapters.ts",
   "src/workers/protocol/import-messages.ts",
   "src/workers/protocol/import-client.ts",
   "src/workers/protocol/stage-channel.ts",
@@ -141,8 +142,16 @@ describe("the import worker", () => {
       expect.arrayContaining([
         "src/import/formats/delimited/parse.ts",
         "src/import/preflight/preflight.ts",
+        "src/import/preflight/workbook.ts",
         "src/import/source/sniff.ts",
         "src/workers/protocol/stage-channel.ts",
+        // D35: the registry composes every format, so all five adapters are
+        // in this graph — and must be as key- and store-free as the rest.
+        "src/import/formats/ooxml/parse.ts",
+        "src/import/formats/xlsb/parse.ts",
+        "src/import/formats/biff/parse.ts",
+        "src/import/formats/ods/parse.ts",
+        "src/import/formats/html-table/parse.ts",
       ]),
     );
 

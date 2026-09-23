@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { sniffContent } from "../../../src/import/source/sniff.js";
 import {
   classifyRefusal,
+  laterReleaseRefusal,
   REFUSAL_KINDS,
 } from "../../../src/import/preflight/refusal.js";
+import { WORKBOOK_REGISTRY } from "../../../src/workers/import/adapters.js";
 import type { UnreadableDetailV1 } from "../../../src/import/source/bounds.js";
 import { preflightWorkbook } from "../../../src/import/preflight/workbook.js";
 import { ooxmlInventoryReader } from "../../../src/import/formats/ooxml/inventory.js";
@@ -40,30 +42,16 @@ describe("refusal classification", () => {
       remedy: "pages-copy-into-spreadsheet",
     });
 
-    expect(await refuse("refusals/fieldwork.xlsx", "fieldwork.xlsx")).toEqual({
-      kind: "workbook-format-later-release",
-      fileName: "fieldwork.xlsx",
-      remedy: "await-later-release",
-      format: "ooxml",
-    });
-
-    expect(await refuse("refusals/fieldwork.xlsx", "fieldwork.xlsb")).toMatchObject(
-      { format: "xlsb" },
-    );
-
-    expect(await refuse("refusals/site-plan.ods", "site-plan.ods")).toMatchObject({
-      kind: "workbook-format-later-release",
-      format: "ods",
-    });
-
-    expect(await refuse("refusals/ledger.xls", "ledger.xls")).toMatchObject({
-      kind: "workbook-format-later-release",
-      format: "xls",
-    });
-
-    expect(
-      await refuse("refusals/legacy-export.xls", "legacy-export.xls"),
-    ).toMatchObject({ kind: "workbook-format-later-release", format: "html" });
+    // A workbook container is not refused here: the import worker decides it
+    // by the page's accepted flows and the registry's readers (D48, D35).
+    for (const [path, name] of [
+      ["refusals/fieldwork.xlsx", "fieldwork.xlsx"],
+      ["refusals/site-plan.ods", "site-plan.ods"],
+      ["refusals/ledger.xls", "ledger.xls"],
+      ["refusals/legacy-export.xls", "legacy-export.xls"],
+    ] as const) {
+      expect(await refuse(path, name), path).toBeNull();
+    }
 
     expect(
       await refuse("refusals/chart-export.csv", "chart-export.csv"),
@@ -73,6 +61,78 @@ describe("refusal classification", () => {
       remedy: "choose-another-file",
       detail: "unrecognized-content",
     });
+  });
+
+  it("keeps F02's later-release answer, verbatim, for a page without the workbook flow (D48)", async () => {
+    const laterFor = async (path: string, name: string) =>
+      laterReleaseRefusal(await sniffContent(await fixtureSource(path), name));
+    expect(await laterFor("refusals/fieldwork.xlsx", "fieldwork.xlsx")).toEqual({
+      kind: "workbook-format-later-release",
+      fileName: "fieldwork.xlsx",
+      remedy: "await-later-release",
+      format: "ooxml",
+    });
+    expect(await laterFor("refusals/fieldwork.xlsx", "fieldwork.xlsb")).toMatchObject({ format: "xlsb" });
+    expect(await laterFor("refusals/site-plan.ods", "site-plan.ods")).toMatchObject({
+      kind: "workbook-format-later-release",
+      format: "ods",
+    });
+    expect(await laterFor("refusals/ledger.xls", "ledger.xls")).toMatchObject({
+      kind: "workbook-format-later-release",
+      format: "xls",
+    });
+    expect(await laterFor("refusals/legacy-export.xls", "legacy-export.xls")).toMatchObject({
+      kind: "workbook-format-later-release",
+      format: "html",
+    });
+    // Nothing that is not a workbook container gets one.
+    expect(await laterFor("delimited/field-log-messy.csv", "field-log-messy.csv")).toBeNull();
+    expect(await laterFor("refusals/quarterly.pdf", "quarterly.pdf")).toBeNull();
+  });
+
+  it("reads F02's refusal fixtures through the full registry for what they now are", async () => {
+    const outcomeOf = async (path: string, name: string) => {
+      const source = await fixtureSource(path);
+      return preflightWorkbook(source, await sniffContent(source, name), WORKBOOK_REGISTRY.readers);
+    };
+    const unreadableAs = (fileName: string, detail: UnreadableDetailV1) => ({
+      kind: "refused",
+      refusal: { kind: "binary-unreadable", fileName, remedy: "choose-another-file", detail },
+    });
+    // F02's stubs were containers only, never workbooks: opening them is now real work.
+    expect(await outcomeOf("refusals/fieldwork.xlsx", "fieldwork.xlsx")).toEqual(
+      unreadableAs("fieldwork.xlsx", "malformed-structure"),
+    );
+    expect(await outcomeOf("refusals/ledger.xls", "ledger.xls")).toEqual(
+      unreadableAs("ledger.xls", "malformed-structure"),
+    );
+    expect(await outcomeOf("unsafe/cfb-size-mismatch.xls", "cfb-size-mismatch.xls")).toEqual(
+      unreadableAs("cfb-size-mismatch.xls", "malformed-structure"),
+    );
+    // S05: an ODS with one sheet that fits, and HTML named `.xls` — the
+    // contradiction stated (MOD-004), the content read.
+    expect(await outcomeOf("refusals/site-plan.ods", "site-plan.ods")).toMatchObject({
+      kind: "proceed",
+      report: { format: "ods", route: "fits", sheets: [{ name: "Table 1" }], formatContradiction: null },
+    });
+    expect(await outcomeOf("refusals/legacy-export.xls", "legacy-export.xls")).toMatchObject({
+      kind: "proceed",
+      report: {
+        format: "html-table",
+        route: "fits",
+        sheets: [{ name: "Table 1" }],
+        formatContradiction: { declaredExtension: "xls", detectedFormat: "html-table" },
+      },
+    });
+  });
+
+  it("registers every workbook format, reader and adapter under the format they read (D35)", () => {
+    for (const format of ["xlsx", "xlsb", "xls", "ods", "html-table"] as const) {
+      expect(WORKBOOK_REGISTRY.readers.get(format)?.format, format).toBe(format);
+      expect(WORKBOOK_REGISTRY.adapters.get(format)?.format, format).toBe(format);
+    }
+    expect(WORKBOOK_REGISTRY.readers.size).toBe(5);
+    expect(WORKBOOK_REGISTRY.adapters.size).toBe(5);
   });
 
   it("lets every delimited fixture through", async () => {

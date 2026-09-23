@@ -46,7 +46,14 @@ import {
   type ExtensionContradictionV1,
   type ZipContainerV1,
 } from "../source/sniff.js";
-import { WORKBOOK_FORMATS, type WorkbookFormatV1 } from "../facts/index.js";
+import {
+  SHEET_KINDS,
+  SHEET_VISIBILITIES,
+  WORKBOOK_FORMATS,
+  type SheetKindV1,
+  type SheetVisibilityV1,
+  type WorkbookFormatV1,
+} from "../facts/index.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
 import type { ProposedAppV1 } from "../inference/infer.js";
 import type { ReviewEditV1 } from "../inference/review-edits.js";
@@ -95,6 +102,20 @@ export type ImportFormatV1 = "delimited" | WorkbookFormatV1;
 export type ImportDestinationV1 =
   | { readonly kind: "new-app" }
   | { readonly kind: "existing-app"; readonly appId: Uint8Array };
+
+/**
+ * One inventoried sheet, as pre-flight sized it from metadata (CA-18): what
+ * review lists for every sheet, selected or not (D39). Estimates stay `null`
+ * where nothing declared them — never zero standing in for unknown.
+ */
+export interface StagedSheetSummaryV1 {
+  readonly sheetIndex: number;
+  readonly name: string;
+  readonly sheetKind: SheetKindV1;
+  readonly visibility: SheetVisibilityV1;
+  readonly estimatedRowCount: number | null;
+  readonly estimatedCellCount: number | null;
+}
 
 /** Scope and payload kind are fixed by migration 003; stated once, here. */
 export const IMPORT_STAGE_SCOPE = "app.import-stage" as const;
@@ -181,8 +202,13 @@ export interface ImportStageV1 {
    */
   readonly sourceSha256: Uint8Array | null;
   readonly sourceByteLength: number;
-  /** The safe metadata inventory and capacity estimate (database.md). */
-  readonly preflight: PreflightReportV1;
+  /**
+   * The safe metadata inventory and capacity estimate (database.md): the
+   * delimited sample report, or — for a workbook — `null` here and every
+   * inventoried sheet in {@link inventory}. Exactly one of the two is set.
+   */
+  readonly preflight: PreflightReportV1 | null;
+  readonly inventory: readonly StagedSheetSummaryV1[] | null;
   /**
    * Workbook sheet indexes the user selected, ascending (D39, D47); only these
    * are parsed. A delimited file is its one sheet, `[0]`.
@@ -271,8 +297,24 @@ export function validateImportStage(stage: ImportStageV1): ImportStageV1 {
   ) {
     throw new CodecError("a stage's sheet selection must be ascending, unique and non-empty");
   }
-  if (stage.format === "delimited" && (stage.selectedSheets.length !== 1 || stage.selectedSheets[0] !== 0)) {
-    throw new CodecError("a delimited stage is exactly its one sheet");
+  if (stage.format === "delimited") {
+    if (stage.selectedSheets.length !== 1 || stage.selectedSheets[0] !== 0) {
+      throw new CodecError("a delimited stage is exactly its one sheet");
+    }
+    if (stage.preflight === null || stage.inventory !== null) {
+      throw new CodecError("a delimited stage carries its sample report and no inventory");
+    }
+  } else {
+    const inventory = stage.inventory;
+    if (inventory === null || stage.preflight !== null) {
+      throw new CodecError("a workbook stage carries its inventory and no sample report");
+    }
+    if (new Set(inventory.map((sheet) => sheet.sheetIndex)).size !== inventory.length) {
+      throw new CodecError("a workbook inventory names one sheet twice");
+    }
+    if (!stage.selectedSheets.every((index) => inventory.some((sheet) => sheet.sheetIndex === index))) {
+      throw new CodecError("a stage selects a sheet its inventory does not have");
+    }
   }
   if (stage.destination.kind === "existing-app") {
     if (stage.destination.appId.byteLength !== DOMAIN_ID_BYTE_LENGTH) {
@@ -422,6 +464,32 @@ const encodePreflight = (report: PreflightReportV1): CborValue =>
     ["bytesSampled", report.bytesSampled],
   ]);
 
+const encodeSheetSummary = (sheet: StagedSheetSummaryV1): CborValue =>
+  cborMap([
+    ["sheetIndex", sheet.sheetIndex],
+    ["name", sheet.name],
+    ["sheetKind", sheet.sheetKind],
+    ["visibility", sheet.visibility],
+    ["estimatedRowCount", integerOrNull(sheet.estimatedRowCount)],
+    ["estimatedCellCount", integerOrNull(sheet.estimatedCellCount)],
+  ]);
+
+const decodeSheetSummary = (value: DecodedValue): StagedSheetSummaryV1 => {
+  const map = exactKeys(
+    asMap(value, "a sheet summary"),
+    ["sheetIndex", "name", "sheetKind", "visibility", "estimatedRowCount", "estimatedCellCount"],
+    "a sheet summary",
+  );
+  return {
+    sheetIndex: count(field(map, "sheetIndex"), "a sheet index"),
+    name: text(field(map, "name"), "a sheet name"),
+    sheetKind: oneOf(field(map, "sheetKind"), SHEET_KINDS, "a sheet kind"),
+    visibility: oneOf(field(map, "visibility"), SHEET_VISIBILITIES, "a sheet visibility"),
+    estimatedRowCount: optionalCount(field(map, "estimatedRowCount"), "a row estimate"),
+    estimatedCellCount: optionalCount(field(map, "estimatedCellCount"), "a cell estimate"),
+  };
+};
+
 const encodeChunk = (chunk: StagedChunkRefV1): CborValue =>
   cborMap([
     ["storageId", chunk.storageId],
@@ -445,7 +513,8 @@ export function encodeImportStage(stage: ImportStageV1): Uint8Array {
       ["contradiction", encodeContradiction(stage.contradiction)],
       ["sourceSha256", stage.sourceSha256],
       ["sourceByteLength", stage.sourceByteLength],
-      ["preflight", encodePreflight(stage.preflight)],
+      ["preflight", stage.preflight === null ? null : encodePreflight(stage.preflight)],
+      ["inventory", stage.inventory === null ? null : stage.inventory.map(encodeSheetSummary)],
       ["selectedSheets", [...stage.selectedSheets]],
       ["sourceChunks", stage.sourceChunks.map(encodeChunk)],
       ["factChunks", stage.factChunks.map(encodeChunk)],
@@ -620,6 +689,7 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
       "sourceSha256",
       "sourceByteLength",
       "preflight",
+      "inventory",
       "selectedSheets",
       "sourceChunks",
       "factChunks",
@@ -644,6 +714,8 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
     "stage progress",
   );
   const proposal = field(map, "proposal");
+  const preflight = field(map, "preflight");
+  const inventory = field(map, "inventory");
 
   return validateImportStage({
     stageVersion: IMPORT_STAGE_VERSION,
@@ -665,7 +737,8 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
       "a source digest",
     ),
     sourceByteLength: count(field(map, "sourceByteLength"), "a source length"),
-    preflight: decodePreflight(field(map, "preflight")),
+    preflight: preflight === null ? null : decodePreflight(preflight),
+    inventory: inventory === null ? null : list(inventory, "an inventory").map(decodeSheetSummary),
     selectedSheets: list(field(map, "selectedSheets"), "selected sheets").map(
       (sheet) => count(sheet, "a selected sheet"),
     ),

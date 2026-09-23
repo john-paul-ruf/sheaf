@@ -55,6 +55,7 @@ const INPUT: CreateImportStageInputV1 = {
     newline: "lf",
   },
   contradiction: null,
+  inventory: null,
   preflight: {
     fileName: "field-log-messy.csv",
     sourceByteLength: 5469,
