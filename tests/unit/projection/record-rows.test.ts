@@ -152,6 +152,7 @@ describe("searchable text", () => {
     optionLabels: new Map([[idKey(optionId), "Overdue"]]),
     relationships: new Map(),
     formulas: new Map(),
+    charts: new Map(),
   };
 
   const record = (

@@ -162,6 +162,29 @@ ON CONFLICT (formula_id) DO UPDATE SET
   determinism = excluded.determinism, metadata_cbor = excluded.metadata_cbor,
   is_active = excluded.is_active, schema_revision = excluded.schema_revision;`;
 
+/**
+ * `chart.saved` (CA-30). An update keeps its ordinal; a new chart's ordinal
+ * must be free, or `UNIQUE (chart_ordinal)` refuses the write.
+ */
+export const UPSERT_CHART = `
+INSERT INTO charts (
+  chart_id, display_name, chart_type, definition_cbor, is_pinned,
+  chart_ordinal, provenance, chart_revision
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (chart_id) DO UPDATE SET
+  display_name = excluded.display_name, chart_type = excluded.chart_type,
+  definition_cbor = excluded.definition_cbor, is_pinned = excluded.is_pinned,
+  chart_ordinal = excluded.chart_ordinal, provenance = excluded.provenance,
+  chart_revision = excluded.chart_revision;`;
+
+/** `chart.deleted`: the definition lives on in the event, not in a row. */
+export const DELETE_CHART = `
+DELETE FROM charts WHERE chart_id = ?;`;
+
+/** The complete chart list, in display order. */
+export const SELECT_CHART_IDS = `
+SELECT chart_id FROM charts ORDER BY chart_ordinal;`;
+
 /** `formula.removed`: the row stays so the computed field still resolves. */
 export const DEACTIVATE_FORMULA = `
 UPDATE formulas SET is_active = 0, schema_revision = ? WHERE formula_id = ?;`;

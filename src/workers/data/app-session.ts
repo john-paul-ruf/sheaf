@@ -387,6 +387,14 @@ export function toProjectionCheckpoint(
     relationships: checkpoint.relationships,
     validationRules: checkpoint.validationRules,
     formulas: checkpoint.formulas,
+    charts: checkpoint.charts.map((chart) => ({
+      definition: chart.definition,
+      displayName: chart.definition.name,
+      pinned: chart.definition.pinned,
+      ordinal: chart.ordinal,
+      provenance: chart.provenance,
+      chartRevision: chart.chartRevision,
+    })),
     inertItems: checkpoint.inertItems.map((item) => ({
       ...item,
       preservedManifestStorageId:

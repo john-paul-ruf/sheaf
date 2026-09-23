@@ -61,17 +61,42 @@ describe("src/ui dependency direction", () => {
   });
 
   it("imports only React, React Aria and its own siblings", () => {
-    const packages = new Set<string>();
-    for (const { text } of FILES) {
-      for (const [, specifier = ""] of text.matchAll(
-        /from\s+["']([^"']+)["']/g,
-      )) {
-        if (!specifier.startsWith(".")) packages.add(specifier);
-      }
-    }
-    expect([...packages].sort()).toEqual(["react", "react-aria-components"]);
+    expect(packageViolations(FILES)).toEqual([]);
+  });
+
+  it("fails when Chart.js is imported anywhere but the one canvas file", () => {
+    // Negative controls: the rule fires on the shapes it exists for.
+    const elsewhere = { path: "records/app-home-screen.tsx", text: 'import { Chart } from "chart.js";' };
+    const subpath = { path: "charts/chart-detail-screen.tsx", text: 'import { BarController } from "chart.js/auto";' };
+    const stray = { path: CHART_CANVAS, text: 'import { format } from "date-fns";' };
+    expect(packageViolations([...FILES, elsewhere])).toEqual(["records/app-home-screen.tsx imports chart.js"]);
+    expect(packageViolations([subpath])).toEqual(["charts/chart-detail-screen.tsx imports chart.js/auto"]);
+    expect(packageViolations([stray])).toEqual([`${CHART_CANVAS} imports date-fns`]);
+    // The canvas itself may, and nothing else changes for it.
+    expect(packageViolations([{ path: CHART_CANVAS, text: 'import { Chart } from "chart.js";' }])).toEqual([]);
   });
 });
+
+/**
+ * M45's boundary: Chart.js owns drawing and hit-testing only, and exactly one
+ * file may reach it (architecture § Charts). Every other UI file imports
+ * React, React Aria and its siblings, and nothing else.
+ */
+const CHART_CANVAS = "charts/chart-canvas.tsx";
+const UI_PACKAGES: readonly string[] = ["react", "react-aria-components"];
+
+function packageViolations(files: readonly SourceFile[]): readonly string[] {
+  const violations: string[] = [];
+  for (const { path, text } of files) {
+    const allowed = path === CHART_CANVAS ? [...UI_PACKAGES, "chart.js"] : UI_PACKAGES;
+    for (const [, specifier = ""] of text.matchAll(/from\s+["']([^"']+)["']/g)) {
+      if (!specifier.startsWith(".") && !allowed.includes(specifier)) {
+        violations.push(`${path} imports ${specifier}`);
+      }
+    }
+  }
+  return violations;
+}
 
 describe("src/ui forbidden syntax", () => {
   it("never sets HTML from a value", () => {

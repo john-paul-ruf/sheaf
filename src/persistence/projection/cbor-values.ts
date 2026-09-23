@@ -21,6 +21,7 @@
  * even when it was authored as `number`.
  */
 
+import type { ChartDefinitionV1 } from "../../domain/model/charts.js";
 import { CodecError } from "../../domain/model/errors.js";
 import {
   APP_THEME_TOKENS,
@@ -511,6 +512,23 @@ export function encodeFormulaDocument(document: FormulaIRDocumentV1): Uint8Array
       ["root", encodeIRNode(document.root)],
     ]),
   );
+}
+
+/**
+ * `charts.definition_cbor`: the definition's plain structure, key for key.
+ * M23's `encodeChartDefinition` writes the durable form with exactly the
+ * same keys, so the bytes agree (pinned in `tests/unit/staging/roots.test.ts`);
+ * the projection only ever reads definitions back from its session cache.
+ */
+export function encodeChartDefinition(definition: ChartDefinitionV1): Uint8Array {
+  const structure = (value: unknown): CborValue => {
+    if (value === null || value instanceof Uint8Array || typeof value !== "object") {
+      return value as CborValue;
+    }
+    if (Array.isArray(value)) return value.map(structure);
+    return new Map(Object.entries(value).map(([key, entry]) => [key, structure(entry)]));
+  };
+  return encodeCanonical(structure(definition));
 }
 
 /** `formulas.metadata_cbor`: catalog and function versions, source, policy. */

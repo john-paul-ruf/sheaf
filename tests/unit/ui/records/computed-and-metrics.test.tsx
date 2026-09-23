@@ -170,7 +170,7 @@ describe("At a glance (SCR-024; CAP-29)", () => {
 
 describe("the change log names F04's structure events (CA-28)", () => {
   it("reads each kind as a sentence, and an unnamed kind truthfully", async () => {
-    const kinds = ["field.changed", "formula.changed", "relationship.removed", "rule.changed", "chart.saved"];
+    const kinds = ["field.changed", "formula.changed", "relationship.removed", "rule.changed", "chart.saved", "durable-home.assigned"];
     const page = historyPage({
       entries: kinds.map((eventKind, index) =>
         historyEntry({ eventId: `e-${String(index)}`, eventKind, subjectKind: "field", subjectId: `s-${String(index)}`, changedFieldIds: [] }),
@@ -180,7 +180,7 @@ describe("the change log names F04's structure events (CA-28)", () => {
       <ChangeHistoryScreen app={identity} fieldNames={new Map()} nav={nav} onRestore={vi.fn()} vm={selectChangeHistoryVm(page)} />,
     );
     const text = document.body.textContent ?? "";
-    for (const sentence of ["Field changed", "Calculation changed", "Relationship removed", "Rule changed", "A change was recorded"]) {
+    for (const sentence of ["Field changed", "Calculation changed", "Relationship removed", "Rule changed", "Chart saved", "A change was recorded"]) {
       expect(text).toContain(sentence);
     }
   });

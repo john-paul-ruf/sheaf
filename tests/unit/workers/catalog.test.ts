@@ -397,3 +397,17 @@ describe("decodeLocalCatalog", () => {
     expect(() => decodeLocalCatalog(forged)).toThrow(/not an approved value/);
   });
 });
+
+describe("D61 chart draft", () => {
+  it("round-trips an entry with a draft, and leaves a draftless entry's bytes without the key", () => {
+    const local = app({ locality: "present", wrappedAppKey: Uint8Array.of(1), appHeadStorageId: "head-1", homeId: null });
+    const without = encodeLocalCatalog(withEntries([local], []));
+    const withDraft = withEntries([{ ...local, chartDraft: Uint8Array.of(9, 8, 7) }], []);
+    const encoded = encodeLocalCatalog(withDraft);
+
+    expect(decodeLocalCatalog(encoded)).toEqual(withDraft);
+    expect(encodeLocalCatalog(decodeLocalCatalog(encoded))).toEqual(encoded);
+    expect(decodeLocalCatalog(without).apps[0]).not.toHaveProperty("chartDraft");
+    expect(new TextDecoder().decode(without)).not.toContain("chartDraft");
+  });
+});

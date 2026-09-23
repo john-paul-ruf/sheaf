@@ -25,11 +25,13 @@
  * workbook roots — relationships, validation rules, inert items, inference
  * decisions, import lineages, and each sheet's classification and snapshot
  * revision — as payload evolution inside the encrypted envelope, not as a new
- * version; F04 added the `formulas` root the same way (CA-25). The encoder
- * always writes the F04 key set. The decoder accepts exactly the F02 key set
- * (and fills the F02-true defaults: every list empty, each sheet `["table"]`
- * at the manifest's schema revision), exactly the F03 key set (no formulas),
- * or exactly the F04 key set; any other key set is a `CodecError`. So every
+ * version; F04 added the `formulas` root (CA-25) and then the `charts` root
+ * (CA-30) the same way. The encoder always writes the full F04 key set. The
+ * decoder accepts exactly the F02 key set (and fills the F02-true defaults:
+ * every list empty, each sheet `["table"]` at the manifest's schema
+ * revision), exactly the F03 key set (no formulas), exactly the F03 key set
+ * plus `formulas` (no charts), or exactly the full F04 key set; any other key
+ * set is a `CodecError`. So every
  * GATE-F02 and GATE-F03 app keeps opening, and a manifest with a stray or
  * missing key still does not.
  *
@@ -47,8 +49,9 @@ import type {
   SheetId,
   TableId,
 } from "../../domain/model/ids.js";
-import type { AppThemeV1, FormulaMetadataV1 } from "../../domain/model/events.js";
+import type { AppThemeV1, ChartProvenanceV1, FormulaMetadataV1 } from "../../domain/model/events.js";
 import {
+  CHART_PROVENANCES,
   FORMULA_IMPORTED_VALUE_POLICIES,
   FORMULA_SOURCES,
   INFERENCE_DISPOSITIONS,
@@ -71,7 +74,16 @@ import {
   type FormulaLiteralV1,
   type FormulaTargetV1,
 } from "../../domain/formulas/index.js";
+import {
+  CHART_TYPES,
+  DATE_GROUPING_UNITS,
+  type ChartDefinitionV1,
+  type GroupingV1,
+  type MeasureV1,
+} from "../../domain/model/charts.js";
+import type { FilterOperandV1, FilterV1 } from "../../domain/model/filters.js";
 import type {
+  ChartId,
   CommitId,
   DecisionId,
   EventId,
@@ -840,6 +852,8 @@ export interface CheckpointManifestV1 {
   readonly importLineages?: readonly ImportLineageV1[];
   /** F04 (CA-25): every formula definition, active or removed; absent before F04. */
   readonly formulas?: readonly CheckpointFormulaV1[];
+  /** F04 (CA-30): every live chart, imported or made here; absent before charts. */
+  readonly charts?: readonly CheckpointChartV1[];
   readonly recordPages: readonly PageRefV1[];
   readonly semanticSha256: Uint8Array;
 }
@@ -853,6 +867,7 @@ export interface ResolvedCheckpointManifestV1 extends CheckpointManifestV1 {
   readonly inferenceDecisions: readonly InferenceDecisionRecordV1[];
   readonly importLineages: readonly ImportLineageV1[];
   readonly formulas: readonly CheckpointFormulaV1[];
+  readonly charts: readonly CheckpointChartV1[];
 }
 
 /**
@@ -880,6 +895,8 @@ export function resolveCheckpointManifest<
     importLineages: manifest.importLineages ?? [],
     // F02/F03 checkpoints hold no formula: an app before F04 had none live.
     formulas: manifest.formulas ?? [],
+    // No app before S05 could hold a chart (D50: F03 charts stayed inert).
+    charts: manifest.charts ?? [],
   };
 }
 
@@ -1603,6 +1620,269 @@ const decodeCheckpointFormula = (value: DecodedValue): CheckpointFormulaV1 => {
   };
 };
 
+// ------------------------------------------------------------ charts (CA-30) --
+
+const FILTER_OPERAND_KINDS = Object.freeze([
+  "enum-in",
+  "date-range",
+  "number-range",
+  "boolean-is",
+  "reference-in",
+  "reference-broken",
+  "text-contains",
+  "text-equals",
+  "is-empty",
+  "not-empty",
+] as const);
+
+const encodeFilterOperand = (operand: FilterOperandV1): CborValue => {
+  switch (operand.kind) {
+    case "enum-in":
+      return cborMap([["kind", operand.kind], ["optionIds", [...operand.optionIds]]]);
+    case "date-range":
+      return cborMap([["kind", operand.kind], ["from", operand.from], ["to", operand.to]]);
+    case "number-range":
+      return cborMap([["kind", operand.kind], ["min", operand.min], ["max", operand.max]]);
+    case "boolean-is":
+      return cborMap([["kind", operand.kind], ["value", operand.value]]);
+    case "reference-in":
+      return cborMap([["kind", operand.kind], ["recordIds", [...operand.recordIds]]]);
+    case "text-contains":
+    case "text-equals":
+      return cborMap([["kind", operand.kind], ["text", operand.text]]);
+    case "reference-broken":
+    case "is-empty":
+    case "not-empty":
+      return cborMap([["kind", operand.kind]]);
+    default: {
+      const unreachable: never = operand;
+      return unreachable;
+    }
+  }
+};
+
+const optionalInteger = (value: DecodedValue, what: string): number | null =>
+  value === null ? null : integer(value, what);
+
+const decodeFilterOperand = (value: DecodedValue): FilterOperandV1 => {
+  const map = asMap(value, "a filter operand");
+  const kind = oneOf(field(map, "kind"), FILTER_OPERAND_KINDS, "a filter operand kind");
+  const keys = (...names: string[]): void => {
+    exactKeys(map, ["kind", ...names], "a filter operand");
+  };
+  switch (kind) {
+    case "enum-in":
+      keys("optionIds");
+      return { kind, optionIds: list(field(map, "optionIds"), "option ids").map((id) => id16<OptionId>(id, "an option id")) };
+    case "date-range":
+      keys("from", "to");
+      return { kind, from: optionalInteger(field(map, "from"), "a day"), to: optionalInteger(field(map, "to"), "a day") };
+    case "number-range":
+      keys("min", "max");
+      return { kind, min: optionalText(field(map, "min"), "a decimal"), max: optionalText(field(map, "max"), "a decimal") };
+    case "boolean-is":
+      keys("value");
+      return { kind, value: boolean(field(map, "value"), "a filter boolean") };
+    case "reference-in":
+      keys("recordIds");
+      return { kind, recordIds: list(field(map, "recordIds"), "record ids").map((id) => id16<RecordId>(id, "a record id")) };
+    case "text-contains":
+    case "text-equals":
+      keys("text");
+      return { kind, text: nfcText(field(map, "text"), "filter text") };
+    case "reference-broken":
+    case "is-empty":
+    case "not-empty":
+      keys();
+      return { kind };
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+};
+
+/** A records filter (CA-29) as a chart stores it: ids as bytes, values exact. */
+export const encodeFilter = (filter: FilterV1): CborValue =>
+  cborMap([
+    ["fieldId", filter.fieldId],
+    ["operand", encodeFilterOperand(filter.operand)],
+  ]);
+
+export const decodeFilter = (value: DecodedValue): FilterV1 => {
+  const map = exactKeys(asMap(value, "a filter"), ["fieldId", "operand"], "a filter");
+  return {
+    fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+    operand: decodeFilterOperand(field(map, "operand")),
+  };
+};
+
+const GROUPING_KINDS = Object.freeze(["field", "related-field", "date"] as const);
+const MEASURE_KINDS = Object.freeze(["count", "sum", "average", "min", "max"] as const);
+const CHART_SORTS = Object.freeze(["category", "measure-desc"] as const);
+
+const encodeGrouping = (group: GroupingV1): CborValue => {
+  switch (group.kind) {
+    case "field":
+      return cborMap([["kind", group.kind], ["fieldId", group.fieldId]]);
+    case "related-field":
+      return cborMap([
+        ["kind", group.kind],
+        ["relationshipId", group.relationshipId],
+        ["referenceFieldId", group.referenceFieldId],
+        ["fieldId", group.fieldId],
+      ]);
+    case "date":
+      return cborMap([["kind", group.kind], ["fieldId", group.fieldId], ["unit", group.unit]]);
+    default: {
+      const unreachable: never = group;
+      return unreachable;
+    }
+  }
+};
+
+const decodeGrouping = (value: DecodedValue): GroupingV1 => {
+  const map = asMap(value, "a chart grouping");
+  const kind = oneOf(field(map, "kind"), GROUPING_KINDS, "a grouping kind");
+  switch (kind) {
+    case "field":
+      exactKeys(map, ["kind", "fieldId"], "a chart grouping");
+      return { kind, fieldId: id16<FieldId>(field(map, "fieldId"), "a field id") };
+    case "related-field":
+      exactKeys(map, ["kind", "relationshipId", "referenceFieldId", "fieldId"], "a chart grouping");
+      return {
+        kind,
+        relationshipId: id16<RelationshipId>(field(map, "relationshipId"), "a relationship id"),
+        referenceFieldId: id16<FieldId>(field(map, "referenceFieldId"), "a field id"),
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+      };
+    case "date":
+      exactKeys(map, ["kind", "fieldId", "unit"], "a chart grouping");
+      return {
+        kind,
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+        unit: oneOf(field(map, "unit"), DATE_GROUPING_UNITS, "a date unit"),
+      };
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+};
+
+const encodeMeasure = (measure: MeasureV1): CborValue =>
+  measure.kind === "count"
+    ? cborMap([["kind", measure.kind]])
+    : cborMap([["kind", measure.kind], ["fieldId", measure.fieldId]]);
+
+const decodeMeasure = (value: DecodedValue): MeasureV1 => {
+  const map = asMap(value, "a chart measure");
+  const kind = oneOf(field(map, "kind"), MEASURE_KINDS, "a measure kind");
+  if (kind === "count") {
+    exactKeys(map, ["kind"], "a chart measure");
+    return { kind };
+  }
+  exactKeys(map, ["kind", "fieldId"], "a chart measure");
+  return { kind, fieldId: id16<FieldId>(field(map, "fieldId"), "a field id") };
+};
+
+const CHART_COMMON_KEYS = Object.freeze(["chartVersion", "chartId", "name", "tableId", "filters", "pinned", "type"] as const);
+
+/**
+ * A chart definition (D54) as `chart.saved` and the checkpoint's `charts`
+ * root carry it — stable IDs only, never a label. Exported for S07, which
+ * writes imported charts into the same root with `provenance: "imported"`.
+ */
+export const encodeChartDefinition = (definition: ChartDefinitionV1): CborValue => {
+  const common: (readonly [string, CborValue])[] = [
+    ["chartVersion", definition.chartVersion],
+    ["chartId", definition.chartId],
+    ["name", definition.name],
+    ["tableId", definition.tableId],
+    ["filters", definition.filters.map(encodeFilter)],
+    ["pinned", definition.pinned],
+    ["type", definition.type],
+  ];
+  return definition.type === "scatter"
+    ? cborMap([...common, ["x", definition.x], ["y", definition.y]])
+    : cborMap([
+        ...common,
+        ["groupBy", encodeGrouping(definition.groupBy)],
+        ["seriesBy", definition.seriesBy === null ? null : encodeGrouping(definition.seriesBy)],
+        ["measure", encodeMeasure(definition.measure)],
+        ["sort", definition.sort],
+      ]);
+};
+
+export const decodeChartDefinition = (value: DecodedValue): ChartDefinitionV1 => {
+  const map = asMap(value, "a chart definition");
+  const type = oneOf(field(map, "type"), CHART_TYPES, "a chart type");
+  if (count(field(map, "chartVersion"), "a chart version") !== 1) {
+    throw new CodecError("chart definition declares an unsupported version");
+  }
+  const common = {
+    chartVersion: 1 as const,
+    chartId: id16<ChartId>(field(map, "chartId"), "a chart id"),
+    name: nfcText(field(map, "name"), "a chart name"),
+    tableId: id16<TableId>(field(map, "tableId"), "a table id"),
+    filters: list(field(map, "filters"), "chart filters").map(decodeFilter),
+    pinned: boolean(field(map, "pinned"), "a pin flag"),
+  };
+  if (type === "scatter") {
+    exactKeys(map, [...CHART_COMMON_KEYS, "x", "y"], "a chart definition");
+    return {
+      ...common,
+      type,
+      x: id16<FieldId>(field(map, "x"), "a field id"),
+      y: id16<FieldId>(field(map, "y"), "a field id"),
+    };
+  }
+  exactKeys(map, [...CHART_COMMON_KEYS, "groupBy", "seriesBy", "measure", "sort"], "a chart definition");
+  const series = field(map, "seriesBy");
+  return {
+    ...common,
+    type,
+    groupBy: decodeGrouping(field(map, "groupBy")),
+    seriesBy: series === null ? null : decodeGrouping(series),
+    measure: decodeMeasure(field(map, "measure")),
+    sort: oneOf(field(map, "sort"), CHART_SORTS, "a chart sort"),
+  };
+};
+
+/**
+ * One chart as the checkpoint's `charts` root holds it (CA-30): its
+ * definition (which carries its name and pin state) and the three facts the
+ * `charts` row keeps beside it. A deleted chart is simply absent.
+ */
+export interface CheckpointChartV1 {
+  readonly definition: ChartDefinitionV1;
+  readonly ordinal: number;
+  readonly provenance: ChartProvenanceV1;
+  readonly chartRevision: bigint;
+}
+
+export const encodeCheckpointChart = (chart: CheckpointChartV1): CborValue =>
+  cborMap([
+    ["definition", encodeChartDefinition(chart.definition)],
+    ["ordinal", chart.ordinal],
+    ["provenance", chart.provenance],
+    ["chartRevision", chart.chartRevision],
+  ]);
+
+export const decodeCheckpointChart = (value: DecodedValue): CheckpointChartV1 => {
+  const map = exactKeys(
+    asMap(value, "a checkpoint chart"),
+    ["definition", "ordinal", "provenance", "chartRevision"],
+    "a checkpoint chart",
+  );
+  return {
+    definition: decodeChartDefinition(field(map, "definition")),
+    ordinal: count(field(map, "ordinal"), "a chart ordinal"),
+    provenance: oneOf(field(map, "provenance"), CHART_PROVENANCES, "a chart provenance"),
+    chartRevision: revision(field(map, "chartRevision"), "a chart revision"),
+  };
+};
+
 const encodeInertItem = (item: InertItemV1): CborValue =>
   cborMap([
     ["inertItemId", item.inertItemId],
@@ -1826,7 +2106,10 @@ const F03_MANIFEST_KEYS = Object.freeze([
 ] as const);
 
 /** F04 adds the `formulas` root (CA-25) as payload evolution, exactly as D37 did. */
-const F04_MANIFEST_KEYS = Object.freeze([...F03_MANIFEST_KEYS, "formulas"] as const);
+const F04_FORMULA_MANIFEST_KEYS = Object.freeze([...F03_MANIFEST_KEYS, "formulas"] as const);
+
+/** Then the `charts` root (CA-30), the same way: the shape every writer now emits. */
+const F04_MANIFEST_KEYS = Object.freeze([...F04_FORMULA_MANIFEST_KEYS, "charts"] as const);
 
 /**
  * True when `map` holds exactly `names`. Used only to choose between the two
@@ -1862,6 +2145,7 @@ export function encodeCheckpointBody(
       ["inferenceDecisions", resolved.inferenceDecisions.map(encodeDecision)],
       ["importLineages", resolved.importLineages.map(encodeLineage)],
       ["formulas", resolved.formulas.map(encodeCheckpointFormula)],
+      ["charts", resolved.charts.map(encodeCheckpointChart)],
       ["recordPages", resolved.recordPages.map(encodePageRef)],
     ]),
   );
@@ -1895,9 +2179,16 @@ export function decodeCheckpointManifest(
   const raw = asMap(decodeCanonical(payload), "a checkpoint manifest");
   const isF02 = hasExactly(raw, F02_MANIFEST_KEYS);
   const isF03 = hasExactly(raw, F03_MANIFEST_KEYS);
+  const isF04Formulas = hasExactly(raw, F04_FORMULA_MANIFEST_KEYS);
   const map = exactKeys(
     raw,
-    isF02 ? [...F02_MANIFEST_KEYS] : isF03 ? [...F03_MANIFEST_KEYS] : [...F04_MANIFEST_KEYS],
+    isF02
+      ? [...F02_MANIFEST_KEYS]
+      : isF03
+        ? [...F03_MANIFEST_KEYS]
+        : isF04Formulas
+          ? [...F04_FORMULA_MANIFEST_KEYS]
+          : [...F04_MANIFEST_KEYS],
     "a checkpoint manifest",
   );
   if (count(field(map, "manifestVersion"), "a manifest version") !== VERSION) {
@@ -1949,6 +2240,9 @@ export function decodeCheckpointManifest(
     ...(isF02 || isF03
       ? {}
       : { formulas: list(field(map, "formulas"), "formulas").map(decodeCheckpointFormula) }),
+    ...(isF02 || isF03 || isF04Formulas
+      ? {}
+      : { charts: list(field(map, "charts"), "charts").map(decodeCheckpointChart) }),
     recordPages: list(field(map, "recordPages"), "record pages").map(decodePageRef),
     semanticSha256: bytesOfLength(
       field(map, "semanticSha256"),

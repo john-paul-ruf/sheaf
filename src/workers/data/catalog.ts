@@ -122,6 +122,12 @@ export interface LocalCatalogAppEntryV1 {
   /** A cache the library may render; null when nothing has counted yet. */
   readonly rowCountCache: number | null;
   readonly tableCount: number;
+  /**
+   * D61: the app's one chart draft — encrypted operational state, never an
+   * event. Opaque canonical bytes the chart handlers own; absent means none,
+   * and a catalog written before charts carries no key for it.
+   */
+  readonly chartDraft?: Uint8Array;
 }
 
 export type HomeKindV1 = "dropbox" | "onedrive" | "bundle";
@@ -372,6 +378,7 @@ function encodeApp(app: LocalCatalogAppEntryV1): CborValue {
     ["lastOpenedAtEpochMs", app.lastOpenedAtEpochMs],
     ["rowCountCache", app.rowCountCache],
     ["tableCount", app.tableCount],
+    ...(app.chartDraft === undefined ? [] : [["chartDraft", app.chartDraft] as const]),
   ]);
 }
 
@@ -507,24 +514,27 @@ function oneOf<T extends string>(
   return found;
 }
 
+const APP_ENTRY_KEYS = Object.freeze([
+  "appId",
+  "locality",
+  "wrappedAppKey",
+  "appHeadStorageId",
+  "homeId",
+  "scratchReminder",
+  "displayName",
+  "identity",
+  "createdAtEpochMs",
+  "lastOpenedAtEpochMs",
+  "rowCountCache",
+  "tableCount",
+] as const);
+
 function decodeApp(value: DecodedValue): LocalCatalogAppEntryV1 {
   const map = asMap(value, "app entry");
+  const hasDraft = map.has("chartDraft");
   assertExactKeys(
     map,
-    [
-      "appId",
-      "locality",
-      "wrappedAppKey",
-      "appHeadStorageId",
-      "homeId",
-      "scratchReminder",
-      "displayName",
-      "identity",
-      "createdAtEpochMs",
-      "lastOpenedAtEpochMs",
-      "rowCountCache",
-      "tableCount",
-    ],
+    hasDraft ? [...APP_ENTRY_KEYS, "chartDraft"] : [...APP_ENTRY_KEYS],
     "app entry",
   );
 
@@ -551,6 +561,7 @@ function decodeApp(value: DecodedValue): LocalCatalogAppEntryV1 {
       "app row count cache",
     ),
     tableCount: integer(field(map, "tableCount"), "app table count"),
+    ...(hasDraft ? { chartDraft: bytes(field(map, "chartDraft"), "app chart draft") } : {}),
   };
 }
 

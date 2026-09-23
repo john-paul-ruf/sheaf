@@ -642,6 +642,108 @@ export interface GetAppMetricsRequestV1 {
   readonly appId: string;
 }
 
+/**
+ * A chart grouping on the wire (D54): a field of the table, a parent field
+ * through one relationship, or a date bucketed by day, month or year.
+ */
+export type ChartGroupingWireV1 =
+  | { readonly kind: "field"; readonly fieldId: string }
+  | {
+      readonly kind: "related-field";
+      readonly relationshipId: string;
+      readonly referenceFieldId: string;
+      readonly fieldId: string;
+    }
+  | { readonly kind: "date"; readonly fieldId: string; readonly unit: "day" | "month" | "year" };
+
+export type ChartMeasureWireV1 =
+  | { readonly kind: "count" }
+  | { readonly kind: "sum" | "average" | "min" | "max"; readonly fieldId: string };
+
+interface ChartCommonWireV1 {
+  readonly name: string;
+  readonly tableId: string;
+  /** ANDed exactly as the records query applies them (CA-29). */
+  readonly filters: readonly FilterWireV1[];
+  readonly pinned: boolean;
+}
+
+/**
+ * M01's `ChartDefinitionV1` without its identity: a builder's definition
+ * before it is saved. The data worker validates it against the app's schema
+ * before it draws or commits anything.
+ */
+export type ChartDefinitionWireV1 = ChartCommonWireV1 &
+  (
+    | {
+        readonly type: "bar" | "line" | "pie" | "stacked";
+        readonly groupBy: ChartGroupingWireV1;
+        /** Stacked only. */
+        readonly seriesBy: ChartGroupingWireV1 | null;
+        readonly measure: ChartMeasureWireV1;
+        readonly sort: "category" | "measure-desc";
+      }
+    | { readonly type: "scatter"; readonly x: string; readonly y: string }
+  );
+
+/** Every chart of the app, in display order (SCR-053, app home). */
+export interface ListChartsRequestV1 {
+  readonly kind: "listCharts";
+  readonly appId: string;
+}
+
+export interface GetChartRequestV1 {
+  readonly kind: "getChart";
+  readonly appId: string;
+  readonly chartId: string;
+}
+
+/**
+ * MOD-013's save. A new chart names no `chartId`; an edit names the chart and
+ * the revision the builder opened, and is refused `stale-chart` if it moved.
+ */
+export interface SaveChartRequestV1 {
+  readonly kind: "saveChart";
+  readonly appId: string;
+  readonly chartId: string | null;
+  readonly expectedRevision: number | null;
+  readonly definition: ChartDefinitionWireV1;
+}
+
+/** SCR-053's pin toggle: the same definition, pinned or not. A user change. */
+export interface SetChartPinRequestV1 {
+  readonly kind: "setChartPin";
+  readonly appId: string;
+  readonly chartId: string;
+  readonly expectedRevision: number;
+  readonly pinned: boolean;
+}
+
+export interface DeleteChartRequestV1 {
+  readonly kind: "deleteChart";
+  readonly appId: string;
+  readonly chartId: string;
+  readonly expectedRevision: number;
+}
+
+/** D61: the app's one chart draft, restored when the builder opens. */
+export interface GetChartDraftRequestV1 {
+  readonly kind: "getChartDraft";
+  readonly appId: string;
+}
+
+/** MOD-012 "save draft locally": encrypted operational state, never an event. */
+export interface SaveChartDraftRequestV1 {
+  readonly kind: "saveChartDraft";
+  readonly appId: string;
+  readonly draft: ChartDraftViewV1;
+}
+
+export interface DiscardChartDraftRequestV1 {
+  readonly kind: "discardChartDraft";
+  readonly appId: string;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -682,7 +784,15 @@ export type DataWorkerRequestV1 =
   | GetAppStructureRequestV1
   | PreviewSchemaChangeRequestV1
   | ApplySchemaChangeRequestV1
-  | GetAppMetricsRequestV1;
+  | GetAppMetricsRequestV1
+  | ListChartsRequestV1
+  | GetChartRequestV1
+  | SaveChartRequestV1
+  | SetChartPinRequestV1
+  | DeleteChartRequestV1
+  | GetChartDraftRequestV1
+  | SaveChartDraftRequestV1
+  | DiscardChartDraftRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -2129,6 +2239,92 @@ export interface GetAppMetricsResponseV1 {
   readonly metrics: AppMetricsViewV1 | null;
 }
 
+/** One chart as a surface reads it (CA-30). */
+export interface ChartViewV1 {
+  readonly chartId: string;
+  readonly definition: ChartDefinitionWireV1;
+  /** Display order among the app's charts. */
+  readonly ordinal: number;
+  /** Rebuilt from a workbook, or made here (SCR-053's origin marker). */
+  readonly provenance: "imported" | "user";
+  /** Hand back as `expectedRevision` to edit, pin or delete it. */
+  readonly chartRevision: number;
+}
+
+/** The builder's unsaved state (D61): which chart it edits, if any, and how far. */
+export interface ChartDraftViewV1 {
+  readonly chartId: string | null;
+  readonly expectedRevision: number | null;
+  readonly definition: ChartDefinitionWireV1;
+}
+
+/** Why a definition cannot be saved or drawn: S01's closed reasons, ids as text. */
+export interface ChartRefusalWireV1 {
+  readonly reason:
+    | "missing-name"
+    | "unknown-table"
+    | "unknown-field"
+    | "group-field-type"
+    | "measure-field-type"
+    | "series-on-non-stacked"
+    | "unknown-relationship"
+    | "inactive-relationship"
+    | "invalid-filter";
+  readonly fieldId: string | null;
+  readonly filterReason: FilterRefusalWireV1["reason"] | null;
+}
+
+/** A chart command's result. Only `saved` and `deleted` wrote anything. */
+export type ChartCommandOutcomeWireV1 =
+  /** `commitId` is null only for a pin that already stood. */
+  | { readonly result: "saved"; readonly chart: ChartViewV1; readonly commitId: string | null }
+  | { readonly result: "deleted"; readonly chartId: string; readonly commitId: string }
+  | { readonly result: "stale-chart"; readonly chartRevision: number }
+  | { readonly result: "refused"; readonly refusals: readonly ChartRefusalWireV1[] }
+  | { readonly result: "unknown-chart" }
+  | { readonly result: "unknown-app" };
+
+export interface ListChartsResponseV1 {
+  readonly kind: "listCharts";
+  /** Null when no catalog app carries the id. */
+  readonly charts: readonly ChartViewV1[] | null;
+}
+
+export interface GetChartResponseV1 {
+  readonly kind: "getChart";
+  readonly chart: ChartViewV1 | null;
+}
+
+export interface SaveChartResponseV1 {
+  readonly kind: "saveChart";
+  readonly outcome: ChartCommandOutcomeWireV1;
+}
+
+export interface SetChartPinResponseV1 {
+  readonly kind: "setChartPin";
+  readonly outcome: ChartCommandOutcomeWireV1;
+}
+
+export interface DeleteChartResponseV1 {
+  readonly kind: "deleteChart";
+  readonly outcome: ChartCommandOutcomeWireV1;
+}
+
+export interface GetChartDraftResponseV1 {
+  readonly kind: "getChartDraft";
+  readonly draft: ChartDraftViewV1 | null;
+}
+
+export interface SaveChartDraftResponseV1 {
+  readonly kind: "saveChartDraft";
+  /** False when no catalog app carries the id; nothing was written. */
+  readonly saved: boolean;
+}
+
+export interface DiscardChartDraftResponseV1 {
+  readonly kind: "discardChartDraft";
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -2169,7 +2365,15 @@ export type DataWorkerResponseV1 =
   | GetAppStructureResponseV1
   | PreviewSchemaChangeResponseV1
   | ApplySchemaChangeResponseV1
-  | GetAppMetricsResponseV1;
+  | GetAppMetricsResponseV1
+  | ListChartsResponseV1
+  | GetChartResponseV1
+  | SaveChartResponseV1
+  | SetChartPinResponseV1
+  | DeleteChartResponseV1
+  | GetChartDraftResponseV1
+  | SaveChartDraftResponseV1
+  | DiscardChartDraftResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

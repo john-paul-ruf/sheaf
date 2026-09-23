@@ -1428,6 +1428,8 @@ describe("change history for F04's structure events (CA-28)", () => {
       "Calculation changed",
       "Calculation removed",
     ]);
-    expect(describeEvent("chart.saved")).toBe("A change was recorded");
+    // S05's chart kinds are named; a kind F05 will author is not yet.
+    expect(["chart.saved", "chart.deleted"].map(describeEvent)).toEqual(["Chart saved", "Chart deleted"]);
+    expect(describeEvent("durable-home.assigned")).toBe("A change was recorded");
   });
 });

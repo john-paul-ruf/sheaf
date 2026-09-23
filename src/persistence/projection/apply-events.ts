@@ -47,6 +47,7 @@ import { F04_SCHEMA_EVENT_KINDS } from "../../domain/model/events.js";
 import { recalculate } from "./recalc.js";
 import type {
   AuthoredRecordV1,
+  ChartSavedPayloadV1,
   FieldChangeV1,
   FormulaChangedPayloadV1,
   TableCreatedPayloadV1,
@@ -89,6 +90,7 @@ import {
 import {
   cacheEnumOption,
   cacheSchema,
+  upsertChartRow,
   insertEnumOption,
   insertField,
   insertFormulaDependencies,
@@ -105,6 +107,7 @@ import {
   searchableTextFor,
 } from "./record-rows.js";
 import {
+  DELETE_CHART,
   DEACTIVATE_FORMULA,
   DEACTIVATE_VALIDATION_RULE,
   DELETE_COMPUTED_CELLS_FOR_FIELD,
@@ -568,6 +571,16 @@ function applyEvent(
       run(handle, UPDATE_APP_STATE_THEME, [encodeAppTheme(event.payload.after)]);
       break;
 
+    case "chart.saved":
+      applyChartSaved(handle, event.payload);
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.definition.tableId };
+      break;
+
+    case "chart.deleted":
+      applyChartDeleted(handle, event.payload.chartId);
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.prior.definition.tableId };
+      break;
+
     case "import.accepted":
     case "inference-decision.recorded":
       // Recorded as history. The `import_lineages` and `inference_decisions`
@@ -677,6 +690,8 @@ const SUBJECT_KINDS: Readonly<Record<DomainEventV1["kind"], ChangeSubjectKindV1>
   "record.deleted": "record",
   "record.restored": "record",
   "theme.changed": "app",
+  "chart.saved": "chart",
+  "chart.deleted": "chart",
   "import.accepted": "app",
   "inference-decision.recorded": "app",
 };
@@ -719,6 +734,7 @@ function subjectIdOf(
       return wire.subject.recordId;
     case "rule":
     case "formula":
+    case "chart":
       return wire.subject.objectId;
     default:
       return wire.subject.appId;
@@ -1027,6 +1043,42 @@ function relationshipById(
  * commit, or an earlier one — which is exactly what migration 005's trigger
  * checks; nothing here restates it.
  */
+/**
+ * `chart.saved`: a new chart starts at revision 0, and every later save is
+ * exactly one past the chart as the projection holds it — the stale-builder
+ * guard's durable half. Anything else is a commit this app did not author.
+ */
+function applyChartSaved(handle: ProjectionHandleV1, payload: ChartSavedPayloadV1): void {
+  const { definition } = payload;
+  if (
+    compareDomainIds(payload.chartId, definition.chartId) !== 0 ||
+    payload.displayName !== definition.name ||
+    payload.pinned !== definition.pinned
+  ) {
+    throw new IntegrityError("chart.saved disagrees with its own definition");
+  }
+  const existing = handle.schema.charts.get(idKey(payload.chartId));
+  const expected = existing === undefined ? 0n : existing.chartRevision + 1n;
+  if (payload.chartRevision !== expected) {
+    throw new IntegrityError("chart.saved does not follow the chart's revision");
+  }
+  upsertChartRow(handle, {
+    definition,
+    displayName: payload.displayName,
+    pinned: payload.pinned,
+    ordinal: payload.ordinal,
+    provenance: payload.provenance,
+    chartRevision: payload.chartRevision,
+  });
+}
+
+function applyChartDeleted(handle: ProjectionHandleV1, chartId: Uint8Array): void {
+  if (!handle.schema.charts.delete(idKey(chartId))) {
+    throw new IntegrityError("chart.deleted names a chart this app does not hold");
+  }
+  run(handle, DELETE_CHART, [chartId]);
+}
+
 function applyFormulaChanged(
   handle: ProjectionHandleV1,
   payload: FormulaChangedPayloadV1<FormulaDefinitionV1>,

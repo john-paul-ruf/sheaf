@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   EVENT_KINDS_V1,
@@ -5,7 +6,9 @@ import {
 } from "../../../src/migrations/004_event_format_v1.js";
 import {
   APP_THEME_TOKENS,
+  CHART_PROVENANCES,
   DELETION_SOURCES,
+  F04_CHART_EVENT_KINDS,
   F02_EVENT_KINDS,
   F04_SCHEMA_EVENT_KINDS,
   FORMULA_IMPORTED_VALUE_POLICIES,
@@ -187,8 +190,28 @@ describe("F04 schema event kinds", () => {
   });
 
   it("holds the widened union inside 004's list in the type system", () => {
-    const widened: readonly EventKindV1[] = [...F02_EVENT_KINDS, ...F04_SCHEMA_EVENT_KINDS];
+    const widened: readonly EventKindV1[] = [...F02_EVENT_KINDS, ...F04_SCHEMA_EVENT_KINDS, ...F04_CHART_EVENT_KINDS];
     const narrowed: DomainEventKindV1 = "field.changed";
     expect(widened).toContain(narrowed);
+  });
+});
+
+describe("F04 chart event kinds (CA-30)", () => {
+  it("names only the two chart kinds migration 004 already declares", () => {
+    const declared = new Set<string>(EVENT_KINDS_V1);
+    const earlier = new Set<string>([...F02_EVENT_KINDS, ...F04_SCHEMA_EVENT_KINDS]);
+    expect([...F04_CHART_EVENT_KINDS]).toEqual(["chart.saved", "chart.deleted"]);
+    for (const kind of F04_CHART_EVENT_KINDS) {
+      expect(declared.has(kind), kind).toBe(true);
+      expect(earlier.has(kind), kind).toBe(false);
+    }
+    expect(Object.isFrozen(F04_CHART_EVENT_KINDS)).toBe(true);
+  });
+
+  it("keeps provenance to migration 005's `charts.provenance` CHECK, verbatim", () => {
+    const sql = readFileSync(new URL("../../../src/migrations/005_projection_v1.sql", import.meta.url), "utf8");
+    expect(sql).toContain("provenance TEXT NOT NULL CHECK (provenance IN ('imported', 'user'))");
+    expect([...CHART_PROVENANCES]).toEqual(["imported", "user"]);
+    expect(Object.isFrozen(CHART_PROVENANCES)).toBe(true);
   });
 });

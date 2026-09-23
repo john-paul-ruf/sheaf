@@ -93,6 +93,7 @@ import {
   SELECT_ALL_RELATIONSHIPS,
   SELECT_APP_STATE,
   SELECT_CELLS_FOR_RECORD,
+  SELECT_CHART_IDS,
   SELECT_ENUM_OPTIONS_FOR_FIELD,
   SELECT_FIELDS_FOR_TABLE,
   SELECT_HISTORY_FOR_RECORD,
@@ -115,6 +116,7 @@ import type {
   ProjectionAppStateV1,
   ProjectionCellRowV1,
   ProjectionChangeEventV1,
+  ProjectionChartV1,
   ProjectionChangeHistoryPageV1,
   ProjectionIssueRowV1,
   ProjectionQueryResultsV1,
@@ -284,6 +286,8 @@ function runQuery(
           };
         }),
       );
+    case "list-charts":
+      return answer(listCharts(handle));
     case "query-records":
       return answer(queryRecords(handle, query));
     default: {
@@ -856,6 +860,17 @@ function listFormulas(
           compareDomainIds(entry.formula.target.tableId, tableId) === 0),
     )
     .sort((left, right) => compareDomainIds(left.formula.formulaId, right.formula.formulaId));
+}
+
+/** The `charts` rows in `chart_ordinal` order, each read through the session cache. */
+function listCharts(handle: ProjectionHandleV1): readonly ProjectionChartV1[] {
+  return selectRows(handle, SELECT_CHART_IDS).map((row) => {
+    const chart = handle.schema.charts.get(idKey(row[0] as Uint8Array));
+    if (chart === undefined) {
+      throw new CodecError("a chart row has no definition in this session");
+    }
+    return chart;
+  });
 }
 
 function readAppState(handle: ProjectionHandleV1): ProjectionAppStateV1 {

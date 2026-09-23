@@ -43,6 +43,7 @@ import { encodeCanonical } from "../codecs/canonical-cbor.js";
 import { applyEvents } from "./apply-events.js";
 import {
   encodeAppTheme,
+  encodeChartDefinition,
   encodeFormulaDocument,
   encodeFormulaMetadata,
   encodeFrontier,
@@ -80,9 +81,11 @@ import {
   INSERT_SHEET_SNAPSHOT,
   INSERT_VALIDATION_RULE,
   UPDATE_SCHEMA_TABLE_FIELD_REFS,
+  UPSERT_CHART,
   UPSERT_FORMULA,
 } from "./statements.js";
 import type {
+  ProjectionChartV1,
   ProjectionCheckpointV1,
   ProjectionCommitV1,
   ProjectionFormulaV1,
@@ -230,6 +233,10 @@ function loadMetadata(
     insertFormulaDependencies(handle, entry);
   }
 
+  for (const chart of checkpoint.charts ?? []) {
+    upsertChartRow(handle, chart);
+  }
+
   for (const item of checkpoint.inertItems) {
     run(handle, INSERT_INERT_CONTENT, [
       item.inertItemId,
@@ -274,6 +281,26 @@ function loadMetadata(
   for (const entry of checkpoint.formulas) {
     handle.schema.formulas.set(idKey(entry.formula.formulaId), entry);
   }
+}
+
+/**
+ * One `charts` row and its cache entry (CA-30). A second chart at a taken
+ * ordinal is refused by `UNIQUE (chart_ordinal)` — an integrity failure, not
+ * a reorder.
+ */
+export function upsertChartRow(handle: ProjectionHandleV1, chart: ProjectionChartV1): void {
+  const { definition } = chart;
+  run(handle, UPSERT_CHART, [
+    definition.chartId,
+    chart.displayName,
+    definition.type,
+    encodeChartDefinition(definition),
+    chart.pinned ? 1 : 0,
+    chart.ordinal,
+    chart.provenance,
+    toSqlInteger(chart.chartRevision),
+  ]);
+  handle.schema.charts.set(idKey(definition.chartId), chart);
 }
 
 /**

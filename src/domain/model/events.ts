@@ -4,7 +4,8 @@
  *
  * The kind list in `src/migrations/004_event_format_v1.ts` is closed for event
  * format 1 and stays closed: this module types a **subset** of it — the eleven
- * kinds F02 produces plus the nine F04 schema kinds — and adds nothing to it.
+ * kinds F02 produces, the nine F04 schema kinds and the two chart kinds — and
+ * adds nothing to it.
  * `tests/unit/domain/events.test.ts` asserts every kind named here is one 004
  * already declares.
  *
@@ -31,7 +32,9 @@
  * one would require a forward event-format migration first.
  */
 
+import type { ChartDefinitionV1 } from "./charts.js";
 import type {
+  ChartId,
   EventId,
   FieldId,
   LineageId,
@@ -266,8 +269,16 @@ export const F04_SCHEMA_EVENT_KINDS = Object.freeze([
 
 export type F04SchemaEventKindV1 = (typeof F04_SCHEMA_EVENT_KINDS)[number];
 
+/**
+ * The two chart kinds (CA-30), also already in migration 004's list. A chart
+ * is not schema: saving one moves no schema revision.
+ */
+export const F04_CHART_EVENT_KINDS = Object.freeze(["chart.saved", "chart.deleted"] as const);
+
+export type F04ChartEventKindV1 = (typeof F04_CHART_EVENT_KINDS)[number];
+
 /** Every kind this build authors or replays. */
-export type DomainEventKindV1 = F02EventKindV1 | F04SchemaEventKindV1;
+export type DomainEventKindV1 = F02EventKindV1 | F04SchemaEventKindV1 | F04ChartEventKindV1;
 
 /** A table's own definition, without its fields (each field has its own events). */
 export type TableDefinitionV1 = Omit<TableDefV1, "fields">;
@@ -363,6 +374,47 @@ export interface FormulaRemovedPayloadV1<Formula, Impact> {
   readonly impact: Impact;
 }
 
+// ------------------------------------------------------------- F04 charts --
+
+/** migration 005's `charts.provenance` CHECK: rebuilt from a workbook, or made here. */
+export const CHART_PROVENANCES = Object.freeze(["imported", "user"] as const);
+export type ChartProvenanceV1 = (typeof CHART_PROVENANCES)[number];
+
+/**
+ * One chart as it stands: its definition and the facts the `charts` row keeps
+ * beside it. `displayName` and `pinned` repeat the definition's own `name`
+ * and `pinned` (database.md names both columns); the codec refuses a pair
+ * that disagrees.
+ */
+export interface ChartStateV1 {
+  readonly definition: ChartDefinitionV1;
+  readonly displayName: string;
+  readonly pinned: boolean;
+  /** Display order; unique among the app's charts. */
+  readonly ordinal: number;
+  readonly provenance: ChartProvenanceV1;
+  /** The stale-builder guard: 0 at the first save, +1 at every later one. */
+  readonly chartRevision: bigint;
+}
+
+/** `chart.saved` (CA-30): the complete definition, never a delta. */
+export interface ChartSavedPayloadV1 extends ChartStateV1 {
+  readonly chartId: ChartId;
+  /** Hash of the definition this save replaces; null for a new chart. */
+  readonly priorSha256: Sha256V1 | null;
+}
+
+/** `chart.deleted`: everything the chart was, so the audit can say so. */
+export interface ChartDeletedPayloadV1 {
+  readonly chartId: ChartId;
+  readonly prior: ChartStateV1;
+}
+
+export interface F04ChartEventPayloadsV1 {
+  readonly "chart.saved": ChartSavedPayloadV1;
+  readonly "chart.deleted": ChartDeletedPayloadV1;
+}
+
 /**
  * The nine F04 payloads, over the rule IR, formula definition and impact
  * report types the instantiating layer supplies (see the file comment).
@@ -380,12 +432,14 @@ export interface F04SchemaEventPayloadsV1<Rule, Formula, Impact> {
 }
 
 /**
- * Every authored or replayed event: F02's eleven kinds and F04's nine, each
- * paired with exactly its own payload.
+ * Every authored or replayed event: F02's eleven kinds, F04's nine schema
+ * kinds and its two chart kinds, each paired with exactly its own payload.
  */
 export type DomainEventOfV1<Rule, Formula, Impact> = {
   [K in DomainEventKindV1]: {
     readonly kind: K;
-    readonly payload: (F02EventPayloadsV1 & F04SchemaEventPayloadsV1<Rule, Formula, Impact>)[K];
+    readonly payload: (F02EventPayloadsV1 &
+      F04SchemaEventPayloadsV1<Rule, Formula, Impact> &
+      F04ChartEventPayloadsV1)[K];
   };
 }[DomainEventKindV1];

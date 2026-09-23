@@ -19,7 +19,16 @@ import {
 } from "../../../src/domain/model/ids.js";
 import { sha256 } from "../../../src/crypto/hash.js";
 import type { FormulaDefinitionV1 } from "../../../src/domain/formulas/index.js";
-import { decodeRuleIR, encodeRuleIR, type CheckpointFormulaV1 } from "../../../src/import/staging/roots.js";
+import {
+  decodeChartDefinition,
+  decodeRuleIR,
+  encodeChartDefinition,
+  encodeRuleIR,
+  type CheckpointChartV1,
+  type CheckpointFormulaV1,
+} from "../../../src/import/staging/roots.js";
+import type { ChartDefinitionV1 } from "../../../src/domain/model/charts.js";
+import { encodeChartDefinition as encodeProjectionChart } from "../../../src/persistence/projection/cbor-values.js";
 import type { ValidationRuleIRV2 } from "../../../src/domain/validation/rules.js";
 import { decodeCanonical, encodeCanonical } from "../../../src/persistence/codecs/canonical-cbor.js";
 import {
@@ -774,6 +783,121 @@ describe("checkpoint manifest evolution, F04 (CA-25, CA-27)", () => {
     const smuggled = new Map(decodeCanonical(encodeCanonical(encodeRuleIR(v2))) as ReadonlyMap<string, unknown>);
     smuggled.set("irVersion", 1n);
     expect(() => decodeRuleIR(smuggled as never)).toThrow(CodecError);
+  });
+});
+
+describe("checkpoint manifest evolution, charts (CA-30)", () => {
+  const f03 = fromHex(F03_CHECKPOINT_HEX);
+  const common = {
+    chartVersion: 1 as const,
+    tableId: TABLE,
+    pinned: true,
+  };
+  /** Every type, grouping kind, measure kind and filter operand kind at least once. */
+  const every: readonly ChartDefinitionV1[] = [
+    {
+      ...common,
+      chartId: id("chart", 100),
+      name: "Quoted by status",
+      filters: [
+        { fieldId: FIELD, operand: { kind: "enum-in", optionIds: [id("option", 3)] } },
+        { fieldId: FIELD, operand: { kind: "date-range", from: -40, to: null } },
+        { fieldId: FIELD, operand: { kind: "number-range", min: null, max: "10.50" } },
+        { fieldId: FIELD, operand: { kind: "boolean-is", value: false } },
+        { fieldId: FIELD, operand: { kind: "reference-in", recordIds: [id("record", 4), id("record", 5)] } },
+        { fieldId: FIELD, operand: { kind: "reference-broken" } },
+        { fieldId: FIELD, operand: { kind: "text-contains", text: "café" } },
+        { fieldId: FIELD, operand: { kind: "text-equals", text: "North" } },
+        { fieldId: FIELD, operand: { kind: "is-empty" } },
+        { fieldId: FIELD, operand: { kind: "not-empty" } },
+      ],
+      type: "bar",
+      groupBy: { kind: "field", fieldId: FIELD },
+      seriesBy: null,
+      measure: { kind: "sum", fieldId: FIELD },
+      sort: "category",
+    },
+    {
+      ...common,
+      chartId: id("chart", 101),
+      name: "Jobs by customer region",
+      filters: [],
+      type: "stacked",
+      groupBy: { kind: "related-field", relationshipId: id("relationship", 6), referenceFieldId: FIELD, fieldId: id("field", 7) },
+      seriesBy: { kind: "date", fieldId: id("field", 8), unit: "month" },
+      measure: { kind: "count" },
+      sort: "measure-desc",
+    },
+    ...(["line", "pie"] as const).map(
+      (type, index): ChartDefinitionV1 => ({
+        ...common,
+        chartId: id("chart", 102 + index),
+        name: type,
+        filters: [],
+        type,
+        groupBy: { kind: "date", fieldId: FIELD, unit: index === 0 ? "day" : "year" },
+        seriesBy: null,
+        measure: { kind: index === 0 ? "average" : "min", fieldId: FIELD },
+        sort: "category",
+      }),
+    ),
+    { ...common, chartId: id("chart", 104), name: "Hours vs quoted", filters: [], pinned: false, type: "scatter", x: FIELD, y: id("field", 9) },
+    {
+      ...common,
+      chartId: id("chart", 105),
+      name: "Largest",
+      filters: [],
+      type: "bar",
+      groupBy: { kind: "field", fieldId: FIELD },
+      seriesBy: null,
+      measure: { kind: "max", fieldId: FIELD },
+      sort: "category",
+    },
+  ];
+  const charts: readonly CheckpointChartV1[] = every.map((definition, ordinal) => ({
+    definition,
+    ordinal,
+    provenance: ordinal % 2 === 0 ? "user" : "imported",
+    chartRevision: BigInt(ordinal * 3),
+  }));
+
+  it("decodes F02, F03 and formula-only F04 bytes to no charts", () => {
+    expect(decodeCheckpointManifest(fromHex(F02_CHECKPOINT_HEX)).charts).toEqual([]);
+    expect(decodeCheckpointManifest(f03).charts).toEqual([]);
+    // The shape S03 wrote: F03 plus `formulas`, no `charts`.
+    const formulaOnly = withF03Keys(encodeCheckpointManifest(decodeCheckpointManifest(f03)), (map) => map.delete("charts"));
+    expect([...(decodeCanonical(formulaOnly) as ReadonlyMap<string, unknown>).keys()]).toContain("formulas");
+    expect(decodeCheckpointManifest(formulaOnly).charts).toEqual([]);
+  });
+
+  it("round-trips every chart type, grouping, measure and filter byte-identically", () => {
+    const manifest = { ...decodeCheckpointManifest(f03), charts };
+    const encoded = encodeCheckpointManifest(manifest);
+    const decoded = decodeCheckpointManifest(encoded);
+    expect([...(decodeCanonical(encoded) as ReadonlyMap<string, unknown>).keys()]).toContain("charts");
+    expect(decoded.charts).toEqual(charts);
+    expect(encodeCheckpointManifest(decoded)).toEqual(encoded);
+    expect(new Set(decoded.charts.map(({ definition }) => definition.type))).toEqual(new Set(["bar", "line", "pie", "scatter", "stacked"]));
+  });
+
+  it("writes the same definition bytes the projection stores", () => {
+    for (const definition of every) {
+      expect(encodeProjectionChart(definition)).toEqual(encodeCanonical(encodeChartDefinition(definition)));
+      expect(decodeChartDefinition(decodeCanonical(encodeProjectionChart(definition)))).toEqual(definition);
+    }
+  });
+
+  it("refuses a chart type, key or version the format does not have", () => {
+    const bytes = (edit: (map: Map<string, unknown>) => void): Uint8Array =>
+      withF03Keys(encodeCanonical(encodeChartDefinition(every[0]!)), edit);
+    expect(() => decodeChartDefinition(decodeCanonical(bytes((map) => map.set("type", "area"))))).toThrow(CodecError);
+    expect(() => decodeChartDefinition(decodeCanonical(bytes((map) => map.set("x", FIELD))))).toThrow(CodecError);
+    expect(() => decodeChartDefinition(decodeCanonical(bytes((map) => map.set("chartVersion", 2n))))).toThrow(CodecError);
+    expect(() =>
+      decodeCheckpointManifest(
+        encodeCheckpointManifest({ ...decodeCheckpointManifest(f03), charts: [{ ...charts[0]!, provenance: "guessed" as never }] }),
+      ),
+    ).toThrow(CodecError);
   });
 });
 

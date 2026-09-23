@@ -27,6 +27,7 @@
 
 import type {
   AuthoredRecordV1,
+  ChartStateV1,
   FieldChangeV1,
   FormulaMetadataV1,
   AppThemeV1,
@@ -133,6 +134,9 @@ export interface ProjectionFormulaV1 {
   readonly schemaRevision: bigint;
 }
 
+/** One chart as the projection holds it (CA-30): never a dataset. */
+export type ProjectionChartV1 = ChartStateV1;
+
 export interface ProjectionInertItemV1 {
   readonly inertItemId: InertItemId;
   readonly sheetId: SheetId;
@@ -179,6 +183,8 @@ export interface ProjectionCheckpointV1 {
   readonly relationships: readonly RelationshipDefV1[];
   readonly validationRules: readonly ProjectionValidationRuleV1[];
   readonly formulas: readonly ProjectionFormulaV1[];
+  /** Absent means none. */
+  readonly charts?: readonly ProjectionChartV1[];
   readonly inertItems: readonly ProjectionInertItemV1[];
   readonly importLineages: readonly ImportLineageV1[];
   readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
@@ -522,6 +528,8 @@ export type ProjectionQueryV1 =
   | { readonly kind: "list-formulas"; readonly tableId: TableId | null }
   /** Every metric and dashboard value's current result. */
   | { readonly kind: "scalar-results" }
+  /** Every live chart, in display order. */
+  | { readonly kind: "list-charts" }
   /**
    * Search ∧ typed filters ∧ one sort over one table (CA-29), examining at
    * most `candidateBudget` candidate rows (D53).
@@ -564,6 +572,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
   readonly "list-formulas": readonly ProjectionFormulaV1[];
   readonly "scalar-results": readonly ProjectionScalarResultV1[];
+  readonly "list-charts": readonly ProjectionChartV1[];
   readonly "query-records": ProjectionRecordQueryResultV1;
 }
 

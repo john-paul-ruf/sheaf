@@ -1710,6 +1710,9 @@ const EVENT_SENTENCE: Readonly<Record<string, string>> = Object.freeze({
   "rule.removed": "Rule removed",
   "formula.changed": "Calculation changed",
   "formula.removed": "Calculation removed",
+  // F04's charts (CA-30).
+  "chart.saved": "Chart saved",
+  "chart.deleted": "Chart deleted",
 });
 
 /**

@@ -23,7 +23,7 @@
  * before F03 carries no `sourceSheet` and reads as `null`.
  *
  * F04's schema, rule and formula kinds are mapped by `schema-event-payloads.ts`
- * and dispatched from here, so {@link encodeRecordEventPayload} is still the one
+ * and its chart kinds by `chart-event-payloads.ts`, both dispatched from here, so {@link encodeRecordEventPayload} is still the one
  * function the event store derives every authored payload from. A schema
  * command's `field.created` (a new computed column carries its `formulaId`)
  * and `enum.changed` are encoded here with the same M23 definitions promotion
@@ -38,6 +38,7 @@
 import { CodecError } from "../../domain/model/errors.js";
 import type { DomainEventV1 } from "../../application/ports/event-repository.js";
 import {
+  F04_CHART_EVENT_KINDS,
   F04_SCHEMA_EVENT_KINDS,
   type AuthoredRecordV1,
   type F04SchemaEventKindV1,
@@ -65,6 +66,7 @@ import {
   encodeEnumOption,
   encodeFieldDef,
 } from "../../import/staging/roots.js";
+import { decodeChartEventPayload, encodeChartEventPayload } from "./chart-event-payloads.js";
 import { decodeSchemaEventPayload, encodeSchemaEventPayload } from "./schema-event-payloads.js";
 import {
   asMap,
@@ -102,7 +104,7 @@ export function isRecordEventKind(kind: string): kind is RecordEventKindV1 {
 
 /**
  * Every kind a tail commit may carry: CRUD, an appended table's schema, and
- * F04's schema, rule and formula edits.
+ * F04's schema, rule, formula and chart edits.
  */
 export const TAIL_EVENT_KINDS = Object.freeze([
   ...RECORD_EVENT_KINDS,
@@ -111,6 +113,7 @@ export const TAIL_EVENT_KINDS = Object.freeze([
   "enum.changed",
   "inference-decision.recorded",
   ...F04_SCHEMA_EVENT_KINDS,
+  ...F04_CHART_EVENT_KINDS,
 ] as const);
 
 export type TailEventKindV1 = (typeof TAIL_EVENT_KINDS)[number];
@@ -321,6 +324,9 @@ export function encodeRecordEventPayload(event: DomainEventV1): CborValue {
     case "formula.changed":
     case "formula.removed":
       return encodeSchemaEventPayload(event);
+    case "chart.saved":
+    case "chart.deleted":
+      return encodeChartEventPayload(event);
     case "record.created":
       return cborMap([
         ["record", encodeAuthoredRecord(event.payload.record)],
@@ -468,6 +474,9 @@ export function decodeTailEventPayload(
     return decodeSchemaEventPayload(kind, payload);
   }
   switch (kind) {
+    case "chart.saved":
+    case "chart.deleted":
+      return decodeChartEventPayload(kind, payload);
     case "record.created":
     case "record.patched":
     case "record.deleted":

@@ -1074,7 +1074,7 @@ const sheetIdOf = (text: string): SheetId =>
  * request; filter text is NFC-normalized here, as all authored text is (D28).
  * Whether the filter fits the field is `compileRecordQuery`'s to say.
  */
-function toDomainFilter(filter: FilterWireV1): FilterV1 {
+export function toDomainFilter(filter: FilterWireV1): FilterV1 {
   const fieldId = fieldIdOf(filter.fieldId);
   const operand = filter.operand;
   switch (operand.kind) {

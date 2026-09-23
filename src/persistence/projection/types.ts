@@ -24,6 +24,7 @@ import type { StorageId16 } from "../../domain/model/bytes.js";
 import type {
   AppThemeV1,
   AuthoredRecordV1,
+  ChartStateV1,
   DomainEventOfV1,
   FieldChangeV1,
   FormulaMetadataV1,
@@ -168,6 +169,12 @@ export interface ProjectionFormulaV1 {
   readonly schemaRevision: bigint;
 }
 
+/**
+ * One `charts` row (CA-30): the definition and the facts beside it. A
+ * dataset is never a row — it is computed per request (database.md).
+ */
+export type ProjectionChartV1 = ChartStateV1;
+
 /** One `inert_content` row: kept, listed, and never executed (D40). */
 export interface ProjectionInertItemV1 {
   readonly inertItemId: InertItemId;
@@ -248,6 +255,8 @@ export interface ProjectionCheckpointV1 {
   readonly validationRules: readonly ProjectionValidationRuleV1[];
   /** Load order step 3: after the fields whose `formulaId` names them. */
   readonly formulas: readonly ProjectionFormulaV1[];
+  /** The live charts (CA-30); absent means none, as for every app before S05. */
+  readonly charts?: readonly ProjectionChartV1[];
   readonly inertItems: readonly ProjectionInertItemV1[];
   readonly importLineages: readonly ImportLineageV1[];
   readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
@@ -622,6 +631,8 @@ export type ProjectionQueryV1 =
   | { readonly kind: "list-formulas"; readonly tableId: TableId | null }
   /** Every metric and dashboard value's current result. */
   | { readonly kind: "scalar-results" }
+  /** Every live chart, in display order (`chart_ordinal`). */
+  | { readonly kind: "list-charts" }
   /** Search ∧ typed filters ∧ one sort, within a candidate budget (CA-29, D53). */
   | {
       readonly kind: "query-records";
@@ -659,6 +670,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
   readonly "list-formulas": readonly ProjectionFormulaV1[];
   readonly "scalar-results": readonly ProjectionScalarResultV1[];
+  readonly "list-charts": readonly ProjectionChartV1[];
   readonly "query-records": ProjectionRecordQueryResultV1;
 }
 
@@ -681,4 +693,6 @@ export interface ProjectionSchemaCacheV1 {
   readonly relationships: Map<string, RelationshipDefV1>;
   /** Every formula, active or not, keyed by its ID; `formula.changed` updates it. */
   readonly formulas: Map<string, ProjectionFormulaV1>;
+  /** Every live chart, keyed by its ID; `chart.saved`/`chart.deleted` update it. */
+  readonly charts: Map<string, ProjectionChartV1>;
 }

@@ -76,6 +76,7 @@ import {
 } from "./import-handlers.js";
 import { createRecordHandlers } from "./record-handlers.js";
 import { createStructureHandlers } from "./structure-handlers.js";
+import { createChartHandlers } from "./chart-handlers.js";
 import type { SchemaCommitLimitsV1 } from "../../application/commands/schema-commands.js";
 import {
   isIdleTimeoutMinutesV1,
@@ -168,6 +169,17 @@ export function createDataWorkerHandler(
       records.closeAppSession(appId);
     },
     ...(deps.schemaCommitLimits === undefined ? {} : { limits: deps.schemaCommitLimits }),
+  });
+
+  const charts = createChartHandlers({
+    clock: deps.clock,
+    entropy: deps.entropy,
+    appSession: (appId) => records.appSession(appId),
+    closeAppSession: (appId) => {
+      records.closeAppSession(appId);
+    },
+    getContext: () => importContext(requireUnlocked()),
+    commitCatalog: (next) => commitCatalog(next),
   });
 
   const now = (): number => deps.clock.nowEpochMs();
@@ -862,6 +874,22 @@ export function createDataWorkerHandler(
           return structure.applySchemaChange(request);
         case "getAppMetrics":
           return structure.getAppMetrics(request);
+        case "listCharts":
+          return charts.listCharts(request);
+        case "getChart":
+          return charts.getChart(request);
+        case "saveChart":
+          return charts.saveChart(request);
+        case "setChartPin":
+          return charts.setChartPin(request);
+        case "deleteChart":
+          return charts.deleteChart(request);
+        case "getChartDraft":
+          return charts.getChartDraft(request);
+        case "saveChartDraft":
+          return charts.saveChartDraft(request);
+        case "discardChartDraft":
+          return charts.discardChartDraft(request);
         default: {
           const unreachable: never = request;
           void unreachable;

@@ -17,6 +17,7 @@ import {
   decodeRecordEventPayload,
   decodeTailEventPayload,
   isTailEventKind,
+  type TailEventKindV1,
   encodeAuthoredRecordBytes,
   encodeRecordEventPayload,
   isRecordEventKind,
@@ -27,7 +28,7 @@ import {
   encodeDomainId,
   type FieldId,
 } from "../../../src/domain/model/ids.js";
-import { F04_SCHEMA_EVENT_KINDS, type AuthoredRecordV1 } from "../../../src/domain/model/events.js";
+import { F04_CHART_EVENT_KINDS, F04_SCHEMA_EVENT_KINDS, type AuthoredRecordV1 } from "../../../src/domain/model/events.js";
 import type {
   DomainEventV1,
   SchemaImpactCountsV1,
@@ -364,6 +365,7 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
       "enum.changed",
       "inference-decision.recorded",
       ...F04_SCHEMA_EVENT_KINDS,
+      ...F04_CHART_EVENT_KINDS,
     ]);
     expect(isTailEventKind("app.created")).toBe(false);
     expect(isTailEventKind("import.accepted")).toBe(false);
@@ -673,5 +675,59 @@ describe("a frozen literal's provenance (D51)", () => {
     // An F02/F03 patch has no evidence key, and decodes exactly as before.
     const plain = roundTrip(EVENTS[1] as DomainEventV1);
     expect(plain.kind === "record.patched" && Object.keys(plain.payload.changes[0]!.provenance)).toEqual(["source"]);
+  });
+});
+
+describe("the chart payloads (CA-30)", () => {
+  const chartId = createDomainId("chart", entropy);
+  const tableId = createDomainId("table", entropy);
+  const fieldId = createDomainId("field", entropy);
+  const state = {
+    definition: {
+      chartVersion: 1 as const,
+      chartId,
+      name: "Quoted by status",
+      tableId,
+      filters: [{ fieldId, operand: { kind: "not-empty" as const } }],
+      pinned: true,
+      type: "bar" as const,
+      groupBy: { kind: "field" as const, fieldId },
+      seriesBy: null,
+      measure: { kind: "sum" as const, fieldId },
+      sort: "category" as const,
+    },
+    displayName: "Quoted by status",
+    pinned: true,
+    ordinal: 3,
+    provenance: "imported" as const,
+    chartRevision: 2n,
+  };
+  const events: readonly DomainEventV1[] = [
+    { kind: "chart.saved", payload: { chartId, ...state, priorSha256: new Uint8Array(32).fill(7) } },
+    { kind: "chart.saved", payload: { chartId, ...state, chartRevision: 0n, priorSha256: null } },
+    { kind: "chart.deleted", payload: { chartId, prior: state } },
+  ];
+  const read = (event: DomainEventV1): DomainEventV1 =>
+    decodeTailEventPayload(event.kind as TailEventKindV1, decodeCanonical(encodeCanonical(encodeRecordEventPayload(event))));
+
+  it("reads each back as itself, byte-identically, as a tail kind", () => {
+    for (const event of events) {
+      expect(isTailEventKind(event.kind)).toBe(true);
+      expect(read(event)).toEqual(event);
+      expect(encodeCanonical(encodeRecordEventPayload(read(event)))).toEqual(encodeCanonical(encodeRecordEventPayload(event)));
+    }
+  });
+
+  it("refuses a payload whose name, pin or id disagrees with its own definition", () => {
+    const saved = events[0]!;
+    if (saved.kind !== "chart.saved") throw new Error("fixture");
+    for (const payload of [
+      { ...saved.payload, displayName: "Something else" },
+      { ...saved.payload, pinned: false },
+      { ...saved.payload, chartId: createDomainId("chart", entropy) },
+    ]) {
+      const bytes = encodeCanonical(encodeRecordEventPayload({ kind: "chart.saved", payload }));
+      expect(() => decodeTailEventPayload("chart.saved", decodeCanonical(bytes))).toThrow(CodecError);
+    }
   });
 });
