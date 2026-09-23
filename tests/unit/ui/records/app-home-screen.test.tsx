@@ -144,6 +144,25 @@ describe("SCR-024 — the app becomes a place", () => {
     ).toHaveLength(0);
   });
 
+  it("links \"Edit structure\" beside the tables once the structure route exists (app-home.html)", async () => {
+    await render(
+      <AppHomeScreen
+        nav={{ ...nav, structure: `#/app/${APP_ID}/structure`, settings: `#/app/${APP_ID}/settings` }}
+        newRecordHref={newRecordHref}
+        tableHref={tableHref}
+        vm={selectAppHomeVm(session())}
+      />,
+    );
+    const tables = query('[aria-labelledby="app-tables"]');
+    const edit = [...tables.querySelectorAll("a")].find((link) => link.textContent === "Edit structure");
+    expect(edit?.getAttribute("href")).toBe(`#/app/${APP_ID}/structure`);
+  });
+
+  it("offers no \"Edit structure\" where no structure route serves it", async () => {
+    await renderHome();
+    expect(queryAll("a").map((link) => link.textContent)).not.toContain("Edit structure");
+  });
+
   it("exposes exactly one primary navigation", async () => {
     await renderHome();
     // M39 renders the rail and the bottom bar; CSS displays one at a time, and

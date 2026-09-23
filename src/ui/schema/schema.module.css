@@ -1,0 +1,316 @@
+/*
+ * M46 — the structure column (schema.html, app-settings.html; SHT-014,
+ * MOD-014, MOD-015).
+ *
+ * Unlayered by the layer contract: `tokens.css` and `base.css` own the cascade
+ * layers. Every colour, space and radius is a token. Layout classes follow
+ * design.md § Layout Classes: one column below 900px; from tablet landscape
+ * up, schema.html's list/detail split keeps the field detail beside the list.
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.split {
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-16);
+  align-content: start;
+  min-width: 0;
+}
+
+.card {
+  display: grid;
+  gap: var(--space-12);
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+  box-shadow: var(--shadow-level-1);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.headText {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+
+.listTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-status);
+}
+
+/* ---- the tables and fields lists (schema.html's anchor lists) ------------- */
+
+.anchorList {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.anchor {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--target-min);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.anchor:hover {
+  background: var(--color-panel);
+}
+
+.anchor:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* The current table or field: said by `aria-current` and a border, never by hue alone. */
+.anchor[aria-current="true"] {
+  border-color: var(--app-primary, var(--color-action));
+  background: var(--color-panel);
+  font-weight: var(--weight-control);
+}
+
+.anchorName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tag {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-control);
+}
+
+.rule {
+  height: 1px;
+  border: 0;
+  margin: 0;
+  background: var(--color-border);
+}
+
+/* ---- facts and badges ----------------------------------------------------- */
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4) var(--space-12);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+.facts dd {
+  margin: 0 0 var(--space-8);
+  font-weight: var(--weight-control);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.badge[data-tone="good"] {
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+}
+
+.badge[data-tone="warn"] {
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+}
+
+.notice {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-12) var(--space-16);
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+}
+
+.hint {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-body);
+}
+
+.expression {
+  display: block;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
+  background: var(--color-canvas);
+  font-family: var(--font-mono);
+  font-size: var(--text-supporting);
+  overflow-wrap: anywhere;
+}
+
+/* ---- rows: rules, choices, calculations ---------------------------------- */
+
+.rows {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8) var(--space-12);
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-12);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.rowCopy {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: var(--space-8);
+}
+
+.leading {
+  display: inline-grid;
+  width: var(--target-min);
+  height: var(--target-min);
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  font-weight: var(--weight-status);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+@media (min-width: 600px) {
+  .facts {
+    grid-template-columns: minmax(8rem, 0.4fr) minmax(0, 1fr);
+  }
+
+  .facts dd {
+    margin-bottom: 0;
+  }
+
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .rowActions {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 900px) {
+  /* schema.html: the tables and fields beside the detail, which stays visible. */
+  .split {
+    grid-template-columns: minmax(15rem, 0.55fr) minmax(0, 1.45fr);
+    align-items: start;
+  }
+}

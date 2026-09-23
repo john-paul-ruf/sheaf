@@ -31,6 +31,10 @@ import {
   type ChartServices,
   type RecordsServices,
 } from "../application/workflows/records-services.js";
+import {
+  createSchemaServices,
+  type SchemaServices,
+} from "../application/workflows/schema-services.js";
 import type { SessionPhase } from "./guards.js";
 
 const clock: ClockPort = { nowEpochMs: () => Date.now() };
@@ -72,6 +76,8 @@ export interface SecurityWiring {
   readonly records: RecordsServices;
   /** Charts: datasets, saves, pins and drafts (CA-30, D61). */
   readonly charts: ChartServices;
+  /** The app's structure: read, preview and apply a change (CA-28). */
+  readonly schema: SchemaServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
   readonly clock: ClockPort;
@@ -118,6 +124,7 @@ export function useSheafRuntime(): SheafRuntime {
       services: createSecurityServices(app.client),
       records: createRecordsServices(app.client),
       charts: createChartServices(app.client),
+      schema: createSchemaServices(app.client),
       policy: passphrasePolicy,
       codeFormat: recoveryCodeFormat,
       clock,

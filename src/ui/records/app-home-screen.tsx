@@ -208,6 +208,10 @@ export function AppHomeScreen({
               <InlineLink target={{ kind: "internal", href: nav.appHistory }}>
                 Change history
               </InlineLink>
+              {/* app-home.html: "Working lists · Open a table … Edit structure" (SCR-035). */}
+              {nav.structure !== undefined && (
+                <InlineLink target={{ kind: "internal", href: nav.structure }}>Edit structure</InlineLink>
+              )}
             </div>
           </div>
 

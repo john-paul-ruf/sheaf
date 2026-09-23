@@ -9,7 +9,7 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  *
  * It is a sibling of M41's `UnlockedFrame`, not a variant of it: the shell
  * destinations inside an app are the app's own (home, a table, its charts,
- * its sheet snapshots, its change history) plus the way back out, and design.md § Shell and generated-app
+ * its structure, its settings) plus the way back out, and design.md § Shell and generated-app
  * boundary is explicit that the two levels are different places. Exactly one
  * navigation is exposed at any width — M39's rail and bottom bar are the same
  * destinations, and only one of them is displayed — so the app area adds no
@@ -20,6 +20,12 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  * and six more links in a 320px bar would each be narrower than the 44px hit
  * floor. So the bar names the current table (or the first, off any table),
  * and every table is reachable through CTL-059 → SHT-003 with its count.
+ *
+ * **Structure and Settings, per the app mocks' rail** (schema.html,
+ * app-settings.html: Home · table · Charts · Structure · Settings). Sheet
+ * snapshots and change history are reached from Settings and app home, as
+ * app-settings.html lists them; at 320px a bar of more than six destinations
+ * would drop each below the 44px hit floor.
  *
  * **The hrefs arrive as data.** A screen states where it goes; `src/routes/`
  * decides what that spells (the M41 rule, restated).
@@ -51,11 +57,15 @@ export interface AppNavigation {
   readonly appSnapshots: string;
   /** SCR-053, the app's charts (CA-07 amendment 4, D63); absent where no route serves it. */
   readonly charts?: string;
+  /** SCR-035, the app's structure (CA-07 amendment 4, D63); absent where no route serves it. */
+  readonly structure?: string;
+  /** SCR-037, the app's settings (CA-07 amendment 4, D63); absent where no route serves it. */
+  readonly settings?: string;
   readonly tables: readonly AppTableLink[];
 }
 
 /** Which destination the current surface belongs to. */
-export type AppArea = "home" | "records" | "snapshots" | "history" | "charts";
+export type AppArea = "home" | "records" | "snapshots" | "history" | "charts" | "structure" | "settings";
 
 /**
  * Who the app is. Every app-area surface renders inside one identity, and
@@ -143,20 +153,28 @@ export function AppFrame({
             ...(area === "charts" ? { isCurrent: true } : {}),
           },
         ]),
-    {
-      id: "app-snapshots",
-      label: "Sheet snapshots",
-      href: nav.appSnapshots,
-      glyph: "◇",
-      ...(area === "snapshots" ? { isCurrent: true } : {}),
-    },
-    {
-      id: "app-history",
-      label: "Change history",
-      href: nav.appHistory,
-      glyph: "↺",
-      ...(area === "history" ? { isCurrent: true } : {}),
-    },
+    ...(nav.structure === undefined
+      ? []
+      : [
+          {
+            id: "app-structure",
+            label: "Structure",
+            href: nav.structure,
+            glyph: "S",
+            ...(area === "structure" ? { isCurrent: true } : {}),
+          },
+        ]),
+    ...(nav.settings === undefined
+      ? []
+      : [
+          {
+            id: "app-settings",
+            label: "Settings",
+            href: nav.settings,
+            glyph: "⚙",
+            ...(area === "settings" ? { isCurrent: true } : {}),
+          },
+        ]),
     { id: "library", label: "All apps", href: nav.library, glyph: "⌘" },
   ];
 

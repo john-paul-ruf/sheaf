@@ -14,6 +14,7 @@ import {
   type TableSwitcherVm,
 } from "../application/view-models/records.js";
 import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
+import type { SchemaServices } from "../application/workflows/schema-services.js";
 import type { AppIdentity, AppNavigation } from "../ui/records/app-frame.js";
 import type {
   AppSessionViewV1,
@@ -36,6 +37,8 @@ export interface AppAreaWiring {
   readonly records: RecordsServices;
   /** The charts column's worker edge (CA-30). */
   readonly charts: ChartServices;
+  /** The structure column's worker edge: preview and apply (CA-28). */
+  readonly schema: SchemaServices;
   readonly session: AppSessionViewV1;
   readonly topBarActions: ReactNode;
   /**

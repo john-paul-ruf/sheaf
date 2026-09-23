@@ -90,6 +90,7 @@ import type {
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
 import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
+import type { SchemaServices } from "../application/workflows/schema-services.js";
 import { toSecurityError } from "../application/workflows/services.js";
 import { DelimitedTargetScreen } from "../ui/import/delimited-target-screen.js";
 import { ImportFailedScreen } from "../ui/import/import-failed-screen.js";
@@ -135,6 +136,7 @@ import {
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
 import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
+import { StructureRoute } from "./schema-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -173,6 +175,7 @@ import {
   isAppAreaPath,
   newRecordPath,
   recordPath,
+  structurePath,
   tablePath,
   type SessionPhase,
 } from "./guards.js";
@@ -490,7 +493,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
-      <AppArea charts={wiring.charts} records={wiring.records} topBarActions={lockAction}>
+      <AppArea charts={wiring.charts} records={wiring.records} schema={wiring.schema} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -897,11 +900,13 @@ function ImportStageScreens({
 function AppArea({
   records,
   charts,
+  schema,
   topBarActions,
   children,
 }: {
   readonly records: RecordsServices;
   readonly charts: ChartServices;
+  readonly schema: SchemaServices;
   readonly topBarActions: ReactNode;
   /** The rest of the unlocked area, rendered when no app path is current. */
   readonly children: ReactNode;
@@ -920,6 +925,7 @@ function AppArea({
       charts={charts}
       key={appId}
       records={records}
+      schema={schema}
       topBarActions={topBarActions}
     />
   );
@@ -936,11 +942,13 @@ function OpenedApp({
   appId,
   records,
   charts,
+  schema,
   topBarActions,
 }: {
   readonly appId: string;
   readonly records: RecordsServices;
   readonly charts: ChartServices;
+  readonly schema: SchemaServices;
   readonly topBarActions: ReactNode;
 }): ReactNode {
   const [state, setState] = useState<OpenedAppState>({ kind: "opening" });
@@ -1054,6 +1062,7 @@ function OpenedApp({
     appHistory: hashHref(appHistoryPath(appId)),
     appSnapshots: hashHref(appSnapshotsPath(appId)),
     charts: hashHref(chartsPath(appId)),
+    structure: hashHref(structurePath(appId)),
     tables: session.tables.map((table) => ({
       tableId: table.tableId,
       displayName: table.displayName,
@@ -1066,6 +1075,7 @@ function OpenedApp({
     nav,
     records,
     charts,
+    schema,
     session,
     topBarActions,
     announce,
@@ -1108,6 +1118,10 @@ function OpenedApp({
       />
       <Route element={<SnapshotsRoute area={area} />} path="/app/:appId/snapshots" />
       <Route element={<ChartsIndexRoute area={area} />} path="/app/:appId/charts" />
+      <Route
+        element={<StructureRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}
+        path="/app/:appId/structure"
+      />
       <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/new" />
       <Route
         element={<ChartDetailRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}

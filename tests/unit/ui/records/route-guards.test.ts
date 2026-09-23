@@ -1,6 +1,7 @@
 /**
- * CA-07 amendments 3 and 4 — the snapshot and chart shapes, in every phase
- * (M54), and the chart mark's filter intent in navigation state (D63).
+ * CA-07 amendments 3 and 4 — the snapshot, chart, structure and settings
+ * shapes, in every phase (M54), and the chart mark's filter intent in
+ * navigation state (D63).
  *
  * Lives beside the records surfaces because `tests/unit/routes/` is in no
  * lease this feature; the guard is a pure function, so a node test is its
@@ -10,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  appSettingsPath,
   appSnapshotsPath,
   chartPath,
   chartsPath,
@@ -18,6 +20,7 @@ import {
   isAppAreaPath,
   newChartPath,
   snapshotPath,
+  structurePath,
   type SessionPhase,
 } from "../../../../src/routes/guards.js";
 import {
@@ -101,6 +104,46 @@ describe("the chart shapes (CA-07 amendment 4, D63)", () => {
       expect(guardRoute(phase, path)).toEqual(expected[phase]);
     });
   }
+});
+
+const STRUCTURE_SHAPES = [
+  "/app/app-1/structure",
+  "/app/app-1/settings",
+  "/app/app-1/structure/",
+  "/app/app-1/settings/",
+] as const;
+
+describe("the structure and settings shapes (CA-07 amendment 4, D63)", () => {
+  it("are app-area paths, and an extra segment is not", () => {
+    expect(isAppAreaPath("/app/app-1/structure")).toBe(true);
+    expect(isAppAreaPath("/app/app-1/settings")).toBe(true);
+    expect(isAppAreaPath("/app/app-1/structure/t-1")).toBe(false);
+    expect(isAppAreaPath("/app/app-1/settings/theme")).toBe(false);
+    expect(isAppAreaPath("/app/app-1/structures")).toBe(false);
+  });
+
+  it("are built from ids, percent-encoded", () => {
+    expect(structurePath("a/b")).toBe("/app/a%2Fb/structure");
+    expect(appSettingsPath("a b")).toBe("/app/a%20b/settings");
+    expect(isAppAreaPath(structurePath("a/b"))).toBe(true);
+    expect(isAppAreaPath(appSettingsPath("a/b"))).toBe(true);
+  });
+
+  const expected: Readonly<Record<SessionPhase, ReturnType<typeof guardRoute>>> = {
+    "first-run": { kind: "redirect", to: "/welcome" },
+    locked: { kind: "redirect", to: "/unlock" },
+    unlocked: { kind: "render" },
+  };
+
+  for (const phase of ["first-run", "locked", "unlocked"] as const) {
+    it.each(STRUCTURE_SHAPES)(`${phase}: %s`, (path) => {
+      expect(guardRoute(phase, path)).toEqual(expected[phase]);
+    });
+  }
+
+  it("leaves the extra-segment case to the phase's fallback", () => {
+    expect(guardRoute("unlocked", "/app/app-1/settings/theme")).toEqual({ kind: "redirect", to: "/library" });
+  });
 });
 
 describe("a chart mark's filter intent (D63)", () => {
