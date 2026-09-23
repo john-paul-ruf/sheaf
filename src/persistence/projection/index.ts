@@ -54,6 +54,7 @@ export type {
   ProjectionRelatedChildrenPageV1,
   ProjectionRelatedParentV1,
   ProjectionRelationshipV1,
+  ProjectionSheetListingV1,
   ProjectionSheetSnapshotV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,

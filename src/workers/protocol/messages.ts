@@ -373,6 +373,41 @@ export interface ListTablesRequestV1 {
   readonly appId: string;
 }
 
+/** Every imported sheet of the app, with its roles and inert counts (SCR-030). */
+export interface ListSheetSnapshotsRequestV1 {
+  readonly kind: "listSheetSnapshots";
+  readonly appId: string;
+}
+
+/**
+ * One page of a sheet's read-only snapshot (SCR-031). The worker decrypts only
+ * the chunks the page covers; at most 1,000 rows per page.
+ */
+export interface GetSnapshotPageRequestV1 {
+  readonly kind: "getSnapshotPage";
+  readonly appId: string;
+  readonly sheetId: string;
+  readonly firstRow: number;
+  readonly rowCount: number;
+}
+
+/** The next cell after `afterRow` containing `text`; a bounded chunk scan. */
+export interface FindInSnapshotRequestV1 {
+  readonly kind: "findInSnapshot";
+  readonly appId: string;
+  readonly sheetId: string;
+  readonly text: string;
+  /** Null searches from the top. */
+  readonly afterRow: number | null;
+}
+
+/** The inert inventory for one sheet, or the whole app when null (STA-012). */
+export interface ListInertItemsRequestV1 {
+  readonly kind: "listInertItems";
+  readonly appId: string;
+  readonly sheetId: string | null;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -405,7 +440,11 @@ export type DataWorkerRequestV1 =
   | GetRelatedChildrenRequestV1
   | SearchReferenceCandidatesRequestV1
   | GetDeletedRecordRequestV1
-  | ListTablesRequestV1;
+  | ListTablesRequestV1
+  | ListSheetSnapshotsRequestV1
+  | GetSnapshotPageRequestV1
+  | FindInSnapshotRequestV1
+  | ListInertItemsRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -1136,6 +1175,146 @@ export interface ListTablesResponseV1 {
   readonly tables: readonly AppTableViewV1[] | null;
 }
 
+/** M01's closed lists, restated so this file imports nothing (pinned in protocol.test.ts). */
+export type SheetClassificationWireV1 = "table" | "lookup" | "summary" | "chart" | "snapshot";
+
+export type InertItemKindWireV1 =
+  | "formula"
+  | "chart"
+  | "pivot-table"
+  | "drawing"
+  | "image"
+  | "comment"
+  | "external-link"
+  | "hyperlink"
+  | "embedded-object"
+  | "form-control"
+  | "data-connection"
+  | "conditional-formatting"
+  | "cell-styling"
+  | "sparkline"
+  | "script"
+  | "unsupported-validation";
+
+export type InertReasonKeyWireV1 =
+  | "formula-not-live-yet"
+  | "chart-not-live-yet"
+  | "object-not-rendered"
+  | "link-not-followed"
+  | "script-never-runs"
+  | "formatting-not-reproduced"
+  | "validation-not-expressible"
+  | "kept-in-source";
+
+/** Zero-based and inclusive on both corners. */
+export interface CellRangeWireV1 {
+  readonly firstRow: number;
+  readonly firstColumn: number;
+  readonly lastRow: number;
+  readonly lastColumn: number;
+}
+
+export interface SheetSnapshotViewV1 {
+  readonly sheetId: string;
+  readonly displayName: string;
+  readonly sheetOrdinal: number;
+  readonly classification: readonly SheetClassificationWireV1[];
+  /** Null when the source never declared it — never shown as zero. */
+  readonly declaredRowCount: number | null;
+  readonly declaredColumnCount: number | null;
+  readonly snapshotRevision: number;
+  /** Exact counts per kind; kinds with none are absent. */
+  readonly inertCounts: readonly {
+    readonly kind: InertItemKindWireV1;
+    readonly count: number;
+  }[];
+}
+
+export interface ListSheetSnapshotsResponseV1 {
+  readonly kind: "listSheetSnapshots";
+  /** Null when no app carries this id. */
+  readonly sheets: readonly SheetSnapshotViewV1[] | null;
+}
+
+export type SnapshotCellKindWireV1 =
+  | "text"
+  | "number"
+  | "date"
+  | "boolean"
+  | "error"
+  | "formula-result";
+
+/**
+ * One page of a sheet's normalized text grid. Cells are rendered text with a
+ * closed kind — never markup. A delimited (F02) snapshot carries no discard
+ * markers: its discarded rows are here as rows, unmarked.
+ */
+export interface SnapshotPageViewV1 {
+  readonly sheetId: string;
+  readonly format: "sheet-v2" | "delimited-v1";
+  readonly displayName: string;
+  readonly rowCount: number;
+  readonly columnCount: number;
+  readonly firstRow: number;
+  /** Sparse: rows and cells with nothing in them are absent. */
+  readonly rows: readonly {
+    readonly rowIndex: number;
+    readonly cells: readonly {
+      readonly columnIndex: number;
+      readonly text: string;
+      readonly kind: SnapshotCellKindWireV1;
+    }[];
+  }[];
+  /** Merged regions and inert anchors that intersect the page. */
+  readonly merges: readonly CellRangeWireV1[];
+  readonly inertAnchors: readonly {
+    readonly inertItemId: string;
+    readonly range: CellRangeWireV1;
+  }[];
+  readonly discardedRows: readonly {
+    readonly rowIndex: number;
+    readonly reason: "above-header" | "empty-row";
+  }[];
+}
+
+export interface GetSnapshotPageResponseV1 {
+  readonly kind: "getSnapshotPage";
+  /** Null when the app or the sheet is not there. */
+  readonly page: SnapshotPageViewV1 | null;
+}
+
+export type SnapshotFindResultV1 =
+  | {
+      readonly outcome: "found";
+      readonly rowIndex: number;
+      readonly columnIndex: number;
+    }
+  | { readonly outcome: "not-found" };
+
+export interface FindInSnapshotResponseV1 {
+  readonly kind: "findInSnapshot";
+  /** Null when the app or the sheet is not there. */
+  readonly result: SnapshotFindResultV1 | null;
+}
+
+export interface InertItemViewV1 {
+  readonly inertItemId: string;
+  readonly sheetId: string;
+  readonly sheetName: string;
+  readonly kind: InertItemKindWireV1;
+  /** A user-understandable location, e.g. `Overview!B2:F9`. */
+  readonly location: string;
+  readonly reasonKey: InertReasonKeyWireV1;
+  /** Where it sits in the snapshot, when it has a cell range. */
+  readonly anchor: CellRangeWireV1 | null;
+}
+
+export interface ListInertItemsResponseV1 {
+  readonly kind: "listInertItems";
+  /** Null when the app, or the named sheet, is not there. */
+  readonly items: readonly InertItemViewV1[] | null;
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -1168,7 +1347,11 @@ export type DataWorkerResponseV1 =
   | GetRelatedChildrenResponseV1
   | SearchReferenceCandidatesResponseV1
   | GetDeletedRecordResponseV1
-  | ListTablesResponseV1;
+  | ListTablesResponseV1
+  | ListSheetSnapshotsResponseV1
+  | GetSnapshotPageResponseV1
+  | FindInSnapshotResponseV1
+  | ListInertItemsResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

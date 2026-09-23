@@ -277,6 +277,50 @@ SELECT event_id, wall_time_ms, restoration_cbor
  ORDER BY wall_time_ms DESC, logical_counter DESC, event_id DESC
  LIMIT 1;`;
 
+export const SELECT_SHEET_SNAPSHOTS = `
+SELECT sheet_id, display_name, sheet_ordinal, classification_cbor,
+       snapshot_manifest_storage_id, declared_row_count, declared_column_count,
+       snapshot_revision
+  FROM sheet_snapshots
+ ORDER BY sheet_ordinal;`;
+
+/** Per-sheet, per-kind counts through `idx_inert_content_sheet`. */
+export const COUNT_INERT_BY_SHEET_AND_KIND = `
+SELECT sheet_id, item_kind, count(*)
+  FROM inert_content
+ GROUP BY sheet_id, item_kind
+ ORDER BY sheet_id, item_kind;`;
+
+const INERT_COLUMNS = `
+       inert_item_id, sheet_id, item_kind, source_location, reason_key,
+       snapshot_anchor_cbor, preserved_manifest_storage_id`;
+
+export const SELECT_ALL_INERT_ITEMS = `
+SELECT ${INERT_COLUMNS}
+  FROM inert_content
+ ORDER BY sheet_id, item_kind, inert_item_id;`;
+
+export const SELECT_INERT_ITEMS_FOR_SHEET = `
+SELECT ${INERT_COLUMNS}
+  FROM inert_content
+ WHERE sheet_id = ?
+ ORDER BY item_kind, inert_item_id;`;
+
+const DECISION_COLUMNS = `
+       decision_id, decision_kind, evidence_fingerprint_sha256, disposition,
+       statement_cbor, evidence_cbor, recorded_event_id`;
+
+export const SELECT_ALL_INFERENCE_DECISIONS = `
+SELECT ${DECISION_COLUMNS}
+  FROM inference_decisions
+ ORDER BY decision_kind, evidence_fingerprint_sha256;`;
+
+export const SELECT_INFERENCE_DECISIONS_OF_KIND = `
+SELECT ${DECISION_COLUMNS}
+  FROM inference_decisions
+ WHERE decision_kind = ?
+ ORDER BY evidence_fingerprint_sha256;`;
+
 /** The resolver's predicate: a live record, in exactly the named table. */
 export const SELECT_RECORD_IS_LIVE = `
 SELECT 1 FROM records WHERE record_id = ? AND table_id = ?;`;

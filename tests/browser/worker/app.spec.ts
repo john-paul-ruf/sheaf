@@ -624,3 +624,59 @@ test("a created record is validated, durable, and searchable at once", async ({
     valueOf(detail.response.record as never, status?.fieldId as string),
   ).toEqual({ kind: "missing" });
 });
+
+test("CA-22: an F02 app's delimited snapshot opens as a page, its discarded title rows included", async ({
+  page,
+}) => {
+  test.setTimeout(APP_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+
+  const listed = await command(page, { kind: "listSheetSnapshots", appId });
+  if (!listed.ok || listed.response.kind !== "listSheetSnapshots") {
+    throw new Error("expected a listSheetSnapshots response");
+  }
+  // The F02 manifest decodes to its F02-true defaults (D37): one table sheet.
+  expect(listed.response.sheets).toHaveLength(1);
+  const sheet = listed.response.sheets?.[0];
+  expect(sheet?.classification).toEqual(["table"]);
+  expect(sheet?.inertCounts).toEqual([]);
+
+  const read = await command(page, {
+    kind: "getSnapshotPage",
+    appId,
+    sheetId: sheet?.sheetId as string,
+    firstRow: 0,
+    rowCount: 5,
+  });
+  if (!read.ok || read.response.kind !== "getSnapshotPage" || read.response.page === null) {
+    throw new Error("expected a snapshot page");
+  }
+  const snapshot = read.response.page;
+  expect(snapshot.format).toBe("delimited-v1");
+  // F02's writer named the sheet after the proposed table.
+  expect(snapshot.displayName).toBe("Field Log Messy");
+  // FR-4's "recoverable", decode-proven: the rows the import set aside are here.
+  expect(snapshot.rows[0]?.cells).toEqual([
+    { columnIndex: 0, text: "Cedar & Finch Field Log", kind: "text" },
+  ]);
+  expect(snapshot.rows[1]?.cells[0]?.text).toBe("Exported 2026-03-14");
+  expect(
+    snapshot.rows.find((row) => row.cells[0]?.text === "Visit ID")?.rowIndex,
+  ).toBe(3);
+
+  const found = await command(page, {
+    kind: "findInSnapshot",
+    appId,
+    sheetId: sheet?.sheetId as string,
+    text: "ridgeway",
+    afterRow: null,
+  });
+  expect(found.ok && found.response.kind === "findInSnapshot" && found.response.result).toEqual({
+    outcome: "found",
+    rowIndex: 4,
+    columnIndex: 2,
+  });
+
+  const inert = await command(page, { kind: "listInertItems", appId, sheetId: null });
+  expect(inert.ok && inert.response.kind === "listInertItems" && inert.response.items).toEqual([]);
+});

@@ -32,6 +32,7 @@ import {
   type FieldId,
   type RecordId,
   type RelationshipId,
+  type SheetId,
   type TableId,
 } from "../../domain/model/ids.js";
 import {
@@ -55,6 +56,15 @@ import {
   recordQuery,
 } from "../../application/queries/records.js";
 import { isRestorable, planHistoryPage } from "../../application/queries/history.js";
+import {
+  planInertItems,
+  planSheetSnapshots,
+  planSnapshotSheet,
+} from "../../application/queries/snapshots.js";
+import {
+  findInSnapshot,
+  readSnapshotPage,
+} from "../../import/snapshots/sheet-snapshot.js";
 import {
   planDeletedRecord,
   planRecordReferences,
@@ -86,7 +96,11 @@ import type {
   CreateRecordRequestV1,
   DataWorkerResponseV1,
   DeleteRecordRequestV1,
+  FindInSnapshotRequestV1,
   GetChangeHistoryRequestV1,
+  GetSnapshotPageRequestV1,
+  ListInertItemsRequestV1,
+  ListSheetSnapshotsRequestV1,
   GetDeletedRecordRequestV1,
   GetRecordRequestV1,
   GetRelatedChildrenRequestV1,
@@ -147,6 +161,10 @@ export interface RecordHandlersV1 {
   ): Promise<DataWorkerResponseV1>;
   getDeletedRecord(request: GetDeletedRecordRequestV1): Promise<DataWorkerResponseV1>;
   listTables(request: ListTablesRequestV1): Promise<DataWorkerResponseV1>;
+  listSheetSnapshots(request: ListSheetSnapshotsRequestV1): Promise<DataWorkerResponseV1>;
+  getSnapshotPage(request: GetSnapshotPageRequestV1): Promise<DataWorkerResponseV1>;
+  findInSnapshot(request: FindInSnapshotRequestV1): Promise<DataWorkerResponseV1>;
+  listInertItems(request: ListInertItemsRequestV1): Promise<DataWorkerResponseV1>;
   /** The device-only count for every catalog app, from its decrypted head. */
   deviceOnlyChangeCounts(
     localRoot: EnvelopeKeyRefV1,
@@ -198,6 +216,18 @@ export function createRecordHandlers(
     });
     registry.set(appId, session);
     return session;
+  }
+
+  /** The sheet's snapshot, opened; null when the app or the sheet is not there. */
+  async function openSheetSnapshot(appId: string, sheetText: string) {
+    const session = await withApp(appId);
+    if (session === undefined) {
+      return null;
+    }
+    const listing = planSnapshotSheet(session.projection, sheetIdOf(sheetText));
+    return listing === null
+      ? null
+      : session.openSnapshot(listing.sheet.snapshotManifestStorageId);
   }
 
   const commandDeps = (session: AppSessionV1) => ({
@@ -555,6 +585,104 @@ export function createRecordHandlers(
       };
     },
 
+    async listSheetSnapshots(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      return {
+        kind: "listSheetSnapshots",
+        sheets:
+          session === undefined
+            ? null
+            : planSheetSnapshots(session.projection).map(({ sheet, inertCounts }) => ({
+                sheetId: encodeDomainId(sheet.sheetId),
+                displayName: sheet.displayName,
+                sheetOrdinal: sheet.sheetOrdinal,
+                classification: sheet.classification,
+                declaredRowCount: sheet.declaredRowCount,
+                declaredColumnCount: sheet.declaredColumnCount,
+                snapshotRevision: Number(sheet.snapshotRevision),
+                inertCounts,
+              })),
+      };
+    },
+
+    async getSnapshotPage(request): Promise<DataWorkerResponseV1> {
+      const opened = await openSheetSnapshot(request.appId, request.sheetId);
+      if (opened === null) {
+        return { kind: "getSnapshotPage", page: null };
+      }
+      let page: Awaited<ReturnType<typeof readSnapshotPage>>;
+      try {
+        page = await readSnapshotPage(opened.manifest, opened.loadChunk, {
+          firstRow: request.firstRow,
+          rowCount: request.rowCount,
+        });
+      } catch (cause) {
+        if (cause instanceof RangeError) {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        throw cause;
+      }
+      return {
+        kind: "getSnapshotPage",
+        page: {
+          sheetId: request.sheetId,
+          format: page.format,
+          displayName: page.displayName,
+          rowCount: page.rowCount,
+          columnCount: page.columnCount,
+          firstRow: page.firstRow,
+          rows: page.rows,
+          merges: page.merges,
+          inertAnchors: page.inertAnchors.map((anchor) => ({
+            inertItemId: encodeDomainId(anchor.inertItemId),
+            range: anchor.range,
+          })),
+          discardedRows: page.discardedRows,
+        },
+      };
+    },
+
+    async findInSnapshot(request): Promise<DataWorkerResponseV1> {
+      const opened = await openSheetSnapshot(request.appId, request.sheetId);
+      if (opened === null) {
+        return { kind: "findInSnapshot", result: null };
+      }
+      const match = await findInSnapshot(opened.manifest, opened.loadChunk, {
+        text: request.text,
+        afterRow: request.afterRow,
+      });
+      return {
+        kind: "findInSnapshot",
+        result: match === null ? { outcome: "not-found" } : { outcome: "found", ...match },
+      };
+    },
+
+    async listInertItems(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      const listed =
+        session === undefined
+          ? null
+          : planInertItems(
+              session.projection,
+              request.sheetId === null ? null : sheetIdOf(request.sheetId),
+            );
+      return {
+        kind: "listInertItems",
+        items:
+          listed === null
+            ? null
+            : listed.map(({ item, sheetName }) => ({
+                inertItemId: encodeDomainId(item.inertItemId),
+                sheetId: encodeDomainId(item.sheetId),
+                sheetName,
+                kind: item.kind,
+                location: item.location,
+                reasonKey: item.reasonKey,
+                anchor: item.anchor,
+              })),
+      };
+    },
+
     /**
      * CAP-18: the count comes from each app's decrypted head frontier, not from
      * a catalog cache — check 7's rule that nothing cached authorizes a
@@ -835,6 +963,9 @@ const recordIdOf = (text: string): RecordId =>
 
 const relationshipIdOf = (text: string): RelationshipId =>
   idOrRefuse(() => decodeDomainId("relationship", text));
+
+const sheetIdOf = (text: string): SheetId =>
+  idOrRefuse(() => decodeDomainId("sheet", text));
 
 /** The table id, if the open app actually holds it; `undefined` otherwise. */
 function knownTableId(

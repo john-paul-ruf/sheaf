@@ -82,6 +82,7 @@ describe("the projection port and the projection engine", () => {
       Engine.ProjectionRelatedChildrenPageV1
     >(true);
     mutual<Port.ProjectionDeletedRecordV1, Engine.ProjectionDeletedRecordV1>(true);
+    mutual<Port.ProjectionSheetListingV1, Engine.ProjectionSheetListingV1>(true);
     expect(true).toBe(true);
   });
 
@@ -108,7 +109,10 @@ describe("the projection port and the projection engine", () => {
       "count-related-children": true,
       "reference-candidates": true,
       "deleted-record": true,
+      "list-sheet-snapshots": true,
+      "list-inert-items": true,
+      "list-inference-decisions": true,
     };
-    expect(Object.keys(kinds)).toHaveLength(18);
+    expect(Object.keys(kinds)).toHaveLength(21);
   });
 });

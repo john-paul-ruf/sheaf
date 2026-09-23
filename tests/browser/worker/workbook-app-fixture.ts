@@ -20,7 +20,10 @@
  * The app: `Suppliers` (key `Code`, label `Name`) and `Orders` (label
  * `Order`, reference `Supplier` → Suppliers.Code, detected from a lookup
  * formula). `Washers` carries an imported key that matched no supplier
- * (`SUP-404`, D36).
+ * (`SUP-404`, D36). Three sheets carry real v2 snapshots, sealed like every
+ * other root and listed in the head: `Suppliers` (two chunks, a discarded
+ * title row, a merge, a comment), `Orders` (a preserved formula column), and
+ * `Overview` (a summary + chart sheet with an inert chart).
  */
 
 import type { Page } from "@playwright/test";
@@ -34,6 +37,16 @@ export interface SeededWorkbookAppV1 {
   readonly orderNameFieldId: string;
   readonly supplierFieldId: string;
   readonly relationshipId: string;
+  readonly sheets: {
+    readonly suppliers: string;
+    readonly orders: string;
+    readonly overview: string;
+  };
+  readonly inert: {
+    readonly comment: string;
+    readonly formula: string;
+    readonly chart: string;
+  };
   readonly records: {
     readonly acme: string;
     readonly globex: string;
@@ -68,6 +81,7 @@ export async function seedWorkbookApp(
       values,
       validator,
       theme,
+      snapshots,
     ] = await Promise.all([
       harness.module<typeof import("../../../src/domain/model/bytes.js")>(
         "/src/domain/model/bytes.ts",
@@ -113,6 +127,9 @@ export async function seedWorkbookApp(
       ),
       harness.module<typeof import("../../../src/import/staging/theme.js")>(
         "/src/import/staging/theme.ts",
+      ),
+      harness.module<typeof import("../../../src/import/snapshots/sheet-snapshot.js")>(
+        "/src/import/snapshots/sheet-snapshot.ts",
       ),
     ]);
 
@@ -335,17 +352,156 @@ export async function seedWorkbookApp(
       }),
     );
 
+    // --- the snapshots and the inert inventory ---------------------------------
+    type SheetClassificationV1 = import("../../../src/domain/model/snapshots.js").SheetClassificationV1;
+    type RowSpec = readonly (readonly [number, readonly string[]])[];
+    const overviewSheet = ids.createDomainId("sheet", entropy);
+    const commentItem = ids.createDomainId("inert-item", entropy);
+    const formulaItem = ids.createDomainId("inert-item", entropy);
+    const chartItem = ids.createDomainId("inert-item", entropy);
+    const snapshotRefs: StorageRefV1[] = [];
+
+    const writeSnapshot = async (
+      sheetId: typeof suppliersSheet,
+      displayName: string,
+      sheetOrdinal: number,
+      classification: readonly SheetClassificationV1[],
+      chunkRows: readonly RowSpec[],
+      extra: Pick<
+        Parameters<typeof snapshots.encodeSheetSnapshotManifest>[0],
+        "merges" | "inertAnchors" | "discardedRows"
+      >,
+    ) => {
+      const chunkRefs = [];
+      for (const [sequence, rowsOfChunk] of chunkRows.entries()) {
+        const firstRow = rowsOfChunk[0]?.[0] ?? 0;
+        const payload = snapshots.encodeSheetSnapshotChunk({
+          chunkVersion: 2,
+          firstRow,
+          rows: rowsOfChunk.map(([rowIndex, cells]) => ({
+            rowIndex,
+            cells: cells.flatMap((cellText, columnIndex) =>
+              cellText === "" ? [] : [{ columnIndex, text: cellText, kind: "text" as const }],
+            ),
+          })),
+        });
+        const ref = await sealRoot("app.snapshot-chunk", "app.snapshot-chunk", payload);
+        chunkRefs.push({
+          storageId: ref.storageId,
+          sequence,
+          decodedByteLength: payload.byteLength,
+          sha256: ref.semanticSha256,
+          firstRow,
+          lastRow: rowsOfChunk.at(-1)?.[0] ?? firstRow,
+        });
+      }
+      const rowCount = chunkRows.reduce((total, rowsOfChunk) => total + rowsOfChunk.length, 0);
+      const manifestRef = await sealRoot(
+        "app.snapshot-manifest",
+        "app.snapshot-manifest",
+        snapshots.encodeSheetSnapshotManifest({
+          manifestVersion: 2,
+          sheetId,
+          sheetOrdinal,
+          displayName,
+          classification,
+          rowCount,
+          columnCount: 3,
+          chunks: chunkRefs,
+          ...extra,
+        }),
+      );
+      snapshotRefs.push(manifestRef);
+      return {
+        sheetId,
+        displayName,
+        sheetOrdinal,
+        classification,
+        snapshotManifestStorageId: manifestRef.storageId,
+        declaredRowCount: rowCount,
+        declaredColumnCount: 3,
+        snapshotRevision: 1n,
+      };
+    };
+
+    const sheets = [
+      await writeSnapshot(
+        suppliersSheet,
+        "Suppliers",
+        0,
+        ["table", "lookup"],
+        [
+          [
+            [0, ["Supplier list"]],
+            [1, ["Code", "Name"]],
+            [2, ["SUP-1", "Acme"]],
+          ],
+          [
+            [3, ["SUP-2", "Globex"]],
+            [5, ["", "Two suppliers"]],
+          ],
+        ],
+        {
+          merges: [{ firstRow: 0, firstColumn: 0, lastRow: 0, lastColumn: 1 }],
+          inertAnchors: [
+            {
+              inertItemId: commentItem,
+              range: { firstRow: 2, firstColumn: 1, lastRow: 2, lastColumn: 1 },
+            },
+          ],
+          discardedRows: [{ rowIndex: 0, reason: "above-header" }],
+        },
+      ),
+      await writeSnapshot(
+        ordersSheet,
+        "Orders",
+        1,
+        ["table"],
+        [
+          [
+            [0, ["Order", "Supplier", "Total"]],
+            [1, ["Bolts", "SUP-1", "12"]],
+            [2, ["Nuts", "SUP-1", "7"]],
+            [3, ["Gears", "SUP-2", "30"]],
+            [4, ["Washers", "SUP-404", "3"]],
+          ],
+        ],
+        {
+          merges: [],
+          inertAnchors: [
+            {
+              inertItemId: formulaItem,
+              range: { firstRow: 1, firstColumn: 2, lastRow: 4, lastColumn: 2 },
+            },
+          ],
+          discardedRows: [],
+        },
+      ),
+      await writeSnapshot(
+        overviewSheet,
+        "Overview",
+        2,
+        ["summary", "chart"],
+        [[[0, ["Spend by supplier"]]]],
+        {
+          merges: [],
+          inertAnchors: [
+            {
+              inertItemId: chartItem,
+              range: { firstRow: 1, firstColumn: 0, lastRow: 8, lastColumn: 2 },
+            },
+          ],
+          discardedRows: [],
+        },
+      ),
+    ];
+    const inertItems = [
+      { inertItemId: commentItem, sheetId: suppliersSheet, kind: "comment" as const, location: "Suppliers!B3", reasonKey: "kept-in-source" as const, anchor: { firstRow: 2, firstColumn: 1, lastRow: 2, lastColumn: 1 }, preservedManifestStorageId: null },
+      { inertItemId: formulaItem, sheetId: ordersSheet, kind: "formula" as const, location: "Orders!C2:C5", reasonKey: "formula-not-live-yet" as const, anchor: { firstRow: 1, firstColumn: 2, lastRow: 4, lastColumn: 2 }, preservedManifestStorageId: null },
+      { inertItemId: chartItem, sheetId: overviewSheet, kind: "chart" as const, location: "Overview!A2:C9", reasonKey: "chart-not-live-yet" as const, anchor: { firstRow: 1, firstColumn: 0, lastRow: 8, lastColumn: 2 }, preservedManifestStorageId: null },
+    ];
+
     // --- the checkpoint and the head ------------------------------------------
-    const sheet = (sheetId: typeof suppliersSheet, displayName: string, sheetOrdinal: number, classification: readonly ("table" | "lookup")[]) => ({
-      sheetId,
-      displayName,
-      sheetOrdinal,
-      classification,
-      snapshotManifestStorageId: bytesModule.encodeStorageId16(freshStorageId()),
-      declaredRowCount: null,
-      declaredColumnCount: null,
-      snapshotRevision: 1n,
-    });
     const body = {
       manifestVersion: 1 as const,
       appId,
@@ -366,13 +522,10 @@ export async function seedWorkbookApp(
       },
       tables,
       enumOptions: [],
-      sheetSnapshots: [
-        sheet(suppliersSheet, "Suppliers", 0, ["table", "lookup"]),
-        sheet(ordersSheet, "Orders", 1, ["table"]),
-      ],
+      sheetSnapshots: sheets,
       relationships: [relationship],
       validationRules: [],
-      inertItems: [],
+      inertItems,
       inferenceDecisions: [],
       importLineages: [],
       recordPages: [
@@ -407,7 +560,7 @@ export async function seedWorkbookApp(
       conflictPages: [],
       auditPages: [],
       sourceManifests: [],
-      snapshotManifests: [],
+      snapshotManifests: snapshotRefs,
       retainedRoots: [],
     };
     const headStorageId = freshStorageId();
@@ -493,6 +646,16 @@ export async function seedWorkbookApp(
       orderNameFieldId: text(orderName.fieldId),
       supplierFieldId: text(supplier.fieldId),
       relationshipId: text(relationship.relationshipId),
+      sheets: {
+        suppliers: text(suppliersSheet),
+        orders: text(ordersSheet),
+        overview: text(overviewSheet),
+      },
+      inert: {
+        comment: text(commentItem),
+        formula: text(formulaItem),
+        chart: text(chartItem),
+      },
       records: {
         acme: text(acme),
         globex: text(globex),

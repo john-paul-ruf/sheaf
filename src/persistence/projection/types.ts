@@ -398,6 +398,15 @@ export interface ProjectionDeletedRecordV1 {
 }
 
 /** A relationship with both tables' names, for navigation and switching. */
+/** A sheet with how many inert items of each kind it holds. */
+export interface ProjectionSheetListingV1 {
+  readonly sheet: ProjectionSheetSnapshotV1;
+  readonly inertCounts: readonly {
+    readonly kind: InertItemKindV1;
+    readonly count: number;
+  }[];
+}
+
 export interface ProjectionRelationshipV1 {
   readonly relationship: RelationshipDefV1;
   readonly fromTableName: string;
@@ -470,8 +479,16 @@ export type ProjectionQueryV1 =
       readonly text: string;
       readonly limit: number;
     }
-  /** Null while the record is live, or when no delete of it is recorded. */
-  | { readonly kind: "deleted-record"; readonly recordId: RecordId };
+  | { readonly kind: "deleted-record"; readonly recordId: RecordId }
+  /** Every imported sheet in workbook order, with inert counts per kind. */
+  | { readonly kind: "list-sheet-snapshots" }
+  /** A sheet's inert items, or every sheet's when null. */
+  | { readonly kind: "list-inert-items"; readonly sheetId: SheetId | null }
+  /** Review decisions of one kind, or all — the append path's rejection memory (D44). */
+  | {
+      readonly kind: "list-inference-decisions";
+      readonly decisionKind: DecisionKindV1 | null;
+    };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -493,6 +510,9 @@ export interface ProjectionQueryResultsV1 {
   readonly "count-related-children": number;
   readonly "reference-candidates": readonly ProjectionLabeledRecordV1[];
   readonly "deleted-record": ProjectionDeletedRecordV1 | null;
+  readonly "list-sheet-snapshots": readonly ProjectionSheetListingV1[];
+  readonly "list-inert-items": readonly ProjectionInertItemV1[];
+  readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

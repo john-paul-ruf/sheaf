@@ -245,8 +245,11 @@ export class FakeProjection implements ProjectionEnginePort {
       case "reference-candidates":
         return answer([]);
       case "deleted-record":
-        // Commands never ask; the real engine answers this in the browser.
-        throw new Error("the fake projection keeps no deleted-record read");
+      case "list-sheet-snapshots":
+      case "list-inert-items":
+      case "list-inference-decisions":
+        // Commands never ask; the real engine answers these in the browser.
+        throw new Error(`the fake projection keeps no ${query.kind} read`);
       case "app-state":
         throw new Error("the fake projection holds no app state");
       default: {

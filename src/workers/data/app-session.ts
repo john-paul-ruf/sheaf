@@ -52,7 +52,7 @@
  * fresh `openApp`.
  */
 
-import { decodeStorageId16 } from "../../domain/model/bytes.js";
+import { decodeStorageId16, type StorageId16 } from "../../domain/model/bytes.js";
 import { IntegrityError } from "../../domain/model/errors.js";
 import {
   asDomainId,
@@ -90,6 +90,7 @@ import {
   type StoredRecordV1,
 } from "../../import/staging/roots.js";
 import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
+import type { SnapshotChunkLoader } from "../../import/snapshots/sheet-snapshot.js";
 import {
   applyEvents,
   disposeProjection,
@@ -119,12 +120,25 @@ interface TableContextV1 {
   readonly context: ValidationContext;
 }
 
+/** One snapshot, opened: its manifest bytes and a verifying chunk loader. */
+export interface OpenedSnapshotV1 {
+  readonly manifest: Uint8Array;
+  readonly loadChunk: SnapshotChunkLoader;
+}
+
 export interface AppSessionV1 {
   readonly appId: AppId;
   readonly appKey: EnvelopeKeyRefV1;
   readonly projection: ProjectionEnginePort;
   readonly repository: AppEventStoreV1;
   readonly deviceOnlyChangeCount: () => number;
+  /**
+   * Decrypts a snapshot manifest this app's head names, checked against the
+   * head's digest, and hands back a loader that decrypts one chunk at a time
+   * and checks each against the manifest's digest. Nothing is decrypted until
+   * a page asks for it.
+   */
+  openSnapshot(manifestStorageId: StorageId16): Promise<OpenedSnapshotV1>;
   dispose(): void;
 }
 
@@ -173,6 +187,8 @@ export async function openAppSession(
     repository,
     deviceOnlyChangeCount: (): number =>
       deviceOnlyChangeCount(repository.loaded().head.frontier, input.deviceId),
+    openSnapshot: (manifestStorageId) =>
+      openSnapshot(input.ports, input.appKey, repository.loaded().head, manifestStorageId),
     dispose(): void {
       if (disposed) {
         return;
@@ -198,6 +214,63 @@ function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
     applyEvents(commits): Promise<void> {
       return applyEvents(handle, commits);
     },
+  };
+}
+
+// ---------------------------------------------------------------- snapshots --
+
+/** Reads one envelope under the app key and checks it against `sha256`. */
+async function openVerified(
+  ports: AppStoragePortsV1,
+  appKey: EnvelopeKeyRefV1,
+  storageId: StorageId16,
+  kind: "app.snapshot-manifest" | "app.snapshot-chunk",
+  sha256Expected: Uint8Array,
+): Promise<Uint8Array> {
+  const frame = await ports.store.getEnvelope(storageId);
+  if (frame === undefined) {
+    throw new IntegrityError("a snapshot root this app names is not in the store");
+  }
+  const { payload } = await ports.crypto.open(frame, kind, appKey, kind);
+  const digest = await ports.crypto.sha256(payload);
+  if (compareDomainIds(digest, sha256Expected) !== 0) {
+    throw new IntegrityError("a snapshot root does not match its recorded digest");
+  }
+  return payload;
+}
+
+async function openSnapshot(
+  ports: AppStoragePortsV1,
+  appKey: EnvelopeKeyRefV1,
+  head: LoadedAppV1["head"],
+  manifestStorageId: StorageId16,
+): Promise<OpenedSnapshotV1> {
+  // A snapshot the head does not name is not this app's (database.md §
+  // `AppHeadV1`: every reachable snapshot is listed).
+  const ref = head.snapshotManifests.find(
+    (candidate) =>
+      compareDomainIds(decodeStorageId16(candidate.storageId), manifestStorageId) === 0,
+  );
+  if (ref === undefined) {
+    throw new IntegrityError("a sheet names a snapshot its app head does not list");
+  }
+  const manifest = await openVerified(
+    ports,
+    appKey,
+    manifestStorageId,
+    "app.snapshot-manifest",
+    ref.semanticSha256,
+  );
+  return {
+    manifest,
+    loadChunk: (chunk) =>
+      openVerified(
+        ports,
+        appKey,
+        decodeStorageId16(chunk.storageId),
+        "app.snapshot-chunk",
+        chunk.sha256,
+      ),
   };
 }
 

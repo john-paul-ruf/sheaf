@@ -25,7 +25,15 @@
 import { CodecError } from "../../domain/model/errors.js";
 import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
 import type { FieldId, RecordId, RelationshipId } from "../../domain/model/ids.js";
-import type { AuthoredRecordV1 } from "../../domain/model/events.js";
+import { INFERENCE_DISPOSITIONS, type AuthoredRecordV1 } from "../../domain/model/events.js";
+import { asStorageId16 } from "../../domain/model/bytes.js";
+import {
+  DECISION_KINDS,
+  INERT_ITEM_KINDS,
+  INERT_REASON_KEYS,
+  SHEET_CLASSIFICATIONS,
+  type InertItemKindV1,
+} from "../../domain/model/snapshots.js";
 import type { RelationshipDefV1 } from "../../domain/model/schema.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import {
@@ -40,6 +48,8 @@ import type { SqlValue } from "@sqlite.org/sqlite-wasm";
 import {
   decodeAppTheme,
   decodeAuthoredRecord,
+  decodeOpaque,
+  decodeSnapshotAnchor,
   decodeChangeSummary,
   decodeMessageParameters,
   decodeRuleIR,
@@ -56,6 +66,7 @@ import {
 import { idKey } from "./record-rows.js";
 import {
   COUNT_CHILDREN,
+  COUNT_INERT_BY_SHEET_AND_KIND,
   COUNT_RECORDS_FOR_TABLE,
   PAGE_CHILDREN_AFTER,
   PAGE_CHILDREN_FIRST,
@@ -66,12 +77,16 @@ import {
   SEARCH_RECORDS_AFTER,
   SEARCH_RECORDS_FIRST,
   SELECT_ACTIVE_TABLES,
+  SELECT_ALL_INERT_ITEMS,
+  SELECT_ALL_INFERENCE_DECISIONS,
   SELECT_ALL_RELATIONSHIPS,
   SELECT_APP_STATE,
   SELECT_CELLS_FOR_RECORD,
   SELECT_ENUM_OPTIONS_FOR_FIELD,
   SELECT_FIELDS_FOR_TABLE,
   SELECT_HISTORY_FOR_RECORD,
+  SELECT_INERT_ITEMS_FOR_SHEET,
+  SELECT_INFERENCE_DECISIONS_OF_KIND,
   SELECT_ISSUES_FOR_RECORD,
   SELECT_RECORD_BY_ID,
   SELECT_LATEST_DELETE_FOR_RECORD,
@@ -79,6 +94,7 @@ import {
   SELECT_RECORD_STATE_BY_ID,
   SELECT_RELATIONSHIPS_FOR_TABLE,
   SELECT_RULES_FOR_TABLE,
+  SELECT_SHEET_SNAPSHOTS,
   toFtsMatchQuery,
 } from "./statements.js";
 import type {
@@ -94,11 +110,14 @@ import type {
   ProjectionRecordDetailV1,
   ProjectionRecordPageResultV1,
   ProjectionDeletedRecordV1,
+  ProjectionInertItemV1,
+  ProjectionInferenceDecisionV1,
   ProjectionLabeledRecordV1,
   ProjectionRecordSummaryV1,
   ProjectionRelatedChildrenPageV1,
   ProjectionRelatedParentV1,
   ProjectionRelationshipV1,
+  ProjectionSheetListingV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,
 } from "./types.js";
@@ -218,6 +237,22 @@ function runQuery(
       return answer(referenceCandidates(handle, query));
     case "deleted-record":
       return answer(deletedRecord(handle, query.recordId));
+    case "list-sheet-snapshots":
+      return answer(listSheetSnapshots(handle));
+    case "list-inert-items":
+      return answer(
+        (query.sheetId === null
+          ? selectRows(handle, SELECT_ALL_INERT_ITEMS)
+          : selectRows(handle, SELECT_INERT_ITEMS_FOR_SHEET, [query.sheetId])
+        ).map(toInertItem),
+      );
+    case "list-inference-decisions":
+      return answer(
+        (query.decisionKind === null
+          ? selectRows(handle, SELECT_ALL_INFERENCE_DECISIONS)
+          : selectRows(handle, SELECT_INFERENCE_DECISIONS_OF_KIND, [query.decisionKind])
+        ).map(toDecision),
+      );
     default: {
       const unreachable: never = query;
       return unreachable;
@@ -599,6 +634,80 @@ function deletedRecord(
     deletedEventId: asDomainId("event", bytesAt(deleted.row, 0)),
     deletedAtMs: numberAt(deleted.row, 1),
     keyValue: keyFieldId === null ? null : (valueAt(restoration, keyFieldId) ?? null),
+  };
+}
+
+// ----------------------------------------------------------- import roots --
+
+const closedMember = <T extends string>(
+  allowed: readonly T[],
+  value: string,
+  what: string,
+): T => {
+  const member = allowed.find((candidate) => candidate === value);
+  if (member === undefined) {
+    throw new CodecError(`${what} is not in its closed v1 list`);
+  }
+  return member;
+};
+
+function listSheetSnapshots(handle: ProjectionHandleV1): readonly ProjectionSheetListingV1[] {
+  const counts = new Map<string, { kind: InertItemKindV1; count: number }[]>();
+  for (const row of selectRows(handle, COUNT_INERT_BY_SHEET_AND_KIND)) {
+    const key = idKey(bytesAt(row, 0));
+    counts.set(key, [
+      ...(counts.get(key) ?? []),
+      {
+        kind: closedMember(INERT_ITEM_KINDS, textAt(row, 1), "an inert item kind"),
+        count: numberAt(row, 2),
+      },
+    ]);
+  }
+  return selectRows(handle, SELECT_SHEET_SNAPSHOTS).map((row) => {
+    const classification = decodeOpaque(bytesAt(row, 3));
+    if (!Array.isArray(classification)) {
+      throw new CodecError("a sheet classification is not a list");
+    }
+    const sheetId = asDomainId("sheet", bytesAt(row, 0));
+    return {
+      sheet: {
+        sheetId,
+        displayName: textAt(row, 1),
+        sheetOrdinal: numberAt(row, 2),
+        classification: classification.map((role: unknown) =>
+          closedMember(SHEET_CLASSIFICATIONS, String(role), "a sheet role"),
+        ),
+        snapshotManifestStorageId: asStorageId16(bytesAt(row, 4)),
+        declaredRowCount: row[5] === null ? null : numberAt(row, 5),
+        declaredColumnCount: row[6] === null ? null : numberAt(row, 6),
+        snapshotRevision: BigInt(numberAt(row, 7)),
+      },
+      inertCounts: counts.get(idKey(sheetId)) ?? [],
+    };
+  });
+}
+
+function toInertItem(row: Row): ProjectionInertItemV1 {
+  return {
+    inertItemId: asDomainId("inert-item", bytesAt(row, 0)),
+    sheetId: asDomainId("sheet", bytesAt(row, 1)),
+    kind: closedMember(INERT_ITEM_KINDS, textAt(row, 2), "an inert item kind"),
+    location: textAt(row, 3),
+    reasonKey: closedMember(INERT_REASON_KEYS, textAt(row, 4), "an inert reason"),
+    anchor: row[5] === null ? null : decodeSnapshotAnchor(bytesAt(row, 5)),
+    preservedManifestStorageId: row[6] === null ? null : asStorageId16(bytesAt(row, 6)),
+  };
+}
+
+function toDecision(row: Row): ProjectionInferenceDecisionV1 {
+  return {
+    decisionId: asDomainId("decision", bytesAt(row, 0)),
+    decisionKind: closedMember(DECISION_KINDS, textAt(row, 1), "a decision kind"),
+    evidenceFingerprint: bytesAt(row, 2),
+    disposition: closedMember(INFERENCE_DISPOSITIONS, textAt(row, 3), "a disposition"),
+    statement: decodeOpaque(bytesAt(row, 4)),
+    evidence: decodeOpaque(bytesAt(row, 5)),
+    recordedEventId: asDomainId("event", bytesAt(row, 6)),
   };
 }
 

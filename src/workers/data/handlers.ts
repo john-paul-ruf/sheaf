@@ -822,6 +822,14 @@ export function createDataWorkerHandler(
           return records.getDeletedRecord(request);
         case "listTables":
           return records.listTables(request);
+        case "listSheetSnapshots":
+          return records.listSheetSnapshots(request);
+        case "getSnapshotPage":
+          return records.getSnapshotPage(request);
+        case "findInSnapshot":
+          return records.findInSnapshot(request);
+        case "listInertItems":
+          return records.listInertItems(request);
         default: {
           const unreachable: never = request;
           void unreachable;

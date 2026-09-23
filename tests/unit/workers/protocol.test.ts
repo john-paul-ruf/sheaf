@@ -15,10 +15,27 @@ import {
   isDataWorkerRequestMessageV1,
   isDataWorkerResponseMessageV1,
   isIdleTimeoutMinutesV1,
+  type AuthoredCellWireValueV1,
+  type CellRangeWireV1,
   type DataWorkerRequestMessageV1,
   type DataWorkerResponseMessageV1,
   type DataWorkerResultV1,
+  type InertItemKindWireV1,
+  type InertReasonKeyWireV1,
+  type SheetClassificationWireV1,
+  type SnapshotCellKindWireV1,
+  type SnapshotPageViewV1,
 } from "../../../src/workers/protocol/messages.js";
+import type {
+  CellRangeV1,
+  InertItemKindV1,
+  InertReasonKeyV1,
+  SheetClassificationV1,
+} from "../../../src/domain/model/snapshots.js";
+import type {
+  SnapshotCellKindV1,
+  SnapshotDiscardReasonV1,
+} from "../../../src/import/snapshots/sheet-snapshot.js";
 
 interface SentMessage {
   readonly message: DataWorkerRequestMessageV1;
@@ -298,5 +315,41 @@ describe("protocol guards", () => {
     for (const rejected of [30, -1, 1.5, null, "15", undefined, 3_600]) {
       expect(isIdleTimeoutMinutesV1(rejected)).toBe(false);
     }
+  });
+});
+
+describe("the F03 read wire restates M01's closed lists exactly", () => {
+  /** `true` only when the two unions are each assignable to the other. */
+  type Mutual<Left, Right> = [Left] extends [Right]
+    ? [Right] extends [Left]
+      ? true
+      : false
+    : false;
+  const mutual = <Left, Right>(proof: Mutual<Left, Right>): boolean => proof;
+
+  it("classifications, inert kinds, reasons, cell kinds, and discard reasons", () => {
+    expect(mutual<SheetClassificationWireV1, SheetClassificationV1>(true)).toBe(true);
+    expect(mutual<InertItemKindWireV1, InertItemKindV1>(true)).toBe(true);
+    expect(mutual<InertReasonKeyWireV1, InertReasonKeyV1>(true)).toBe(true);
+    expect(mutual<SnapshotCellKindWireV1, SnapshotCellKindV1>(true)).toBe(true);
+    expect(
+      mutual<
+        SnapshotPageViewV1["discardedRows"][number]["reason"],
+        SnapshotDiscardReasonV1
+      >(true),
+    ).toBe(true);
+    expect(mutual<CellRangeWireV1, CellRangeV1>(true)).toBe(true);
+  });
+
+  it("lets a reference be authored, and still never a preserved-invalid value", () => {
+    expect(
+      mutual<
+        Extract<AuthoredCellWireValueV1, { kind: "reference" }>,
+        { readonly kind: "reference"; readonly recordId: string }
+      >(true),
+    ).toBe(true);
+    expect(mutual<Extract<AuthoredCellWireValueV1, { kind: "invalid" }>, never>(true)).toBe(
+      true,
+    );
   });
 });

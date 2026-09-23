@@ -278,3 +278,96 @@ test("navigate, author references, delete a parent, restart — every read holds
   expect(after.bolts).toEqual(orphaned.record?.references);
   expect(after.tables).toEqual(["Suppliers:1", "Orders:5"]);
 });
+
+test("CA-22: snapshots page across chunks, find crosses chunks, inert items list by sheet", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const app = await seeded(page);
+  const { appId, sheets, inert } = app;
+
+  const listed = await ask(page, { kind: "listSheetSnapshots", appId });
+  expect(
+    listed.sheets?.map((sheet) => ({
+      name: sheet.displayName,
+      classification: sheet.classification,
+      inert: sheet.inertCounts,
+    })),
+  ).toEqual([
+    { name: "Suppliers", classification: ["table", "lookup"], inert: [{ kind: "comment", count: 1 }] },
+    { name: "Orders", classification: ["table"], inert: [{ kind: "formula", count: 1 }] },
+    { name: "Overview", classification: ["summary", "chart"], inert: [{ kind: "chart", count: 1 }] },
+  ]);
+
+  // Rows 2–4 straddle the boundary between the Suppliers sheet's two chunks.
+  const across = await ask(page, {
+    kind: "getSnapshotPage",
+    appId,
+    sheetId: sheets.suppliers,
+    firstRow: 2,
+    rowCount: 4,
+  });
+  expect(across.page?.format).toBe("sheet-v2");
+  expect(across.page?.rows).toEqual([
+    {
+      rowIndex: 2,
+      cells: [
+        { columnIndex: 0, text: "SUP-1", kind: "text" },
+        { columnIndex: 1, text: "Acme", kind: "text" },
+      ],
+    },
+    {
+      rowIndex: 3,
+      cells: [
+        { columnIndex: 0, text: "SUP-2", kind: "text" },
+        { columnIndex: 1, text: "Globex", kind: "text" },
+      ],
+    },
+    { rowIndex: 5, cells: [{ columnIndex: 1, text: "Two suppliers", kind: "text" }] },
+  ]);
+  expect(across.page?.inertAnchors).toEqual([
+    {
+      inertItemId: inert.comment,
+      range: { firstRow: 2, firstColumn: 1, lastRow: 2, lastColumn: 1 },
+    },
+  ]);
+
+  // The top of the sheet: the discarded title row, marked, and its merge.
+  const top = await ask(page, {
+    kind: "getSnapshotPage",
+    appId,
+    sheetId: sheets.suppliers,
+    firstRow: 0,
+    rowCount: 2,
+  });
+  expect(top.page?.discardedRows).toEqual([{ rowIndex: 0, reason: "above-header" }]);
+  expect(top.page?.merges).toEqual([{ firstRow: 0, firstColumn: 0, lastRow: 0, lastColumn: 1 }]);
+
+  const find = (text: string, afterRow: number | null) =>
+    ask(page, { kind: "findInSnapshot", appId, sheetId: sheets.suppliers, text, afterRow });
+  expect((await find("sup-", null)).result).toEqual({ outcome: "found", rowIndex: 2, columnIndex: 0 });
+  // The next match is in the second chunk.
+  expect((await find("sup-", 2)).result).toEqual({ outcome: "found", rowIndex: 3, columnIndex: 0 });
+  expect((await find("sup-", 3)).result).toEqual({ outcome: "not-found" });
+
+  const allItems = await ask(page, { kind: "listInertItems", appId, sheetId: null });
+  expect(allItems.items?.map((item) => item.inertItemId).sort()).toEqual(
+    [inert.comment, inert.formula, inert.chart].sort(),
+  );
+  const overviewItems = await ask(page, { kind: "listInertItems", appId, sheetId: sheets.overview });
+  expect(overviewItems.items).toEqual([
+    {
+      inertItemId: inert.chart,
+      sheetId: sheets.overview,
+      sheetName: "Overview",
+      kind: "chart",
+      location: "Overview!A2:C9",
+      reasonKey: "chart-not-live-yet",
+      anchor: { firstRow: 1, firstColumn: 0, lastRow: 8, lastColumn: 2 },
+    },
+  ]);
+  // A sheet the app does not hold is "not there", not "nothing inert".
+  expect(
+    (await ask(page, { kind: "listInertItems", appId, sheetId: app.records.acme })).items,
+  ).toBeNull();
+});
