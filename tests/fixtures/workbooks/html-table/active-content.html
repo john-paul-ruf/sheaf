@@ -1,0 +1,20 @@
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://cdn.example.test/site.css">
+<script src="https://cdn.example.test/tracker.js"></script>
+<script>document.write("<table><tr><td>INJECTED</td></tr></table>"); if (a < b && c > d) {}</script>
+<style>td { color: red } .note::after { content: "<b>STYLED</b>" }</style>
+</head>
+<body onload="steal()">
+<table>
+<tr><td onclick="alert(1)">Clickable</td><td><img src="https://tracker.example.test/pixel.gif" alt="pixel">Pictured</td></tr>
+<tr><td><a href="javascript:alert(2)">Run me</a></td><td><a href="https://example.test/report">Report</a></td></tr>
+<tr><td><a href="#top">Top</a></td><td><input type="text" value="typed"><script>alert(3)</script>After script</td></tr>
+<td>No row tag</td></td><td>stray close above
+<tr><td>Outer<table><tr><td>inner a</td><td>inner b</td></tr><tr><td>inner c</td></tr></table>tail</td><td><object data="movie.swf"></object>Object</td></tr>
+<tr><td><![CDATA[<b>not markup</b>]]>Cdata<!-- a comment <td>hidden</td> --></td></tr>
+</table>
+<iframe src="https://example.test/frame"></iframe>
+</body>
+</html>
