@@ -45,7 +45,10 @@ import {
   importMachine,
   type ImportEvent,
 } from "../application/workflows/import.machine.js";
-import { createImportServices } from "../application/workflows/import-services.js";
+import {
+  createImportServices,
+  workbookEditOf,
+} from "../application/workflows/import-services.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import { spawnImportWorker } from "../bootstrap/import-worker.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
@@ -87,6 +90,7 @@ import {
   PreflightOverBudgetScreen,
 } from "../ui/import/preflight-screens.js";
 import { ReviewScreen } from "../ui/import/review-screen.js";
+import type { ReviewEditIntentV1 } from "../ui/import/review-edit-dialog.js";
 import { UploadScreen } from "../ui/import/upload-screen.js";
 import { EmptyLibraryScreen } from "../ui/library/empty-library-screen.js";
 import { LibraryScreen } from "../ui/library/library-screen.js";
@@ -644,6 +648,12 @@ function ImportArea({
 
   return (
     <ImportStageScreens
+      onApplyEdit={(edit) => {
+        const { proposal } = snapshot.context;
+        if (proposal !== undefined) {
+          send({ type: "APPLY_EDIT", edit: workbookEditOf(proposal, edit) });
+        }
+      }}
       onReturnToLibrary={goToLibrary}
       onSelectFiles={chooseFile}
       picked={picked.current}
@@ -662,6 +672,7 @@ function ImportArea({
  * than falling through to a blank page.
  */
 function ImportStageScreens({
+  onApplyEdit,
   onReturnToLibrary,
   onSelectFiles,
   picked,
@@ -669,6 +680,7 @@ function ImportStageScreens({
   topBarActions,
   vm,
 }: {
+  readonly onApplyEdit: (edit: ReviewEditIntentV1) => void;
   readonly onReturnToLibrary: () => void;
   readonly onSelectFiles: (files: FileList | null) => void;
   readonly picked: PickedWorkbookV1 | null;
@@ -707,6 +719,7 @@ function ImportStageScreens({
         />
       );
     case "SCR-018":
+      if (vm.step !== "fits") return null;
       return (
         <PreflightFitsScreen
           nav={nav}
@@ -721,6 +734,7 @@ function ImportStageScreens({
         />
       );
     case "SCR-019":
+      if (vm.step !== "overBudget") return null;
       return (
         <PreflightOverBudgetScreen
           nav={nav}
@@ -782,9 +796,7 @@ function ImportStageScreens({
       ) : (
         <ReviewScreen
           nav={nav}
-          onApplyEdit={(edit) => {
-            send({ type: "APPLY_EDIT", edit });
-          }}
+          onApplyEdit={onApplyEdit}
           onCancel={() => {
             send({ type: "CANCEL" });
           }}

@@ -13,6 +13,7 @@ import type {
   GetImportStageResponseV1,
   IdleTimeoutMinutesV1,
   ImportCleanupReceiptViewV1,
+  LibraryAppV1,
   ProposedAppWireV1,
   ProposedWorkbookWireV1,
   ResetInventoryViewV1,
@@ -20,6 +21,15 @@ import type {
 } from "../../../src/workers/protocol/messages.js";
 import type { ImportWorkerEventV1 } from "../../../src/workers/protocol/import-messages.js";
 import type { RefusalV1 } from "../../../src/import/preflight/refusal.js";
+import { IMPORT_BUDGET_V1 } from "../../../src/import/preflight/budgets.js";
+import {
+  preflightWorkbook,
+  type WorkbookPreflightReportV1,
+} from "../../../src/import/preflight/workbook.js";
+import { PRESERVED_PART_KINDS, type SheetInventoryItemV1 } from "../../../src/import/facts/index.js";
+import { sniffContent } from "../../../src/import/source/sniff.js";
+import { WORKBOOK_REGISTRY } from "../../../src/workers/import/adapters.js";
+import { fixtureSource } from "../import/fixtures.js";
 import type { SecurityServices } from "../../../src/application/workflows/services.js";
 import type { ImportServices } from "../../../src/application/workflows/import-services.js";
 import type { ClockPort } from "../../../src/application/ports/clock.js";
@@ -189,6 +199,105 @@ export function preflightEvent(
   };
 }
 
+/** Every preserved-part count at zero; a fixture raises the ones it needs. */
+export function noParts(): SheetInventoryItemV1["preservedPartCounts"] {
+  return Object.fromEntries(PRESERVED_PART_KINDS.map((kind) => [kind, 0])) as SheetInventoryItemV1["preservedPartCounts"];
+}
+
+/** One inventoried sheet in S01's shape (CA-18). */
+export function inventoriedSheet(
+  sheetIndex: number,
+  name: string,
+  overrides: Partial<SheetInventoryItemV1> = {},
+): SheetInventoryItemV1 {
+  return {
+    sheetIndex,
+    name,
+    kind: "worksheet",
+    visibility: "visible",
+    declaredRange: null,
+    declaredTables: [],
+    estimatedRowCount: 100,
+    estimatedCellCount: 400,
+    preservedPartCounts: noParts(),
+    ...overrides,
+  };
+}
+
+/**
+ * A workbook report in S01's shape: three sheets that fit (D31) unless a suite
+ * says otherwise. The route and default selection are the suite's to state,
+ * exactly as `routeOf` would have — the machine obeys the report, it does not
+ * recompute it.
+ */
+export function workbookReport(overrides: Partial<WorkbookPreflightReportV1> = {}): WorkbookPreflightReportV1 {
+  const sheets = overrides.sheets ?? [
+    inventoriedSheet(0, "Jobs", { declaredTables: [{ name: "JobsTable", range: { firstRow: 0, firstColumn: 0, lastRow: 60, lastColumn: 9 } }] }),
+    inventoriedSheet(1, "Crew"),
+    inventoriedSheet(2, "Overview", { preservedPartCounts: { ...noParts(), chart: 1, drawing: 2 } }),
+  ];
+  return {
+    fileName: "fieldwork-q3.xlsx",
+    sourceByteLength: 48_000,
+    format: "xlsx",
+    formatContradiction: null,
+    sheets,
+    sheetListKnown: true,
+    dateSystem: "1900",
+    totals: {
+      sheetCount: sheets.length,
+      estimatedRowCount: sheets.reduce((sum, sheet) => sum + (sheet.estimatedRowCount ?? 0), 0),
+      estimatedCellCount: sheets.reduce((sum, sheet) => sum + (sheet.estimatedCellCount ?? 0), 0),
+      preservedPartCounts: noParts(),
+    },
+    route: "fits",
+    defaultSelection: sheets.map((sheet) => sheet.sheetIndex),
+    budgets: { ...IMPORT_BUDGET_V1 },
+    isEstimate: true,
+    ...overrides,
+  };
+}
+
+/** The `workbook-preflight` event exactly as the import worker sends it (CA-24). */
+export function workbookPreflightEvent(report: WorkbookPreflightReportV1 = workbookReport()): ImportWorkerEventV1 {
+  return {
+    kind: "workbook-preflight",
+    detected: { kind: "zip-container", container: "ooxml" },
+    declaredExtension: "xlsx",
+    contradiction: null,
+    report,
+  };
+}
+
+/**
+ * A real report: the fixture sized by `preflightWorkbook` through the import
+ * worker's own registry, as the worker would send it. For suites whose
+ * assertion is about what a real workbook's metadata says.
+ */
+export async function fixtureReport(path: string): Promise<WorkbookPreflightReportV1> {
+  const source = await fixtureSource(path);
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const outcome = await preflightWorkbook(source, await sniffContent(source, name), WORKBOOK_REGISTRY.readers);
+  if (outcome.kind !== "proceed") throw new Error(`${path} was refused at pre-flight`);
+  return outcome.report;
+}
+
+/** One catalog app in the library's shape (CA-09). */
+export function libraryApp(appId: string, displayName: string, overrides: Partial<LibraryAppV1> = {}): LibraryAppV1 {
+  return {
+    appId,
+    displayName,
+    accentId: "accent-1",
+    glyph: "F",
+    createdAtEpochMs: 1_700_000_000_000,
+    lastOpenedAtEpochMs: null,
+    rowCountCache: 60,
+    tableCount: 1,
+    isScratch: true,
+    ...overrides,
+  };
+}
+
 export function overBudgetRefusal(): RefusalV1 {
   return {
     kind: "over-import-budget",
@@ -336,6 +445,14 @@ export interface FakeImportServices {
 type ImportOverrides = { [K in keyof ImportServices]?: ImportServices[K] };
 
 /**
+ * The one read wired by default: SCR-017 lists the library every time it is
+ * shown, and an empty library is the fact a fresh device has.
+ */
+const IMPORT_DEFAULTS: ImportOverrides = {
+  listLibrary: () => Promise.resolve({ kind: "listLibrary", apps: [] }),
+};
+
+/**
  * Every service is unwired by default and throws if called, so a machine that
  * reaches a worker it should not have reached fails loudly. `subscribe`,
  * `startImport`, `proceed`, `cancelParse` and `terminate` are always wired —
@@ -351,7 +468,7 @@ export function fakeImportServices(
   const wrap = <K extends keyof ImportServices>(
     name: K,
   ): ImportServices[K] => {
-    const implementation = overrides[name] ?? notWired(name);
+    const implementation = overrides[name] ?? IMPORT_DEFAULTS[name] ?? notWired(name);
     return ((input: unknown) => {
       calls.push({ name, input });
       return (implementation as (value: unknown) => unknown)(input);
@@ -383,6 +500,10 @@ export function fakeImportServices(
       runInference: wrap("runInference"),
       applyReviewEdit: wrap("applyReviewEdit"),
       promoteImport: wrap("promoteImport"),
+      // A read the target screen always makes; an empty library unless a
+      // suite says otherwise.
+      listLibrary: wrap("listLibrary"),
+      listTables: wrap("listTables"),
       cancelStage: wrap("cancelStage"),
       terminate: record("terminate", () => {
         terminated += 1;

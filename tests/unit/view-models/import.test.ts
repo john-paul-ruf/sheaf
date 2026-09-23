@@ -33,6 +33,8 @@ import {
   type ImportReviewVm,
   type ImportVm,
   type ReviewEditRejectionTokenV1,
+  type SheetEstimateVm,
+  type WorkbookPreflightVm,
 } from "../../../src/application/view-models/import.js";
 import type { ReviewEditRejectionV1 } from "../../../src/import/inference/review-edits.js";
 import {
@@ -45,6 +47,12 @@ import {
   stageAbsent,
   stagePresent,
   wireProposal,
+  fixtureReport,
+  inventoriedSheet,
+  libraryApp,
+  noParts,
+  workbookPreflightEvent,
+  workbookReport,
   STAGE_ID,
   type FakeImportServices,
 } from "../workflows/fakes.js";
@@ -203,16 +211,30 @@ describe("the delimited target (SCR-017)", () => {
     expect(vm.announcement).not.toContain("+ header");
   });
 
-  it("offers into-existing-app disabled, with a reason (D18)", () => {
-    expect(target().destinations).toEqual([
-      { id: "new-app", label: "Create a new app", enabled: true },
+  it("offers into-existing-app off on an empty library, and says so (D38)", async () => {
+    const fake = services();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+    fake.emit(preflightEvent());
+    // Still listing: the option waits, and says what it is waiting for.
+    const listing = vmOf(actor);
+    if (listing.screen !== "SCR-017") throw new Error("expected the target screen");
+    expect(listing.destinations[1]).toMatchObject({ enabled: false, reason: "listing-local-apps" });
+
+    await settled();
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-017") throw new Error("expected the target screen");
+    expect(vm.destinations).toEqual([
+      { id: "new-app", label: "Create a new app", enabled: true, isSelected: true },
       {
         id: "existing-app",
         label: "Add a table to an existing app",
         enabled: false,
-        reason: "into-existing-app-not-available-in-this-release",
+        isSelected: false,
+        reason: "no-local-apps",
       },
     ]);
+    expect(vm.appChoices).toEqual([]);
   });
 
   it("names an empty name as a problem and refuses to continue", () => {
@@ -269,7 +291,7 @@ describe("the size answer (D20)", () => {
     actor.send({ type: "CONTINUE" });
 
     const vm = vmOf(actor);
-    if (vm.screen !== "SCR-018") {
+    if (vm.screen !== "SCR-018" || vm.step !== "fits") {
       throw new Error(`expected the fits screen, got ${vm.screen}`);
     }
     expect(vm.fits).toBe(true);
@@ -284,7 +306,7 @@ describe("the size answer (D20)", () => {
     fake.emit({ kind: "refused", refusal: overBudgetRefusal() });
 
     const vm = vmOf(actor);
-    if (vm.screen !== "SCR-019") {
+    if (vm.screen !== "SCR-019" || vm.step !== "overBudget") {
       throw new Error(`expected the over-budget screen, got ${vm.screen}`);
     }
     expect(vm).toMatchObject({
@@ -305,7 +327,7 @@ describe("the size answer (D20)", () => {
 });
 
 describe("the refusal (SCR-021)", () => {
-  it("names the later-release family without inventing a remedy (D19)", () => {
+  it("never renders D19's later-release card now the page accepts workbooks (D42)", () => {
     const fake = services();
     const actor = start(fake);
     actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "book.xlsx" });
@@ -320,16 +342,40 @@ describe("the refusal (SCR-021)", () => {
     });
 
     const vm = vmOf(actor);
-    if (vm.screen !== "SCR-021") {
-      throw new Error(`expected the refusal screen, got ${vm.screen}`);
+    if (vm.screen !== "SCR-022") {
+      throw new Error(`expected the run to end, got ${vm.screen}`);
     }
-    expect(vm).toMatchObject({
-      refusal: "workbook-format-later-release",
-      remedy: "await-later-release",
-      laterReleaseFormat: "ooxml",
-      libraryUnchanged: true,
-      fileName: "book.xlsx",
+    expect(vm.reason).toBe("service-error");
+    expect(vm.cleanup).toEqual({ kind: "nothing-to-remove" });
+  });
+
+  it("names an unsafe container's reason from the refusal's own token (D42, D43)", () => {
+    const fake = services();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "zip-bomb.xlsx" });
+    fake.emit({
+      kind: "refused",
+      refusal: { kind: "binary-unreadable", fileName: "zip-bomb.xlsx", remedy: "choose-another-file", detail: "expansion-limit" },
     });
+
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-021") throw new Error(`expected the refusal screen, got ${vm.screen}`);
+    expect(vm).toMatchObject({ refusal: "binary-unreadable", unreadableDetail: "expansion-limit", libraryUnchanged: true });
+  });
+
+  it("refuses a macro workbook whole, naming the file (MOD-005)", () => {
+    const fake = services();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "payroll.xlsm" });
+    fake.emit({
+      kind: "refused",
+      refusal: { kind: "macro-content", fileName: "payroll.xlsm", remedy: "reupload-macro-free-copy" },
+    });
+
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-021") throw new Error(`expected the refusal screen, got ${vm.screen}`);
+    expect(vm).toMatchObject({ refusal: "macro-content", fileName: "payroll.xlsm", unreadableDetail: null, libraryUnchanged: true });
+    expect(fake.names()).not.toContain("beginStage");
   });
 
   it("has no field a partial-import state could be written into", () => {
@@ -645,7 +691,7 @@ describe("the review (SCR-023)", () => {
 
     actor.send({
       type: "APPLY_EDIT",
-      edit: { kind: "rename-field", columnIndex: 0, fieldName: "Site" },
+      edit: { kind: "rename-field", tableKey: "s0.r0", columnKey: "s0.r0.c0", fieldName: "Site" },
     });
     await settled();
     await settled();
@@ -726,5 +772,308 @@ describe("the promotion rejection list (D42)", () => {
     const vm = reviewVm(vmOf(actor));
     expect(vm.promotionRejection).toBe("append-too-large");
     expect(vm.promotionIssues).toEqual([]);
+  });
+});
+
+// --- F03: the workbook branch and the append destination (S07 CP1) --------
+
+describe("the existing-app destination (SCR-017, D38)", () => {
+  async function targetWith(apps: Parameters<typeof libraryApp>[] = [], rows = 43) {
+    const fake = services({
+      listLibrary: resolves({ kind: "listLibrary" as const, apps: apps.map((args) => libraryApp(...args)) }),
+    });
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+    const event = preflightEvent();
+    if (event.kind !== "preflight") throw new Error("fixture is not a pre-flight event");
+    fake.emit({ ...event, report: { ...event.report, estimatedRowCount: rows } });
+    await settled();
+    return actor;
+  }
+
+  const target = (actor: Awaited<ReturnType<typeof targetWith>>): DelimitedTargetVm => {
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-017") throw new Error(`expected the target screen, got ${vm.screen}`);
+    return vm;
+  };
+
+  it("lists the library's apps as choices once there is one to add to", async () => {
+    const actor = await targetWith([["app-1", "Fieldwork Q3", { tableCount: 7 }]]);
+    const vm = target(actor);
+    expect(vm.destinations[1]).toEqual({
+      id: "existing-app",
+      label: "Add a table to an existing app",
+      enabled: true,
+      isSelected: false,
+    });
+    expect(vm.appChoices).toEqual([{ appId: "app-1", displayName: "Fieldwork Q3", tableCount: 7, isSelected: false }]);
+
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: "app-1" } });
+    const chosen = target(actor);
+    expect(chosen.destination).toBe("existing-app");
+    expect(chosen.appChoices[0]?.isSelected).toBe(true);
+    // An append names a table, not an app.
+    expect(chosen.needsAppName).toBe(false);
+    expect(chosen.appNameProblem).toBeNull();
+  });
+
+  it("turns the append off when the estimate cannot fit one commit, stating the numbers", async () => {
+    const actor = await targetWith([["app-1", "Fieldwork Q3"]], 10_050);
+    const vm = target(actor);
+    expect(vm.destinations[1]).toMatchObject({ enabled: false, reason: "too-large-to-append" });
+    expect(vm.appendEstimate).toEqual({
+      estimatedEvents: 10_050 + 9 + 2,
+      estimatedRows: { kind: "estimated", value: 10_050 },
+      eventCap: 10_000,
+    });
+    expect(vm.appChoices).toEqual([]);
+  });
+
+  it("says the apps could not be listed rather than that there are none", async () => {
+    const fake = services({ listLibrary: () => Promise.reject(new Error("locked")) });
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+    fake.emit(preflightEvent());
+    await settled();
+    expect(target(actor).destinations[1]).toMatchObject({ enabled: false, reason: "local-apps-not-listed" });
+  });
+});
+
+describe("the workbook pre-flight (SCR-018 / SCR-019, CA-18)", () => {
+  function sizing(report = workbookReport()) {
+    const fake = services();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: report.fileName });
+    fake.emit(workbookPreflightEvent(report));
+    return { actor, fake };
+  }
+
+  const preflightVm = (actor: ReturnType<typeof start>): WorkbookPreflightVm => {
+    const vm = vmOf(actor);
+    if (vm.step !== "workbookFits" && vm.step !== "workbookSubset" && vm.step !== "workbookHandoff") {
+      throw new Error(`expected the workbook pre-flight, got ${vm.screen}/${vm.step}`);
+    }
+    return vm;
+  };
+
+  it("draws the demo workbook's checklist from its real metadata", async () => {
+    const report = await fixtureReport("ooxml/fieldwork-q3.xlsx");
+    const { actor } = sizing(report);
+    const vm = preflightVm(actor);
+    expect(vm.screen).toBe("SCR-018");
+    expect(vm.sheets.map((sheet) => [sheet.name, sheet.shape, sheet.badge])).toEqual([
+      ["Jobs", "declared-table", "use"],
+      ["Customers", "declared-table", "use"],
+      ["Crew", "table-region", "inspect"],
+      ["Visits", "declared-table", "use"],
+      ["Materials", "table-region", "inspect"],
+      ["Overview", "charts-and-summary", "dashboard"],
+      ["Archive 2018", "table-region", "inspect"],
+    ]);
+    expect(vm.selection).toMatchObject({ selectedCount: 7, sheetCount: 7, blocker: null });
+    expect(vm.drawingNotices).toEqual([{ sheetName: "Overview", drawingCount: 2 }]);
+    expect(vm.handoff).toBeNull();
+
+    // Leaving Archive 2018 out marks it excluded, and the count follows.
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 6 });
+    const deselected = preflightVm(actor);
+    expect(deselected.sheets[6]).toMatchObject({ isSelected: false, badge: "excluded" });
+    expect(deselected.selection.selectedCount).toBe(6);
+    expect(deselected.announcement).toBe("This workbook fits this device. 6 of 7 sheets are selected.");
+  });
+
+  it("keeps a null count 'not declared', never 0, and every count an estimate (D24)", () => {
+    const report = workbookReport({
+      sheets: [inventoriedSheet(0, "Summary", { estimatedRowCount: null, estimatedCellCount: null })],
+    });
+    const vm = preflightVm(sizing(report).actor);
+    expect(vm.sheets[0]?.rows).toEqual({ kind: "not-declared" });
+    expect(vm.sheets[0]?.cells).toEqual({ kind: "not-declared" });
+    expect(vm.selection.estimatedRows).toEqual({ kind: "not-declared" });
+
+    // Type-level negatives: an estimate has no exact member, and "not
+    // declared" carries no number that a surface could print as 0.
+    // @ts-expect-error — a sheet estimate can only be written as "about"
+    const exactCount: SheetEstimateVm = { kind: "exact", value: 12 };
+    // @ts-expect-error — an undeclared count has no value to render
+    const zeroForUnknown: SheetEstimateVm = { kind: "not-declared", value: 0 };
+    expect([exactCount, zeroForUnknown]).toHaveLength(2);
+  });
+
+  it("refuses to start an empty selection, and says why", () => {
+    const { actor } = sizing();
+    actor.send({ type: "CLEAR_ALL" });
+    const vm = preflightVm(actor);
+    expect(vm.selection.blocker).toBe("nothing-selected");
+    expect(vm.canStart).toBe(false);
+  });
+
+  it("offers the subset's selection over budget as a reason, not a start (D31)", () => {
+    const report = workbookReport({
+      sheets: [
+        inventoriedSheet(0, "This week", { estimatedCellCount: 1_000 }),
+        inventoriedSheet(1, "Archive", { estimatedCellCount: 300_005 }),
+        inventoriedSheet(2, "Crew", { estimatedCellCount: 250 }),
+      ],
+      route: "subset",
+      defaultSelection: [0],
+    });
+    const { actor } = sizing(report);
+    const subset = preflightVm(actor);
+    expect(subset.screen).toBe("SCR-019");
+    expect(subset.canStart).toBe(true);
+    expect(subset.handoff?.instructions).toBe(
+      [
+        "Import everything on desktop: “fieldwork-q3.xlsx”.",
+        "No work is transferred automatically. Open this same source file in Sheaf on a device with a larger local budget.",
+        "Desktop solves importing only.",
+      ].join("\n"),
+    );
+
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    const over = preflightVm(actor);
+    expect(over.selection).toMatchObject({ blocker: "over-budget", estimatedCells: 301_005, maxEstimatedCells: 250_000 });
+    expect(over.canStart).toBe(false);
+  });
+
+  it("offers only the handoff when no sheet fits, and announces the copy result", () => {
+    const report = workbookReport({
+      sheets: [inventoriedSheet(0, "Archive", { estimatedCellCount: 300_005 })],
+      route: "handoff",
+      defaultSelection: [],
+    });
+    const { actor } = sizing(report);
+    const handoff = preflightVm(actor);
+    expect(handoff.step).toBe("workbookHandoff");
+    expect(handoff.canStart).toBe(false);
+    expect(handoff.handoff?.copy).toBeNull();
+
+    actor.send({ type: "COPY_HANDOFF", result: "unavailable" });
+    const copied = preflightVm(actor);
+    expect(copied.handoff?.copy).toBe("unavailable");
+    expect(copied.announcement).toContain("did not allow copying");
+  });
+
+  it("states a format-level contradiction from the report (MOD-004)", () => {
+    const report = workbookReport({ formatContradiction: { declaredExtension: "xlsx", detectedFormat: "xlsb" }, format: "xlsb" });
+    expect(preflightVm(sizing(report).actor).contradiction).toEqual({ declaredExtension: "xlsx", detectedFormat: "xlsb" });
+  });
+
+  it("flags a hidden sheet, and counts drawings only on selected sheets", () => {
+    const report = workbookReport({
+      sheets: [
+        inventoriedSheet(0, "Visible"),
+        inventoriedSheet(1, "Lookups", { visibility: "hidden", preservedPartCounts: { ...noParts(), drawing: 3 } }),
+      ],
+      defaultSelection: [0],
+    });
+    const vm = preflightVm(sizing(report).actor);
+    expect(vm.sheets[1]).toMatchObject({ isHidden: true, badge: "excluded" });
+    expect(vm.drawingNotices).toEqual([]);
+  });
+});
+
+describe("a workbook streaming and failing (SCR-020, SCR-022/MOD-008, CA-24)", () => {
+  async function streaming() {
+    const fake = services();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "fieldwork-q3.xlsx" });
+    fake.emit(workbookPreflightEvent());
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    actor.send({ type: "START" });
+    await settled();
+    return { actor, fake };
+  }
+
+  it("names the sheet being read, k of n, with rows committed and no percentage", async () => {
+    const { actor, fake } = await streaming();
+    fake.emit(progressEvent({ rowsSoFar: 120, batchesAcked: 3, sheetOrdinal: 2, sheetCount: 2, sheetName: "Overview" }));
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-020") throw new Error(`expected progress, got ${vm.screen}`);
+    expect(vm.sheet).toEqual({ ordinal: 2, count: 2, name: "Overview" });
+    expect(vm.rowsSoFar).toBe(120);
+    expect(vm.announcement).toBe("Importing fieldwork-q3.xlsx. Sheet 2 of 2: Overview. 120 rows are durable so far.");
+    type ForbiddenKey = Extract<keyof typeof vm, "percent" | "percentage" | "totalRows">;
+    const noPercentage: ForbiddenKey extends never ? true : false = true;
+    expect(noPercentage).toBe(true);
+  });
+
+  it("names the failed stage, the sheet from the selection, and the raw diagnostic", async () => {
+    const { actor, fake } = await streaming();
+    fake.emit({
+      kind: "failed",
+      reason: "parse-failed",
+      detail: { stage: "sheet-stream", sheetOrdinal: 2, diagnostic: "truncated-container" },
+    });
+    await settled();
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-022") throw new Error(`expected the ended screen, got ${vm.screen}`);
+    expect(vm.detail).toEqual({
+      stage: "sheet-stream",
+      diagnostic: "truncated-container",
+      // Ordinal 2 of the selection [0, 2] is sheet index 2.
+      sheet: { ordinal: 2, count: 2, name: "Overview" },
+    });
+    expect(vm.cleanup.kind).toBe("removed");
+  });
+});
+
+describe("the landing (CAP-23, CAP-26)", () => {
+  it("lands an append on the table its commit created, found by reading the app either side", async () => {
+    const promote = resolves({
+      kind: "promoteImport" as const,
+      outcome: "promoted" as const,
+      appId: "app-1",
+      rowCount: 4,
+      tableCount: 1,
+      flaggedRecordCount: 0,
+    });
+    let tables = ["table-a"];
+    const fake = services({
+      runInference: resolves({
+        kind: "runInference" as const,
+        proposal: wireProposal({ table: { tableName: "Crew", fields: [field()] } }),
+      }),
+      applyReviewEdit: resolves({
+        kind: "applyReviewEdit" as const,
+        outcome: "applied" as const,
+        proposal: wireProposal({ table: { tableName: "Crew", fields: [field()] } }),
+      }),
+      listLibrary: resolves({ kind: "listLibrary" as const, apps: [libraryApp("app-1", "Fieldwork Q3")] }),
+      listTables: () =>
+        Promise.resolve({
+          kind: "listTables" as const,
+          tables: tables.map((tableId, tableOrdinal) => ({
+            tableId,
+            displayName: tableId,
+            tableOrdinal,
+            recordCount: 1,
+            isRecordCountExact: true as const,
+            fields: [],
+          })),
+        }),
+      promoteImport: async () => {
+        tables = [...tables, "table-b"];
+        return promote();
+      },
+    });
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "crew-roster.tsv" });
+    fake.emit(preflightEvent());
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: "app-1" } });
+    actor.send({ type: "CONTINUE" });
+    actor.send({ type: "START" });
+    await settled();
+    fake.emit({ kind: "completed", rowCount: 4, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    actor.send({ type: "CREATE_APP" });
+    for (let tick = 0; tick < 6; tick += 1) await settled();
+
+    const vm = vmOf(actor);
+    if (vm.screen !== "SCR-023" || vm.step !== "done") throw new Error(`expected done, got ${vm.screen}`);
+    expect(vm.landing).toEqual({ kind: "appended-table", appId: "app-1", tableId: "table-b" });
   });
 });

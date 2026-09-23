@@ -207,3 +207,29 @@ function announceLibrary(
   }
   return `${String(shown)} of ${String(total)} apps match “${query}”.`;
 }
+
+// --- SCR-017's existing-app destination (D38, CAP-26) ------------------------
+
+/**
+ * One app a delimited table could be added to. The name and the table count
+ * are the catalog's own facts; nothing here claims the app's contents.
+ */
+export interface AppChoiceVm {
+  readonly appId: string;
+  readonly displayName: string;
+  readonly tableCount: number;
+  readonly isSelected: boolean;
+}
+
+/** The apps on this device, in the catalog's order, one of them chosen or none. */
+export function selectAppChoices(
+  apps: readonly LibraryAppV1[],
+  selectedAppId: string | null,
+): readonly AppChoiceVm[] {
+  return apps.map((app) => ({
+    appId: app.appId,
+    displayName: app.displayName,
+    tableCount: app.tableCount,
+    isSelected: app.appId === selectedAppId,
+  }));
+}

@@ -1,33 +1,37 @@
 /**
- * The import lifecycle (CAP-09–CAP-13; SCR-016–023, MOD-004–008; FR-1/2/3/4).
+ * The import lifecycle (CAP-09–CAP-13, CAP-19–CAP-22, CAP-26; SCR-016–023,
+ * MOD-004–008; FR-1/2/3/4).
  *
- * Import is the one long-running flow F02 adds, and the architecture calls it
- * an explicit resumable machine: a file becomes an app across two workers, a
+ * Import is the one long-running flow, and the architecture calls it an
+ * explicit resumable machine: a file becomes an app across two workers, a
  * `MessageChannel`, a durable stage, and one human review, and every one of
- * those steps can end the run truthfully.
+ * those steps can end the run truthfully. A workbook and a delimited file are
+ * two branches of this one machine, not two machines: they share the stage,
+ * the progress, the review, the accept and every terminal state.
  *
  * **Detection and sizing are one round trip.** The parser sniffs *and* sizes
  * before it says anything (`import.worker.ts`), so `detecting` covers both of
- * its `sniffing` and `sizing` phases and the answer is either a refusal — an
- * over-budget refusal included — or a pre-flight report. There is no state
- * between them for a separate size check to live in: by the time the target
- * screen can be drawn, the size is already known. `fits` is therefore the
- * user's confirmation of a measurement, not a second measurement (D20).
+ * its `sniffing` and `sizing` phases and the answer is a refusal, a delimited
+ * pre-flight, or a workbook pre-flight (CA-24). There is no state between them
+ * for a separate size check to live in: `fits` is the user's confirmation of a
+ * measurement, not a second measurement (D20).
+ *
+ * **A workbook is routed before a cell is read (D31, D47).** The report's
+ * route decides `workbookSizing.fits`, `.subset` or `.handoff`; the selection
+ * starts at the report's default and is edited sheet by sheet with the budget
+ * recomputed from the report's own per-sheet estimates, so a selection that
+ * would not fit cannot `START`. The handoff offers nothing to start at all.
  *
  * **Every terminal state carries its receipt.** `cancelled` and `failed` do not
  * merely stop: they run the stage's four-step cleanup and wait for the
  * `ImportCleanupReceiptViewV1` before they claim anything (MOD-007, CA-10). A
  * cleanup that could not be confirmed becomes `cleanup-unconfirmed` rather than
- * a cancelled state that asserts nothing remains — the promise the surface
- * renders has to be one the machine actually holds.
+ * a cancelled state that asserts nothing remains.
  *
  * **Every mutating stage call is gated on `getImportStage` first.** A stage can
  * vanish between review and "Create app" — an ordinary reload mid-import plus
- * the unlock sweep is enough — and the data worker answers an absent stage with
- * the `integrity` error kind, whose copy ("the local store did not pass its
- * integrity check") would be false. The gate turns that into `stage-missing`,
- * which is what actually happened: the import did not finish and nothing
- * partial remains (Roshi D-04).
+ * the unlock sweep is enough — and the gate turns that into `stage-missing`,
+ * which is what actually happened (Roshi D-04).
  *
  * **The file is not retained.** A `Blob` is the source bytes; the machine keeps
  * its name and its measurements and nothing else, so a snapshot holds no file
@@ -36,24 +40,32 @@
  */
 
 import { assign, fromCallback, fromPromise, setup } from "xstate";
-import type { ImportWorkerEventV1 } from "../../workers/protocol/import-messages.js";
+import type {
+  ImportFailureDetailV1,
+  ImportWorkerEventV1,
+} from "../../workers/protocol/import-messages.js";
 import type {
   ImportCleanupReceiptViewV1,
+  LibraryAppV1,
   ProposedWorkbookWireV1,
   WorkbookReviewEditWireV1,
-  ReviewEditWireV1,
 } from "../../workers/protocol/messages.js";
 import { toSecurityError, type SecurityError } from "./services.js";
-import {
-  singleTableProposal,
-  workbookEditOf,
-  type ImportServices,
-} from "./import-services.js";
+import type { ImportServices } from "./import-services.js";
 
 type PreflightEventV1 = Extract<ImportWorkerEventV1, { readonly kind: "preflight" }>;
+type WorkbookPreflightEventV1 = Extract<
+  ImportWorkerEventV1,
+  { readonly kind: "workbook-preflight" }
+>;
 
-/** What detection and sizing found, exactly as the parser reported it. */
+/** What detection and sizing found for a delimited file, as the parser reported it. */
 export type ImportDetectedFactsV1 = Omit<PreflightEventV1, "kind">;
+
+/** What detection and sizing found for a workbook, as the parser reported it (CA-18). */
+export type ImportWorkbookFactsV1 = Omit<WorkbookPreflightEventV1, "kind">;
+
+export type WorkbookPreflightReportFactsV1 = ImportWorkbookFactsV1["report"];
 
 export type ImportRefusalFactsV1 = Extract<
   ImportWorkerEventV1,
@@ -61,11 +73,12 @@ export type ImportRefusalFactsV1 = Extract<
 >["refusal"];
 
 /**
- * D18: F02 imports into a new app and nowhere else. "Add a table to an existing
- * app" is offered disabled with a reason, so there is no event that could
- * select it and no second member this type could take.
+ * Where the import lands. A delimited file may become a new table in an app
+ * already on this device (D38); a workbook always becomes a new app.
  */
-export type ImportDestinationV1 = "new-app";
+export type ImportDestinationV1 =
+  | { readonly kind: "new-app" }
+  | { readonly kind: "existing-app"; readonly appId: string };
 
 /** Why a run ended without an app. Tokens; the sentence is the view model's. */
 export type ImportFailureReasonV1 =
@@ -86,10 +99,19 @@ export type ImportPhaseV1 = Extract<
   { readonly kind: "progress" }
 >["phase"];
 
+/** The sheet being read, while a workbook's sheets stream (CA-24). */
+export interface ImportSheetProgressV1 {
+  /** One-based among the selected sheets: "Sheet k of n". */
+  readonly ordinal: number;
+  readonly count: number;
+  readonly name: string;
+}
+
 export interface ImportProgressFactsV1 {
   readonly phase: ImportPhaseV1;
   readonly rowsSoFar: number;
   readonly batchesAcked: number;
+  readonly sheet: ImportSheetProgressV1 | null;
 }
 
 export interface ImportPromotionFactsV1 {
@@ -97,12 +119,30 @@ export interface ImportPromotionFactsV1 {
   readonly rowCount: number;
   readonly tableCount: number;
   readonly flaggedRecordCount: number;
+  /**
+   * The table an append created, found by reading the app's tables either
+   * side of the commit; `null` for a new app, whose landing is its home.
+   */
+  readonly appendedTableId: string | null;
 }
 
 export type PromotionRejectionV1 = Extract<
   Awaited<ReturnType<ImportServices["promoteImport"]>>,
   { readonly outcome: "rejected" }
 >;
+
+/** The outcome of SCR-019's "Copy handoff instructions", as the platform answered. */
+export type HandoffCopyResultV1 = "copied" | "unavailable";
+
+/**
+ * The apps an append could land in: listed, still being listed, or not
+ * listable. `unlisted` is not "no apps" — the read failed, and the surface
+ * must not claim the library is empty.
+ */
+export type LibraryListingV1 =
+  | { readonly kind: "listing" }
+  | { readonly kind: "listed"; readonly apps: readonly LibraryAppV1[] }
+  | { readonly kind: "unlisted" };
 
 export interface ImportInput {
   readonly services: ImportServices;
@@ -112,8 +152,13 @@ export interface ImportContext {
   readonly services: ImportServices;
   readonly fileName: string;
   readonly detection: ImportDetectedFactsV1 | undefined;
+  readonly workbook: ImportWorkbookFactsV1 | undefined;
+  /** Workbook sheet indexes to import (D39, D47). Empty for a delimited file. */
+  readonly selectedSheets: readonly number[];
+  readonly handoffCopy: HandoffCopyResultV1 | undefined;
   readonly refusal: ImportRefusalFactsV1 | undefined;
   readonly destination: ImportDestinationV1;
+  readonly library: LibraryListingV1;
   /** What the user typed on the target screen; empty means "not chosen yet". */
   readonly appName: string;
   readonly tableName: string;
@@ -121,20 +166,18 @@ export interface ImportContext {
   readonly progress: ImportProgressFactsV1;
   /** Exact, from the parser's terminal summary — never an estimate (D24). */
   readonly parsedRowCount: number | undefined;
-  /**
-   * The worker's proposal (CA-19). This page renders only its one-table
-   * delimited case (D48) — the view model reads it through
-   * `singleTableProposal` — and S07 replaces that with the workbook review.
-   */
+  /** The worker's proposal (CA-19), exactly as it sent it. */
   readonly proposal: ProposedWorkbookWireV1 | undefined;
   /** Edits waiting to be applied, oldest first. */
-  readonly pendingEdits: readonly ReviewEditWireV1[];
-  /** The closed reason S03 gave for the last refused edit (CA-16). */
+  readonly pendingEdits: readonly WorkbookReviewEditWireV1[];
+  /** The closed reason the stage gave for the last refused edit (CA-16). */
   readonly editRejection: string | undefined;
   readonly promotionRejection: PromotionRejectionV1 | undefined;
   readonly promoted: ImportPromotionFactsV1 | undefined;
   readonly cleanupReceipt: ImportCleanupReceiptViewV1 | undefined;
   readonly failure: ImportFailureReasonV1 | undefined;
+  /** Where a streamed parse failed: stage, sheet, closed diagnostic (CA-24). */
+  readonly failureDetail: ImportFailureDetailV1 | undefined;
   readonly error: SecurityError | undefined;
 }
 
@@ -143,30 +186,84 @@ export type ImportEvent =
   | { readonly type: "IMPORT_EVENT"; readonly event: ImportWorkerEventV1 }
   | { readonly type: "SET_APP_NAME"; readonly text: string }
   | { readonly type: "SET_TABLE_NAME"; readonly text: string }
+  | { readonly type: "SET_DESTINATION"; readonly destination: ImportDestinationV1 }
+  | { readonly type: "TOGGLE_SHEET"; readonly sheetIndex: number }
+  | { readonly type: "SELECT_ALL" }
+  | { readonly type: "CLEAR_ALL" }
+  | { readonly type: "COPY_HANDOFF"; readonly result: HandoffCopyResultV1 }
   | { readonly type: "CONTINUE" }
   | { readonly type: "BACK" }
   | { readonly type: "START" }
   | { readonly type: "CANCEL" }
-  | { readonly type: "APPLY_EDIT"; readonly edit: ReviewEditWireV1 }
+  | { readonly type: "APPLY_EDIT"; readonly edit: WorkbookReviewEditWireV1 }
   | { readonly type: "CREATE_APP" };
 
 const EMPTY_PROGRESS: ImportProgressFactsV1 = Object.freeze({
   phase: "sniffing",
   rowsSoFar: 0,
   batchesAcked: 0,
+  sheet: null,
 });
+
+const NEW_APP: ImportDestinationV1 = Object.freeze({ kind: "new-app" });
 
 /**
  * How long a cancel waits for the parser to report that it has stopped before
  * cleaning up anyway.
  *
- * The parser checks for a cancel at each batch boundary — 1024 facts — so it
- * answers in well under a second on any device that could have started the
- * import. The bound exists for the parser that never answers at all: a wedged
- * worker must not strand the cancel, and the cleanup's own result is truthful
- * either way.
+ * The parser checks for a cancel at each batch boundary, and S06 measured the
+ * real xlsx cancel through the import worker at 13.5–17.9 ms from instruction
+ * to terminal event. Five seconds is some 280 times that, so it is kept: the
+ * bound exists for the parser that never answers at all, not to hurry one that
+ * does, and the cleanup's own result is truthful either way.
  */
 export const PARSER_STOP_TIMEOUT_MS = 5_000;
+
+/**
+ * The event cap of one segment (database.md § event segments), restated so the
+ * machine imports nothing from staging. An append is one commit and a commit is
+ * never split, so an append that cannot fit one segment cannot happen (D38).
+ * `tests/unit/workflows/import.machine.test.ts` pins it to M23's constant.
+ */
+export const APPEND_EVENT_CAP = 10_000;
+
+/**
+ * D38's pre-flight estimate of an append's events: a record per row, a field
+ * event per column, and the table and decision events around them. An estimate
+ * — promotion re-checks exactly and refuses `append-too-large` when it is off.
+ */
+export function appendEventEstimate(facts: ImportDetectedFactsV1): number {
+  return facts.report.estimatedRowCount + facts.report.columnCount + 2;
+}
+
+export function canAppendEstimate(facts: ImportDetectedFactsV1): boolean {
+  return appendEventEstimate(facts) <= APPEND_EVENT_CAP;
+}
+
+/**
+ * The selection's estimated cells, summed from the report's per-sheet
+ * estimates. A sheet that declares nothing weighs zero, exactly as pre-flight
+ * routed it (`routeOf`), so the page and the worker agree on what fits.
+ */
+export function selectionCellEstimate(
+  report: WorkbookPreflightReportFactsV1,
+  selection: readonly number[],
+): number {
+  return report.sheets
+    .filter((sheet) => selection.includes(sheet.sheetIndex))
+    .reduce((sum, sheet) => sum + (sheet.estimatedCellCount ?? 0), 0);
+}
+
+/** A selection the worker will accept: not empty, and inside the cell budget. */
+export function selectionFits(
+  report: WorkbookPreflightReportFactsV1,
+  selection: readonly number[],
+): boolean {
+  return (
+    selection.length > 0 &&
+    selectionCellEstimate(report, selection) <= report.budgets.maxEstimatedCells
+  );
+}
 
 /**
  * A name the user actually chose. The RPC refuses an empty accepted name, and
@@ -176,18 +273,19 @@ export function isChosenName(text: string): boolean {
   return text.trim().length > 0;
 }
 
+type BeginStageRequest = Parameters<ImportServices["beginStage"]>[0];
+
 /**
- * The wire request `beginImportStage` takes, built from what the parser
- * reported. Returns `null` for a non-delimited detection: the parser only
- * emits `preflight` for delimited input, so this fails closed rather than
- * staging a format F02 cannot read.
+ * The wire request `beginImportStage` takes for a delimited file, built from
+ * what the parser reported. Returns `null` for a non-delimited detection: the
+ * parser only emits `preflight` for delimited input, so this fails closed
+ * rather than staging a format it did not size.
  */
 export function beginStageInput(
   fileName: string,
   facts: ImportDetectedFactsV1,
-):
-  | Parameters<ImportServices["beginStage"]>[0]
-  | null {
+  destination: ImportDestinationV1 = NEW_APP,
+): BeginStageRequest | null {
   const { detected, report } = facts;
   if (detected.kind !== "delimited") {
     return null;
@@ -210,7 +308,47 @@ export function beginStageInput(
       bytesSampled: report.bytesSampled,
       sourceByteLength: report.sourceByteLength,
     },
+    ...(destination.kind === "existing-app" ? { destination } : {}),
   };
+}
+
+/**
+ * The wire request for a workbook: every inventoried sheet (review lists the
+ * unselected ones as excluded, D39) and the selection that will be streamed.
+ */
+export function workbookStageInput(
+  fileName: string,
+  facts: ImportWorkbookFactsV1,
+  selectedSheets: readonly number[],
+): BeginStageRequest {
+  const { report } = facts;
+  return {
+    fileName,
+    detected: { kind: "workbook", format: report.format },
+    preflight: {
+      kind: "workbook",
+      sheets: report.sheets.map((sheet) => ({
+        sheetIndex: sheet.sheetIndex,
+        name: sheet.name,
+        sheetKind: sheet.kind,
+        visibility: sheet.visibility,
+        estimatedRowCount: sheet.estimatedRowCount,
+        estimatedCellCount: sheet.estimatedCellCount,
+      })),
+      selectedSheets: [...selectedSheets].sort((a, b) => a - b),
+      sourceByteLength: report.sourceByteLength,
+      isEstimate: true,
+    },
+  };
+}
+
+function stageRequestOf(context: ImportContext): BeginStageRequest | null {
+  if (context.workbook !== undefined) {
+    return workbookStageInput(context.fileName, context.workbook, context.selectedSheets);
+  }
+  return context.detection === undefined
+    ? null
+    : beginStageInput(context.fileName, context.detection, context.destination);
 }
 
 /** The result of a stage call that first checked the stage is still there. */
@@ -230,9 +368,69 @@ async function gated<T>(
   return { kind: "ok", value: await call() };
 }
 
+/** Table ids of an app, or none when the app is not on this device. */
+async function tableIdsOf(services: ImportServices, appId: string): Promise<readonly string[]> {
+  const { tables } = await services.listTables({ appId });
+  return (tables ?? []).map((table) => table.tableId);
+}
+
 interface StageInput {
   readonly services: ImportServices;
   readonly stageId: string;
+}
+
+const progressOf = (
+  event: Extract<ImportWorkerEventV1, { readonly kind: "progress" }>,
+): ImportProgressFactsV1 => ({
+  phase: event.phase,
+  rowsSoFar: event.rowsSoFar,
+  batchesAcked: event.batchesAcked,
+  sheet:
+    event.sheetOrdinal === undefined ||
+    event.sheetCount === undefined ||
+    event.sheetName === undefined
+      ? null
+      : { ordinal: event.sheetOrdinal, count: event.sheetCount, name: event.sheetName },
+});
+
+const failedFacts = (event: ImportWorkerEventV1) =>
+  event.kind === "failed"
+    ? { failure: event.reason, failureDetail: event.detail }
+    : { failure: "service-error" as const };
+
+const RESET = {
+  detection: undefined,
+  workbook: undefined,
+  selectedSheets: [],
+  handoffCopy: undefined,
+  refusal: undefined,
+  destination: NEW_APP,
+  library: { kind: "listing" },
+  appName: "",
+  tableName: "",
+  stageId: undefined,
+  progress: EMPTY_PROGRESS,
+  parsedRowCount: undefined,
+  proposal: undefined,
+  pendingEdits: [],
+  editRejection: undefined,
+  promotionRejection: undefined,
+  promoted: undefined,
+  cleanupReceipt: undefined,
+  failure: undefined,
+  failureDetail: undefined,
+  error: undefined,
+} as const satisfies Omit<ImportContext, "services" | "fileName">;
+
+/** Whether an append into this app can be chosen (D38): listed, and small enough. */
+function isDestinationAllowed(context: ImportContext, destination: ImportDestinationV1): boolean {
+  if (destination.kind === "new-app") return true;
+  return (
+    context.library.kind === "listed" &&
+    context.library.apps.some((app) => app.appId === destination.appId) &&
+    context.detection !== undefined &&
+    canAppendEstimate(context.detection)
+  );
 }
 
 export const importMachine = setup({
@@ -252,17 +450,20 @@ export const importMachine = setup({
           sendBack({ type: "IMPORT_EVENT", event });
         }),
     ),
+    listLibrary: fromPromise(
+      async ({ input }: { input: { services: ImportServices } }) =>
+        input.services.listLibrary(),
+    ),
     beginStage: fromPromise(
       async ({
         input,
       }: {
-        input: { services: ImportServices; fileName: string; facts: ImportDetectedFactsV1 };
+        input: { services: ImportServices; request: BeginStageRequest | null };
       }) => {
-        const request = beginStageInput(input.fileName, input.facts);
-        if (request === null) {
+        if (input.request === null) {
           throw new Error("pre-flight reported a format the stage cannot take");
         }
-        return input.services.beginStage(request);
+        return input.services.beginStage(input.request);
       },
     ),
     runInference: fromPromise(async ({ input }: { input: StageInput }) =>
@@ -283,18 +484,39 @@ export const importMachine = setup({
           }),
         ),
     ),
+    /**
+     * The one accept. An append reads the target app's tables either side of
+     * its commit: the table that was not there before is the one to land on,
+     * which no name comparison could promise (a colliding name is suffixed).
+     */
     promoteImport: fromPromise(
       async ({
         input,
       }: {
-        input: StageInput & { acceptedName: string };
+        input: StageInput & {
+          acceptedName: string;
+          destination: ImportDestinationV1;
+        };
       }) =>
-        gated(input.services, input.stageId, () =>
-          input.services.promoteImport({
+        gated(input.services, input.stageId, async () => {
+          const { destination } = input;
+          const before =
+            destination.kind === "existing-app"
+              ? await tableIdsOf(input.services, destination.appId)
+              : [];
+          const response = await input.services.promoteImport({
             stageId: input.stageId,
             acceptedName: input.acceptedName,
-          }),
-        ),
+          });
+          if (response.outcome !== "promoted" || destination.kind !== "existing-app") {
+            return { response, appendedTableId: null };
+          }
+          const after = await tableIdsOf(input.services, destination.appId);
+          return {
+            response,
+            appendedTableId: after.find((tableId) => !before.includes(tableId)) ?? null,
+          };
+        }),
     ),
     /**
      * Cleanup is *not* gated: `cancelImportStage` is idempotent, and a stage
@@ -307,9 +529,15 @@ export const importMachine = setup({
   },
   guards: {
     hasPendingEdit: ({ context }) => context.pendingEdits.length > 0,
-    hasStage: ({ context }) => context.stageId !== undefined,
     canBeginStage: ({ context }) =>
-      isChosenName(context.appName) && isChosenName(context.tableName),
+      isChosenName(context.tableName) &&
+      (context.destination.kind === "existing-app" || isChosenName(context.appName)),
+    isInventoriedSheet: ({ context, event }) =>
+      event.type === "TOGGLE_SHEET" &&
+      context.workbook?.report.sheets.some((sheet) => sheet.sheetIndex === event.sheetIndex) === true,
+    selectionFits: ({ context }) =>
+      context.workbook !== undefined &&
+      selectionFits(context.workbook.report, context.selectedSheets),
   },
   actions: {
     /** The parser is ended on every terminal state; a run owns one worker. */
@@ -319,6 +547,23 @@ export const importMachine = setup({
     stopParsing: ({ context }) => {
       context.services.cancelParse();
     },
+    toggleSheet: assign({
+      selectedSheets: ({ context, event }) => {
+        if (event.type !== "TOGGLE_SHEET") return context.selectedSheets;
+        return context.selectedSheets.includes(event.sheetIndex)
+          ? context.selectedSheets.filter((index) => index !== event.sheetIndex)
+          : [...context.selectedSheets, event.sheetIndex].sort((a, b) => a - b);
+      },
+    }),
+    selectAll: assign({
+      selectedSheets: ({ context }) =>
+        (context.workbook?.report.sheets ?? []).map((sheet) => sheet.sheetIndex),
+    }),
+    clearAll: assign({ selectedSheets: [] }),
+    recordHandoffCopy: assign({
+      handoffCopy: ({ context, event }) =>
+        event.type === "COPY_HANDOFF" ? event.result : context.handoffCopy,
+    }),
   },
 }).createMachine({
   id: "import",
@@ -326,22 +571,7 @@ export const importMachine = setup({
   context: ({ input }) => ({
     services: input.services,
     fileName: "",
-    detection: undefined,
-    refusal: undefined,
-    destination: "new-app",
-    appName: "",
-    tableName: "",
-    stageId: undefined,
-    progress: EMPTY_PROGRESS,
-    parsedRowCount: undefined,
-    proposal: undefined,
-    pendingEdits: [],
-    editRejection: undefined,
-    promotionRejection: undefined,
-    promoted: undefined,
-    cleanupReceipt: undefined,
-    failure: undefined,
-    error: undefined,
+    ...RESET,
   }),
   invoke: {
     src: "importEvents",
@@ -363,24 +593,7 @@ export const importMachine = setup({
             file: event.file,
             fileName: event.fileName,
           });
-          return {
-            fileName: event.fileName,
-            detection: undefined,
-            refusal: undefined,
-            appName: "",
-            tableName: "",
-            stageId: undefined,
-            progress: EMPTY_PROGRESS,
-            parsedRowCount: undefined,
-            proposal: undefined,
-            pendingEdits: [],
-            editRejection: undefined,
-            promotionRejection: undefined,
-            promoted: undefined,
-            cleanupReceipt: undefined,
-            failure: undefined,
-            error: undefined,
-          };
+          return { fileName: event.fileName, ...RESET };
         }),
       ],
     },
@@ -396,15 +609,7 @@ export const importMachine = setup({
           {
             guard: ({ event }) => event.event.kind === "progress",
             actions: assign(({ event }) =>
-              event.event.kind === "progress"
-                ? {
-                    progress: {
-                      phase: event.event.phase,
-                      rowsSoFar: event.event.rowsSoFar,
-                      batchesAcked: event.event.batchesAcked,
-                    },
-                  }
-                : {},
+              event.event.kind === "progress" ? { progress: progressOf(event.event) } : {},
             ),
           },
           {
@@ -417,6 +622,16 @@ export const importMachine = setup({
                 ? { refusal: event.event.refusal }
                 : {},
             ),
+          },
+          {
+            // D48/D42: this page accepts workbooks, so the worker has no reason
+            // to refuse one as a later release. If it does, the run ends
+            // rather than rendering a promise the page no longer makes.
+            guard: ({ event }) =>
+              event.event.kind === "refused" &&
+              event.event.refusal.kind === "workbook-format-later-release",
+            target: "failing",
+            actions: assign({ failure: "service-error" as const }),
           },
           {
             guard: ({ event }) => event.event.kind === "refused",
@@ -450,21 +665,26 @@ export const importMachine = setup({
             }),
           },
           {
-            guard: ({ event }) => event.event.kind === "failed",
-            target: "failing",
-            actions: assign(({ event }) => ({
-              failure:
-                event.event.kind === "failed"
-                  ? event.event.reason
-                  : ("service-error" as const),
-            })),
+            guard: ({ event }) => event.event.kind === "workbook-preflight",
+            target: "workbookSizing",
+            actions: assign(({ event }) => {
+              if (event.event.kind !== "workbook-preflight") {
+                return {};
+              }
+              const { detected, declaredExtension, contradiction, report } =
+                event.event;
+              return {
+                workbook: { detected, declaredExtension, contradiction, report },
+                // D47: every sheet on fits, the fitting prefix on subset, none
+                // on handoff — the worker already decided which.
+                selectedSheets: [...report.defaultSelection],
+              };
+            }),
           },
           {
-            // This page declares no workbook flow (D48), so the worker has no
-            // reason to send one; if it does, the run ends rather than waiting.
-            guard: ({ event }) => event.event.kind === "workbook-preflight",
+            guard: ({ event }) => event.event.kind === "failed",
             target: "failing",
-            actions: assign({ failure: "malformed-request" as const }),
+            actions: assign(({ event }) => failedFacts(event.event)),
           },
         ],
       },
@@ -472,11 +692,23 @@ export const importMachine = setup({
 
     /**
      * SCR-017 (delimited-import.html). The facts are already measured; what is
-     * chosen here is the destination and the names. `destination` has one
-     * member, so "add to an existing app" is unreachable rather than refused
-     * at runtime (D18).
+     * chosen here is the destination and the names. An existing app is a
+     * destination only when one is on this device and the estimate can fit
+     * one commit (D38) — `SET_DESTINATION` refuses anything else.
      */
     delimitedTarget: {
+      invoke: {
+        src: "listLibrary",
+        input: ({ context }) => ({ services: context.services }),
+        onDone: {
+          actions: assign({
+            library: ({ event }) => ({ kind: "listed" as const, apps: event.output.apps }),
+          }),
+        },
+        onError: {
+          actions: assign({ library: { kind: "unlisted" as const } }),
+        },
+      },
       on: {
         SET_APP_NAME: {
           actions: assign({ appName: ({ event }) => event.text }),
@@ -484,18 +716,74 @@ export const importMachine = setup({
         SET_TABLE_NAME: {
           actions: assign({ tableName: ({ event }) => event.text }),
         },
+        SET_DESTINATION: {
+          guard: ({ context, event }) => isDestinationAllowed(context, event.destination),
+          actions: assign({ destination: ({ event }) => event.destination }),
+        },
         CONTINUE: { guard: "canBeginStage", target: "fits" },
       },
     },
 
     /**
-     * SCR-018 (import.html). D20's fits variant: a confirmation of the
-     * measurement pre-flight already made, never a second measurement.
+     * SCR-018 (import.html), delimited variant. D20's fits variant: a
+     * confirmation of the measurement pre-flight already made.
      */
     fits: {
       on: {
         BACK: { target: "delimitedTarget" },
         START: { target: "beginningStage" },
+      },
+    },
+
+    /**
+     * SCR-018 / SCR-019 for a workbook (import.html, import-large.html). The
+     * report's route decides which; the selection is the user's to edit.
+     * Nothing is staged yet, so leaving is free and the parser just ends.
+     */
+    workbookSizing: {
+      initial: "routing",
+      on: {
+        CANCEL: { target: "choosingFile", actions: "terminateWorker" },
+      },
+      states: {
+        routing: {
+          always: [
+            {
+              guard: ({ context }) => context.workbook?.report.route === "fits",
+              target: "fits",
+            },
+            {
+              guard: ({ context }) => context.workbook?.report.route === "subset",
+              target: "subset",
+            },
+            { target: "handoff" },
+          ],
+        },
+        /** SCR-018: every sheet fits; the user may still leave some out. */
+        fits: {
+          on: {
+            TOGGLE_SHEET: { guard: "isInventoriedSheet", actions: "toggleSheet" },
+            SELECT_ALL: { actions: "selectAll" },
+            CLEAR_ALL: { actions: "clearAll" },
+            START: { guard: "selectionFits", target: "#import.beginningStage" },
+          },
+        },
+        /** SCR-019: a smaller scope fits, and the handoff is offered beside it. */
+        subset: {
+          on: {
+            TOGGLE_SHEET: { guard: "isInventoriedSheet", actions: "toggleSheet" },
+            SELECT_ALL: { actions: "selectAll" },
+            CLEAR_ALL: { actions: "clearAll" },
+            COPY_HANDOFF: { actions: "recordHandoffCopy" },
+            START: { guard: "selectionFits", target: "#import.beginningStage" },
+          },
+        },
+        /** SCR-019: no sheet fits alone. There is nothing here to start. */
+        handoff: {
+          on: {
+            COPY_HANDOFF: { actions: "recordHandoffCopy" },
+          },
+        },
       },
     },
 
@@ -519,17 +807,19 @@ export const importMachine = setup({
         src: "beginStage",
         input: ({ context }) => ({
           services: context.services,
-          fileName: context.fileName,
-          // `fits` is reachable only through `delimitedTarget`, which is
-          // reachable only with these facts assigned.
-          facts: context.detection as ImportDetectedFactsV1,
+          request: stageRequestOf(context),
         }),
         onDone: {
           target: "parsing",
           actions: [
             assign({ stageId: ({ event }) => event.output.stageId }),
             ({ context, event }) => {
-              context.services.proceed({ stageId: event.output.stageId });
+              context.services.proceed({
+                stageId: event.output.stageId,
+                ...(context.workbook === undefined
+                  ? {}
+                  : { selectedSheets: context.selectedSheets }),
+              });
             },
           ],
         },
@@ -551,15 +841,7 @@ export const importMachine = setup({
           {
             guard: ({ event }) => event.event.kind === "progress",
             actions: assign(({ event }) =>
-              event.event.kind === "progress"
-                ? {
-                    progress: {
-                      phase: event.event.phase,
-                      rowsSoFar: event.event.rowsSoFar,
-                      batchesAcked: event.event.batchesAcked,
-                    },
-                  }
-                : {},
+              event.event.kind === "progress" ? { progress: progressOf(event.event) } : {},
             ),
           },
           {
@@ -582,12 +864,7 @@ export const importMachine = setup({
           {
             guard: ({ event }) => event.event.kind === "failed",
             target: "failing",
-            actions: assign(({ event }) => ({
-              failure:
-                event.event.kind === "failed"
-                  ? event.event.reason
-                  : ("service-error" as const),
-            })),
+            actions: assign(({ event }) => failedFacts(event.event)),
           },
         ],
       },
@@ -611,40 +888,34 @@ export const importMachine = setup({
             actions: assign({ failure: "stage-missing" }),
           },
           {
-            // Only a one-table proposal has an F02 review; anything else fails
-            // closed rather than rendering part of an app (D48).
-            guard: ({ event }) =>
-              event.output.kind === "ok" &&
-              singleTableProposal(event.output.value.proposal) === null,
-            target: "failing",
-            actions: assign({ failure: "service-error" }),
-          },
-          {
             target: "reviewing",
             actions: assign(({ context, event }) => {
               if (event.output.kind !== "ok") {
                 return {};
               }
               const { proposal } = event.output.value;
-              // The names the user typed are the user's decision, so they
+              // The names typed on SCR-017 are the user's decision, so they
               // enter the proposal as the review edits they are — never as a
-              // silent overwrite the review screen cannot show or undo.
-              const pending: ReviewEditWireV1[] = [];
+              // silent overwrite the review screen cannot show or undo. A
+              // workbook has no target screen, so it has none; an append names
+              // a table, not an app.
+              const pending: WorkbookReviewEditWireV1[] = [];
+              const [table] = proposal.tables;
               if (
+                context.destination.kind === "new-app" &&
                 isChosenName(context.appName) &&
                 context.appName.trim() !== proposal.appName
               ) {
-                pending.push({
-                  kind: "rename-app",
-                  appName: context.appName.trim(),
-                });
+                pending.push({ kind: "rename-app", appName: context.appName.trim() });
               }
               if (
+                table !== undefined &&
                 isChosenName(context.tableName) &&
-                context.tableName.trim() !== proposal.tables[0]?.tableName
+                context.tableName.trim() !== table.tableName
               ) {
                 pending.push({
                   kind: "rename-table",
+                  tableKey: table.tableKey,
                   tableName: context.tableName.trim(),
                 });
               }
@@ -690,24 +961,13 @@ export const importMachine = setup({
             input: ({ context }) => ({
               services: context.services,
               stageId: context.stageId as string,
-              edit: workbookEditOf(
-                context.proposal as ProposedWorkbookWireV1,
-                context.pendingEdits[0] as ReviewEditWireV1,
-              ),
+              edit: context.pendingEdits[0] as WorkbookReviewEditWireV1,
             }),
             onDone: [
               {
                 guard: ({ event }) => event.output.kind === "stage-missing",
                 target: "#import.failing",
                 actions: assign({ failure: "stage-missing" }),
-              },
-              {
-                guard: ({ event }) =>
-                  event.output.kind === "ok" &&
-                  event.output.value.outcome === "applied" &&
-                  singleTableProposal(event.output.value.proposal) === null,
-                target: "#import.failing",
-                actions: assign({ failure: "service-error" }),
               },
               {
                 target: "deciding",
@@ -722,6 +982,7 @@ export const importMachine = setup({
                         proposal: result.proposal,
                         pendingEdits: rest,
                         editRejection: undefined,
+                        promotionRejection: undefined,
                       }
                     : {
                         pendingEdits: rest,
@@ -744,8 +1005,9 @@ export const importMachine = setup({
 
     /**
      * The one accept. A typed rejection wrote nothing and is a *result* the
-     * review screen can act on (D23), so it returns to review with its issues
-     * rather than destroying the stage the user just reviewed.
+     * review screen can act on (D23) — `append-too-large` included — so it
+     * returns to review with its issues rather than destroying the stage the
+     * user just reviewed.
      */
     promoting: {
       invoke: {
@@ -753,9 +1015,10 @@ export const importMachine = setup({
         input: ({ context }) => ({
           services: context.services,
           stageId: context.stageId as string,
-          acceptedName: isChosenName(context.appName)
-            ? context.appName.trim()
-            : (context.proposal?.appName ?? ""),
+          // The proposal's name is the reviewed one: every rename, the one
+          // typed on SCR-017 included, reached it as an edit.
+          acceptedName: context.proposal?.appName ?? "",
+          destination: context.destination,
         }),
         onDone: [
           {
@@ -766,19 +1029,25 @@ export const importMachine = setup({
           {
             guard: ({ event }) =>
               event.output.kind === "ok" &&
-              event.output.value.outcome === "promoted",
+              event.output.value.response.outcome === "promoted",
             target: "done",
             actions: assign(({ event }) => {
               if (
                 event.output.kind !== "ok" ||
-                event.output.value.outcome !== "promoted"
+                event.output.value.response.outcome !== "promoted"
               ) {
                 return {};
               }
               const { appId, rowCount, tableCount, flaggedRecordCount } =
-                event.output.value;
+                event.output.value.response;
               return {
-                promoted: { appId, rowCount, tableCount, flaggedRecordCount },
+                promoted: {
+                  appId,
+                  rowCount,
+                  tableCount,
+                  flaggedRecordCount,
+                  appendedTableId: event.output.value.appendedTableId,
+                },
               };
             }),
           },
@@ -786,8 +1055,8 @@ export const importMachine = setup({
             target: "reviewing",
             actions: assign(({ event }) =>
               event.output.kind === "ok" &&
-              event.output.value.outcome === "rejected"
-                ? { promotionRejection: event.output.value }
+              event.output.value.response.outcome === "rejected"
+                ? { promotionRejection: event.output.value.response }
                 : {},
             ),
           },
@@ -811,16 +1080,12 @@ export const importMachine = setup({
      * `cancelParse` crosses a worker boundary, and the batches the parser had
      * already sent are still travelling down the channel to the data worker.
      * Cleaning up while they land races them, and the store answers that race
-     * with `revision-conflict` — which is why every cancel through the real
-     * entry used to end `cleanup-unconfirmed` and MOD-007's "no partial app
-     * remains" was never printed (SESSION-07 CP4, reproduced 3/3 at 3,000 rows
-     * after 50 ms and at 20,000 rows after 100 ms and 1.2 s).
-     *
-     * So the cleanup follows the parser's *terminal event*, not the stop
-     * instruction. The states that already know the parser has finished — its
-     * own `cancelled` report, and a cancel from `inferring` or `reviewing`,
-     * both of which are only reachable after `completed` — enter
-     * {@link cleaning} directly and wait for nothing.
+     * with `revision-conflict` (F02 SESSION-07 CP4, reproduced 3/3). So the
+     * cleanup follows the parser's *terminal event*, not the stop instruction.
+     * The states that already know the parser has finished — its own
+     * `cancelled` report, and a cancel from `inferring` or `reviewing`, both of
+     * which are only reachable after `completed` — enter {@link cleaning}
+     * directly and wait for nothing.
      */
     cancelling: {
       entry: "stopParsing",

@@ -27,6 +27,7 @@
  */
 
 import type { SnapshotFrom } from "xstate";
+import type { ImportFailureDetailV1 } from "../../workers/protocol/import-messages.js";
 import type {
   EvidenceWireV1,
   ImportDiagnosticWireV1,
@@ -38,12 +39,19 @@ import type {
   ReviewEditKindWireV1,
   SourceValueFormatWireV1,
 } from "../../workers/protocol/messages.js";
-import type {
-  ImportFailureReasonV1,
-  ImportPhaseV1,
-  importMachine,
+import {
+  APPEND_EVENT_CAP,
+  appendEventEstimate,
+  canAppendEstimate,
+  selectionCellEstimate,
+  type ImportFailureReasonV1,
+  type ImportPhaseV1,
+  type ImportSheetProgressV1,
+  type ImportWorkbookFactsV1,
+  type importMachine,
 } from "../workflows/import.machine.js";
 import { singleTableProposal } from "../workflows/import-services.js";
+import { selectAppChoices, type AppChoiceVm } from "./library.js";
 
 type ImportSnapshot = SnapshotFrom<typeof importMachine>;
 
@@ -160,17 +168,34 @@ const FORMAT_GROUPS: readonly AcceptedFormatGroupVm[] = Object.freeze([
 
 // --- SCR-017 delimited target (delimited-import.html) ------------------------
 
+/**
+ * Why "Add a table to an existing app" is off (D38). Each is a fact the page
+ * holds: the apps are still being listed, could not be listed, there are none,
+ * or pre-flight's estimate already exceeds what one commit can hold.
+ */
+export type ExistingAppUnavailableReasonV1 =
+  | "listing-local-apps"
+  | "local-apps-not-listed"
+  | "no-local-apps"
+  | "too-large-to-append";
+
 export interface ImportDestinationOptionVm {
   readonly id: "new-app" | "existing-app";
   /** delimited-import.html, verbatim. */
   readonly label: string;
   readonly enabled: boolean;
-  /**
-   * Present exactly when the option is off. D18: FR-1's into-existing-app
-   * semantics need F03's event-shape work, so the option ships disabled with a
-   * stated reason rather than enabled and unable to finish.
-   */
-  readonly reason?: "into-existing-app-not-available-in-this-release";
+  readonly isSelected: boolean;
+  /** Present exactly when the option is off, and it says why. */
+  readonly reason?: ExistingAppUnavailableReasonV1;
+}
+
+/** D38's pre-flight arithmetic, kept so the too-large reason states real numbers. */
+export interface AppendEstimateVm {
+  /** Estimated events the append would write — always an estimate (D24). */
+  readonly estimatedEvents: number;
+  readonly estimatedRows: ImportRowCountVm;
+  /** One segment's event cap: an append is one commit, never split. */
+  readonly eventCap: number;
 }
 
 /** MOD-004: the extension claimed one thing and the bytes said another. */
@@ -193,6 +218,12 @@ export interface DelimitedTargetVm {
   readonly rowCount: ImportRowCountVm;
   readonly contradiction: FormatContradictionVm | null;
   readonly destinations: readonly ImportDestinationOptionVm[];
+  readonly destination: "new-app" | "existing-app";
+  /** The apps an append could land in; empty unless that option is on. */
+  readonly appChoices: readonly AppChoiceVm[];
+  readonly appendEstimate: AppendEstimateVm;
+  /** A new app needs its name; an append names only its table. */
+  readonly needsAppName: boolean;
   readonly appName: string;
   readonly tableName: string;
   readonly appNameProblem: NameProblemVm | null;
@@ -201,21 +232,9 @@ export interface DelimitedTargetVm {
   readonly announcement: string;
 }
 
-const DESTINATIONS: readonly ImportDestinationOptionVm[] = Object.freeze([
-  Object.freeze({
-    id: "new-app" as const,
-    // delimited-import.html, verbatim.
-    label: "Create a new app",
-    enabled: true,
-  }),
-  Object.freeze({
-    id: "existing-app" as const,
-    // delimited-import.html, verbatim.
-    label: "Add a table to an existing app",
-    enabled: false,
-    reason: "into-existing-app-not-available-in-this-release" as const,
-  }),
-]);
+/** delimited-import.html, verbatim. */
+const NEW_APP_LABEL = "Create a new app";
+const EXISTING_APP_LABEL = "Add a table to an existing app";
 
 // --- SCR-018 / SCR-019 the size answer (D20) --------------------------------
 
@@ -256,6 +275,93 @@ export interface ImportOverBudgetVm {
   readonly announcement: string;
 }
 
+/**
+ * A workbook's size, sheet by sheet, from metadata (CA-18). An estimate has
+ * exactly one numeric member and it is `estimated`, so it can only be written
+ * as "about" (D24); a count nothing declared is `not-declared`, which carries
+ * no number at all and so cannot be rendered as 0 (database.md).
+ */
+export type SheetEstimateVm =
+  | { readonly kind: "estimated"; readonly value: number }
+  | { readonly kind: "not-declared" };
+
+/**
+ * What the report's own facts say a sheet holds — the checklist line
+ * import.html draws. Decided from declarations, never from cells: declared
+ * tables, chart parts or a chart sheet, or neither.
+ */
+export type WorkbookSheetShapeV1 = "declared-table" | "table-region" | "charts-and-summary";
+
+/** import.html's badges, and only those: Use, Inspect, Dashboard, Excluded. */
+export type WorkbookSheetBadgeV1 = "use" | "inspect" | "dashboard" | "excluded";
+
+export interface WorkbookSheetRowVm {
+  readonly sheetIndex: number;
+  readonly name: string;
+  readonly isSelected: boolean;
+  readonly isHidden: boolean;
+  readonly shape: WorkbookSheetShapeV1;
+  readonly rows: SheetEstimateVm;
+  readonly cells: SheetEstimateVm;
+  readonly badge: WorkbookSheetBadgeV1;
+}
+
+/** Why a selection cannot start: nothing chosen, or more than the budget. */
+export type WorkbookSelectionBlockerV1 = "nothing-selected" | "over-budget";
+
+export interface WorkbookSelectionVm {
+  readonly selectedCount: number;
+  readonly sheetCount: number;
+  readonly estimatedRows: SheetEstimateVm;
+  /** Summed from the report's per-sheet estimates, as pre-flight routed them. */
+  readonly estimatedCells: number;
+  readonly maxEstimatedCells: number;
+  readonly blocker: WorkbookSelectionBlockerV1 | null;
+}
+
+/** import.html's drawing notice, from the report's part counts per selected sheet. */
+export interface DrawingNoticeVm {
+  readonly sheetName: string;
+  readonly drawingCount: number;
+}
+
+/** MOD-004 for a workbook: the name promised one format and the content is another. */
+export interface WorkbookContradictionVm {
+  readonly declaredExtension: string;
+  readonly detectedFormat: WorkbookFormatVm;
+}
+
+export type WorkbookFormatVm = ImportWorkbookFactsV1["report"]["format"];
+
+/**
+ * SCR-019's desktop handoff (D31). `instructions` is what "Copy handoff
+ * instructions" copies: import-large.html's own sentences with the real file
+ * name (D43). `copy` is what the platform answered, once it has.
+ */
+export interface WorkbookHandoffVm {
+  readonly instructions: string;
+  readonly copy: "copied" | "unavailable" | null;
+}
+
+export interface WorkbookPreflightVm {
+  readonly screen: "SCR-018" | "SCR-019";
+  readonly step: "workbookFits" | "workbookSubset" | "workbookHandoff";
+  readonly fileName: string;
+  readonly format: WorkbookFormatVm;
+  readonly sourceByteLength: number;
+  readonly contradiction: WorkbookContradictionVm | null;
+  /** Every inventoried sheet, in workbook order — none is dropped (FR-5). */
+  readonly sheets: readonly WorkbookSheetRowVm[];
+  readonly selection: WorkbookSelectionVm;
+  /** The whole workbook's estimate, for SCR-019's over-budget statement. */
+  readonly workbookEstimatedCells: SheetEstimateVm;
+  readonly drawingNotices: readonly DrawingNoticeVm[];
+  readonly canStart: boolean;
+  /** Present on SCR-019 only. */
+  readonly handoff: WorkbookHandoffVm | null;
+  readonly announcement: string;
+}
+
 // --- SCR-020 progress (import-progress.html) --------------------------------
 
 export interface ImportProgressVm {
@@ -264,6 +370,8 @@ export interface ImportProgressVm {
   readonly fileName: string;
   readonly phase: ImportPhaseV1;
   readonly rowsSoFar: number;
+  /** "Sheet k of n · name" while a workbook streams; `null` for delimited input. */
+  readonly sheet: ImportSheetProgressV1 | null;
   /** Batches whose ack came back — the durable count, not the sent one. */
   readonly batchesCommitted: number;
   readonly cancellable: boolean;
@@ -282,6 +390,11 @@ export type RefusalCopyTokenV1 =
   | "workbook-format-later-release"
   | "binary-unreadable";
 
+export type UnreadableDetailVm = Extract<
+  NonNullable<ImportSnapshot["context"]["refusal"]>,
+  { readonly kind: "binary-unreadable" }
+>["detail"];
+
 export interface ImportRefusedVm {
   readonly screen: "SCR-021";
   readonly step: "refused";
@@ -291,6 +404,11 @@ export interface ImportRefusedVm {
   readonly remedy: string;
   /** Only for `workbook-format-later-release` (D19): which family it was. */
   readonly laterReleaseFormat: string | null;
+  /**
+   * Only for `binary-unreadable`: which class of problem made the file
+   * unreadable or unsafe (D42) — a closed token, never file content.
+   */
+  readonly unreadableDetail: UnreadableDetailVm | null;
   /** The refusal is whole-file; no stage was ever created (FR-2). */
   readonly libraryUnchanged: true;
   readonly announcement: string;
@@ -316,6 +434,17 @@ export type ImportCleanupVm =
   | { readonly kind: "nothing-to-remove" }
   | { readonly kind: "unconfirmed" };
 
+/**
+ * Where a streamed parse stopped (CA-24). The diagnostic stays the raw closed
+ * token — import-failed.html shows it beside the sentence — and the sheet is
+ * named from the selection pre-flight showed, never from the failure.
+ */
+export interface ImportFailureDetailVm {
+  readonly stage: ImportFailureDetailV1["stage"];
+  readonly diagnostic: ImportFailureDetailV1["diagnostic"];
+  readonly sheet: ImportSheetProgressV1 | null;
+}
+
 export interface ImportEndedVm {
   readonly screen: "SCR-022";
   readonly step: "cancelling" | "cancelled" | "failing" | "failed";
@@ -324,6 +453,8 @@ export interface ImportEndedVm {
   readonly fileName: string;
   /** `null` for a cancel: the user's decision is not a failure. */
   readonly reason: ImportFailureReasonV1 | null;
+  /** MOD-008's named stage, sheet and diagnostic, when the parser gave them. */
+  readonly detail: ImportFailureDetailVm | null;
   readonly cleanup: ImportCleanupVm;
   readonly announcement: string;
 }
@@ -467,13 +598,20 @@ export interface ImportDoneVm {
   readonly tableCount: number;
   /** Rows kept and flagged rather than refused (FR-4/FR-6). */
   readonly flaggedRecordCount: number;
+  /** A new app lands on its home; an append on the table it created. */
+  readonly landing: ImportLandingVm;
   readonly announcement: string;
 }
+
+export type ImportLandingVm =
+  | { readonly kind: "app-home"; readonly appId: string }
+  | { readonly kind: "appended-table"; readonly appId: string; readonly tableId: string };
 
 export type ImportVm =
   | UploadLandingVm
   | DelimitedTargetVm
   | ImportFitsVm
+  | WorkbookPreflightVm
   | ImportOverBudgetVm
   | ImportProgressVm
   | ImportRefusedVm
@@ -579,6 +717,10 @@ export function selectImportVm(snapshot: ImportSnapshot): ImportVm {
     };
   }
 
+  if (snapshot.matches("workbookSizing")) {
+    return selectWorkbookPreflightVm(snapshot);
+  }
+
   if (snapshot.matches("overBudget")) {
     return selectOverBudgetVm(snapshot);
   }
@@ -606,13 +748,19 @@ export function selectImportVm(snapshot: ImportSnapshot): ImportVm {
 
   if (snapshot.matches("done")) {
     const promoted = context.promoted;
+    const appId = promoted?.appId ?? "";
+    const appendedTableId = promoted?.appendedTableId ?? null;
     return {
       screen: "SCR-023",
       step: "done",
-      appId: promoted?.appId ?? "",
+      appId,
       rowCount: exact(promoted?.rowCount ?? 0),
       tableCount: promoted?.tableCount ?? 0,
       flaggedRecordCount: promoted?.flaggedRecordCount ?? 0,
+      landing:
+        appendedTableId === null
+          ? { kind: "app-home", appId }
+          : { kind: "appended-table", appId, tableId: appendedTableId },
       announcement:
         promoted === undefined
           ? "The app was created on this device."
@@ -625,11 +773,31 @@ export function selectImportVm(snapshot: ImportSnapshot): ImportVm {
   return selectReviewVm(snapshot);
 }
 
+function existingAppReason(
+  snapshot: ImportSnapshot,
+): ExistingAppUnavailableReasonV1 | null {
+  const { context } = snapshot;
+  if (context.detection !== undefined && !canAppendEstimate(context.detection)) {
+    return "too-large-to-append";
+  }
+  switch (context.library.kind) {
+    case "listing":
+      return "listing-local-apps";
+    case "unlisted":
+      return "local-apps-not-listed";
+    case "listed":
+      return context.library.apps.length === 0 ? "no-local-apps" : null;
+  }
+}
+
 function selectDelimitedTargetVm(snapshot: ImportSnapshot): DelimitedTargetVm {
   const { context } = snapshot;
   const detection = context.detection;
   const report = detection?.report;
   const contradiction = detection?.contradiction ?? null;
+  const reason = existingAppReason(snapshot);
+  const destination = context.destination;
+  const apps = context.library.kind === "listed" ? context.library.apps : [];
 
   return {
     screen: "SCR-017",
@@ -647,10 +815,36 @@ function selectDelimitedTargetVm(snapshot: ImportSnapshot): DelimitedTargetVm {
             expectedKind: contradiction.expectedKind,
             detectedKind: contradiction.detectedKind,
           },
-    destinations: DESTINATIONS,
+    destinations: [
+      {
+        id: "new-app",
+        label: NEW_APP_LABEL,
+        enabled: true,
+        isSelected: destination.kind === "new-app",
+      },
+      {
+        id: "existing-app",
+        label: EXISTING_APP_LABEL,
+        enabled: reason === null,
+        isSelected: destination.kind === "existing-app",
+        ...(reason === null ? {} : { reason }),
+      },
+    ],
+    destination: destination.kind,
+    appChoices:
+      reason === null
+        ? selectAppChoices(apps, destination.kind === "existing-app" ? destination.appId : null)
+        : [],
+    appendEstimate: {
+      estimatedEvents: detection === undefined ? 0 : appendEventEstimate(detection),
+      estimatedRows: estimated(report?.estimatedRowCount ?? 0),
+      eventCap: APPEND_EVENT_CAP,
+    },
+    needsAppName: destination.kind === "new-app",
     appName: context.appName,
     tableName: context.tableName,
-    appNameProblem: context.appName.trim().length === 0 ? "required" : null,
+    appNameProblem:
+      destination.kind === "new-app" && context.appName.trim().length === 0 ? "required" : null,
     tableNameProblem: context.tableName.trim().length === 0 ? "required" : null,
     canContinue: snapshot.can({ type: "CONTINUE" }),
     // The mock's "Rows declared: N + header" defers to review, where the
@@ -659,6 +853,148 @@ function selectDelimitedTargetVm(snapshot: ImportSnapshot): DelimitedTargetVm {
       report?.estimatedRowCount ?? 0,
     )} rows across ${String(report?.columnCount ?? 0)} columns were detected.`,
   };
+}
+
+const estimateOf = (value: number | null): SheetEstimateVm =>
+  value === null ? { kind: "not-declared" } : { kind: "estimated", value };
+
+/** A sum of estimates is `not-declared` only when none of them declared anything. */
+const sumOfEstimates = (values: readonly (number | null)[]): SheetEstimateVm =>
+  values.every((value) => value === null)
+    ? { kind: "not-declared" }
+    : { kind: "estimated", value: values.reduce<number>((sum, value) => sum + (value ?? 0), 0) };
+
+type InventoriedSheetV1 = ImportWorkbookFactsV1["report"]["sheets"][number];
+
+/** import.html's checklist line, decided from the sheet's declarations alone. */
+function shapeOf(sheet: InventoriedSheetV1): WorkbookSheetShapeV1 {
+  if (
+    sheet.kind === "chartsheet" ||
+    sheet.preservedPartCounts.chart > 0 ||
+    sheet.preservedPartCounts["pivot-table"] > 0
+  ) {
+    return "charts-and-summary";
+  }
+  return sheet.declaredTables.length > 0 ? "declared-table" : "table-region";
+}
+
+const BADGE_OF_SHAPE: Readonly<Record<WorkbookSheetShapeV1, WorkbookSheetBadgeV1>> = Object.freeze({
+  "declared-table": "use",
+  "table-region": "inspect",
+  "charts-and-summary": "dashboard",
+});
+
+/**
+ * import-large.html's handoff card, as the text "Copy handoff instructions"
+ * copies (D43): the card's own sentences, in its order, around the real file
+ * name. D31's truthfulness limit is kept — the budget is conditional, and
+ * import.html's "Desktop solves importing only" says what the handoff is not.
+ */
+export function handoffInstructions(fileName: string): string {
+  return [
+    `Import everything on desktop: “${fileName}”.`,
+    "No work is transferred automatically. Open this same source file in Sheaf on a device with a larger local budget.",
+    "Desktop solves importing only.",
+  ].join("\n");
+}
+
+const WORKBOOK_STEP = Object.freeze({
+  fits: "workbookFits",
+  subset: "workbookSubset",
+  handoff: "workbookHandoff",
+} as const);
+
+function selectWorkbookPreflightVm(snapshot: ImportSnapshot): WorkbookPreflightVm {
+  const { context } = snapshot;
+  // `workbookSizing` is entered only with the workbook's facts assigned.
+  const facts = context.workbook as ImportWorkbookFactsV1;
+  const { report } = facts;
+  const route = snapshot.matches({ workbookSizing: "subset" })
+    ? "subset"
+    : snapshot.matches({ workbookSizing: "handoff" })
+      ? "handoff"
+      : "fits";
+  const selected = context.selectedSheets;
+  const selectedSheets = report.sheets.filter((sheet) => selected.includes(sheet.sheetIndex));
+  const estimatedCells = selectionCellEstimate(report, selected);
+  const blocker: WorkbookSelectionBlockerV1 | null =
+    selected.length === 0
+      ? "nothing-selected"
+      : estimatedCells > report.budgets.maxEstimatedCells
+        ? "over-budget"
+        : null;
+  const canStart = snapshot.can({ type: "START" });
+  const handoff: WorkbookHandoffVm | null =
+    route === "fits"
+      ? null
+      : { instructions: handoffInstructions(report.fileName), copy: context.handoffCopy ?? null };
+
+  return {
+    screen: route === "fits" ? "SCR-018" : "SCR-019",
+    step: WORKBOOK_STEP[route],
+    fileName: report.fileName,
+    format: report.format,
+    sourceByteLength: report.sourceByteLength,
+    contradiction:
+      report.formatContradiction === null
+        ? null
+        : {
+            declaredExtension: report.formatContradiction.declaredExtension,
+            detectedFormat: report.formatContradiction.detectedFormat,
+          },
+    sheets: report.sheets.map((sheet) => {
+      const isSelected = selected.includes(sheet.sheetIndex);
+      const shape = shapeOf(sheet);
+      return {
+        sheetIndex: sheet.sheetIndex,
+        name: sheet.name,
+        isSelected,
+        isHidden: sheet.visibility !== "visible",
+        shape,
+        rows: estimateOf(sheet.estimatedRowCount),
+        cells: estimateOf(sheet.estimatedCellCount),
+        badge: isSelected ? BADGE_OF_SHAPE[shape] : "excluded",
+      };
+    }),
+    selection: {
+      selectedCount: selectedSheets.length,
+      sheetCount: report.sheets.length,
+      estimatedRows: sumOfEstimates(selectedSheets.map((sheet) => sheet.estimatedRowCount)),
+      estimatedCells,
+      maxEstimatedCells: report.budgets.maxEstimatedCells,
+      blocker,
+    },
+    workbookEstimatedCells: estimateOf(report.totals.estimatedCellCount),
+    drawingNotices: selectedSheets
+      .filter((sheet) => sheet.preservedPartCounts.drawing > 0)
+      .map((sheet) => ({ sheetName: sheet.name, drawingCount: sheet.preservedPartCounts.drawing })),
+    canStart,
+    handoff,
+    announcement: announceWorkbookPreflight(route, selectedSheets.length, report.sheets.length, context.handoffCopy),
+  };
+}
+
+function announceWorkbookPreflight(
+  route: "fits" | "subset" | "handoff",
+  selectedCount: number,
+  sheetCount: number,
+  copy: "copied" | "unavailable" | undefined,
+): string {
+  const opening =
+    route === "fits"
+      ? // import.html, composed with the real counts.
+        `This workbook fits this device. ${String(selectedCount)} of ${String(sheetCount)} sheets are selected.`
+      : route === "subset"
+        ? `This workbook is too large for this device. ${String(selectedCount)} of ${String(sheetCount)} sheets are selected. No cell data has been read.`
+        : "This workbook is too large for this device, and no single sheet fits. No cell data has been read.";
+  switch (copy) {
+    case "copied":
+      return `${opening} The handoff instructions were copied.`;
+    case "unavailable":
+      return `${opening} This browser did not allow copying, so the instructions are shown on this screen.`;
+    default:
+      return opening;
+  }
 }
 
 function selectOverBudgetVm(snapshot: ImportSnapshot): ImportOverBudgetVm {
@@ -703,6 +1039,8 @@ function selectRefusedVm(snapshot: ImportSnapshot): ImportRefusedVm {
       refusal !== undefined && refusal.kind === "workbook-format-later-release"
         ? refusal.format
         : null,
+    unreadableDetail:
+      refusal !== undefined && refusal.kind === "binary-unreadable" ? refusal.detail : null,
     libraryUnchanged: true,
     // import-refused.html: "The refusal is whole-file. Nothing partial was
     // added to the library."
@@ -726,12 +1064,17 @@ function selectProgressVm(snapshot: ImportSnapshot): ImportProgressVm {
     fileName: context.fileName,
     phase: context.progress.phase,
     rowsSoFar: context.progress.rowsSoFar,
+    sheet: context.progress.sheet,
     batchesCommitted: context.progress.batchesAcked,
     cancellable: snapshot.can({ type: "CANCEL" }),
     cancellationContract: "removes-every-committed-batch",
-    announcement: `Importing ${context.fileName}. ${String(
-      context.progress.rowsSoFar,
-    )} rows are durable so far.`,
+    announcement: `Importing ${context.fileName}.${
+      context.progress.sheet === null
+        ? ""
+        : ` Sheet ${String(context.progress.sheet.ordinal)} of ${String(
+            context.progress.sheet.count,
+          )}: ${context.progress.sheet.name}.`
+    } ${String(context.progress.rowsSoFar)} rows are durable so far.`,
   };
 }
 
@@ -767,9 +1110,34 @@ function selectEndedVm(snapshot: ImportSnapshot): ImportEndedVm {
     busy: cancelling || failing,
     fileName: context.fileName,
     reason: outcome === "cancelled" ? null : (context.failure ?? null),
+    detail:
+      outcome === "cancelled" || context.failureDetail === undefined
+        ? null
+        : {
+            stage: context.failureDetail.stage,
+            diagnostic: context.failureDetail.diagnostic,
+            sheet: failedSheetOf(context.failureDetail, context.selectedSheets, context.workbook),
+          },
     cleanup,
     announcement: announceEnded(outcome, cancelling || failing, cleanup),
   };
+}
+
+/**
+ * The sheet a failure names, by its one-based ordinal among the selected
+ * sheets, read back from the inventory pre-flight showed (CA-24).
+ */
+function failedSheetOf(
+  detail: ImportFailureDetailV1,
+  selectedSheets: readonly number[],
+  workbook: ImportWorkbookFactsV1 | undefined,
+): ImportSheetProgressV1 | null {
+  if (detail.sheetOrdinal === null || workbook === undefined) return null;
+  const sheetIndex = selectedSheets[detail.sheetOrdinal - 1];
+  const sheet = workbook.report.sheets.find((candidate) => candidate.sheetIndex === sheetIndex);
+  return sheet === undefined
+    ? null
+    : { ordinal: detail.sheetOrdinal, count: selectedSheets.length, name: sheet.name };
 }
 
 function announceEnded(

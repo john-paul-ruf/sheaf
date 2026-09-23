@@ -25,12 +25,13 @@ import type {
   ImportWorkerEventV1,
 } from "../../workers/protocol/import-messages.js";
 import type {
+  BeginImportStageRequestV1,
   BeginImportStageResponseV1,
   CancelImportStageResponseV1,
   DataWorkerRequestV1,
-  DetectedDelimitedV1,
   GetImportStageResponseV1,
-  ImportPreflightFactsV1,
+  ListLibraryResponseV1,
+  ListTablesResponseV1,
   PromoteImportResponseV1,
   ProposedAppWireV1,
   ProposedWorkbookWireV1,
@@ -77,14 +78,19 @@ export interface ImportServices {
   /**
    * Creates the durable stage and hands the data worker `port2` in the
    * request's transfer list (D17). Answers with the stage id and nothing else.
+   * A delimited stage may land in an existing app (D38); a workbook's never.
    */
-  readonly beginStage: (input: {
-    readonly fileName: string;
-    readonly detected: DetectedDelimitedV1;
-    readonly preflight: ImportPreflightFactsV1;
-  }) => Promise<BeginImportStageResponseV1>;
-  /** "The stage exists, start streaming." */
-  readonly proceed: (input: { readonly stageId: string }) => void;
+  readonly beginStage: (
+    input: Omit<BeginImportStageRequestV1, "kind">,
+  ) => Promise<BeginImportStageResponseV1>;
+  /**
+   * "The stage exists, start streaming." A workbook names the sheets to read
+   * (D39); a delimited file names none.
+   */
+  readonly proceed: (input: {
+    readonly stageId: string;
+    readonly selectedSheets?: readonly number[];
+  }) => void;
   /** Cooperative: the parser stops at the next batch boundary. */
   readonly cancelParse: () => void;
   readonly getStage: (input: {
@@ -101,6 +107,15 @@ export interface ImportServices {
     readonly stageId: string;
     readonly acceptedName: string;
   }) => Promise<PromoteImportResponseV1>;
+  /** The apps on this device: SCR-017's existing-app destination (D38). */
+  readonly listLibrary: () => Promise<ListLibraryResponseV1>;
+  /**
+   * An app's tables, freshly read. An append reads them either side of its
+   * one commit, so the landing is the table the commit created (CAP-26).
+   */
+  readonly listTables: (input: {
+    readonly appId: string;
+  }) => Promise<ListTablesResponseV1>;
   /** The four-step cleanup. Idempotent: a receipt comes back either way. */
   readonly cancelStage: (input: {
     readonly stageId: string;
@@ -288,17 +303,21 @@ export function createImportServices(
       fresh.send({ kind: "startImport", file, fileName }, [channel.port1]);
     },
 
-    beginStage({ fileName, detected, preflight }) {
+    beginStage(input) {
       const port = stagePort;
       stagePort = undefined;
       return options.dataWorker.send(
-        { kind: "beginImportStage", fileName, detected, preflight },
+        { kind: "beginImportStage", ...input },
         port === undefined ? [] : [port],
       );
     },
 
-    proceed({ stageId }) {
-      client?.send({ kind: "proceed", stageId });
+    proceed({ stageId, selectedSheets }) {
+      client?.send({
+        kind: "proceed",
+        stageId,
+        ...(selectedSheets === undefined ? {} : { selectedSheets }),
+      });
     },
 
     cancelParse() {
@@ -327,6 +346,14 @@ export function createImportServices(
         stageId,
         acceptedName,
       });
+    },
+
+    listLibrary() {
+      return options.dataWorker.send({ kind: "listLibrary" });
+    },
+
+    listTables({ appId }) {
+      return options.dataWorker.send({ kind: "listTables", appId });
     },
 
     cancelStage({ stageId }) {

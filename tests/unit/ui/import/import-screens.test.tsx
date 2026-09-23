@@ -134,14 +134,19 @@ describe("SCR-017 — the delimited target keeps its estimate flagged", () => {
     rowCount: { kind: "estimated", value: 43 },
     contradiction: null,
     destinations: [
-      { id: "new-app", label: "Create a new app", enabled: true },
+      { id: "new-app", label: "Create a new app", enabled: true, isSelected: true },
       {
         id: "existing-app",
         label: "Add a table to an existing app",
         enabled: false,
-        reason: "into-existing-app-not-available-in-this-release",
+        isSelected: false,
+        reason: "no-local-apps",
       },
     ],
+    destination: "new-app",
+    appChoices: [],
+    appendEstimate: { estimatedEvents: 54, estimatedRows: { kind: "estimated", value: 43 }, eventCap: 10_000 },
+    needsAppName: true,
     appName: "Field Log Messy",
     tableName: "Field Log Messy",
     appNameProblem: null,
@@ -174,13 +179,13 @@ describe("SCR-017 — the delimited target keeps its estimate flagged", () => {
     expect(document.body.textContent).toContain("UTF-8");
   });
 
-  it("offers the second destination disabled, with D18's reason in text", async () => {
+  it("offers the second destination disabled, with its reason in text (D38)", async () => {
     await render(screen());
     const radios = queryAll<HTMLInputElement>('input[type="radio"]');
     expect(radios).toHaveLength(2);
     expect(radios[1]?.disabled).toBe(true);
     expect(document.body.textContent).toContain(
-      "Adding a table to an existing app is not available in this release.",
+      "There is no app on this device to add a table to yet.",
     );
   });
 
@@ -319,6 +324,7 @@ describe("SCR-020 — progress states what it knows, and MOD-007 asks first", ()
     fileName: "field-log-messy.csv",
     phase: "parsing",
     rowsSoFar: 1024,
+    sheet: null,
     batchesCommitted: 1,
     cancellable: true,
     cancellationContract: "removes-every-committed-batch",
@@ -390,6 +396,7 @@ describe("SCR-021 — every refusal names the file and ends somewhere real", () 
       refusal,
       remedy: "pdf-export-from-source",
       laterReleaseFormat,
+      unreadableDetail: null,
       libraryUnchanged: true,
       announcement: "quarterly.pdf cannot become a Sheaf app.",
     };
@@ -493,6 +500,7 @@ describe("SCR-022 — what was left behind is a receipt, not a hope", () => {
       busy: false,
       fileName: "large-sample.csv",
       reason: null,
+      detail: null,
       cleanup: {
         kind: "removed",
         deletedCount: 3,
@@ -678,6 +686,7 @@ describe("every import action meets the minimum hit area", () => {
           refusal: "numbers-file",
           remedy: "numbers-export-xlsx",
           laterReleaseFormat: null,
+          unreadableDetail: null,
           libraryUnchanged: true,
           announcement: "budget.numbers cannot become a Sheaf app.",
         }}

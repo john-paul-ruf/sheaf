@@ -69,8 +69,12 @@ const DESTINATION_HINT: Readonly<
 const DESTINATION_REASON: Readonly<
   Record<NonNullable<ImportDestinationOptionVm["reason"]>, string>
 > = Object.freeze({
-  "into-existing-app-not-available-in-this-release":
-    "Adding a table to an existing app is not available in this release.",
+  "listing-local-apps": "Checking which apps are on this device.",
+  "local-apps-not-listed":
+    "Sheaf could not list the apps on this device, so this is off.",
+  "no-local-apps": "There is no app on this device to add a table to yet.",
+  "too-large-to-append":
+    "This file has more rows than one addition to an app can hold, so it can only become a new app.",
 });
 
 const NAME_PROBLEM: Readonly<Record<NameProblemVm, string>> = Object.freeze({

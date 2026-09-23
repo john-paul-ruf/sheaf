@@ -10,11 +10,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createActor } from "xstate";
 import {
+  APPEND_EVENT_CAP,
   beginStageInput,
   importMachine,
   isChosenName,
   PARSER_STOP_TIMEOUT_MS,
+  selectionFits,
 } from "../../../src/application/workflows/import.machine.js";
+import { APPEND_MAX_EVENTS } from "../../../src/import/staging/append.js";
 import {
   singleTableProposal,
   workbookEditOf,
@@ -33,6 +36,10 @@ import {
   wireProposal,
   workbookWire,
   workerError,
+  inventoriedSheet,
+  libraryApp,
+  workbookPreflightEvent,
+  workbookReport,
   STAGE_ID,
   type FakeImportServices,
 } from "./fakes.js";
@@ -130,7 +137,10 @@ describe("the import machine", () => {
       rowCount: 40,
       tableCount: 1,
       flaggedRecordCount: 1,
+      // A new app lands on its home; only an append reads its tables.
+      appendedTableId: null,
     });
+    expect(fake.names()).not.toContain("listTables");
     expect(fake.terminateCount()).toBeGreaterThanOrEqual(1);
   });
 
@@ -154,17 +164,17 @@ describe("the import machine", () => {
     expect(order).toEqual(["beginStage", "proceed"]);
   });
 
-  it("refuses a workbook format without ever creating a stage", () => {
+  it("refuses an unsafe workbook without ever creating a stage", () => {
     const fake = fakeImportServices();
     const actor = start(fake);
-    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "book.xlsx" });
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "zip-bomb.xlsx" });
     fake.emit({
       kind: "refused",
       refusal: {
-        kind: "workbook-format-later-release",
-        fileName: "book.xlsx",
-        remedy: "await-later-release",
-        format: "ooxml",
+        kind: "binary-unreadable",
+        fileName: "zip-bomb.xlsx",
+        remedy: "choose-another-file",
+        detail: "expansion-limit",
       },
     });
 
@@ -390,7 +400,7 @@ describe("the import machine", () => {
       (actor: ReturnType<typeof start>) =>
         actor.send({
           type: "APPLY_EDIT",
-          edit: { kind: "rename-field", columnIndex: 1, fieldName: "Site" },
+          edit: { kind: "rename-field", tableKey: "s0.r0", columnKey: "s0.r0.c1", fieldName: "Site" },
         }),
       (actor: ReturnType<typeof start>) => actor.send({ type: "CREATE_APP" }),
     ]) {
@@ -475,7 +485,7 @@ describe("the import machine", () => {
     const before = actor.getSnapshot().context.proposal;
     actor.send({
       type: "APPLY_EDIT",
-      edit: { kind: "rename-field", columnIndex: 99, fieldName: "Nope" },
+      edit: { kind: "rename-field", tableKey: "s0.r0", columnKey: "s0.r0.c99", fieldName: "Nope" },
     });
     await settled();
     await settled();
@@ -722,24 +732,7 @@ describe("import helpers", () => {
   });
 });
 
-describe("the one-table review this page renders (mechanical until S07, D48)", () => {
-  it("fails closed on a proposal with more than one table — no partial app is shown", async () => {
-    const twoTables = wireProposal();
-    const proposal = { ...twoTables, tables: [...twoTables.tables, { ...twoTables.tables[0], tableKey: "s0.r1" }] } as typeof twoTables;
-    const fake = happyServices({
-      runInference: resolves({ kind: "runInference" as const, proposal }),
-    });
-    const actor = await toParsing(fake);
-    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
-    await settled();
-    await settled();
-    await settled();
-
-    expect(actor.getSnapshot().matches("reviewing")).toBe(false);
-    expect(actor.getSnapshot().context.failure).toBe("service-error");
-    expect(fake.names()).not.toContain("applyReviewEdit");
-  });
-
+describe("the one-table projection the delimited review still reads (D48)", () => {
   it("fails closed on a workbook-only member, and projects a delimited proposal exactly", () => {
     const f02 = {
       fileName: "f.csv",
@@ -815,5 +808,335 @@ describe("the one-table review this page renders (mechanical until S07, D48)", (
     expect(workbookEditOf(wire, { kind: "rename-field", columnIndex: 9, fieldName: "X" })).toMatchObject({
       columnKey: "s0.r0.c9",
     });
+  });
+});
+
+// --- F03: the workbook branch (CA-18, CA-24; D31, D39, D47) ----------------
+
+describe("a workbook is sized, selected and streamed", () => {
+  const XLSX = new Blob(["PK"], { type: "application/zip" });
+
+  function sized(fake: FakeImportServices, report = workbookReport()) {
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: XLSX, fileName: report.fileName });
+    fake.emit(workbookPreflightEvent(report));
+    return actor;
+  }
+
+  const subsetReport = () =>
+    workbookReport({
+      sheets: [
+        inventoriedSheet(0, "This week", { estimatedCellCount: 1_000 }),
+        inventoriedSheet(1, "Archive", { estimatedCellCount: 300_005 }),
+        inventoriedSheet(2, "Crew", { estimatedCellCount: 250 }),
+      ],
+      route: "subset",
+      defaultSelection: [0],
+    });
+
+  it("routes a fitting workbook to SCR-018 with every sheet preselected (D47)", () => {
+    const fake = happyServices();
+    const actor = sized(fake);
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.matches({ workbookSizing: "fits" })).toBe(true);
+    expect(snapshot.context.selectedSheets).toEqual([0, 1, 2]);
+    // Pre-flight is metadata only: nothing is staged until START.
+    expect(fake.names()).not.toContain("beginStage");
+  });
+
+  it("edits the selection sheet by sheet, and ignores a sheet the report never named", () => {
+    const actor = sized(happyServices());
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([0, 2]);
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 9 });
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([0, 2]);
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([0, 1, 2]);
+    actor.send({ type: "CLEAR_ALL" });
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([]);
+    actor.send({ type: "SELECT_ALL" });
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([0, 1, 2]);
+  });
+
+  it("will not start an empty selection", () => {
+    const fake = happyServices();
+    const actor = sized(fake);
+    actor.send({ type: "CLEAR_ALL" });
+    actor.send({ type: "START" });
+    expect(actor.getSnapshot().matches({ workbookSizing: "fits" })).toBe(true);
+    expect(fake.names()).not.toContain("beginStage");
+  });
+
+  it("stages the whole inventory and streams only the selection (D39)", async () => {
+    const fake = happyServices();
+    const actor = sized(fake);
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    actor.send({ type: "START" });
+    await settled();
+
+    expect(actor.getSnapshot().matches("parsing")).toBe(true);
+    const begin = fake.calls.find((call) => call.name === "beginStage");
+    expect(begin?.input).toEqual({
+      fileName: "fieldwork-q3.xlsx",
+      detected: { kind: "workbook", format: "xlsx" },
+      preflight: {
+        kind: "workbook",
+        sheets: [
+          { sheetIndex: 0, name: "Jobs", sheetKind: "worksheet", visibility: "visible", estimatedRowCount: 100, estimatedCellCount: 400 },
+          { sheetIndex: 1, name: "Crew", sheetKind: "worksheet", visibility: "visible", estimatedRowCount: 100, estimatedCellCount: 400 },
+          { sheetIndex: 2, name: "Overview", sheetKind: "worksheet", visibility: "visible", estimatedRowCount: 100, estimatedCellCount: 400 },
+        ],
+        selectedSheets: [0, 2],
+        sourceByteLength: 48_000,
+        isEstimate: true,
+      },
+    });
+    // A workbook never lands in an existing app.
+    expect(begin?.input).not.toHaveProperty("destination");
+    const proceed = fake.calls.find((call) => call.name === "proceed");
+    expect(proceed?.input).toEqual({ stageId: STAGE_ID, selectedSheets: [0, 2] });
+  });
+
+  it("tracks the sheet being read, and keeps a failure's closed detail", async () => {
+    const fake = happyServices();
+    const actor = sized(fake);
+    actor.send({ type: "START" });
+    await settled();
+
+    fake.emit(progressEvent({ rowsSoFar: 60, sheetOrdinal: 1, sheetCount: 3, sheetName: "Jobs" }));
+    expect(actor.getSnapshot().context.progress.sheet).toEqual({ ordinal: 1, count: 3, name: "Jobs" });
+
+    fake.emit({
+      kind: "failed",
+      reason: "parse-failed",
+      detail: { stage: "sheet-stream", sheetOrdinal: 2, diagnostic: "impossible-dimension" },
+    });
+    await settled();
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.matches("failed")).toBe(true);
+    expect(snapshot.context.failureDetail).toEqual({ stage: "sheet-stream", sheetOrdinal: 2, diagnostic: "impossible-dimension" });
+    // Cleaned up before it says so.
+    expect(snapshot.context.cleanupReceipt?.completed).toBe(true);
+  });
+
+  it("refuses to start a subset selection over the cell budget (D31)", () => {
+    const fake = happyServices();
+    const actor = sized(fake, subsetReport());
+    expect(actor.getSnapshot().matches({ workbookSizing: "subset" })).toBe(true);
+    expect(actor.getSnapshot().context.selectedSheets).toEqual([0]);
+
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    expect(selectionFits(subsetReport(), [0, 1])).toBe(false);
+    actor.send({ type: "START" });
+    expect(actor.getSnapshot().matches({ workbookSizing: "subset" })).toBe(true);
+    expect(fake.names()).not.toContain("beginStage");
+
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 1 });
+    actor.send({ type: "TOGGLE_SHEET", sheetIndex: 2 });
+    actor.send({ type: "START" });
+    expect(actor.getSnapshot().matches("beginningStage")).toBe(true);
+  });
+
+  it("offers the handoff only: copy, choose another file, or leave", () => {
+    const report = workbookReport({
+      sheets: [inventoriedSheet(0, "Archive", { estimatedCellCount: 300_005 })],
+      route: "handoff",
+      defaultSelection: [],
+    });
+    const fake = happyServices();
+    const actor = sized(fake, report);
+    expect(actor.getSnapshot().matches({ workbookSizing: "handoff" })).toBe(true);
+
+    for (const event of [
+      { type: "START" },
+      { type: "SELECT_ALL" },
+      { type: "TOGGLE_SHEET", sheetIndex: 0 },
+    ] as const) {
+      expect(actor.getSnapshot().can(event), event.type).toBe(false);
+    }
+    actor.send({ type: "COPY_HANDOFF", result: "copied" });
+    expect(actor.getSnapshot().context.handoffCopy).toBe("copied");
+
+    const before = fake.terminateCount();
+    actor.send({ type: "CANCEL" });
+    expect(actor.getSnapshot().matches("choosingFile")).toBe(true);
+    expect(fake.terminateCount()).toBe(before + 1);
+    expect(fake.names()).not.toContain("beginStage");
+  });
+
+  it("ends the run on a later-release refusal the page no longer expects (D42)", () => {
+    const fake = happyServices();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: XLSX, fileName: "book.xlsx" });
+    fake.emit({
+      kind: "refused",
+      refusal: { kind: "workbook-format-later-release", fileName: "book.xlsx", remedy: "await-later-release", format: "ooxml" },
+    });
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.matches("failed")).toBe(true);
+    expect(snapshot.context.refusal).toBeUndefined();
+    expect(snapshot.context.failure).toBe("service-error");
+  });
+
+  it("refuses a macro workbook whole, before any stage (FR-2)", () => {
+    const fake = happyServices();
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: XLSX, fileName: "payroll.xlsm" });
+    fake.emit({ kind: "refused", refusal: { kind: "macro-content", fileName: "payroll.xlsm", remedy: "reupload-macro-free-copy" } });
+    expect(actor.getSnapshot().matches("refused")).toBe(true);
+    expect(fake.names()).not.toContain("beginStage");
+  });
+
+  it("sends no target-name edits for a workbook, and accepts under the proposal's name", async () => {
+    const fake = happyServices({
+      runInference: resolves({ kind: "runInference" as const, proposal: wireProposal({ appName: "Fieldwork Q3" }) }),
+    });
+    const actor = sized(fake);
+    actor.send({ type: "START" });
+    await settled();
+    fake.emit({ kind: "completed", rowCount: 60, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    expect(actor.getSnapshot().matches({ reviewing: "deciding" })).toBe(true);
+    expect(fake.names()).not.toContain("applyReviewEdit");
+
+    actor.send({ type: "CREATE_APP" });
+    await settled();
+    await settled();
+    const promote = fake.calls.find((call) => call.name === "promoteImport");
+    expect(promote?.input).toEqual({ stageId: STAGE_ID, acceptedName: "Fieldwork Q3" });
+  });
+});
+
+describe("the review accepts under the reviewed name", () => {
+  it("promotes under a name renamed at review, not the one typed before it", async () => {
+    let appName = "Field Log Messy";
+    const fake = happyServices({
+      runInference: resolves({ kind: "runInference" as const, proposal: wireProposal() }),
+      applyReviewEdit: (input) => {
+        if (input.edit.kind === "rename-app") appName = input.edit.appName;
+        return Promise.resolve({
+          kind: "applyReviewEdit" as const,
+          outcome: "applied" as const,
+          proposal: wireProposal({ appName }),
+        });
+      },
+    });
+    const actor = await toParsing(fake);
+    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+
+    actor.send({ type: "APPLY_EDIT", edit: { kind: "rename-app", appName: "Crew Log" } });
+    await settled();
+    await settled();
+    actor.send({ type: "CREATE_APP" });
+    await settled();
+    await settled();
+
+    const promote = fake.calls.find((call) => call.name === "promoteImport");
+    // Regression: the name typed on SCR-017 ("Field Log") used to win here,
+    // so the app was created under a name the review no longer showed.
+    expect(promote?.input).toEqual({ stageId: STAGE_ID, acceptedName: "Crew Log" });
+  });
+});
+
+describe("a delimited file added to an existing app (D38, CAP-26)", () => {
+  const APP = "app-01H8XG9K7Q";
+
+  function target(fake: FakeImportServices, rows = 43) {
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: "crew-roster.tsv" });
+    const event = preflightEvent();
+    if (event.kind !== "preflight") throw new Error("fixture is not a pre-flight event");
+    fake.emit({ ...event, report: { ...event.report, estimatedRowCount: rows } });
+    return actor;
+  }
+
+  const withApps = (overrides: Partial<ImportServices> = {}) =>
+    happyServices({
+      listLibrary: resolves({ kind: "listLibrary" as const, apps: [libraryApp(APP, "Fieldwork Q3")] }),
+      ...overrides,
+    });
+
+  it("pins the event cap to M23's segment constant", () => {
+    expect(APPEND_EVENT_CAP).toBe(APPEND_MAX_EVENTS);
+  });
+
+  it("will not choose an existing app when the library has none", async () => {
+    const actor = target(happyServices());
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: APP } });
+    expect(actor.getSnapshot().context.destination).toEqual({ kind: "new-app" });
+  });
+
+  it("will not choose an app the library did not list", async () => {
+    const actor = target(withApps());
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: "app-elsewhere" } });
+    expect(actor.getSnapshot().context.destination).toEqual({ kind: "new-app" });
+  });
+
+  it("will not choose an append whose estimate cannot fit one commit", async () => {
+    const actor = target(withApps(), APPEND_EVENT_CAP);
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: APP } });
+    expect(actor.getSnapshot().context.destination).toEqual({ kind: "new-app" });
+  });
+
+  it("stages into the chosen app with only a table name, and names no app", async () => {
+    const fake = withApps();
+    const actor = target(fake);
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: APP } });
+    actor.send({ type: "SET_APP_NAME", text: "" });
+    actor.send({ type: "SET_TABLE_NAME", text: "Crew" });
+    actor.send({ type: "CONTINUE" });
+    actor.send({ type: "START" });
+    await settled();
+
+    const begin = fake.calls.find((call) => call.name === "beginStage");
+    expect(begin?.input).toMatchObject({ destination: { kind: "existing-app", appId: APP } });
+
+    fake.emit({ kind: "completed", rowCount: 4, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    const edits = fake.calls
+      .filter((call) => call.name === "applyReviewEdit")
+      .map((call) => (call.input as { edit: { kind: string } }).edit.kind);
+    expect(edits).toEqual(["rename-table"]);
+  });
+
+  it("returns append-too-large to review with the stage kept (D23, D38)", async () => {
+    const fake = withApps({
+      listTables: resolves({ kind: "listTables" as const, tables: [] }),
+      promoteImport: resolves({
+        kind: "promoteImport" as const,
+        outcome: "rejected" as const,
+        reason: "append-too-large",
+        issues: [],
+      }),
+    });
+    const actor = target(fake);
+    await settled();
+    actor.send({ type: "SET_DESTINATION", destination: { kind: "existing-app", appId: APP } });
+    actor.send({ type: "CONTINUE" });
+    actor.send({ type: "START" });
+    await settled();
+    fake.emit({ kind: "completed", rowCount: 10_050, batchesSent: 11 });
+    await settled();
+    await settled();
+    await settled();
+    actor.send({ type: "CREATE_APP" });
+    for (let tick = 0; tick < 4; tick += 1) await settled();
+
+    const snapshot = actor.getSnapshot();
+    expect(snapshot.matches({ reviewing: "deciding" })).toBe(true);
+    expect(snapshot.context.promotionRejection?.reason).toBe("append-too-large");
+    expect(snapshot.context.stageId).toBe(STAGE_ID);
+    expect(fake.names()).not.toContain("cancelStage");
   });
 });
