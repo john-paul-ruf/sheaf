@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { odsAdapter } from "../../../../src/import/formats/ods/index.js";
+import { ooxmlAdapter } from "../../../../src/import/formats/ooxml/index.js";
 import { convertOpenFormula } from "../../../../src/import/formats/ods/formula.js";
 import type { WorkbookFactStreamItemV2, WorkbookFactV2 } from "../../../../src/import/facts/index.js";
 import { openZipContainer } from "../../../../src/import/source/zip.js";
@@ -63,6 +64,20 @@ const PINNED: Readonly<Record<string, Record<string, Record<string, number>>>> =
   "encrypted.ods": { Ledger: { sheet: 1, row: 2, value: 4 } },
   "basic-macro.ods": { Ledger: { sheet: 1, row: 2, value: 4 } },
   "no-settings.ods": { Ledger: { sheet: 1, row: 2, value: 4 }, Notes: { sheet: 1, row: 1, value: 1 } },
+  "fieldwork-jobs-customers.ods": {
+    Jobs: {
+      sheet: 1,
+      row: 61,
+      value: 610,
+      formula: 120,
+      "cell-format": 9,
+      diagnostic: 1,
+      validation: 1,
+      "declared-table": 1,
+      "preserved-part": 1,
+    },
+    Customers: { sheet: 1, row: 13, value: 52, "declared-table": 1, "preserved-part": 1 },
+  },
 };
 
 describe("ODS fact stream (CA-17)", () => {
@@ -285,6 +300,36 @@ describe("ODS fact stream (CA-17)", () => {
     );
     expect(ofKind(facts, "value").map((fact) => fact.columnIndex)).toEqual([0, 1]);
     expect(ofKind(facts, "merge")).toEqual([]);
+  });
+});
+
+describe("the demo relationship pair as ODS (CAP-27, for S06 CP4)", () => {
+  it("holds fieldwork-q3.xlsx's Jobs and Customers values cell for cell", async () => {
+    const zip = await openZipContainer(bytesSource(await fixtureBytes("ooxml/fieldwork-q3.xlsx")));
+    const xlsx: WorkbookFactStreamItemV2[] = [];
+    for await (const item of ooxmlAdapter.parseSheets({ kind: "zip", zip }, [0, 1], { cancellation: { aborted: false } })) {
+      xlsx.push(item);
+    }
+    const ods = await fixture("fieldwork-jobs-customers.ods");
+    const cells = (facts: readonly WorkbookFactV2[]) => ofKind(facts, "value").map(({ rowIndex, columnIndex, value }) => [rowIndex, columnIndex, value]);
+    expect(cells(ods)).toEqual(cells(factsOf(xlsx)));
+    expect(ofKind(ods, "row")).toEqual(ofKind(factsOf(xlsx), "row"));
+  });
+
+  it("carries the lookup into Customers as the relationship signal, and both declared tables", async () => {
+    const facts = await fixture("fieldwork-jobs-customers.ods");
+    const lookups = ofKind(facts, "formula").filter((formula) => formula.columnIndex === 2);
+    expect(lookups).toHaveLength(60);
+    expect(lookups[0]?.text).toBe("VLOOKUP(B2,Customers!A:B,2,FALSE())");
+    expect(ofKind(facts, "declared-table").map((table) => [table.name, table.columns[0]])).toEqual([
+      ["JobsTable", "Job ID"],
+      ["CustomersTable", "Customer ID"],
+    ]);
+    expect(ofKind(facts, "validation")[0]?.listSource).toEqual({
+      kind: "inline",
+      values: ["Scheduled", "In progress", "Waiting", "Complete"],
+    });
+    expect(ofKind(facts, "cell-format").find((format) => format.columnIndex === 4)).toMatchObject({ formatClass: "currency", currencySymbol: "$" });
   });
 });
 

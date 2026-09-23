@@ -1,6 +1,8 @@
 import { readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { htmlTableAdapter } from "../../../../src/import/formats/html-table/index.js";
+import { ooxmlAdapter } from "../../../../src/import/formats/ooxml/index.js";
+import { openZipContainer } from "../../../../src/import/source/zip.js";
 import { decodeCharacterReferences } from "../../../../src/import/formats/html-table/entities.js";
 import { detectHtmlEncoding, tokenizeHtml, type HtmlTokenV1 } from "../../../../src/import/formats/html-table/tokenizer.js";
 import type { WorkbookFactStreamItemV2, WorkbookFactV2 } from "../../../../src/import/facts/index.js";
@@ -56,6 +58,10 @@ const PINNED: Readonly<Record<string, Record<string, Record<string, number>>>> =
     "Q3 Invoices": { sheet: 1, row: 4, value: 15, "cell-format": 3, diagnostic: 1, "preserved-part": 2 },
   },
   "refusals/legacy-export.xls": { "Table 1": { sheet: 1, row: 2, value: 4 } },
+  "html-table/fieldwork-jobs-customers.html": {
+    Jobs: { sheet: 1, row: 61, value: 610, "cell-format": 8, diagnostic: 1, "preserved-part": 2 },
+    Customers: { sheet: 1, row: 13, value: 52, "preserved-part": 1 },
+  },
 };
 
 describe("HTML-table fact stream (CA-17)", () => {
@@ -168,6 +174,25 @@ describe("HTML-table fact stream (CA-17)", () => {
     // Formulas are not read; that the sheet had some is stated once.
     expect(ofKind(facts, "formula")).toEqual([]);
     expect(ofKind(facts, "preserved-part").map((fact) => fact.partKind)).toEqual(["formula", "cell-styling"]);
+  });
+});
+
+describe("the demo relationship pair as HTML (CAP-27, for S06 CP4)", () => {
+  it("holds fieldwork-q3.xlsx's Jobs and Customers values and formats, and no formula at all", async () => {
+    const zip = await openZipContainer(bytesSource(await fixtureBytes("ooxml/fieldwork-q3.xlsx")));
+    const xlsx: WorkbookFactV2[] = [];
+    for await (const item of ooxmlAdapter.parseSheets({ kind: "zip", zip }, [0, 1], { cancellation: { aborted: false } })) {
+      if (item.kind === "batch") xlsx.push(...item.facts);
+    }
+    const facts = await fixture("html-table/fieldwork-jobs-customers.html");
+    const cells = (all: readonly WorkbookFactV2[]) => ofKind(all, "value").map(({ rowIndex, columnIndex, value }) => [rowIndex, columnIndex, value]);
+    expect(cells(facts)).toEqual(cells(xlsx));
+    expect(ofKind(facts, "cell-format").map(({ rowIndex, columnIndex, formatClass }) => [rowIndex, columnIndex, formatClass])).toEqual(
+      ofKind(xlsx, "cell-format").map(({ rowIndex, columnIndex, formatClass }) => [rowIndex, columnIndex, formatClass]),
+    );
+    // Value-only: key matching is the only relationship signal this format offers.
+    expect(ofKind(facts, "formula")).toEqual([]);
+    expect(ofKind(facts, "declared-table")).toEqual([]);
   });
 });
 

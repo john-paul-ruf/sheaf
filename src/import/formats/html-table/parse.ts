@@ -212,14 +212,15 @@ async function* parseSheets(
   let rowCells: HtmlCellV1[] = [];
   let rowParts: { partKind: PreservedPartKindV1; anchor: RangeV1 }[] = [];
 
-  const formatOf = (cell: HtmlCellV1, isNumber: boolean): string | null => {
+  /** The cell's declared number format; a cell that declares none is General. */
+  const formatOf = (cell: HtmlCellV1): string => {
     let code: string | null = null;
     for (const className of (cell.attributes.find((attribute) => attribute.name === "class")?.value ?? "").split(/\s+/)) {
       code = classFormats.get(className) ?? code;
     }
     const inline = cell.attributes.find((attribute) => attribute.name === "style")?.value;
     code = (inline === undefined ? null : numberFormatIn(inline)) ?? code;
-    return code ?? (isNumber ? "General" : null);
+    return code ?? "General";
   };
 
   const valueOf = (cell: HtmlCellV1): CellValueV1 | null => {
@@ -262,8 +263,8 @@ async function* parseSheets(
     for (const cell of cells) {
       const value = valueOf(cell);
       if (value === null) continue;
-      const code = formatOf(cell, value.kind === "decimal");
-      if (code !== null && code !== (current.columnFormats.get(cell.columnIndex) ?? "General")) {
+      const code = formatOf(cell);
+      if (code !== (current.columnFormats.get(cell.columnIndex) ?? "General")) {
         current.columnFormats.set(cell.columnIndex, code);
         push({ kind: "cell-format", rowIndex, columnIndex: cell.columnIndex, numberFormat: code, ...classifyNumberFormat(code) });
       }

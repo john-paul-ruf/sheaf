@@ -8,6 +8,8 @@
  * with `SHEAF_WRITE_FIXTURES=1`.
  */
 
+import { DEMO_PAIR, isoDateOf, type DemoRowCellV1 } from "../ods/demo-pair.js";
+
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
 /** The Windows-1252 bytes the C1 range holds, by character. */
@@ -151,9 +153,45 @@ xmlns="http://www.w3.org/TR/REC-html40">
 </html>
 `);
 
+const escapeHtml = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const demoCell = ({ cell, formula, isCurrency }: DemoRowCellV1): string => {
+  const fmla = formula === "lookup" ? ' x:fmla="=VLOOKUP(B2,Customers!A:B,2,FALSE)"' : formula === "balance" ? ' x:fmla="=E2-F2"' : "";
+  switch (cell.kind) {
+    case "text":
+      return `<td${fmla}>${escapeHtml(cell.text)}</td>`;
+    case "boolean":
+      return `<td align=center x:bool="${cell.value ? "TRUE" : "FALSE"}"${fmla}>${cell.value ? "TRUE" : "FALSE"}</td>`;
+    case "error":
+      return `<td${isCurrency ? " class=xl65" : ""} x:err="${cell.text}"${fmla}>${cell.text}</td>`;
+    case "number":
+      if (cell.format === "currency") return `<td class=xl65 align=right x:num="${cell.value}"${fmla}>$${cell.value.toFixed(2)}</td>`;
+      if (cell.format === "date") return `<td class=xl66 align=right x:num="${cell.value}"${fmla}>${isoDateOf(cell.value)}</td>`;
+      return `<td align=right x:num${fmla}>${cell.value}</td>`;
+  }
+};
+
+/**
+ * The demo pair as a value-only HTML export: Jobs and Customers, typed by
+ * Excel's `x:` attributes, formulas present only as `x:fmla` (never read) — so
+ * key matching is the only relationship signal this format can offer.
+ */
+const demoPair = (): Uint8Array =>
+  utf8(
+    `<html xmlns:x="urn:schemas-microsoft-com:office:excel">\n<head><meta charset="utf-8">\n<style>\n.xl65 {mso-number-format:"\\0022$\\0022\\#\\,\\#\\#0\\.00";}\n.xl66 {mso-number-format:"yyyy\\-mm\\-dd";}\n</style></head>\n<body>\n` +
+      DEMO_PAIR.map(
+        (sheet) =>
+          `<table>\n<caption>${sheet.name}</caption>\n` +
+          sheet.rows.map((cells) => `<tr>${cells.map(demoCell).join("")}</tr>`).join("\n") +
+          "\n</table>\n",
+      ).join("") +
+      "</body>\n</html>\n",
+  );
+
 export const HTML_TABLE_CORPUS: ReadonlyMap<string, () => Uint8Array> = new Map([
   ["html-table/merged-headers.html", mergedHeaders],
   ["html-table/active-content.html", activeContent],
   ["html-table/windows-1252.html", windows1252Export],
   ["html-table/excel-export.xls", excelExport],
+  ["html-table/fieldwork-jobs-customers.html", demoPair],
 ]);

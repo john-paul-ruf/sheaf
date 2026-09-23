@@ -206,3 +206,23 @@ export const odsEntries = (spec: OdsPackageSpec): ZipEntrySpec[] => {
 };
 
 export const buildOds = (spec: OdsPackageSpec): Uint8Array => writeZip(odsEntries(spec));
+
+/** Data and cell styles as LibreOffice writes them into `content.xml`. */
+export const FORMAT_STYLES =
+  '<number:number-style style:name="N2"><number:number number:decimal-places="2" number:min-decimal-places="2" number:min-integer-digits="1"/></number:number-style>' +
+  '<number:percentage-style style:name="N10"><number:number number:decimal-places="1" number:min-decimal-places="1" number:min-integer-digits="1"/><number:text>%</number:text></number:percentage-style>' +
+  '<number:currency-style style:name="N104"><number:currency-symbol number:language="en" number:country="US">$</number:currency-symbol><number:number number:decimal-places="2" number:min-decimal-places="2" number:min-integer-digits="1" number:grouping="true"/></number:currency-style>' +
+  '<number:date-style style:name="N36"><number:year number:style="long"/><number:text>-</number:text><number:month number:style="long"/><number:text>-</number:text><number:day number:style="long"/></number:date-style>' +
+  '<number:date-style style:name="N50"><number:year number:style="long"/><number:text>-</number:text><number:month number:style="long"/><number:text>-</number:text><number:day number:style="long"/><number:text> </number:text><number:hours number:style="long"/><number:text>:</number:text><number:minutes number:style="long"/></number:date-style>' +
+  '<number:time-style style:name="N40"><number:hours number:style="long"/><number:text>:</number:text><number:minutes number:style="long"/><number:text>:</number:text><number:seconds number:style="long"/></number:time-style>' +
+  '<number:boolean-style style:name="N99"><number:boolean/></number:boolean-style>' +
+  '<style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N104"/>' +
+  '<style:style style:name="ce2" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N10"/>' +
+  '<style:style style:name="ce3" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N36"/>' +
+  '<style:style style:name="ce4" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N50"/>' +
+  '<style:style style:name="ce5" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N40"/>' +
+  '<style:style style:name="ce6" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N99"/>' +
+  '<style:style style:name="ce7" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N2"/>' +
+  '<style:style style:name="ce8" style:family="table-cell" style:parent-style-name="Default"><style:text-properties fo:font-weight="bold"/></style:style>' +
+  '<style:style style:name="ta1" style:family="table" style:master-page-name="Default"><style:table-properties table:display="true"/></style:style>' +
+  '<style:style style:name="ta2" style:family="table" style:master-page-name="Default"><style:table-properties table:display="false"/></style:style>';
