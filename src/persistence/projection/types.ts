@@ -37,6 +37,7 @@ import type {
   FieldId,
   InertItemId,
   RecordId,
+  RelationshipId,
   RuleId,
   SheetId,
   TableId,
@@ -317,6 +318,11 @@ export interface ProjectionChangeSummaryV1 {
   readonly recordRevision: bigint | null;
   /** The commit that first created the subject record, where one applies. */
   readonly createdCommitId: CommitId | null;
+  /**
+   * The table the event is about — its record's, field's, or its own — so a
+   * multi-table log can say where a change happened. Null for app events.
+   */
+  readonly tableId: TableId | null;
 }
 
 export interface ProjectionChangeEventV1 {
@@ -346,6 +352,49 @@ export interface ProjectionChangeHistoryPageV1 {
   readonly events: readonly ProjectionChangeEventV1[];
   readonly hasMore: boolean;
   readonly nextCursor: ChangeHistoryCursorV1 | null;
+}
+
+/**
+ * Where a reference points. `resolved` names the live parent and its label
+ * (the parent's label field, else its key — display text, never the record).
+ * `broken` carries the original key when one is knowable: the preserved
+ * imported text, or the key value in a deleted parent's restoration payload
+ * (D36); null when neither exists.
+ */
+export type ProjectionRelatedParentV1 =
+  | {
+      readonly status: "resolved";
+      readonly recordId: RecordId;
+      readonly tableId: TableId;
+      readonly label: string;
+    }
+  | { readonly status: "broken"; readonly originalKey: string | null };
+
+/** A record as a relationship surface shows it: its id and its label. */
+export interface ProjectionLabeledRecordV1 {
+  readonly recordPk: number;
+  readonly recordId: RecordId;
+  readonly label: string;
+}
+
+/** One page of a parent's children; `hasMore` is observed, never estimated. */
+export interface ProjectionRelatedChildrenPageV1 {
+  readonly children: readonly ProjectionLabeledRecordV1[];
+  readonly hasMore: boolean;
+  readonly nextRecordPk: number | null;
+}
+
+/**
+ * A deleted record as its latest delete left it (MOD-010): the complete
+ * restoration payload, when it was deleted, and — when its table has a key —
+ * its key value, which is a broken reference's original key (D36).
+ */
+export interface ProjectionDeletedRecordV1 {
+  readonly tableId: TableId;
+  readonly restoration: AuthoredRecordV1;
+  readonly deletedEventId: EventId;
+  readonly deletedAtMs: number;
+  readonly keyValue: CellValueV1 | null;
 }
 
 /** A relationship with both tables' names, for navigation and switching. */
@@ -393,7 +442,36 @@ export type ProjectionQueryV1 =
       readonly recordId: RecordId;
     }
   /** Both directions for a table, or every relationship when null. */
-  | { readonly kind: "list-relationships"; readonly tableId: TableId | null };
+  | { readonly kind: "list-relationships"; readonly tableId: TableId | null }
+  /** Null when the record is not live or the field holds no reference. */
+  | {
+      readonly kind: "related-parent";
+      readonly recordId: RecordId;
+      readonly fieldId: FieldId;
+    }
+  /** Null when the relationship is unknown. Reverse navigation, paged. */
+  | {
+      readonly kind: "related-children";
+      readonly relationshipId: RelationshipId;
+      readonly parentRecordId: RecordId;
+      readonly afterRecordPk: number | null;
+      readonly limit: number;
+    }
+  /** Exact, because it is `count(*)` (CA-14). */
+  | {
+      readonly kind: "count-related-children";
+      readonly relationshipId: RelationshipId;
+      readonly parentRecordId: RecordId;
+    }
+  /** Parent-table records for a reference picker; blank text browses. */
+  | {
+      readonly kind: "reference-candidates";
+      readonly relationshipId: RelationshipId;
+      readonly text: string;
+      readonly limit: number;
+    }
+  /** Null while the record is live, or when no delete of it is recorded. */
+  | { readonly kind: "deleted-record"; readonly recordId: RecordId };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -410,6 +488,11 @@ export interface ProjectionQueryResultsV1 {
   readonly "record-change-history": readonly ProjectionChangeEventV1[];
   readonly "record-is-live": boolean;
   readonly "list-relationships": readonly ProjectionRelationshipV1[];
+  readonly "related-parent": ProjectionRelatedParentV1 | null;
+  readonly "related-children": ProjectionRelatedChildrenPageV1 | null;
+  readonly "count-related-children": number;
+  readonly "reference-candidates": readonly ProjectionLabeledRecordV1[];
+  readonly "deleted-record": ProjectionDeletedRecordV1 | null;
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

@@ -207,7 +207,7 @@ export interface ApplyReviewEditRequestV1 {
  * | `{kind:"blank"}`                | `blank`                      |
  * | `{kind:"missing"}`              | `missing`                    |
  * | `{kind:"invalid", sourceText}`  | `invalid-preserved` (read)   |
- * | `{kind:"reference", recordId}`  | `reference` (read; F03)      |
+ * | `{kind:"reference", recordId}`  | `reference` (F03)            |
  *
  * **A number is a string.** There are no floats anywhere in Sheaf's value
  * domain, so a decimal crosses as the exact text that was authored; a JSON
@@ -218,10 +218,12 @@ export interface ApplyReviewEditRequestV1 {
  * verbatim and flagged) are distinct kinds, because collapsing any two of them
  * would lose what a person needs to see (FR-4).
  *
- * **`invalid` and `reference` are read-only by type.** {@link AuthoredCellWireValueV1}
- * excludes them, and every write request is typed by that union — so a client
- * cannot author a preserved-invalid value, which only an import can produce,
- * and cannot author a reference F02 has no producer for (D25).
+ * **`invalid` is read-only by type.** {@link AuthoredCellWireValueV1} excludes
+ * it, and every write request is typed by that union — so a client cannot
+ * author a preserved-invalid value, which only an import can produce. A
+ * `reference` became authorable in F03 (SHT-002, CA-21): the data worker
+ * resolves it against the field's relationship, and an authored reference to
+ * a record that is not live there is refused as a typed result.
  */
 export type CellWireValueV1 =
   | { readonly kind: "text"; readonly text: string }
@@ -238,7 +240,7 @@ export type CellWireValueV1 =
 
 export type AuthoredCellWireValueV1 = Exclude<
   CellWireValueV1,
-  { readonly kind: "invalid" } | { readonly kind: "reference" }
+  { readonly kind: "invalid" }
 >;
 
 export interface CellWireEntryV1 {
@@ -327,6 +329,50 @@ export interface GetChangeHistoryRequestV1 {
   readonly limit?: number;
 }
 
+/**
+ * A record's relationships, both directions, in one bounded answer (CA-21):
+ * its reference fields resolved or broken, and per relationship pointing at
+ * its table an exact child count plus the first few children.
+ */
+export interface GetRelatedRecordsRequestV1 {
+  readonly kind: "getRelatedRecords";
+  readonly appId: string;
+  readonly recordId: string;
+}
+
+/** The next page of one parent's children, continuing from `after`. */
+export interface GetRelatedChildrenRequestV1 {
+  readonly kind: "getRelatedChildren";
+  readonly appId: string;
+  readonly relationshipId: string;
+  readonly parentRecordId: string;
+  /** The previous page's `nextCursor`; absent starts at the beginning. */
+  readonly after?: number | null;
+  readonly limit?: number;
+}
+
+/** Records a reference field may point at (SHT-002); blank text browses. */
+export interface SearchReferenceCandidatesRequestV1 {
+  readonly kind: "searchReferenceCandidates";
+  readonly appId: string;
+  readonly fieldId: string;
+  readonly text: string;
+  readonly limit?: number;
+}
+
+/** A deleted record's original values (MOD-010); null while it is live. */
+export interface GetDeletedRecordRequestV1 {
+  readonly kind: "getDeletedRecord";
+  readonly appId: string;
+  readonly recordId: string;
+}
+
+/** The open app's tables with exact row counts (SHT-003), freshly read. */
+export interface ListTablesRequestV1 {
+  readonly kind: "listTables";
+  readonly appId: string;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -354,7 +400,12 @@ export type DataWorkerRequestV1 =
   | PatchRecordRequestV1
   | DeleteRecordRequestV1
   | RestoreRecordRequestV1
-  | GetChangeHistoryRequestV1;
+  | GetChangeHistoryRequestV1
+  | GetRelatedRecordsRequestV1
+  | GetRelatedChildrenRequestV1
+  | SearchReferenceCandidatesRequestV1
+  | GetDeletedRecordRequestV1
+  | ListTablesRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -884,12 +935,45 @@ export interface RecordSummaryViewV1 {
   readonly warningIssueCount: number;
 }
 
+/** A record as navigation shows it: its id and its label, nothing more. */
+export interface RelatedRecordViewV1 {
+  readonly recordId: string;
+  readonly label: string;
+}
+
+/**
+ * One of a record's reference fields and where it points. `resolved` names
+ * the live parent by id and label (label field, else key). `broken` carries
+ * the original key when one is knowable — the imported text that matched no
+ * parent, or a deleted parent's key — else null (D36, STA-011).
+ */
+export type RecordReferenceViewV1 =
+  | {
+      readonly fieldId: string;
+      readonly relationshipId: string;
+      readonly status: "resolved";
+      readonly recordId: string;
+      readonly tableId: string;
+      readonly label: string;
+    }
+  | {
+      readonly fieldId: string;
+      readonly relationshipId: string;
+      readonly status: "broken";
+      readonly originalKey: string | null;
+    };
+
 export interface RecordDetailViewV1 extends RecordSummaryViewV1 {
   readonly createdCommitId: string;
   readonly updatedCommitId: string;
   readonly issues: readonly RecordIssueViewV1[];
   /** The fields the projection could index; the rest are authored-only. */
   readonly indexedFieldIds: readonly string[];
+  /**
+   * Every reference field holding a reference, resolved or broken (F03). The
+   * data worker always sends it; optional only so F02-era readers still type.
+   */
+  readonly references?: readonly RecordReferenceViewV1[];
 }
 
 export type RecordScopeWireV1 =
@@ -966,6 +1050,11 @@ export interface ChangeHistoryEntryViewV1 {
   readonly changedFieldIds: readonly string[];
   /** True when this entry records a delete that still carries its payload. */
   readonly isRestorable: boolean;
+  /**
+   * The table the change happened in; null for app-level events (F03). The
+   * data worker always sends it; optional only so F02-era readers still type.
+   */
+  readonly tableId?: string | null;
 }
 
 export interface ChangeHistoryPageViewV1 {
@@ -977,6 +1066,74 @@ export interface ChangeHistoryPageViewV1 {
 export interface GetChangeHistoryResponseV1 {
   readonly kind: "getChangeHistory";
   readonly page: ChangeHistoryPageViewV1 | null;
+}
+
+/** One relationship pointing at the record's table, seen from the parent. */
+export interface RelatedChildrenViewV1 {
+  readonly relationshipId: string;
+  /** The child table. */
+  readonly tableId: string;
+  readonly tableName: string;
+  /** Exact: `count(*)` over the children (CA-14). */
+  readonly count: number;
+  /** The first few children; page the rest with `getRelatedChildren`. */
+  readonly first: readonly RelatedRecordViewV1[];
+}
+
+export interface RelatedRecordsViewV1 {
+  readonly parents: readonly RecordReferenceViewV1[];
+  readonly children: readonly RelatedChildrenViewV1[];
+}
+
+export interface GetRelatedRecordsResponseV1 {
+  readonly kind: "getRelatedRecords";
+  /** Null when the app or a live record with this id is not there. */
+  readonly related: RelatedRecordsViewV1 | null;
+}
+
+export interface RelatedChildrenPageViewV1 {
+  readonly children: readonly (RelatedRecordViewV1 & {
+    /** Pass back as `after`; a row key, never an offset. */
+    readonly cursor: number;
+  })[];
+  readonly hasMore: boolean;
+  readonly nextCursor: number | null;
+}
+
+export interface GetRelatedChildrenResponseV1 {
+  readonly kind: "getRelatedChildren";
+  /** Null when the app or the relationship is not there. */
+  readonly page: RelatedChildrenPageViewV1 | null;
+}
+
+export interface SearchReferenceCandidatesResponseV1 {
+  readonly kind: "searchReferenceCandidates";
+  /** Null when the field is not the source of an active relationship. */
+  readonly candidates: readonly RelatedRecordViewV1[] | null;
+}
+
+/** A deleted record exactly as its latest delete preserved it (MOD-010). */
+export interface DeletedRecordViewV1 {
+  readonly recordId: string;
+  readonly tableId: string;
+  /** The complete authored state the delete carried. */
+  readonly values: readonly CellWireEntryV1[];
+  readonly deletedEventId: string;
+  readonly deletedAtEpochMs: number;
+  /** Its key value when its table has a key — a broken reference's original key. */
+  readonly keyValue: CellWireValueV1 | null;
+}
+
+export interface GetDeletedRecordResponseV1 {
+  readonly kind: "getDeletedRecord";
+  /** Null while the record is live, or when no delete of it is recorded. */
+  readonly deleted: DeletedRecordViewV1 | null;
+}
+
+export interface ListTablesResponseV1 {
+  readonly kind: "listTables";
+  /** Null when no app carries this id. */
+  readonly tables: readonly AppTableViewV1[] | null;
 }
 
 export type DataWorkerResponseV1 =
@@ -1006,7 +1163,12 @@ export type DataWorkerResponseV1 =
   | PatchRecordResponseV1
   | DeleteRecordResponseV1
   | RestoreRecordResponseV1
-  | GetChangeHistoryResponseV1;
+  | GetChangeHistoryResponseV1
+  | GetRelatedRecordsResponseV1
+  | GetRelatedChildrenResponseV1
+  | SearchReferenceCandidatesResponseV1
+  | GetDeletedRecordResponseV1
+  | ListTablesResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

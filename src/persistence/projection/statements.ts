@@ -236,6 +236,47 @@ SELECT ${RELATIONSHIP_COLUMNS}
  WHERE rel.from_table_id = ? OR rel.to_table_id = ?
  ORDER BY from_table.table_ordinal, rel.relationship_id;`;
 
+export const SELECT_RELATIONSHIP_BY_ID = `
+SELECT ${RELATIONSHIP_COLUMNS}
+  FROM relationships AS rel
+  JOIN schema_tables AS from_table ON from_table.table_id = rel.from_table_id
+  JOIN schema_tables AS to_table ON to_table.table_id = rel.to_table_id
+ WHERE rel.relationship_id = ?;`;
+
+/**
+ * Reverse navigation: the children whose reference cell names this parent.
+ * `idx_cells_field_id` on `(field_id, id_value, record_pk)` answers it without
+ * a table scan, and the page boundary is a row key (CA-14).
+ */
+export const PAGE_CHILDREN_FIRST = `
+SELECT r.record_pk, r.record_id, r.authored_cbor
+  FROM cells AS c
+  JOIN records AS r ON r.record_pk = c.record_pk
+ WHERE c.field_id = ? AND c.value_kind = 'id' AND c.id_value = ?
+ ORDER BY r.record_pk
+ LIMIT ?;`;
+
+export const PAGE_CHILDREN_AFTER = `
+SELECT r.record_pk, r.record_id, r.authored_cbor
+  FROM cells AS c
+  JOIN records AS r ON r.record_pk = c.record_pk
+ WHERE c.field_id = ? AND c.value_kind = 'id' AND c.id_value = ?
+   AND r.record_pk > ?
+ ORDER BY r.record_pk
+ LIMIT ?;`;
+
+export const COUNT_CHILDREN = `
+SELECT count(*) FROM cells
+ WHERE field_id = ? AND value_kind = 'id' AND id_value = ?;`;
+
+/** The most recent delete of a record, with its restoration payload. */
+export const SELECT_LATEST_DELETE_FOR_RECORD = `
+SELECT event_id, wall_time_ms, restoration_cbor
+  FROM change_history
+ WHERE subject_kind = 'record' AND subject_id = ? AND event_kind = 'record.deleted'
+ ORDER BY wall_time_ms DESC, logical_counter DESC, event_id DESC
+ LIMIT 1;`;
+
 /** The resolver's predicate: a live record, in exactly the named table. */
 export const SELECT_RECORD_IS_LIVE = `
 SELECT 1 FROM records WHERE record_id = ? AND table_id = ?;`;

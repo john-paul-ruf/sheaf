@@ -105,6 +105,7 @@ const EMPTY_SUMMARY: ProjectionChangeSummaryV1 = Object.freeze({
   fieldChanges: [],
   recordRevision: null,
   createdCommitId: null,
+  tableId: null,
 });
 
 /**
@@ -260,10 +261,12 @@ function applyEvent(
 
     case "table.created":
       applyTableCreated(handle, event.payload, wire);
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.table.tableId };
       break;
 
     case "field.created":
       applyFieldCreated(handle, event.payload.field, wire);
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.field.tableId };
       break;
 
     case "record.created": {
@@ -280,6 +283,7 @@ function applyEvent(
         fieldChanges: [],
         recordRevision: 0n,
         createdCommitId: commitId,
+        tableId: created.tableId,
       };
       break;
     }
@@ -302,6 +306,7 @@ function applyEvent(
         fieldChanges: event.payload.changes,
         recordRevision: event.payload.recordRevision,
         createdCommitId: state.createdCommitId,
+        tableId: event.payload.tableId,
       };
       break;
     }
@@ -320,6 +325,7 @@ function applyEvent(
         fieldChanges: [],
         recordRevision: state.recordRevision,
         createdCommitId: state.createdCommitId,
+        tableId: event.payload.tableId,
       };
       // The complete payload is what makes the delete recoverable (FR-12).
       restoration = encodeAuthoredRecord(event.payload.restoration);
@@ -348,12 +354,18 @@ function applyEvent(
         fieldChanges: [],
         recordRevision: restoredRevision,
         createdCommitId: deleted.createdCommitId ?? commitId,
+        tableId: restored.tableId,
       };
       break;
     }
 
     case "enum.changed": {
       applyEnumChange(handle, event.payload.fieldId, event.payload.options);
+      summary = {
+        ...EMPTY_SUMMARY,
+        tableId:
+          handle.schema.fields.get(idKey(event.payload.fieldId))?.tableId ?? null,
+      };
       break;
     }
 

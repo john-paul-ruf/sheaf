@@ -35,6 +35,7 @@ import type {
 } from "../../../src/domain/model/events.js";
 import type {
   EnumOptionDefV1,
+  RelationshipDefV1,
   TableDefV1,
 } from "../../../src/domain/model/schema.js";
 import type { CellValueV1 } from "../../../src/domain/model/values.js";
@@ -108,6 +109,8 @@ export interface FakeProjectionSeedV1 {
   readonly table: TableDefV1;
   readonly enumOptions?: readonly EnumOptionDefV1[];
   readonly records?: readonly AuthoredRecordV1[];
+  /** Relationships inside the one table (a self-reference to its key). */
+  readonly relationships?: readonly RelationshipDefV1[];
   /**
    * Shared with {@link FakeEventRepository}. Both push their own name as they
    * run, so a test can read the order the two were called in.
@@ -122,6 +125,7 @@ const freshId = <K extends "field" | "table">(kind: K, id: Uint8Array) =>
 export class FakeProjection implements ProjectionEnginePort {
   readonly table: TableDefV1;
   readonly enumOptions: readonly EnumOptionDefV1[];
+  readonly relationships: readonly RelationshipDefV1[];
   readonly history: ProjectionChangeEventV1[] = [];
   readonly applied: EventCommitV1[] = [];
   readonly trace: string[];
@@ -131,6 +135,7 @@ export class FakeProjection implements ProjectionEnginePort {
   constructor(seed: FakeProjectionSeedV1) {
     this.table = seed.table;
     this.enumOptions = seed.enumOptions ?? [];
+    this.relationships = seed.relationships ?? [];
     this.trace = seed.trace ?? [];
     const origin = createDomainId("commit", entropy);
     for (const record of seed.records ?? []) {
@@ -221,8 +226,27 @@ export class FakeProjection implements ProjectionEnginePort {
             ),
         );
       case "list-relationships":
-        // One table, so nothing to relate it to.
+        // One table: every relationship starts and ends in it.
+        return answer(
+          this.relationships.map((relationship) => ({
+            relationship: {
+              ...relationship,
+              fromFieldId: freshId("field", relationship.fromFieldId),
+            },
+            fromTableName: this.table.displayName,
+            toTableName: this.table.displayName,
+          })),
+        );
+      case "related-parent":
+      case "related-children":
+        return answer(null);
+      case "count-related-children":
+        return answer(0);
+      case "reference-candidates":
         return answer([]);
+      case "deleted-record":
+        // Commands never ask; the real engine answers this in the browser.
+        throw new Error("the fake projection keeps no deleted-record read");
       case "app-state":
         throw new Error("the fake projection holds no app state");
       default: {
@@ -395,7 +419,12 @@ export class FakeProjection implements ProjectionEnginePort {
       wallTimeMs: this.history.length,
       logicalCounter: 0,
       deviceId: createDomainId("device", entropy),
-      summary: { fieldChanges: [], recordRevision, createdCommitId: commitId },
+      summary: {
+        fieldChanges: [],
+        recordRevision,
+        createdCommitId: commitId,
+        tableId: this.table.tableId,
+      },
       restoration,
     });
   }

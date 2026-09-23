@@ -812,6 +812,16 @@ export function createDataWorkerHandler(
           return records.restoreRecord(request);
         case "getChangeHistory":
           return records.getChangeHistory(request);
+        case "getRelatedRecords":
+          return records.getRelatedRecords(request);
+        case "getRelatedChildren":
+          return records.getRelatedChildren(request);
+        case "searchReferenceCandidates":
+          return records.searchReferenceCandidates(request);
+        case "getDeletedRecord":
+          return records.getDeletedRecord(request);
+        case "listTables":
+          return records.listTables(request);
         default: {
           const unreachable: never = request;
           void unreachable;

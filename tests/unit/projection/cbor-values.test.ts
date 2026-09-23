@@ -197,6 +197,7 @@ describe("change summary payload", () => {
       ],
       recordRevision: 4n,
       createdCommitId: commitId,
+      tableId,
     };
 
     expect(decodeChangeSummary(encodeChangeSummary(summary))).toEqual(summary);
@@ -207,6 +208,7 @@ describe("change summary payload", () => {
       fieldChanges: [],
       recordRevision: null,
       createdCommitId: null,
+      tableId: null,
     };
 
     expect(decodeChangeSummary(encodeChangeSummary(summary))).toEqual(summary);

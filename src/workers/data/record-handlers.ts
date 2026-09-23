@@ -31,6 +31,7 @@ import {
   encodeDomainId,
   type FieldId,
   type RecordId,
+  type RelationshipId,
   type TableId,
 } from "../../domain/model/ids.js";
 import {
@@ -40,6 +41,7 @@ import {
   dateValue,
   decimalValue,
   enumValue,
+  referenceValue,
   textValue,
   type CellValueV1,
 } from "../../domain/model/values.js";
@@ -53,8 +55,17 @@ import {
   recordQuery,
 } from "../../application/queries/records.js";
 import { isRestorable, planHistoryPage } from "../../application/queries/history.js";
+import {
+  planDeletedRecord,
+  planRecordReferences,
+  planReferenceCandidates,
+  planRelatedChildrenPage,
+  planRelatedRecords,
+  type RelatedParentV1,
+} from "../../application/queries/relationships.js";
 import type {
   ProjectionIssueRowV1,
+  ProjectionLabeledRecordV1,
   ProjectionRecordSummaryV1,
 } from "../../application/ports/projection.js";
 import type { ClockPort } from "../../application/ports/clock.js";
@@ -76,7 +87,11 @@ import type {
   DataWorkerResponseV1,
   DeleteRecordRequestV1,
   GetChangeHistoryRequestV1,
+  GetDeletedRecordRequestV1,
   GetRecordRequestV1,
+  GetRelatedChildrenRequestV1,
+  GetRelatedRecordsRequestV1,
+  ListTablesRequestV1,
   NoteAppOpenedRequestV1,
   OpenAppRequestV1,
   PatchRecordRequestV1,
@@ -84,8 +99,11 @@ import type {
   RecordCommandOutcomeV1,
   RecordDetailViewV1,
   RecordIssueViewV1,
+  RecordReferenceViewV1,
   RecordSummaryViewV1,
+  RelatedRecordViewV1,
   RestoreRecordRequestV1,
+  SearchReferenceCandidatesRequestV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
 import { AppSessionRegistry, openAppSession, type AppSessionV1 } from "./app-session.js";
@@ -122,6 +140,13 @@ export interface RecordHandlersV1 {
   getChangeHistory(
     request: GetChangeHistoryRequestV1,
   ): Promise<DataWorkerResponseV1>;
+  getRelatedRecords(request: GetRelatedRecordsRequestV1): Promise<DataWorkerResponseV1>;
+  getRelatedChildren(request: GetRelatedChildrenRequestV1): Promise<DataWorkerResponseV1>;
+  searchReferenceCandidates(
+    request: SearchReferenceCandidatesRequestV1,
+  ): Promise<DataWorkerResponseV1>;
+  getDeletedRecord(request: GetDeletedRecordRequestV1): Promise<DataWorkerResponseV1>;
+  listTables(request: ListTablesRequestV1): Promise<DataWorkerResponseV1>;
   /** The device-only count for every catalog app, from its decrypted head. */
   deviceOnlyChangeCounts(
     localRoot: EnvelopeKeyRefV1,
@@ -328,6 +353,7 @@ export function createRecordHandlers(
         updatedCommitId: encodeDomainId(detail.updatedCommitId),
         issues: detail.issues.map(toIssueView),
         indexedFieldIds: detail.cells.map((cell) => encodeDomainId(cell.fieldId)),
+        references: planRecordReferences(session.projection, detail).map(toReferenceView),
       };
       return { kind: "getRecord", record };
     },
@@ -405,6 +431,8 @@ export function createRecordHandlers(
             encodeDomainId(change.fieldId),
           ),
           isRestorable: isRestorable(entry),
+          tableId:
+            entry.summary.tableId === null ? null : encodeDomainId(entry.summary.tableId),
         }),
       );
 
@@ -422,6 +450,108 @@ export function createRecordHandlers(
                   eventId: encodeDomainId(page.nextCursor.eventId),
                 },
         },
+      };
+    },
+
+    async getRelatedRecords(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      if (session === undefined) {
+        return { kind: "getRelatedRecords", related: null };
+      }
+      const related = planRelatedRecords(session.projection, recordIdOf(request.recordId));
+      return {
+        kind: "getRelatedRecords",
+        related:
+          related === null
+            ? null
+            : {
+                parents: related.parents.map(toReferenceView),
+                children: related.children.map((group) => ({
+                  relationshipId: encodeDomainId(group.relationshipId),
+                  tableId: encodeDomainId(group.tableId),
+                  tableName: group.tableName,
+                  count: group.count,
+                  first: group.first.map(toRelatedView),
+                })),
+              },
+      };
+    },
+
+    async getRelatedChildren(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      if (session === undefined) {
+        return { kind: "getRelatedChildren", page: null };
+      }
+      const page = planRelatedChildrenPage(session.projection, {
+        relationshipId: relationshipIdOf(request.relationshipId),
+        parentRecordId: recordIdOf(request.parentRecordId),
+        after: request.after ?? null,
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+      });
+      return {
+        kind: "getRelatedChildren",
+        page:
+          page === null
+            ? null
+            : {
+                children: page.children.map((child) => ({
+                  ...toRelatedView(child),
+                  cursor: child.recordPk,
+                })),
+                hasMore: page.hasMore,
+                nextCursor: page.nextRecordPk,
+              },
+      };
+    },
+
+    async searchReferenceCandidates(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      if (session === undefined) {
+        return { kind: "searchReferenceCandidates", candidates: null };
+      }
+      const candidates = planReferenceCandidates(session.projection, {
+        fieldId: fieldIdOf(request.fieldId),
+        text: request.text,
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+      });
+      return {
+        kind: "searchReferenceCandidates",
+        candidates: candidates === null ? null : candidates.map(toRelatedView),
+      };
+    },
+
+    async getDeletedRecord(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      if (session === undefined) {
+        return { kind: "getDeletedRecord", deleted: null };
+      }
+      const deleted = planDeletedRecord(session.projection, recordIdOf(request.recordId));
+      return {
+        kind: "getDeletedRecord",
+        deleted:
+          deleted === null
+            ? null
+            : {
+                recordId: encodeDomainId(deleted.restoration.recordId),
+                tableId: encodeDomainId(deleted.tableId),
+                values: [...deleted.restoration.values].map(
+                  ([fieldId, value]): CellWireEntryV1 => ({
+                    fieldId: encodeDomainId(fieldId),
+                    value: toWireValue(value),
+                  }),
+                ),
+                deletedEventId: encodeDomainId(deleted.deletedEventId),
+                deletedAtEpochMs: deleted.deletedAtMs,
+                keyValue: deleted.keyValue === null ? null : toWireValue(deleted.keyValue),
+              },
+      };
+    },
+
+    async listTables(request): Promise<DataWorkerResponseV1> {
+      const session = await withApp(request.appId);
+      return {
+        kind: "listTables",
+        tables: session === undefined ? null : toTableViews(session),
       };
     },
 
@@ -484,7 +614,25 @@ function toSessionView(
   entry: LocalCatalogAppEntryV1 | undefined,
 ): AppSessionViewV1 {
   const state = session.projection.execute({ kind: "app-state" });
-  const tables: readonly AppTableViewV1[] = session.projection
+  const tables = toTableViews(session);
+
+  return {
+    appId: encodeDomainId(state.appId),
+    displayName: state.displayName,
+    theme: state.theme,
+    schemaRevision: Number(state.schemaRevision),
+    createdAtEpochMs: state.createdAtMs,
+    lastOpenedAtEpochMs: entry?.lastOpenedAtEpochMs ?? state.lastOpenedAtMs,
+    // No home means scratch — the persistent fact, until F05 (D26).
+    isScratch: (entry?.homeId ?? null) === null,
+    deviceOnlyChangeCount: session.deviceOnlyChangeCount(),
+    tables,
+  };
+}
+
+/** Every active table, its schema, and its exact live row count (CA-14). */
+function toTableViews(session: AppSessionV1): readonly AppTableViewV1[] {
+  return session.projection
     .execute({ kind: "list-tables" })
     .map((table) => ({
       tableId: encodeDomainId(table.tableId),
@@ -518,20 +666,28 @@ function toSessionView(
                   })),
         })),
     }));
-
-  return {
-    appId: encodeDomainId(state.appId),
-    displayName: state.displayName,
-    theme: state.theme,
-    schemaRevision: Number(state.schemaRevision),
-    createdAtEpochMs: state.createdAtMs,
-    lastOpenedAtEpochMs: entry?.lastOpenedAtEpochMs ?? state.lastOpenedAtMs,
-    // No home means scratch — the persistent fact, until F05 (D26).
-    isScratch: (entry?.homeId ?? null) === null,
-    deviceOnlyChangeCount: session.deviceOnlyChangeCount(),
-    tables,
-  };
 }
+
+const toRelatedView = (record: ProjectionLabeledRecordV1): RelatedRecordViewV1 => ({
+  recordId: encodeDomainId(record.recordId),
+  label: record.label,
+});
+
+const toReferenceView = (reference: RelatedParentV1): RecordReferenceViewV1 => {
+  const common = {
+    fieldId: encodeDomainId(reference.fieldId),
+    relationshipId: encodeDomainId(reference.relationshipId),
+  };
+  return reference.parent.status === "resolved"
+    ? {
+        ...common,
+        status: "resolved",
+        recordId: encodeDomainId(reference.parent.recordId),
+        tableId: encodeDomainId(reference.parent.tableId),
+        label: reference.parent.label,
+      }
+    : { ...common, status: "broken", originalKey: reference.parent.originalKey };
+};
 
 const toSummaryView = (
   record: ProjectionRecordSummaryV1,
@@ -636,6 +792,10 @@ export function toDomainValue(value: AuthoredCellWireValueV1): CellValueV1 {
         return BLANK_VALUE;
       case "missing":
         return MISSING_VALUE;
+      case "reference":
+        // Resolved by the command against the field's relationship; an id no
+        // live parent carries is refused there as a typed result.
+        return referenceValue(decodeDomainId("record", value.recordId));
       default: {
         const unreachable: never = value;
         return unreachable;
@@ -672,6 +832,9 @@ const tableIdOf = (text: string): TableId =>
 
 const recordIdOf = (text: string): RecordId =>
   idOrRefuse(() => decodeDomainId("record", text));
+
+const relationshipIdOf = (text: string): RelationshipId =>
+  idOrRefuse(() => decodeDomainId("relationship", text));
 
 /** The table id, if the open app actually holds it; `undefined` otherwise. */
 function knownTableId(

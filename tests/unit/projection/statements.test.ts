@@ -49,6 +49,11 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   SELECT_ALL_RELATIONSHIPS: 0,
   SELECT_RELATIONSHIPS_FOR_TABLE: 2,
   SELECT_RECORD_IS_LIVE: 2,
+  SELECT_RELATIONSHIP_BY_ID: 1,
+  PAGE_CHILDREN_FIRST: 3,
+  PAGE_CHILDREN_AFTER: 4,
+  COUNT_CHILDREN: 2,
+  SELECT_LATEST_DELETE_FOR_RECORD: 1,
   COUNT_RECORDS_FOR_TABLE: 1,
   PAGE_RECORDS_FIRST: 2,
   PAGE_RECORDS_AFTER: 3,
@@ -78,6 +83,7 @@ const ALLOWED_LITERALS = new Set([
   "'warning'",
   "'record'",
   "'record.deleted'",
+  "'id'",
 ]);
 
 const sqlEntries = Object.entries(

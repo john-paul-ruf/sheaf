@@ -432,6 +432,9 @@ export function encodeChangeSummary(
   if (summary.createdCommitId !== null) {
     map.set("createdCommitId", summary.createdCommitId);
   }
+  if (summary.tableId !== null) {
+    map.set("tableId", summary.tableId);
+  }
   return encodeCanonical(map);
 }
 
@@ -441,6 +444,7 @@ export function decodeChangeSummary(
   const map = asMap(decodeCanonical(bytes), "change summary");
   const recordRevision = map.get("recordRevision");
   const createdCommitId = map.get("createdCommitId");
+  const tableId = map.get("tableId");
   return {
     fieldChanges: asArray(map.get("fieldChanges"), "field changes").map(
       decodeFieldChange,
@@ -453,6 +457,8 @@ export function decodeChangeSummary(
       createdCommitId === undefined
         ? null
         : asDomainId("commit", asBytes(createdCommitId, "createdCommitId")),
+    tableId:
+      tableId === undefined ? null : asDomainId("table", asBytes(tableId, "tableId")),
   };
 }
 

@@ -75,6 +75,13 @@ describe("the projection port and the projection engine", () => {
     >(true);
     mutual<Port.ProjectionSubjectKindV1, Engine.ChangeSubjectKindV1>(true);
     mutual<Port.ProjectionRelationshipV1, Engine.ProjectionRelationshipV1>(true);
+    mutual<Port.ProjectionRelatedParentV1, Engine.ProjectionRelatedParentV1>(true);
+    mutual<Port.ProjectionLabeledRecordV1, Engine.ProjectionLabeledRecordV1>(true);
+    mutual<
+      Port.ProjectionRelatedChildrenPageV1,
+      Engine.ProjectionRelatedChildrenPageV1
+    >(true);
+    mutual<Port.ProjectionDeletedRecordV1, Engine.ProjectionDeletedRecordV1>(true);
     expect(true).toBe(true);
   });
 
@@ -96,7 +103,12 @@ describe("the projection port and the projection engine", () => {
       "record-change-history": true,
       "record-is-live": true,
       "list-relationships": true,
+      "related-parent": true,
+      "related-children": true,
+      "count-related-children": true,
+      "reference-candidates": true,
+      "deleted-record": true,
     };
-    expect(Object.keys(kinds)).toHaveLength(13);
+    expect(Object.keys(kinds)).toHaveLength(18);
   });
 });

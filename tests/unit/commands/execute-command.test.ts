@@ -535,3 +535,142 @@ describe("rekeyByFields", () => {
     expect(rekeyed.get(stranger)).toBe("unknown");
   });
 });
+
+describe("references (D36, CA-21): the real resolver, by provenance", () => {
+  const PEOPLE = asDomainId("table", new Uint8Array(16).fill(0x70));
+  const PERSON = asDomainId("field", new Uint8Array(16).fill(0x71));
+  const MANAGER = asDomainId("field", new Uint8Array(16).fill(0x72));
+  const ADA = asDomainId("record", new Uint8Array(16).fill(0x73));
+  const GRACE = asDomainId("record", new Uint8Array(16).fill(0x74));
+  const NOBODY = asDomainId("record", new Uint8Array(16).fill(0x75));
+
+  const people: TableDefV1 = {
+    tableId: PEOPLE,
+    displayName: "People",
+    tableOrdinal: 0,
+    fields: [
+      { ...field(PERSON, "Person", { kind: "text" }), tableId: PEOPLE },
+      {
+        ...field(MANAGER, "Manager", { kind: "reference" }),
+        tableId: PEOPLE,
+        fieldOrdinal: 1,
+      },
+    ],
+    keyFieldId: PERSON,
+    labelFieldId: PERSON,
+    sourceSheetId: null,
+    isActive: true,
+    schemaRevision: 1n,
+  };
+
+  const person = (recordId: RecordId, name: string, manager: CellValueV1): AuthoredRecordV1 => ({
+    recordId,
+    tableId: PEOPLE,
+    values: new Map<FieldId, CellValueV1>([
+      [PERSON, { kind: "text", text: name }],
+      [MANAGER, manager],
+    ]),
+    provenance: new Map(),
+  });
+
+  const peopleHarness = () => {
+    const projection = new FakeProjection({
+      table: people,
+      records: [
+        person(ADA, "Ada", { kind: "missing" }),
+        // Imported pointing at someone who is not here: a broken reference.
+        person(GRACE, "Grace", { kind: "reference", recordId: NOBODY }),
+      ],
+      relationships: [
+        {
+          relationshipId: asDomainId("relationship", new Uint8Array(16).fill(0x76)),
+          fromTableId: PEOPLE,
+          fromFieldId: MANAGER,
+          toTableId: PEOPLE,
+          toKeyFieldId: PERSON,
+          detectionSource: "user",
+          isActive: true,
+          schemaRevision: 1n,
+        },
+      ],
+      trace: [],
+    });
+    const repository = new FakeEventRepository(APP_ID, projection);
+    return {
+      repository,
+      deps: {
+        clock: new FakeClock(),
+        entropy,
+        projection,
+        repository,
+        recordDigest: fakeRecordDigest,
+      },
+    };
+  };
+
+  it("accepts an authored reference to a live record of the target table", async () => {
+    const { deps } = peopleHarness();
+    const result = await executeCommand(deps, {
+      kind: "create-record",
+      tableId: PEOPLE,
+      values: new Map<FieldId, CellValueV1>([
+        [PERSON, { kind: "text", text: "Katherine" }],
+        [MANAGER, { kind: "reference", recordId: ADA }],
+      ]),
+    });
+    expect(result.outcome).toBe("accepted");
+  });
+
+  it("refuses an authored reference to an unknown record, writing nothing", async () => {
+    const { deps, repository } = peopleHarness();
+    const result = await executeCommand(deps, {
+      kind: "create-record",
+      tableId: PEOPLE,
+      values: new Map<FieldId, CellValueV1>([
+        [PERSON, { kind: "text", text: "Katherine" }],
+        [MANAGER, { kind: "reference", recordId: NOBODY }],
+      ]),
+    });
+
+    expect(result.outcome).toBe("rejected");
+    if (result.outcome !== "rejected") return;
+    expect(result.report.issues).toEqual([
+      {
+        fieldId: expect.anything() as FieldId,
+        ruleId: null,
+        kind: "broken-reference",
+        severity: "blocking",
+        messageKey: "validation.broken-reference",
+        messageParameters: { fieldLabel: "Manager", targetTable: "People" },
+      },
+    ]);
+    expect(repository.appends).toHaveLength(0);
+  });
+
+  it("lets a record with a carried-over broken reference be edited, and says so", async () => {
+    const { deps, repository } = peopleHarness();
+    const result = await executeCommand(deps, {
+      kind: "patch-record",
+      recordId: GRACE,
+      changes: new Map<FieldId, CellValueV1>([[PERSON, { kind: "text", text: "Grace H" }]]),
+    });
+
+    expect(result.outcome).toBe("accepted");
+    const issues = repository.appends[0]?.issuesByEventIndex?.get(0) ?? [];
+    expect(issues.map((issue) => `${issue.kind}/${issue.severity}`)).toEqual([
+      "broken-reference/warning",
+    ]);
+  });
+
+  it("refuses a patch that authors a reference to an unknown record", async () => {
+    const { deps, repository } = peopleHarness();
+    const result = await executeCommand(deps, {
+      kind: "patch-record",
+      recordId: ADA,
+      changes: new Map<FieldId, CellValueV1>([[MANAGER, { kind: "reference", recordId: NOBODY }]]),
+    });
+
+    expect(result.outcome).toBe("rejected");
+    expect(repository.appends).toHaveLength(0);
+  });
+});

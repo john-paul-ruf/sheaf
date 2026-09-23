@@ -48,6 +48,7 @@ import type {
   FieldId,
   InertItemId,
   RecordId,
+  RelationshipId,
   RuleId,
   SheetId,
   TableId,
@@ -244,6 +245,8 @@ export interface ProjectionChangeSummaryV1 {
   readonly fieldChanges: readonly FieldChangeV1[];
   readonly recordRevision: bigint | null;
   readonly createdCommitId: CommitId | null;
+  /** The table the event is about; null for app events. */
+  readonly tableId: TableId | null;
 }
 
 /** `change_history.subject_kind`, closed by migration 005. */
@@ -284,6 +287,35 @@ export interface ProjectionChangeHistoryPageV1 {
   readonly events: readonly ProjectionChangeEventV1[];
   readonly hasMore: boolean;
   readonly nextCursor: ProjectionHistoryCursorV1 | null;
+}
+
+export type ProjectionRelatedParentV1 =
+  | {
+      readonly status: "resolved";
+      readonly recordId: RecordId;
+      readonly tableId: TableId;
+      readonly label: string;
+    }
+  | { readonly status: "broken"; readonly originalKey: string | null };
+
+export interface ProjectionLabeledRecordV1 {
+  readonly recordPk: number;
+  readonly recordId: RecordId;
+  readonly label: string;
+}
+
+export interface ProjectionRelatedChildrenPageV1 {
+  readonly children: readonly ProjectionLabeledRecordV1[];
+  readonly hasMore: boolean;
+  readonly nextRecordPk: number | null;
+}
+
+export interface ProjectionDeletedRecordV1 {
+  readonly tableId: TableId;
+  readonly restoration: AuthoredRecordV1;
+  readonly deletedEventId: EventId;
+  readonly deletedAtMs: number;
+  readonly keyValue: CellValueV1 | null;
 }
 
 export interface ProjectionRelationshipV1 {
@@ -328,7 +360,31 @@ export type ProjectionQueryV1 =
       readonly tableId: TableId;
       readonly recordId: RecordId;
     }
-  | { readonly kind: "list-relationships"; readonly tableId: TableId | null };
+  | { readonly kind: "list-relationships"; readonly tableId: TableId | null }
+  | {
+      readonly kind: "related-parent";
+      readonly recordId: RecordId;
+      readonly fieldId: FieldId;
+    }
+  | {
+      readonly kind: "related-children";
+      readonly relationshipId: RelationshipId;
+      readonly parentRecordId: RecordId;
+      readonly afterRecordPk: number | null;
+      readonly limit: number;
+    }
+  | {
+      readonly kind: "count-related-children";
+      readonly relationshipId: RelationshipId;
+      readonly parentRecordId: RecordId;
+    }
+  | {
+      readonly kind: "reference-candidates";
+      readonly relationshipId: RelationshipId;
+      readonly text: string;
+      readonly limit: number;
+    }
+  | { readonly kind: "deleted-record"; readonly recordId: RecordId };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -345,6 +401,11 @@ export interface ProjectionQueryResultsV1 {
   readonly "record-change-history": readonly ProjectionChangeEventV1[];
   readonly "record-is-live": boolean;
   readonly "list-relationships": readonly ProjectionRelationshipV1[];
+  readonly "related-parent": ProjectionRelatedParentV1 | null;
+  readonly "related-children": ProjectionRelatedChildrenPageV1 | null;
+  readonly "count-related-children": number;
+  readonly "reference-candidates": readonly ProjectionLabeledRecordV1[];
+  readonly "deleted-record": ProjectionDeletedRecordV1 | null;
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

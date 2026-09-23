@@ -23,8 +23,11 @@
  */
 
 import { CodecError } from "../../domain/model/errors.js";
-import { asDomainId } from "../../domain/model/ids.js";
-import type { FieldId, RecordId } from "../../domain/model/ids.js";
+import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
+import type { FieldId, RecordId, RelationshipId } from "../../domain/model/ids.js";
+import type { AuthoredRecordV1 } from "../../domain/model/events.js";
+import type { RelationshipDefV1 } from "../../domain/model/schema.js";
+import type { CellValueV1 } from "../../domain/model/values.js";
 import {
   RELATIONSHIP_DETECTION_SOURCES,
   type FieldDefV1,
@@ -52,7 +55,10 @@ import {
 } from "./engine.js";
 import { idKey } from "./record-rows.js";
 import {
+  COUNT_CHILDREN,
   COUNT_RECORDS_FOR_TABLE,
+  PAGE_CHILDREN_AFTER,
+  PAGE_CHILDREN_FIRST,
   PAGE_CHANGE_HISTORY_AFTER,
   PAGE_CHANGE_HISTORY_FIRST,
   PAGE_RECORDS_AFTER,
@@ -68,7 +74,9 @@ import {
   SELECT_HISTORY_FOR_RECORD,
   SELECT_ISSUES_FOR_RECORD,
   SELECT_RECORD_BY_ID,
+  SELECT_LATEST_DELETE_FOR_RECORD,
   SELECT_RECORD_IS_LIVE,
+  SELECT_RECORD_STATE_BY_ID,
   SELECT_RELATIONSHIPS_FOR_TABLE,
   SELECT_RULES_FOR_TABLE,
   toFtsMatchQuery,
@@ -85,7 +93,11 @@ import type {
   ProjectionQueryV1,
   ProjectionRecordDetailV1,
   ProjectionRecordPageResultV1,
+  ProjectionDeletedRecordV1,
+  ProjectionLabeledRecordV1,
   ProjectionRecordSummaryV1,
+  ProjectionRelatedChildrenPageV1,
+  ProjectionRelatedParentV1,
   ProjectionRelationshipV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,
@@ -185,6 +197,27 @@ function runQuery(
             ])
         ).map(toRelationship),
       );
+    case "related-parent":
+      return answer(relatedParent(handle, query.recordId, query.fieldId));
+    case "related-children":
+      return answer(relatedChildren(handle, query));
+    case "count-related-children": {
+      const relationship = relationshipById(handle, query.relationshipId);
+      return answer(
+        relationship === null
+          ? 0
+          : Number(
+              selectRow(handle, COUNT_CHILDREN, [
+                relationship.fromFieldId,
+                query.parentRecordId,
+              ])?.[0] ?? 0,
+            ),
+      );
+    }
+    case "reference-candidates":
+      return answer(referenceCandidates(handle, query));
+    case "deleted-record":
+      return answer(deletedRecord(handle, query.recordId));
     default: {
       const unreachable: never = query;
       return unreachable;
@@ -369,6 +402,203 @@ function toIssueRow(row: Row): ProjectionIssueRowV1 {
     severity: severity as ProjectionIssueRowV1["severity"],
     messageKey: textAt(row, 5),
     messageParameters: decodeMessageParameters(bytesAt(row, 6)),
+  };
+}
+
+// ----------------------------------------------------------- relationships --
+
+function relationshipById(
+  handle: ProjectionHandleV1,
+  relationshipId: RelationshipId,
+): RelationshipDefV1 | null {
+  for (const relationship of handle.schema.relationships.values()) {
+    if (compareDomainIds(relationship.relationshipId, relationshipId) === 0) {
+      return relationship;
+    }
+  }
+  return null;
+}
+
+/**
+ * The display text of a value, as a relationship surface shows a record: the
+ * words a person reads, never an id. Absent values and references have none.
+ */
+function displayText(handle: ProjectionHandleV1, value: CellValueV1): string {
+  switch (value.kind) {
+    case "text":
+      return value.text;
+    case "decimal":
+      return value.decimal;
+    case "invalid-preserved":
+      return value.sourceText;
+    case "enum":
+      return handle.schema.optionLabels.get(idKey(value.optionId)) ?? "";
+    case "date":
+      return new Date(value.epochDay * 86_400_000).toISOString().slice(0, 10);
+    case "boolean":
+      return value.boolean ? "true" : "false";
+    case "reference":
+    case "missing":
+    case "blank":
+      return "";
+    default: {
+      const unreachable: never = value;
+      return unreachable;
+    }
+  }
+}
+
+const valueAt = (
+  record: AuthoredRecordV1,
+  fieldId: Uint8Array,
+): CellValueV1 | undefined =>
+  [...record.values].find(([candidate]) => compareDomainIds(candidate, fieldId) === 0)?.[1];
+
+/**
+ * A record's label: its table's label field, else its key — the minimal
+ * plaintext a relationship surface needs (invariant 3).
+ */
+function labelOf(handle: ProjectionHandleV1, record: AuthoredRecordV1): string {
+  const table = handle.schema.tables.get(idKey(record.tableId));
+  const fieldId = table?.labelFieldId ?? table?.keyFieldId ?? null;
+  const value = fieldId === null ? undefined : valueAt(record, fieldId);
+  return value === undefined ? "" : displayText(handle, value);
+}
+
+const toLabeled = (
+  handle: ProjectionHandleV1,
+  row: Row,
+  authoredAt: number,
+): ProjectionLabeledRecordV1 => ({
+  recordPk: numberAt(row, 0),
+  recordId: asDomainId("record", bytesAt(row, 1)),
+  label: labelOf(handle, decodeAuthoredRecord(bytesAt(row, authoredAt))),
+});
+
+function latestDelete(
+  handle: ProjectionHandleV1,
+  recordId: Uint8Array,
+): { readonly row: Row; readonly restoration: AuthoredRecordV1 } | null {
+  const row = selectRow(handle, SELECT_LATEST_DELETE_FOR_RECORD, [recordId]);
+  if (row === null || row[2] === null) {
+    return null;
+  }
+  return { row, restoration: decodeAuthoredRecord(bytesAt(row, 2)) };
+}
+
+function relatedParent(
+  handle: ProjectionHandleV1,
+  recordId: RecordId,
+  fieldId: FieldId,
+): ProjectionRelatedParentV1 | null {
+  const row = selectRow(handle, SELECT_RECORD_STATE_BY_ID, [recordId]);
+  const relationship = handle.schema.relationships.get(idKey(fieldId));
+  if (row === null || relationship === undefined || !relationship.isActive) {
+    return null;
+  }
+  const value = valueAt(decodeAuthoredRecord(bytesAt(row, 4)), fieldId);
+  if (value?.kind === "invalid-preserved") {
+    // An imported key that matched no parent: the value *is* the original key.
+    return { status: "broken", originalKey: value.sourceText };
+  }
+  if (value?.kind !== "reference") {
+    return null;
+  }
+
+  const parent = selectRow(handle, SELECT_RECORD_STATE_BY_ID, [value.recordId]);
+  if (parent !== null && compareDomainIds(bytesAt(parent, 1), relationship.toTableId) === 0) {
+    return {
+      status: "resolved",
+      recordId: value.recordId,
+      tableId: relationship.toTableId,
+      label: labelOf(handle, decodeAuthoredRecord(bytesAt(parent, 4))),
+    };
+  }
+
+  // The parent is gone. Its delete carried its whole record, key included.
+  const deleted = latestDelete(handle, value.recordId);
+  const key =
+    deleted === null ? undefined : valueAt(deleted.restoration, relationship.toKeyFieldId);
+  return {
+    status: "broken",
+    originalKey: key === undefined ? null : displayText(handle, key) || null,
+  };
+}
+
+function relatedChildren(
+  handle: ProjectionHandleV1,
+  query: Extract<ProjectionQueryV1, { kind: "related-children" }>,
+): ProjectionRelatedChildrenPageV1 | null {
+  const relationship = relationshipById(handle, query.relationshipId);
+  if (relationship === null) {
+    return null;
+  }
+  const bounded = boundedLimit(query.limit);
+  const rows =
+    query.afterRecordPk === null
+      ? selectRows(handle, PAGE_CHILDREN_FIRST, [
+          relationship.fromFieldId,
+          query.parentRecordId,
+          bounded + 1,
+        ])
+      : selectRows(handle, PAGE_CHILDREN_AFTER, [
+          relationship.fromFieldId,
+          query.parentRecordId,
+          query.afterRecordPk,
+          bounded + 1,
+        ]);
+  const children = rows.slice(0, bounded).map((row) => toLabeled(handle, row, 2));
+  return {
+    children,
+    hasMore: rows.length > bounded,
+    nextRecordPk: rows.length > bounded ? (children.at(-1)?.recordPk ?? null) : null,
+  };
+}
+
+function referenceCandidates(
+  handle: ProjectionHandleV1,
+  query: Extract<ProjectionQueryV1, { kind: "reference-candidates" }>,
+): readonly ProjectionLabeledRecordV1[] {
+  const relationship = relationshipById(handle, query.relationshipId);
+  if (relationship === null) {
+    return [];
+  }
+  const bounded = boundedLimit(query.limit);
+  if (query.text.trim().length === 0) {
+    return selectRows(handle, PAGE_RECORDS_FIRST, [relationship.toTableId, bounded]).map(
+      (row) => toLabeled(handle, row, 4),
+    );
+  }
+  const match = toFtsMatchQuery(query.text);
+  if (match === null) {
+    return [];
+  }
+  return selectRows(handle, SEARCH_RECORDS_FIRST, [
+    match,
+    relationship.toTableId,
+    bounded,
+  ]).map((row) => toLabeled(handle, row, 4));
+}
+
+function deletedRecord(
+  handle: ProjectionHandleV1,
+  recordId: RecordId,
+): ProjectionDeletedRecordV1 | null {
+  if (selectRow(handle, SELECT_RECORD_STATE_BY_ID, [recordId]) !== null) {
+    return null;
+  }
+  const deleted = latestDelete(handle, recordId);
+  if (deleted === null) {
+    return null;
+  }
+  const { restoration } = deleted;
+  const keyFieldId = handle.schema.tables.get(idKey(restoration.tableId))?.keyFieldId ?? null;
+  return {
+    tableId: restoration.tableId,
+    restoration,
+    deletedEventId: asDomainId("event", bytesAt(deleted.row, 0)),
+    deletedAtMs: numberAt(deleted.row, 1),
+    keyValue: keyFieldId === null ? null : (valueAt(restoration, keyFieldId) ?? null),
   };
 }
 
