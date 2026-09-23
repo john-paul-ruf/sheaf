@@ -259,6 +259,7 @@ async function runWorkbook(input: { readonly variant: Variant }): Promise<Outcom
         schemaRevision: 1n,
       },
     ],
+    formulas: [],
     inertItems: [
       { inertItemId: ids.asDomainId("inert-item", bytes(21)), sheetId: overviewSheet, kind: "chart", location: "Overview!B2:F9", reasonKey: "chart-not-live-yet", anchor: { firstRow: 1, firstColumn: 1, lastRow: 8, lastColumn: 5 }, preservedManifestStorageId: null },
       { inertItemId: ids.asDomainId("inert-item", bytes(22)), sheetId: orderSheet, kind: "formula", location: "Orders!C2:C4", reasonKey: "formula-not-live-yet", anchor: null, preservedManifestStorageId: bytesModule.asStorageId16(bytes(0x43)) },

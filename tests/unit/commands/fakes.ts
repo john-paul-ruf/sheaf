@@ -29,10 +29,7 @@ import {
   type FieldId,
   type RecordId,
 } from "../../../src/domain/model/ids.js";
-import type {
-  AuthoredRecordV1,
-  F02DomainEventV1,
-} from "../../../src/domain/model/events.js";
+import type { AuthoredRecordV1 } from "../../../src/domain/model/events.js";
 import type {
   EnumOptionDefV1,
   RelationshipDefV1,
@@ -43,6 +40,7 @@ import type {
   AppChainStateV1,
   CommitAppendRequestV1,
   CommitReceiptV1,
+  DomainEventV1,
   LocalEventRepository,
 } from "../../../src/application/ports/event-repository.js";
 import type {
@@ -179,6 +177,8 @@ export class FakeProjection implements ProjectionEnginePort {
         );
       case "list-validation-rules":
         return answer([]);
+      case "list-formulas":
+        return answer([]);
       case "count-records":
         return answer(this.#live().length);
       case "page-records":
@@ -262,7 +262,7 @@ export class FakeProjection implements ProjectionEnginePort {
   applyEvents(
     commits: readonly {
       readonly commit: EventCommitV1;
-      readonly events: readonly F02DomainEventV1[];
+      readonly events: readonly DomainEventV1[];
       readonly issuesByEventIndex?: ReadonlyMap<
         number,
         readonly ProjectionIssueInputV1[]
@@ -293,7 +293,7 @@ export class FakeProjection implements ProjectionEnginePort {
   }
 
   #apply(
-    event: F02DomainEventV1,
+    event: DomainEventV1,
     commitId: CommitId,
     eventId: EventId,
     issues: readonly ProjectionIssueInputV1[],

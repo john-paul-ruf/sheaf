@@ -27,10 +27,11 @@ import {
   encodeDomainId,
   type FieldId,
 } from "../../../src/domain/model/ids.js";
+import { F04_SCHEMA_EVENT_KINDS, type AuthoredRecordV1 } from "../../../src/domain/model/events.js";
 import type {
-  AuthoredRecordV1,
-  F02DomainEventV1,
-} from "../../../src/domain/model/events.js";
+  DomainEventV1,
+  SchemaImpactCountsV1,
+} from "../../../src/application/ports/event-repository.js";
 import type { CellValueV1 } from "../../../src/domain/model/values.js";
 import {
   decodeCanonical,
@@ -88,7 +89,7 @@ const RECORD: AuthoredRecordV1 = {
   ]),
 };
 
-const EVENTS: readonly F02DomainEventV1[] = [
+const EVENTS: readonly DomainEventV1[] = [
   { kind: "record.created", payload: { record: RECORD, importedInvalid: false } },
   {
     kind: "record.patched",
@@ -132,7 +133,7 @@ const EVENTS: readonly F02DomainEventV1[] = [
   },
 ];
 
-const roundTrip = (event: F02DomainEventV1): F02DomainEventV1 =>
+const roundTrip = (event: DomainEventV1): DomainEventV1 =>
   decodeRecordEventPayload(
     event.kind as RecordEventKindV1,
     decodeCanonical(encodeCanonical(encodeRecordEventPayload(event))),
@@ -165,7 +166,7 @@ describe("the record-event payload codec", () => {
   });
 
   it("reads every cell kind back as itself, absent states included", () => {
-    const back = roundTrip(EVENTS[0] as F02DomainEventV1);
+    const back = roundTrip(EVENTS[0] as DomainEventV1);
     if (back.kind !== "record.created") {
       throw new Error("expected record.created");
     }
@@ -189,7 +190,7 @@ describe("the record-event payload codec", () => {
   });
 
   it("keeps provenance absent where it was absent", () => {
-    const back = roundTrip(EVENTS[0] as F02DomainEventV1);
+    const back = roundTrip(EVENTS[0] as DomainEventV1);
     if (back.kind !== "record.created") {
       throw new Error("expected record.created");
     }
@@ -213,7 +214,7 @@ describe("the record-event payload codec", () => {
   });
 
   it("keeps both ends of every change", () => {
-    const back = roundTrip(EVENTS[1] as F02DomainEventV1);
+    const back = roundTrip(EVENTS[1] as DomainEventV1);
     if (back.kind !== "record.patched") {
       throw new Error("expected record.patched");
     }
@@ -228,7 +229,7 @@ describe("the record-event payload codec", () => {
   });
 
   it("carries the whole record in a delete, which is what makes it recoverable", () => {
-    const back = roundTrip(EVENTS[2] as F02DomainEventV1);
+    const back = roundTrip(EVENTS[2] as DomainEventV1);
     if (back.kind !== "record.deleted") {
       throw new Error("expected record.deleted");
     }
@@ -239,7 +240,7 @@ describe("the record-event payload codec", () => {
 
   it("refuses a payload with an unexpected field", () => {
     const map = decodeCanonical(
-      encodeCanonical(encodeRecordEventPayload(EVENTS[3] as F02DomainEventV1)),
+      encodeCanonical(encodeRecordEventPayload(EVENTS[3] as DomainEventV1)),
     ) as ReadonlyMap<string, unknown>;
     const tampered = new Map(map);
     tampered.set("extra", "surprise");
@@ -259,7 +260,7 @@ describe("the record-event payload codec", () => {
    * `src/import/staging/roots.ts`; this case now holds it.
    */
   it("records the pre-1970 date limit this codec inherits from M23", () => {
-    const older: F02DomainEventV1 = {
+    const older: DomainEventV1 = {
       kind: "record.created",
       payload: {
         record: {
@@ -362,6 +363,7 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
       "field.created",
       "enum.changed",
       "inference-decision.recorded",
+      ...F04_SCHEMA_EVENT_KINDS,
     ]);
     expect(isTailEventKind("app.created")).toBe(false);
     expect(isTailEventKind("import.accepted")).toBe(false);
@@ -433,5 +435,212 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
         ),
       ),
     ).toThrow(CodecError);
+  });
+});
+
+describe("the F04 schema, rule and formula payloads (CA-25, CA-27, CA-28)", () => {
+  const fieldId = FIELDS[0] as FieldId;
+  const otherField = FIELDS[1] as FieldId;
+  const formulaId = createDomainId("formula", entropy);
+  const relationshipId = createDomainId("relationship", entropy);
+  const ruleId = createDomainId("rule", entropy);
+  const impact: SchemaImpactCountsV1 = {
+    change: "change-field-type",
+    total: 60,
+    affected: 3,
+    unchanged: 57,
+    converted: 1,
+    keptAndFlagged: 2,
+    missingNow: 0,
+    onRemovedOptions: 0,
+    matchedKeys: 0,
+    unmatchedKeys: 0,
+    unlinkedReferences: 0,
+    failingRule: 0,
+    formulaErrors: 0,
+  };
+  const field = {
+    fieldId,
+    tableId: TABLE_ID,
+    displayName: "Quoted amount",
+    fieldOrdinal: 4,
+    type: { kind: "number" as const },
+    isRequired: false,
+    isActive: true,
+    schemaRevision: 1n,
+  };
+  const tableDefinition = {
+    tableId: TABLE_ID,
+    displayName: "Jobs",
+    tableOrdinal: 0,
+    keyFieldId: fieldId,
+    labelFieldId: null,
+    sourceSheetId: null,
+    isActive: true,
+    schemaRevision: 1n,
+  };
+  const relationship = {
+    relationshipId,
+    fromTableId: TABLE_ID,
+    fromFieldId: otherField,
+    toTableId: TABLE_ID,
+    toKeyFieldId: fieldId,
+    detectionSource: "user" as const,
+    isActive: true,
+    schemaRevision: 2n,
+  };
+  const formula = {
+    formulaId,
+    target: { kind: "computed-column" as const, tableId: TABLE_ID, fieldId: otherField },
+    displayName: null,
+    originalText: "[Quoted amount]-[Paid]",
+    document: {
+      irVersion: 1 as const,
+      root: {
+        kind: "binary" as const,
+        operator: "-" as const,
+        left: { kind: "field" as const, fieldId },
+        right: { kind: "field" as const, fieldId: FIELDS[2] as FieldId },
+      },
+    },
+    disposition: "live" as const,
+    determinism: "deterministic" as const,
+    dependencies: [
+      { kind: "field" as const, fieldId },
+      { kind: "field" as const, fieldId: FIELDS[2] as FieldId },
+    ],
+  };
+  const metadata = {
+    catalogVersion: 1,
+    functionVersions: [],
+    source: "authored" as const,
+    importedValuePolicy: "none" as const,
+  };
+  const digest = new Uint8Array(32).fill(4);
+
+  const SCHEMA_EVENTS: readonly DomainEventV1[] = [
+    { kind: "app.renamed", payload: { priorNameSha256: digest, displayName: "Fieldwork" } },
+    {
+      kind: "table.changed",
+      payload: {
+        priorSha256: digest,
+        before: tableDefinition,
+        after: { ...tableDefinition, displayName: "Jobs 2026", labelFieldId: otherField },
+        impact: { ...impact, change: "rename-table", affected: 0, converted: 0, keptAndFlagged: 0, unchanged: 60 },
+      },
+    },
+    {
+      kind: "field.changed",
+      payload: {
+        before: field,
+        after: { ...field, type: { kind: "currency", currencyCode: "EUR" }, schemaRevision: 2n },
+        impact,
+      },
+    },
+    { kind: "relationship.changed", payload: { relationship, priorSha256: null } },
+    { kind: "relationship.changed", payload: { relationship: { ...relationship, isActive: false }, priorSha256: digest } },
+    { kind: "relationship.removed", payload: { relationship, rejectionFingerprint: digest } },
+    {
+      kind: "rule.changed",
+      payload: {
+        tableId: TABLE_ID,
+        displayName: "Finish after start",
+        rule: {
+          irVersion: 2,
+          ruleId,
+          condition: { kind: "compare", left: fieldId, op: "ge", right: { field: otherField } },
+          severity: "blocking",
+          messageKey: "rule-compare",
+          messageParameters: { leftLabel: "Finish", rightLabel: "Start" },
+        },
+        priorSha256: null,
+      },
+    },
+    {
+      kind: "rule.removed",
+      payload: {
+        tableId: TABLE_ID,
+        displayName: "Name present",
+        rule: {
+          irVersion: 1,
+          ruleId,
+          condition: { kind: "field-present", fieldId },
+          severity: "warning",
+          messageKey: "validation.rule",
+          messageParameters: {},
+        },
+        impact: { ...impact, change: "remove-rule" },
+      },
+    },
+    { kind: "formula.changed", payload: { formula, metadata, priorSha256: null } },
+    { kind: "formula.removed", payload: { formula, metadata, impact: { ...impact, change: "remove-formula" } } },
+  ];
+
+  const decodeWire = (event: DomainEventV1): DomainEventV1 =>
+    decodeTailEventPayload(
+      event.kind as (typeof TAIL_EVENT_KINDS)[number],
+      decodeCanonical(encodeCanonical(encodeRecordEventPayload(event))),
+    );
+
+  it("covers all nine kinds, and reads each back as itself, byte-identically", () => {
+    expect(new Set(SCHEMA_EVENTS.map((event) => event.kind))).toEqual(new Set(F04_SCHEMA_EVENT_KINDS));
+    for (const event of SCHEMA_EVENTS) {
+      const bytes = encodeCanonical(encodeRecordEventPayload(event));
+      const back = decodeWire(event);
+      expect({ kind: event.kind, back }).toEqual({ kind: event.kind, back: event });
+      expect([...encodeCanonical(encodeRecordEventPayload(back))]).toEqual([...bytes]);
+    }
+  });
+
+  it("keeps a currency code across a field.changed round trip", () => {
+    const back = decodeWire(SCHEMA_EVENTS[2] as DomainEventV1);
+    expect(back.kind === "field.changed" && back.payload.after.type).toEqual({ kind: "currency", currencyCode: "EUR" });
+  });
+
+  it("encodes a command's field.created exactly as promotion does, formulaId included when computed", () => {
+    const created: DomainEventV1 = { kind: "field.created", payload: { field, evidence: null } };
+    expect([...encodeCanonical(encodeRecordEventPayload(created))]).toEqual([
+      ...encodeCanonical(encodeImportEventPayload.fieldCreated({ field, statementId: null })),
+    ]);
+    const computed: DomainEventV1 = {
+      kind: "field.created",
+      payload: { field: { ...field, fieldId: otherField, formulaId }, evidence: null },
+    };
+    expect(decodeWire(computed)).toEqual(computed);
+  });
+
+  it("refuses a stray key, an unknown change kind, and the import commit's own kinds", () => {
+    const tampered = new Map(
+      decodeCanonical(encodeCanonical(encodeRecordEventPayload(SCHEMA_EVENTS[0] as DomainEventV1))) as ReadonlyMap<string, unknown>,
+    );
+    tampered.set("extra", 1n);
+    expect(() => decodeTailEventPayload("app.renamed", tampered as never)).toThrow(CodecError);
+
+    const wrongChange = new Map(
+      decodeCanonical(encodeCanonical(encodeRecordEventPayload(SCHEMA_EVENTS[9] as DomainEventV1))) as ReadonlyMap<string, unknown>,
+    );
+    wrongChange.set("impact", new Map([...(wrongChange.get("impact") as ReadonlyMap<string, unknown>), ["change", "recalculate"]]));
+    expect(() => decodeTailEventPayload("formula.removed", wrongChange as never)).toThrow(CodecError);
+
+    expect(() =>
+      encodeRecordEventPayload({ kind: "theme.changed", payload: { before: null, after: { themeKey: "k", tokens: {} as never } } }),
+    ).toThrow(CodecError);
+  });
+
+  it("holds no evaluated value in a formula payload (invariant 7)", () => {
+    const map = decodeCanonical(
+      encodeCanonical(encodeRecordEventPayload(SCHEMA_EVENTS[8] as DomainEventV1)),
+    ) as ReadonlyMap<string, unknown>;
+    expect([...map.keys()].sort()).toEqual(["formula", "metadata", "priorSha256"]);
+    expect([...(map.get("formula") as ReadonlyMap<string, unknown>).keys()].sort()).toEqual([
+      "dependencies",
+      "determinism",
+      "displayName",
+      "disposition",
+      "document",
+      "formulaId",
+      "originalText",
+      "target",
+    ]);
   });
 });

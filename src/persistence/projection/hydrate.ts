@@ -43,6 +43,8 @@ import { encodeCanonical } from "../codecs/canonical-cbor.js";
 import { applyEvents } from "./apply-events.js";
 import {
   encodeAppTheme,
+  encodeFormulaDocument,
+  encodeFormulaMetadata,
   encodeFrontier,
   encodeMessageParameters,
   encodeOpaque,
@@ -66,6 +68,7 @@ import {
 import {
   INSERT_APP_STATE,
   INSERT_ENUM_OPTION,
+  INSERT_FORMULA_DEPENDENCY,
   INSERT_IMPORT_LINEAGE,
   INSERT_INERT_CONTENT,
   INSERT_INFERENCE_DECISION,
@@ -76,10 +79,12 @@ import {
   INSERT_SHEET_SNAPSHOT,
   INSERT_VALIDATION_RULE,
   UPDATE_SCHEMA_TABLE_FIELD_REFS,
+  UPSERT_FORMULA,
 } from "./statements.js";
 import type {
   ProjectionCheckpointV1,
   ProjectionCommitV1,
+  ProjectionFormulaV1,
   ProjectionSchemaCacheV1,
   ProjectionSheetSnapshotV1,
 } from "./types.js";
@@ -213,6 +218,14 @@ function loadMetadata(
     ]);
   }
 
+  // Every formula before any dependency: a dashboard value may read another.
+  for (const entry of checkpoint.formulas) {
+    upsertFormulaRow(handle, entry);
+  }
+  for (const entry of checkpoint.formulas) {
+    insertFormulaDependencies(handle, entry);
+  }
+
   for (const item of checkpoint.inertItems) {
     run(handle, INSERT_INERT_CONTENT, [
       item.inertItemId,
@@ -253,6 +266,49 @@ function loadMetadata(
   cacheSchema(handle.schema, checkpoint.tables, checkpoint.enumOptions);
   for (const relationship of checkpoint.relationships) {
     handle.schema.relationships.set(idKey(relationship.fromFieldId), relationship);
+  }
+  for (const entry of checkpoint.formulas) {
+    handle.schema.formulas.set(idKey(entry.formula.formulaId), entry);
+  }
+}
+
+/**
+ * One `formulas` row. A computed column's field must already name this
+ * formula (`trg_formulas_insert_guard`), so its field lands first; the
+ * definition itself holds no result, and neither does the row (CA-25).
+ */
+export function upsertFormulaRow(
+  handle: ProjectionHandleV1,
+  entry: ProjectionFormulaV1,
+): void {
+  const { formula } = entry;
+  run(handle, UPSERT_FORMULA, [
+    formula.formulaId,
+    formula.target.kind,
+    formula.target.tableId,
+    formula.target.kind === "computed-column" ? formula.target.fieldId : null,
+    formula.displayName,
+    formula.originalText,
+    formula.document === null ? null : encodeFormulaDocument(formula.document),
+    formula.disposition,
+    formula.determinism,
+    encodeFormulaMetadata(entry.metadata),
+    entry.isActive ? 1 : 0,
+    toSqlInteger(entry.schemaRevision),
+  ]);
+}
+
+/** The downstream-invalidation index (`idx_formula_dependencies_dependency`). */
+export function insertFormulaDependencies(
+  handle: ProjectionHandleV1,
+  entry: ProjectionFormulaV1,
+): void {
+  for (const dependency of entry.formula.dependencies) {
+    run(handle, INSERT_FORMULA_DEPENDENCY, [
+      entry.formula.formulaId,
+      dependency.kind,
+      dependency.kind === "field" ? dependency.fieldId : dependency.formulaId,
+    ]);
   }
 }
 
@@ -311,7 +367,7 @@ export function insertTables(
   }
 }
 
-function insertRelationship(
+export function insertRelationship(
   handle: ProjectionHandleV1,
   relationship: RelationshipDefV1,
 ): void {
@@ -343,7 +399,9 @@ export function insertField(
     field.type.kind,
     storageKindForFieldType(field.type),
     field.isRequired ? 1 : 0,
+    field.formulaId === undefined ? 0 : 1,
     field.isActive ? 1 : 0,
+    field.formulaId ?? null,
     toSqlInteger(field.schemaRevision),
   ]);
 }

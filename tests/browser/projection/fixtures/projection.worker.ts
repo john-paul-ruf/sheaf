@@ -103,6 +103,7 @@ const buildCheckpoint = (): ProjectionCheckpointV1 => {
     enumOptions: [],
     relationships: [],
     validationRules: [],
+    formulas: [],
     inertItems: [],
     importLineages: [],
     inferenceDecisions: [],

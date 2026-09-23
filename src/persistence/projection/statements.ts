@@ -72,17 +72,43 @@ UPDATE schema_tables
  WHERE table_id = ?;`;
 
 /**
- * `is_computed` is written `0` for every field this feature can hold: F02 has
- * no formula engine, and `FieldDefV1` deliberately declares no computed half
- * (invariant 7), so a computed field is not expressible rather than merely
- * absent.
+ * `is_computed` and `formula_id` travel together (D51): migration 005 refuses
+ * one without the other, and `formula_id` is a deferred reference, so a
+ * computed field may land before the formula that names it inside one
+ * transaction.
  */
 export const INSERT_SCHEMA_FIELD = `
 INSERT INTO schema_fields (
   field_id, table_id, display_name, field_ordinal, logical_type, storage_kind,
   is_required, is_computed, is_active, formula_id, source_evidence_cbor,
   schema_revision
-) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?);`;
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?);`;
+
+/** `field.changed`: everything but identity and owning table (D57). */
+export const UPDATE_SCHEMA_FIELD = `
+UPDATE schema_fields
+   SET display_name = ?, field_ordinal = ?, logical_type = ?, storage_kind = ?,
+       is_required = ?, is_computed = ?, is_active = ?, formula_id = ?,
+       schema_revision = ?
+ WHERE field_id = ?;`;
+
+/**
+ * Moves a field out of the way before a reorder lands: `(table_id,
+ * field_ordinal)` is unique, so swapping two ordinals one event at a time
+ * would collide half way.
+ */
+export const UPDATE_SCHEMA_FIELD_ORDINAL = `
+UPDATE schema_fields SET field_ordinal = ? WHERE field_id = ?;`;
+
+/** `table.changed`: name, order, key and label; the key trigger re-checks both. */
+export const UPDATE_SCHEMA_TABLE = `
+UPDATE schema_tables
+   SET display_name = ?, table_ordinal = ?, key_field_id = ?, label_field_id = ?,
+       is_active = ?, schema_revision = ?
+ WHERE table_id = ?;`;
+
+export const UPDATE_APP_STATE_NAME = `
+UPDATE app_state SET display_name = ? WHERE singleton = 1;`;
 
 export const INSERT_ENUM_OPTION = `
 INSERT INTO enum_options (
@@ -99,12 +125,72 @@ INSERT INTO validation_rules (
   message_parameters_cbor, is_active, schema_revision
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
 
+/** `rule.changed`: a new rule, or the complete replacement of one. */
+export const UPSERT_VALIDATION_RULE = `
+INSERT INTO validation_rules (
+  rule_id, table_id, display_name, rule_ir_cbor, message_key,
+  message_parameters_cbor, is_active, schema_revision
+) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+ON CONFLICT (rule_id) DO UPDATE SET
+  table_id = excluded.table_id, display_name = excluded.display_name,
+  rule_ir_cbor = excluded.rule_ir_cbor, message_key = excluded.message_key,
+  message_parameters_cbor = excluded.message_parameters_cbor, is_active = 1,
+  schema_revision = excluded.schema_revision;`;
+
+/**
+ * `rule.removed` retires the row rather than deleting it: an issue may still
+ * name it, and history reads it (migration 005's restricted reference).
+ */
+export const DEACTIVATE_VALIDATION_RULE = `
+UPDATE validation_rules SET is_active = 0, schema_revision = ? WHERE rule_id = ?;`;
+
+/**
+ * `formula.changed`: the trigger requires a computed column's field to name
+ * this formula already, so the field lands first (the same commit).
+ */
+export const UPSERT_FORMULA = `
+INSERT INTO formulas (
+  formula_id, target_kind, table_id, target_field_id, display_name,
+  original_text, formula_ir_cbor, disposition, determinism, metadata_cbor,
+  is_active, schema_revision
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (formula_id) DO UPDATE SET
+  target_kind = excluded.target_kind, table_id = excluded.table_id,
+  target_field_id = excluded.target_field_id,
+  display_name = excluded.display_name, original_text = excluded.original_text,
+  formula_ir_cbor = excluded.formula_ir_cbor, disposition = excluded.disposition,
+  determinism = excluded.determinism, metadata_cbor = excluded.metadata_cbor,
+  is_active = excluded.is_active, schema_revision = excluded.schema_revision;`;
+
+/** `formula.removed`: the row stays so the computed field still resolves. */
+export const DEACTIVATE_FORMULA = `
+UPDATE formulas SET is_active = 0, schema_revision = ? WHERE formula_id = ?;`;
+
+export const DELETE_FORMULA_DEPENDENCIES = `
+DELETE FROM formula_dependencies WHERE formula_id = ?;`;
+
+/** The existence trigger refuses an edge to a field or formula that is not there. */
+export const INSERT_FORMULA_DEPENDENCY = `
+INSERT INTO formula_dependencies (formula_id, dependency_kind, dependency_id)
+VALUES (?, ?, ?);`;
+
 /** The endpoint trigger refuses a source that is not a reference, or a key that is not the target's. */
 export const INSERT_RELATIONSHIP = `
 INSERT INTO relationships (
   relationship_id, from_table_id, from_field_id, to_table_id, to_key_field_id,
   detection_source, is_active, schema_revision
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
+
+/** `relationship.changed` on an existing relationship: retarget, enable, disable. */
+export const UPDATE_RELATIONSHIP = `
+UPDATE relationships
+   SET from_table_id = ?, from_field_id = ?, to_table_id = ?, to_key_field_id = ?,
+       detection_source = ?, is_active = ?, schema_revision = ?
+ WHERE relationship_id = ?;`;
+
+/** Nothing references a relationship row; its former definition lives in history. */
+export const DELETE_RELATIONSHIP = `
+DELETE FROM relationships WHERE relationship_id = ?;`;
 
 export const INSERT_INERT_CONTENT = `
 INSERT INTO inert_content (
@@ -146,8 +232,12 @@ INSERT INTO cells (
   decimal_value, decimal_order_key, integer_value, id_value
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 
-export const DELETE_CELLS_FOR_RECORD =
-  "DELETE FROM cells WHERE record_pk = ?;";
+/**
+ * A record mutation rewrites the authored lanes only. The computed lanes are
+ * recalculation's, and it recomputes just the downstream ones (D60).
+ */
+export const DELETE_AUTHORED_CELLS_FOR_RECORD =
+  "DELETE FROM cells WHERE record_pk = ? AND origin = 'authored';";
 
 export const INSERT_RECORD_ISSUE = `
 INSERT INTO record_issues (
@@ -155,8 +245,26 @@ INSERT INTO record_issues (
   message_parameters_cbor, provenance_cbor
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL);`;
 
-export const DELETE_ISSUES_FOR_RECORD =
-  "DELETE FROM record_issues WHERE record_pk = ?;";
+/**
+ * The five keys recalculation writes (CA-26; M02's `FORMULA_ISSUE_MESSAGE_KEYS`
+ * minus the validator's own `computed-not-authored`, pinned by
+ * `tests/unit/projection/statements.test.ts`). A record write replaces the
+ * validator's verdict and leaves these to recalculation.
+ */
+const RECALCULATED_ISSUE_KEYS = `
+  'formula-result-type', 'formula-error', 'formula-cycle',
+  'unsupported-formula', 'missing-unsupported-formula'`;
+
+export const DELETE_VALIDATOR_ISSUES_FOR_RECORD = `
+DELETE FROM record_issues
+ WHERE record_pk = ?
+   AND NOT (issue_kind = 'formula' AND message_key IN (${RECALCULATED_ISSUE_KEYS}));`;
+
+/** One computed field's recalculated issue on one record, before it is re-derived. */
+export const DELETE_RECALCULATED_ISSUES_FOR_CELL = `
+DELETE FROM record_issues
+ WHERE record_pk = ? AND field_id = ?
+   AND issue_kind = 'formula' AND message_key IN (${RECALCULATED_ISSUE_KEYS});`;
 
 /**
  * `record_search` is contentless with `contentless_delete=1`, so a row is
@@ -197,7 +305,7 @@ SELECT table_id, display_name, table_ordinal, source_sheet_id, key_field_id,
 
 export const SELECT_FIELDS_FOR_TABLE = `
 SELECT field_id, table_id, display_name, field_ordinal, logical_type,
-       storage_kind, is_required, is_active, schema_revision
+       storage_kind, is_required, is_active, schema_revision, formula_id
   FROM schema_fields
  WHERE table_id = ?
  ORDER BY field_ordinal;`;

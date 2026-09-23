@@ -63,7 +63,8 @@ import {
   type DeviceId,
   type FieldId,
 } from "../../domain/model/ids.js";
-import type { AuthoredRecordV1, F02DomainEventV1 } from "../../domain/model/events.js";
+import type { AuthoredRecordV1 } from "../../domain/model/events.js";
+import type { DomainEventV1 } from "../../application/ports/event-repository.js";
 import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
 import type { EnumOptionDefV1, TableDefV1 } from "../../domain/model/schema.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
@@ -364,6 +365,7 @@ export function toProjectionCheckpoint(
     enumOptions: checkpoint.enumOptions,
     relationships: checkpoint.relationships,
     validationRules: checkpoint.validationRules,
+    formulas: checkpoint.formulas,
     inertItems: checkpoint.inertItems.map((item) => ({
       ...item,
       preservedManifestStorageId:
@@ -547,7 +549,7 @@ function toProjectionCommit(
   projection: ProjectionEnginePort,
   commit: EventCommitV1,
 ): ProjectionCommitV1 {
-  const events: F02DomainEventV1[] = [];
+  const events: DomainEventV1[] = [];
   const issuesByEventIndex = new Map<number, readonly ValidationIssueV1Input[]>();
 
   commit.events.forEach((wire, index) => {
@@ -565,15 +567,36 @@ function toProjectionCommit(
     }
   });
 
-  return issuesByEventIndex.size === 0
-    ? { commit, events }
-    : { commit, events, issuesByEventIndex };
+  return {
+    commit,
+    events,
+    ...(issuesByEventIndex.size === 0 ? {} : { issuesByEventIndex }),
+    revalidate: projectionRevalidator(projection),
+  };
+}
+
+/**
+ * The validator a schema commit's re-shaped tables are re-judged through,
+ * against the projection as the commit left it. Nothing is authored by a
+ * re-judgement, so no provenance is claimed — exactly as a command would
+ * see a record it did not touch (D36).
+ */
+export function projectionRevalidator(
+  projection: ProjectionEnginePort,
+): (record: AuthoredRecordV1) => readonly ValidationIssueV1Input[] {
+  return (record) =>
+    validateAgainstProjection(projection, {
+      recordId: record.recordId,
+      tableId: record.tableId,
+      values: record.values,
+      provenance: new Map(),
+    })?.issues.map(toIssueInput) ?? [];
 }
 
 /** The one shared validator, re-deciding exactly what it decided at write time. */
 function issuesForEvent(
   projection: ProjectionEnginePort,
-  event: F02DomainEventV1,
+  event: DomainEventV1,
 ): readonly ValidationIssueV1Input[] {
   switch (event.kind) {
     case "record.created":

@@ -212,6 +212,7 @@ async function runQueries(): Promise<QueryReport> {
       },
     ],
     relationships: [],
+    formulas: [],
     inertItems: [],
     importLineages: [],
     inferenceDecisions: [],

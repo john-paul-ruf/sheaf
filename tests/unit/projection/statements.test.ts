@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as statements from "../../../src/persistence/projection/statements.js";
+import { FORMULA_ISSUE_MESSAGE_KEYS } from "../../../src/domain/validation/rules.js";
 
 /**
  * The closed-template gate (database.md § SQLite Query Patterns).
@@ -21,11 +22,23 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   INSERT_SHEET_SNAPSHOT: 8,
   INSERT_SCHEMA_TABLE: 6,
   UPDATE_SCHEMA_TABLE_FIELD_REFS: 3,
-  INSERT_SCHEMA_FIELD: 9,
+  INSERT_SCHEMA_FIELD: 11,
+  UPDATE_SCHEMA_FIELD: 10,
+  UPDATE_SCHEMA_FIELD_ORDINAL: 2,
+  UPDATE_SCHEMA_TABLE: 7,
+  UPDATE_APP_STATE_NAME: 1,
   INSERT_ENUM_OPTION: 6,
   DELETE_ENUM_OPTIONS_FOR_FIELD: 1,
   INSERT_VALIDATION_RULE: 8,
+  UPSERT_VALIDATION_RULE: 7,
+  DEACTIVATE_VALIDATION_RULE: 2,
+  UPSERT_FORMULA: 12,
+  DEACTIVATE_FORMULA: 2,
+  DELETE_FORMULA_DEPENDENCIES: 1,
+  INSERT_FORMULA_DEPENDENCY: 3,
   INSERT_RELATIONSHIP: 8,
+  UPDATE_RELATIONSHIP: 8,
+  DELETE_RELATIONSHIP: 1,
   INSERT_INERT_CONTENT: 7,
   INSERT_IMPORT_LINEAGE: 8,
   INSERT_INFERENCE_DECISION: 7,
@@ -34,9 +47,10 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   UPDATE_RECORD: 4,
   DELETE_RECORD: 1,
   INSERT_CELL: 10,
-  DELETE_CELLS_FOR_RECORD: 1,
+  DELETE_AUTHORED_CELLS_FOR_RECORD: 1,
   INSERT_RECORD_ISSUE: 8,
-  DELETE_ISSUES_FOR_RECORD: 1,
+  DELETE_VALIDATOR_ISSUES_FOR_RECORD: 1,
+  DELETE_RECALCULATED_ISSUES_FOR_CELL: 2,
   INSERT_SEARCH_ROW: 2,
   DELETE_SEARCH_ROW: 1,
   INSERT_CHANGE_HISTORY: 12,
@@ -80,9 +94,17 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
 };
 
 /**
+ * The five message keys recalculation owns (CA-26): M02's formula keys minus
+ * the validator's own refusal of a user write.
+ */
+const RECALCULATED_KEYS = FORMULA_ISSUE_MESSAGE_KEYS.filter(
+  (key) => key !== "computed-not-authored",
+);
+
+/**
  * The only quoted literals allowed inside a statement: values from migration
- * 005's own closed CHECK sets. Anything else quoted would be a value the engine
- * wrote into SQL instead of binding.
+ * 005's own closed CHECK sets, and M02's closed formula issue keys. Anything
+ * else quoted would be a value the engine wrote into SQL instead of binding.
  */
 const ALLOWED_LITERALS = new Set([
   "'blocking'",
@@ -90,6 +112,9 @@ const ALLOWED_LITERALS = new Set([
   "'record'",
   "'record.deleted'",
   "'id'",
+  "'authored'",
+  "'formula'",
+  ...RECALCULATED_KEYS.map((key) => `'${key}'`),
 ]);
 
 const sqlEntries = Object.entries(
@@ -127,6 +152,18 @@ describe("projection statements", () => {
         );
       }
     }
+  });
+
+  it("leaves recalculation's issues and lanes alone on a record write, naming exactly its keys", () => {
+    for (const sql of [
+      statements.DELETE_VALIDATOR_ISSUES_FOR_RECORD,
+      statements.DELETE_RECALCULATED_ISSUES_FOR_CELL,
+    ]) {
+      const named = (sql.match(/'[a-z-]+'/g) ?? []).filter((literal) => literal !== "'formula'");
+      expect(named.sort()).toEqual(RECALCULATED_KEYS.map((key) => `'${key}'`).sort());
+    }
+    expect(RECALCULATED_KEYS).toHaveLength(5);
+    expect(statements.DELETE_AUTHORED_CELLS_FOR_RECORD).toContain("origin = 'authored'");
   });
 
   it("pages and searches by record_pk so a boundary stays stable", () => {

@@ -353,6 +353,7 @@ async function hydrateFixture(input: FixtureInput): Promise<HydrationSnapshot> {
     ],
     enumOptions,
     relationships: [],
+    formulas: [],
     inertItems: [],
     importLineages: [],
     inferenceDecisions: [],

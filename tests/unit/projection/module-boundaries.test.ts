@@ -22,11 +22,16 @@ const moduleDirectory = fileURLToPath(
   new URL("../../../src/persistence/projection/", import.meta.url),
 );
 
-/** Everything M12 is allowed to depend on, and nothing else. */
+/**
+ * Everything M12 is allowed to depend on, and nothing else. M03 (formulas)
+ * joined in F04: the projection recalculates through the one bounded
+ * interpreter (D60, invariant 8) rather than a second evaluator of its own.
+ */
 const ALLOWED_IMPORTS = [
   "@sqlite.org/sqlite-wasm",
   "../../domain/model/",
   "../../domain/validation/",
+  "../../domain/formulas/",
   "../codecs/",
   "../../migrations/",
   "./",
@@ -126,5 +131,13 @@ describe("M12 module boundaries", () => {
       ),
     ).toBe(false);
     expect(FORBIDDEN[0]?.pattern.test("dexie")).toBe(true);
+    // The M03 edge is the formulas module itself, not anything that merely
+    // shares its prefix: the import pipeline's formula facts stay forbidden.
+    const pipelineFacts = 'import { f } from "../../import/facts/workbook-facts.js";\n';
+    expect(
+      importSpecifiers(pipelineFacts).every((specifier) =>
+        ALLOWED_IMPORTS.some((allowed) => specifier.startsWith(allowed)),
+      ),
+    ).toBe(false);
   });
 });

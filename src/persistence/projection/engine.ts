@@ -106,6 +106,7 @@ export async function openProjection(
       enumOptions: new Map(),
       optionLabels: new Map(),
       relationships: new Map(),
+      formulas: new Map(),
     },
     appliedCommits: [],
     frontier: new Map(),
@@ -166,6 +167,7 @@ export function disposeProjection(handle: ProjectionHandleV1): void {
   handle.schema.enumOptions.clear();
   handle.schema.optionLabels.clear();
   handle.schema.relationships.clear();
+  handle.schema.formulas.clear();
   handle.appliedCommits.length = 0;
   handle.frontier.clear();
   handle.database.close();

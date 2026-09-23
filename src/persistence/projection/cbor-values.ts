@@ -28,7 +28,9 @@ import {
   type AppThemeV1,
   type AuthoredRecordV1,
   type FieldChangeV1,
+  type FormulaMetadataV1,
 } from "../../domain/model/events.js";
+import type { FormulaIRDocumentV1, FormulaIRV1 } from "../../domain/formulas/ir.js";
 import {
   asDomainId,
   compareDomainIds,
@@ -52,10 +54,13 @@ import {
   type CellValueV1,
 } from "../../domain/model/values.js";
 import {
+  COMPARE_OPERATORS,
   VALIDATION_ISSUE_KINDS,
   VALIDATION_SEVERITIES,
+  type CompareOperatorV1,
   type MessageParameterV1,
   type RuleConditionV1,
+  type RuleConditionV2,
   type ValidationRuleIR,
 } from "../../domain/validation/rules.js";
 import {
@@ -68,14 +73,14 @@ import {
 import { sortFrontier } from "../codecs/event-commit.js";
 import type { FrontierEntryV1 } from "../../migrations/004_event_format_v1.js";
 import type { CellRangeV1 } from "../../domain/model/snapshots.js";
-import type { ProjectionChangeSummaryV1 } from "./types.js";
+import type { ProjectionChangeSummaryV1, RecordRuleIRV1 } from "./types.js";
 
 type CborMap = Map<string, CborValue>;
 type DecodedMap = ReadonlyMap<DecodedKey, DecodedValue>;
 
 // ------------------------------------------------------------------ values --
 
-const encodeCellValue = (value: CellValueV1): CborValue => {
+export const encodeCellValue = (value: CellValueV1): CborValue => {
   const map: CborMap = new Map([["kind", value.kind]]);
   switch (value.kind) {
     case "text":
@@ -110,7 +115,7 @@ const encodeCellValue = (value: CellValueV1): CborValue => {
   return map;
 };
 
-const decodeCellValue = (value: DecodedValue): CellValueV1 => {
+export const decodeCellValue = (value: DecodedValue): CellValueV1 => {
   const map = asMap(value, "cell value");
   switch (readText(map, "kind")) {
     case "text":
@@ -275,7 +280,7 @@ export function decodeAppTheme(bytes: Uint8Array): AppThemeV1 {
 
 // ------------------------------------------------------------------- rules --
 
-const encodeCondition = (condition: RuleConditionV1): CborValue => {
+const encodeCondition = (condition: RuleConditionV2): CborValue => {
   const map: CborMap = new Map([["kind", condition.kind]]);
   switch (condition.kind) {
     case "field-present":
@@ -293,6 +298,27 @@ const encodeCondition = (condition: RuleConditionV1): CborValue => {
     case "not":
       map.set("condition", encodeCondition(condition.condition));
       break;
+    case "compare":
+      map.set("left", condition.left);
+      map.set("op", condition.op);
+      if ("field" in condition.right) {
+        map.set("rightField", condition.right.field);
+      } else {
+        map.set("rightValue", encodeCellValue(condition.right.value));
+      }
+      if (condition.measure !== undefined) {
+        map.set("measure", condition.measure);
+      }
+      break;
+    case "between":
+    case "not-between":
+      map.set("fieldId", condition.fieldId);
+      map.set("low", encodeCellValue(condition.low));
+      map.set("high", encodeCellValue(condition.high));
+      if (condition.measure !== undefined) {
+        map.set("measure", condition.measure);
+      }
+      break;
     default: {
       const unreachable: never = condition;
       return unreachable;
@@ -301,9 +327,21 @@ const encodeCondition = (condition: RuleConditionV1): CborValue => {
   return map;
 };
 
-const decodeCondition = (value: DecodedValue): RuleConditionV1 => {
+const withMeasure = (map: DecodedMap): { readonly measure?: "text-length" } => {
+  const measure = map.get("measure");
+  if (measure === undefined) {
+    return {};
+  }
+  if (measure !== "text-length") {
+    throw new CodecError("rule measure is not in the closed v2 list");
+  }
+  return { measure };
+};
+
+const decodeCondition = (value: DecodedValue, irVersion: 1 | 2): RuleConditionV2 => {
   const map = asMap(value, "rule condition");
   const kind = readText(map, "kind");
+  const nested = (entry: DecodedValue): RuleConditionV2 => decodeCondition(entry, irVersion);
   switch (kind) {
     case "field-present":
     case "field-absent":
@@ -316,27 +354,48 @@ const decodeCondition = (value: DecodedValue): RuleConditionV1 => {
       };
     case "all":
     case "any":
+      return { kind, conditions: asArray(map.get("conditions"), "conditions").map(nested) };
+    case "not":
+      return { kind, condition: nested(required(map, "condition")) };
+    case "compare": {
+      if (irVersion !== 2) break;
+      const op = readText(map, "op");
+      if (!(COMPARE_OPERATORS as readonly string[]).includes(op)) {
+        throw new CodecError("comparison operator is not in the closed v2 list");
+      }
+      const rightField = map.get("rightField");
       return {
         kind,
-        conditions: asArray(map.get("conditions"), "conditions").map(
-          decodeCondition,
-        ),
+        left: asDomainId("field", readBytes(map, "left")),
+        op: op as CompareOperatorV1,
+        right:
+          rightField === undefined
+            ? { value: decodeCellValue(required(map, "rightValue")) }
+            : { field: asDomainId("field", asBytes(rightField, "rightField")) },
+        ...withMeasure(map),
       };
-    case "not":
-      return { kind, condition: decodeCondition(required(map, "condition")) };
+    }
+    case "between":
+    case "not-between":
+      if (irVersion !== 2) break;
+      return {
+        kind,
+        fieldId: asDomainId("field", readBytes(map, "fieldId")),
+        low: decodeCellValue(required(map, "low")),
+        high: decodeCellValue(required(map, "high")),
+        ...withMeasure(map),
+      };
     default:
-      throw new CodecError("rule condition kind is not in the closed v1 IR");
+      break;
   }
+  throw new CodecError("rule condition kind is not in its IR version's closed list");
 };
 
-/** `validation_rules.rule_ir_cbor`: the closed, non-executing rule IR. */
-export function encodeRuleIR(rule: ValidationRuleIR): Uint8Array {
-  if (rule.irVersion !== 1) {
-    throw new CodecError("unsupported rule IR version");
-  }
+/** `validation_rules.rule_ir_cbor`: the closed, non-executing rule IR, v1 or v2. */
+export function encodeRuleIR(rule: RecordRuleIRV1): Uint8Array {
   return encodeCanonical(
     new Map<string, CborValue>([
-      ["irVersion", 1n],
+      ["irVersion", BigInt(rule.irVersion)],
       ["ruleId", rule.ruleId],
       ["severity", rule.severity],
       ["messageKey", rule.messageKey],
@@ -348,23 +407,111 @@ export function encodeRuleIR(rule: ValidationRuleIR): Uint8Array {
 export function decodeRuleIR(
   bytes: Uint8Array,
   messageParameters: Readonly<Record<string, MessageParameterV1>>,
-): ValidationRuleIR {
+): RecordRuleIRV1 {
   const map = asMap(decodeCanonical(bytes), "rule IR");
-  if (readInteger(map, "irVersion") !== 1n) {
+  const version = readInteger(map, "irVersion");
+  if (version !== 1n && version !== 2n) {
     throw new CodecError("unsupported rule IR version");
   }
   const severity = readText(map, "severity");
   if (!(VALIDATION_SEVERITIES as readonly string[]).includes(severity)) {
     throw new CodecError("rule severity is not in the closed v1 list");
   }
-  return {
-    irVersion: 1,
+  const common = {
     ruleId: asDomainId("rule", readBytes(map, "ruleId")),
     severity: severity as ValidationRuleIR["severity"],
     messageKey: readText(map, "messageKey"),
     messageParameters,
-    condition: decodeCondition(required(map, "condition")),
   };
+  return version === 1n
+    ? {
+        irVersion: 1,
+        ...common,
+        condition: decodeCondition(required(map, "condition"), 1) as RuleConditionV1,
+      }
+    : { irVersion: 2, ...common, condition: decodeCondition(required(map, "condition"), 2) };
+}
+
+// ---------------------------------------------------------------- formulas --
+
+const encodeIRNode = (node: FormulaIRV1): CborValue => {
+  const map: CborMap = new Map([["kind", node.kind]]);
+  switch (node.kind) {
+    case "literal":
+      map.set("value", encodeCellValue(node.value));
+      break;
+    case "error":
+      map.set("code", node.code);
+      break;
+    case "field":
+      map.set("fieldId", node.fieldId);
+      break;
+    case "column":
+      map.set("tableId", node.tableId);
+      map.set("fieldId", node.fieldId);
+      break;
+    case "related":
+      map.set("relationshipId", node.relationshipId);
+      map.set("referenceFieldId", node.referenceFieldId);
+      map.set("fieldId", node.fieldId);
+      break;
+    case "formula":
+      map.set("formulaId", node.formulaId);
+      break;
+    case "unary":
+      map.set("operator", node.operator);
+      map.set("operand", encodeIRNode(node.operand));
+      break;
+    case "binary":
+      map.set("operator", node.operator);
+      map.set("left", encodeIRNode(node.left));
+      map.set("right", encodeIRNode(node.right));
+      break;
+    case "call":
+      map.set("name", node.name);
+      map.set("version", BigInt(node.version));
+      map.set(
+        "args",
+        node.args.map((argument) => (argument === null ? null : encodeIRNode(argument))),
+      );
+      break;
+    default: {
+      const unreachable: never = node;
+      return unreachable;
+    }
+  }
+  return map;
+};
+
+/** `formulas.formula_ir_cbor`: the IR document, IDs only. */
+export function encodeFormulaDocument(document: FormulaIRDocumentV1): Uint8Array {
+  return encodeCanonical(
+    new Map<string, CborValue>([
+      ["irVersion", BigInt(document.irVersion)],
+      ["root", encodeIRNode(document.root)],
+    ]),
+  );
+}
+
+/** `formulas.metadata_cbor`: catalog and function versions, source, policy. */
+export function encodeFormulaMetadata(metadata: FormulaMetadataV1): Uint8Array {
+  return encodeCanonical(
+    new Map<string, CborValue>([
+      ["catalogVersion", BigInt(metadata.catalogVersion)],
+      [
+        "functionVersions",
+        metadata.functionVersions.map(
+          (entry) =>
+            new Map<string, CborValue>([
+              ["name", entry.name],
+              ["version", BigInt(entry.version)],
+            ]),
+        ),
+      ],
+      ["source", metadata.source],
+      ["importedValuePolicy", metadata.importedValuePolicy],
+    ]),
+  );
 }
 
 // -------------------------------------------------- messages and summaries --

@@ -27,11 +27,13 @@
 
 import type {
   AuthoredRecordV1,
-  F02DomainEventV1,
   FieldChangeV1,
+  FormulaMetadataV1,
   AppThemeV1,
   InferenceDispositionV1,
 } from "../../domain/model/events.js";
+import type { DomainEventV1, RecordRuleIRV1 } from "./event-repository.js";
+import type { FormulaDefinitionV1 } from "../../domain/formulas/ir.js";
 import type {
   CellRangeV1,
   DecisionKindV1,
@@ -66,7 +68,6 @@ import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type {
   ValidationIssueKindV1,
-  ValidationRuleIR,
   ValidationSeverityV1,
 } from "../../domain/validation/rules.js";
 import type {
@@ -117,7 +118,16 @@ export interface ProjectionSheetSnapshotV1 {
 export interface ProjectionValidationRuleV1 {
   readonly tableId: TableId;
   readonly displayName: string;
-  readonly rule: ValidationRuleIR;
+  /** IR v1 or v2 (CA-27). */
+  readonly rule: RecordRuleIRV1;
+  readonly isActive: boolean;
+  readonly schemaRevision: bigint;
+}
+
+/** One formula definition (CA-25); it never holds a result. */
+export interface ProjectionFormulaV1 {
+  readonly formula: FormulaDefinitionV1;
+  readonly metadata: FormulaMetadataV1;
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
 }
@@ -167,6 +177,7 @@ export interface ProjectionCheckpointV1 {
   readonly enumOptions: readonly EnumOptionDefV1[];
   readonly relationships: readonly RelationshipDefV1[];
   readonly validationRules: readonly ProjectionValidationRuleV1[];
+  readonly formulas: readonly ProjectionFormulaV1[];
   readonly inertItems: readonly ProjectionInertItemV1[];
   readonly importLineages: readonly ImportLineageV1[];
   readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
@@ -180,11 +191,19 @@ export interface ProjectionCheckpointV1 {
  */
 export interface ProjectionCommitV1 {
   readonly commit: EventCommitV1;
-  readonly events: readonly F02DomainEventV1[];
+  readonly events: readonly DomainEventV1[];
   readonly issuesByEventIndex?: ReadonlyMap<
     number,
     readonly ProjectionIssueInputV1[]
   >;
+  /**
+   * The one shared validator, for a commit that changes the schema: every
+   * record of a table it touched is re-judged through it once the commit's
+   * events have landed. The projection asks; it never decides (invariant 5).
+   */
+  readonly revalidate?: (
+    record: AuthoredRecordV1,
+  ) => readonly ProjectionIssueInputV1[];
 }
 
 // --- queries out ------------------------------------------------------------
@@ -402,7 +421,9 @@ export type ProjectionQueryV1 =
   | {
       readonly kind: "list-inference-decisions";
       readonly decisionKind: DecisionKindV1 | null;
-    };
+    }
+  /** A table's formulas, or every formula when null. */
+  | { readonly kind: "list-formulas"; readonly tableId: TableId | null };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -427,6 +448,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-sheet-snapshots": readonly ProjectionSheetListingV1[];
   readonly "list-inert-items": readonly ProjectionInertItemV1[];
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
+  readonly "list-formulas": readonly ProjectionFormulaV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

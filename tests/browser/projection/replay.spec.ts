@@ -196,6 +196,7 @@ async function runReplay(input: {
     ],
     relationships: [],
     validationRules: [],
+    formulas: [],
     inertItems: [],
     importLineages: [],
     inferenceDecisions: [],

@@ -22,6 +22,13 @@
  * reads the same from a checkpoint and from an event. A `table.created` written
  * before F03 carries no `sourceSheet` and reads as `null`.
  *
+ * F04's schema, rule and formula kinds are mapped by `schema-event-payloads.ts`
+ * and dispatched from here, so {@link encodeRecordEventPayload} is still the one
+ * function the event store derives every authored payload from. A schema
+ * command's `field.created` (a new computed column carries its `formulaId`)
+ * and `enum.changed` are encoded here with the same M23 definitions promotion
+ * uses, so both writers produce payloads one reader can decode.
+ *
  * The cell-value mapping is **M23's own** (`encodeCellValue`/`decodeCellValue`),
  * not a second copy: a value stored in a checkpoint record page and the same
  * value carried in a patch event must decode to the same thing, and one
@@ -29,14 +36,16 @@
  */
 
 import { CodecError } from "../../domain/model/errors.js";
-import type {
-  AuthoredRecordV1,
-  F02DomainEventV1,
-  FieldChangeV1,
-  RecordCreatedPayloadV1,
-  RecordDeletedPayloadV1,
-  RecordPatchedPayloadV1,
-  RecordRestoredPayloadV1,
+import type { DomainEventV1 } from "../../application/ports/event-repository.js";
+import {
+  F04_SCHEMA_EVENT_KINDS,
+  type AuthoredRecordV1,
+  type F04SchemaEventKindV1,
+  type FieldChangeV1,
+  type RecordCreatedPayloadV1,
+  type RecordDeletedPayloadV1,
+  type RecordPatchedPayloadV1,
+  type RecordRestoredPayloadV1,
 } from "../../domain/model/events.js";
 import { DELETION_SOURCES, INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
 import type { FieldId } from "../../domain/model/ids.js";
@@ -53,7 +62,10 @@ import {
   decodeSheetDescriptor,
   decodeTableDef,
   encodeCellValue,
+  encodeEnumOption,
+  encodeFieldDef,
 } from "../../import/staging/roots.js";
+import { decodeSchemaEventPayload, encodeSchemaEventPayload } from "./schema-event-payloads.js";
 import {
   asMap,
   bytesOfLength,
@@ -87,13 +99,17 @@ export function isRecordEventKind(kind: string): kind is RecordEventKindV1 {
   return (RECORD_EVENT_KINDS as readonly string[]).includes(kind);
 }
 
-/** Every kind a tail commit may carry: CRUD, plus an appended table's schema. */
+/**
+ * Every kind a tail commit may carry: CRUD, an appended table's schema, and
+ * F04's schema, rule and formula edits.
+ */
 export const TAIL_EVENT_KINDS = Object.freeze([
   ...RECORD_EVENT_KINDS,
   "table.created",
   "field.created",
   "enum.changed",
   "inference-decision.recorded",
+  ...F04_SCHEMA_EVENT_KINDS,
 ] as const);
 
 export type TailEventKindV1 = (typeof TAIL_EVENT_KINDS)[number];
@@ -251,9 +267,34 @@ const decodeChange = (value: DecodedValue): FieldChangeV1 => {
 
 // ----------------------------------------------------------------- payloads --
 
-/** The wire payload for one typed record event. */
-export function encodeRecordEventPayload(event: F02DomainEventV1): CborValue {
+/**
+ * The wire payload for one authored event: a record event, a schema
+ * command's `field.created`/`enum.changed`, or an F04 schema event. The
+ * import commit's kinds are promotion's to write and are refused here.
+ */
+export function encodeRecordEventPayload(event: DomainEventV1): CborValue {
   switch (event.kind) {
+    case "field.created":
+      return cborMap([
+        ["field", encodeFieldDef(event.payload.field)],
+        ["evidence", event.payload.evidence as CborValue],
+      ]);
+    case "enum.changed":
+      return cborMap([
+        ["fieldId", event.payload.fieldId],
+        ["priorOptionSetSha256", event.payload.priorOptionSetSha256],
+        ["options", event.payload.options.map(encodeEnumOption)],
+      ]);
+    case "app.renamed":
+    case "table.changed":
+    case "field.changed":
+    case "relationship.changed":
+    case "relationship.removed":
+    case "rule.changed":
+    case "rule.removed":
+    case "formula.changed":
+    case "formula.removed":
+      return encodeSchemaEventPayload(event);
     case "record.created":
       return cborMap([
         ["record", encodeAuthoredRecord(event.payload.record)],
@@ -284,7 +325,7 @@ export function encodeRecordEventPayload(event: F02DomainEventV1): CborValue {
         ["record", encodeAuthoredRecord(event.payload.record)],
       ]);
     default:
-      throw new CodecError("this event kind is not a record event");
+      throw new CodecError("this event kind is not one a command authors");
   }
 }
 
@@ -296,7 +337,7 @@ export function encodeRecordEventPayload(event: F02DomainEventV1): CborValue {
 export function decodeRecordEventPayload(
   kind: RecordEventKindV1,
   payload: DecodedValue,
-): F02DomainEventV1 {
+): DomainEventV1 {
   switch (kind) {
     case "record.created":
       return { kind, payload: decodeCreated(payload) };
@@ -396,7 +437,10 @@ function decodeRestored(value: DecodedValue): RecordRestoredPayloadV1 {
 export function decodeTailEventPayload(
   kind: TailEventKindV1,
   payload: DecodedValue,
-): F02DomainEventV1 {
+): DomainEventV1 {
+  if (isSchemaEventKind(kind)) {
+    return decodeSchemaEventPayload(kind, payload);
+  }
   switch (kind) {
     case "record.created":
     case "record.patched":
@@ -482,6 +526,10 @@ export function decodeTailEventPayload(
       return unreachable;
     }
   }
+}
+
+function isSchemaEventKind(kind: TailEventKindV1): kind is F04SchemaEventKindV1 {
+  return (F04_SCHEMA_EVENT_KINDS as readonly string[]).includes(kind);
 }
 
 function bytes32(value: Uint8Array, what: string): Uint8Array {

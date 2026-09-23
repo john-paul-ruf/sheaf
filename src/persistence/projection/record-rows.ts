@@ -24,6 +24,7 @@
 import { encodeBase64Url } from "../../domain/model/bytes.js";
 import {
   expectedCellKindForFieldType,
+  isComputedField,
   type FieldDefV1,
   type StorageKindV1,
 } from "../../domain/model/schema.js";
@@ -38,9 +39,9 @@ import {
   type SqlParam,
 } from "./engine.js";
 import {
-  DELETE_CELLS_FOR_RECORD,
-  DELETE_ISSUES_FOR_RECORD,
+  DELETE_AUTHORED_CELLS_FOR_RECORD,
   DELETE_SEARCH_ROW,
+  DELETE_VALIDATOR_ISSUES_FOR_RECORD,
   INSERT_CELL,
   INSERT_RECORD,
   INSERT_RECORD_ISSUE,
@@ -161,9 +162,9 @@ export function projectCellValue(
 
 /**
  * The text FTS indexes: what a person can actually read on the record, in
- * schema order — values of active fields plus the labels of the enum options
- * they name. Provenance, issue text, and the IDs themselves are not searchable
- * text and are left out.
+ * schema order — values of active authored fields plus the labels of the enum
+ * options they name. Provenance, issue text, and the IDs themselves are not
+ * searchable text and are left out.
  */
 export function searchableTextFor(
   schema: ProjectionSchemaCacheV1,
@@ -175,7 +176,9 @@ export function searchableTextFor(
   const parts: string[] = [];
 
   for (const field of schema.fieldsByTable.get(idKey(record.tableId)) ?? []) {
-    if (!field.isActive) {
+    // A computed column is not searchable text, even where a frozen or
+    // unsupported literal backs it (database.md § `record_search`).
+    if (!field.isActive || isComputedField(field)) {
       continue;
     }
     const value = values.get(idKey(field.fieldId));
@@ -229,7 +232,8 @@ const cellParameters = (
 ): readonly SqlParam[] => [
   recordPk,
   field.fieldId,
-  // F02 has no formula engine, so every cell is authored (invariant 7).
+  // Only an authored field gets a lane here; a computed field's lane is
+  // recalculation's, with `origin = 'computed'` (D51, invariant 7).
   "authored",
   cell.valueKind,
   cell.textValue,
@@ -255,25 +259,31 @@ const issueParameters = (
   encodeMessageParameters(issue.messageParameters),
 ];
 
-/** Writes the cells, issues, and search row of an already-written record. */
-function writeRecordContents(
+/**
+ * Writes a record's authored lanes and returns the projection's own issues
+ * for the values that could not take one.
+ */
+function writeLanes(
   handle: ProjectionHandleV1,
   recordPk: number,
-  record: ProjectionRecordV1,
-): void {
-  const fields = handle.schema.fieldsByTable.get(idKey(record.record.tableId));
+  record: AuthoredRecordV1,
+): readonly ValidationIssueV1Input[] {
+  const fields = handle.schema.fieldsByTable.get(idKey(record.tableId));
   if (fields === undefined) {
     throw new Error("record names a table this projection does not hold");
   }
 
-  const issues = [...record.issues];
+  const issues: ValidationIssueV1Input[] = [];
   const values = new Map(
-    [...record.record.values].map(([fieldId, value]) => [idKey(fieldId), value]),
+    [...record.values].map(([fieldId, value]) => [idKey(fieldId), value]),
   );
 
   for (const field of fields) {
     const value = values.get(idKey(field.fieldId));
-    if (value === undefined) {
+    // A frozen or unsupported column's literal is authored but projected into
+    // the computed lane by recalculation, never here: migration 005's cells
+    // trigger ties the origin to the field (D51).
+    if (value === undefined || isComputedField(field)) {
       continue;
     }
     const projected = projectCellValue(field, value);
@@ -284,15 +294,53 @@ function writeRecordContents(
       issues.push(projected.issue);
     }
   }
+  return issues;
+}
 
+/** The validator's verdict, in the order it gave it; ordinals start at zero. */
+function writeIssues(
+  handle: ProjectionHandleV1,
+  recordPk: number,
+  issues: readonly ValidationIssueV1Input[],
+): void {
   issues.forEach((issue, ordinal) => {
     run(handle, INSERT_RECORD_ISSUE, issueParameters(recordPk, issue, ordinal));
   });
+}
 
+/** Writes the cells, issues, and search row of an already-written record. */
+function writeRecordContents(
+  handle: ProjectionHandleV1,
+  recordPk: number,
+  record: ProjectionRecordV1,
+): void {
+  const laneIssues = writeLanes(handle, recordPk, record.record);
+  writeIssues(handle, recordPk, [...record.issues, ...laneIssues]);
   run(handle, INSERT_SEARCH_ROW, [
     recordPk,
     searchableTextFor(handle.schema, record.record),
   ]);
+}
+
+/**
+ * Rebuilds a live record's authored lanes and search text after its schema
+ * moved (a type change sends a field to another lane). `issues` is the
+ * validator's fresh verdict, or null to keep the one the record has.
+ */
+export function reindexRecord(
+  handle: ProjectionHandleV1,
+  recordPk: number,
+  record: AuthoredRecordV1,
+  issues: readonly ValidationIssueV1Input[] | null,
+): void {
+  run(handle, DELETE_AUTHORED_CELLS_FOR_RECORD, [recordPk]);
+  run(handle, DELETE_SEARCH_ROW, [recordPk]);
+  const laneIssues = writeLanes(handle, recordPk, record);
+  if (issues !== null) {
+    run(handle, DELETE_VALIDATOR_ISSUES_FOR_RECORD, [recordPk]);
+    writeIssues(handle, recordPk, [...issues, ...laneIssues]);
+  }
+  run(handle, INSERT_SEARCH_ROW, [recordPk, searchableTextFor(handle.schema, record)]);
 }
 
 /** Inserts a live record with everything that hangs off it; returns its key. */
@@ -321,8 +369,10 @@ export function insertRecord(
 
 /**
  * Replaces a live record's values in place. The row keeps its key — cursors,
- * FTS rowids, and issue identities all hang off it — while its cells, issues,
- * and searchable text are rewritten from the new authored state.
+ * FTS rowids, and issue identities all hang off it — while its authored
+ * cells, the validator's issues, and its searchable text are rewritten from
+ * the new authored state. Computed lanes and their issues are left to
+ * recalculation, which recomputes only what the change reaches (D60).
  */
 export function replaceRecord(
   handle: ProjectionHandleV1,
@@ -335,8 +385,8 @@ export function replaceRecord(
     encodeAuthoredRecord(record.record),
     recordPk,
   ]);
-  run(handle, DELETE_CELLS_FOR_RECORD, [recordPk]);
-  run(handle, DELETE_ISSUES_FOR_RECORD, [recordPk]);
+  run(handle, DELETE_AUTHORED_CELLS_FOR_RECORD, [recordPk]);
+  run(handle, DELETE_VALIDATOR_ISSUES_FOR_RECORD, [recordPk]);
   run(handle, DELETE_SEARCH_ROW, [recordPk]);
   writeRecordContents(handle, recordPk, record);
 }

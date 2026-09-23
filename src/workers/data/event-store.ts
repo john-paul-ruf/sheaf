@@ -375,6 +375,9 @@ export function createEventStore(
     const nextHeadBody: Omit<AppHeadV1, "semanticSha256"> = {
       ...bodyOf(head),
       headRevision: head.headRevision + 1n,
+      // A schema commit moves the revision every later command is judged
+      // against; the head is where the next session reads it back from.
+      schemaRevision: commit.schemaRevisionAfter,
       eventSegments: [...head.eventSegments, segmentRef.ref],
       frontier: advanceFrontier(head.frontier, commit),
     };

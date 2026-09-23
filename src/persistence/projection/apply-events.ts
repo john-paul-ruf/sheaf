@@ -29,22 +29,39 @@
  * `field.created`/`enum.changed`/`record.created` events after it land on it.
  * A `field.created` for a table the projection does not hold is still an
  * integrity failure and disposes the projection.
+ *
+ * **Schema, rule and formula events (F04) land in the same transaction** as
+ * everything else in their commit: `schema_tables`/`schema_fields`/
+ * `relationships`/`validation_rules`/`formulas`/`formula_dependencies` rows
+ * change, and migration 005's triggers judge each write — the deferred
+ * computed-field ↔ formula cycle must close by commit, and a formula's
+ * target must name it back. Once a commit's events have landed, every table
+ * it re-shaped has its lanes and search text rebuilt from the authored
+ * values (a type change moves a field to another lane), and — when the
+ * caller hands over its validator — its records re-judged (invariant 5).
  */
 
 import { IntegrityError } from "../../domain/model/errors.js";
 import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
 import type {
   AuthoredRecordV1,
-  F02DomainEventV1,
   FieldChangeV1,
+  FormulaChangedPayloadV1,
   TableCreatedPayloadV1,
+  TableDefinitionV1,
 } from "../../domain/model/events.js";
+import type { FormulaDefinitionV1 } from "../../domain/formulas/ir.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type { CommitId, FieldId } from "../../domain/model/ids.js";
-import type { EnumOptionDefV1, FieldDefV1 } from "../../domain/model/schema.js";
+import {
+  storageKindForFieldType,
+  type EnumOptionDefV1,
+  type FieldDefV1,
+  type RelationshipDefV1,
+} from "../../domain/model/schema.js";
 import { compareCommits, verifyCommitChain } from "../codecs/event-commit.js";
 import type {
-  DomainEventV1,
+  DomainEventV1 as WireEventV1,
   EventCommitV1,
 } from "../../migrations/004_event_format_v1.js";
 import {
@@ -54,6 +71,8 @@ import {
   encodeAuthoredRecord,
   encodeChangeSummary,
   encodeFrontier,
+  encodeMessageParameters,
+  encodeRuleIR,
 } from "./cbor-values.js";
 import {
   assertUsable,
@@ -70,18 +89,26 @@ import {
   cacheSchema,
   insertEnumOption,
   insertField,
+  insertFormulaDependencies,
+  insertRelationship,
   insertSheetSnapshot,
   insertTables,
+  upsertFormulaRow,
 } from "./hydrate.js";
 import {
   idKey,
   insertRecord,
+  reindexRecord,
   replaceRecord,
   searchableTextFor,
 } from "./record-rows.js";
 import {
+  DEACTIVATE_FORMULA,
+  DEACTIVATE_VALIDATION_RULE,
   DELETE_ENUM_OPTIONS_FOR_FIELD,
+  DELETE_FORMULA_DEPENDENCIES,
   DELETE_RECORD,
+  DELETE_RELATIONSHIP,
   DELETE_SEARCH_ROW,
   INSERT_CHANGE_HISTORY,
   INSERT_SEARCH_ROW,
@@ -90,14 +117,23 @@ import {
   SELECT_RECORDS_FOR_TABLE,
   SELECT_RECORD_STATE_BY_ID,
   SELECT_SCHEMA_REVISION,
+  UPDATE_APP_STATE_NAME,
   UPDATE_APP_STATE_SCHEMA_REVISION,
   UPDATE_APP_STATE_THEME,
   UPDATE_PROJECTION_FRONTIER,
+  UPDATE_RELATIONSHIP,
+  UPDATE_SCHEMA_FIELD,
+  UPDATE_SCHEMA_FIELD_ORDINAL,
+  UPDATE_SCHEMA_TABLE,
+  UPSERT_VALIDATION_RULE,
 } from "./statements.js";
 import type {
   ChangeSubjectKindV1,
+  DomainEventV1,
   ProjectionChangeSummaryV1,
   ProjectionCommitV1,
+  ProjectionTableSummaryV1,
+  RecordRevalidatorV1,
 } from "./types.js";
 
 interface RecordState {
@@ -106,6 +142,14 @@ interface RecordState {
   readonly recordRevision: bigint;
   readonly createdCommitId: CommitId;
   readonly authored: AuthoredRecordV1;
+}
+
+/** What one commit's events did to the tables, collected while they land. */
+interface CommitShapeV1 {
+  /** Tables whose lanes, search text, or verdicts a schema event moved. */
+  readonly reshaped: Set<string>;
+  /** Tables this commit itself created (an append, D38). */
+  readonly created: Set<string>;
 }
 
 const EMPTY_SUMMARY: ProjectionChangeSummaryV1 = Object.freeze({
@@ -149,8 +193,17 @@ export async function applyEvents(
     let schemaRevision = readSchemaRevision(handle);
     for (const entry of ordered) {
       const { commit } = entry;
+      const shape: CommitShapeV1 = { reshaped: new Set(), created: new Set() };
+      parkReorderedFields(handle, entry.events);
       for (const [index, event] of entry.events.entries()) {
-        applyEvent(handle, entry, index, event);
+        applyEvent(handle, entry, index, event, shape);
+      }
+      // A table this commit created is built whole by its own events (D38);
+      // only a table that predates the commit can have been re-shaped.
+      for (const tableKey of shape.reshaped) {
+        if (!shape.created.has(tableKey)) {
+          reindexTable(handle, tableKey, entry.revalidate);
+        }
       }
       handle.frontier.set(idKey(commit.deviceId), {
         deviceId: commit.deviceId,
@@ -231,7 +284,7 @@ async function verifyReplay(
  */
 function assertEventsMatchCommit(
   commit: EventCommitV1,
-  events: readonly F02DomainEventV1[],
+  events: readonly DomainEventV1[],
 ): void {
   if (commit.events.length !== events.length) {
     throw new IntegrityError("typed events do not cover the commit's events");
@@ -252,9 +305,10 @@ function applyEvent(
   handle: ProjectionHandleV1,
   entry: ProjectionCommitV1,
   index: number,
-  event: F02DomainEventV1,
+  event: DomainEventV1,
+  { reshaped, created }: CommitShapeV1,
 ): void {
-  const wire = entry.commit.events[index] as DomainEventV1;
+  const wire = entry.commit.events[index] as WireEventV1;
   const issues = entry.issuesByEventIndex?.get(index) ?? [];
   const commitId: CommitId = asDomainId("commit", entry.commit.commitId);
   let summary: ProjectionChangeSummaryV1 = EMPTY_SUMMARY;
@@ -268,12 +322,77 @@ function applyEvent(
 
     case "table.created":
       applyTableCreated(handle, event.payload, wire);
+      created.add(idKey(event.payload.table.tableId));
       summary = { ...EMPTY_SUMMARY, tableId: event.payload.table.tableId };
       break;
 
     case "field.created":
-      applyFieldCreated(handle, event.payload.field, wire);
+      if (applyFieldCreated(handle, event.payload.field, wire)) {
+        reshaped.add(idKey(event.payload.field.tableId));
+      }
       summary = { ...EMPTY_SUMMARY, tableId: event.payload.field.tableId };
+      break;
+
+    case "app.renamed":
+      run(handle, UPDATE_APP_STATE_NAME, [event.payload.displayName]);
+      break;
+
+    case "table.changed":
+      applyTableChanged(handle, event.payload.before, event.payload.after, wire);
+      reshaped.add(idKey(event.payload.after.tableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.after.tableId };
+      break;
+
+    case "field.changed":
+      applyFieldChanged(handle, event.payload.before, event.payload.after, wire);
+      reshaped.add(idKey(event.payload.after.tableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.after.tableId };
+      break;
+
+    case "relationship.changed":
+      applyRelationshipChanged(handle, event.payload.relationship, schemaRevisionOf(entry));
+      reshaped.add(idKey(event.payload.relationship.fromTableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.relationship.fromTableId };
+      break;
+
+    case "relationship.removed":
+      applyRelationshipRemoved(handle, event.payload.relationship);
+      reshaped.add(idKey(event.payload.relationship.fromTableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.relationship.fromTableId };
+      break;
+
+    case "rule.changed":
+      requireTable(handle, event.payload.tableId);
+      run(handle, UPSERT_VALIDATION_RULE, [
+        event.payload.rule.ruleId,
+        event.payload.tableId,
+        event.payload.displayName,
+        encodeRuleIR(event.payload.rule),
+        event.payload.rule.messageKey,
+        encodeMessageParameters(event.payload.rule.messageParameters),
+        toSqlInteger(schemaRevisionOf(entry)),
+      ]);
+      reshaped.add(idKey(event.payload.tableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.tableId };
+      break;
+
+    case "rule.removed":
+      run(handle, DEACTIVATE_VALIDATION_RULE, [
+        toSqlInteger(schemaRevisionOf(entry)),
+        event.payload.rule.ruleId,
+      ]);
+      reshaped.add(idKey(event.payload.tableId));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.tableId };
+      break;
+
+    case "formula.changed":
+      applyFormulaChanged(handle, event.payload, schemaRevisionOf(entry));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.formula.target.tableId };
+      break;
+
+    case "formula.removed":
+      applyFormulaRemoved(handle, event.payload.formula.formulaId, schemaRevisionOf(entry));
+      summary = { ...EMPTY_SUMMARY, tableId: event.payload.formula.target.tableId };
       break;
 
     case "record.created": {
@@ -368,11 +487,11 @@ function applyEvent(
 
     case "enum.changed": {
       applyEnumChange(handle, event.payload.fieldId, event.payload.options);
-      summary = {
-        ...EMPTY_SUMMARY,
-        tableId:
-          handle.schema.fields.get(idKey(event.payload.fieldId))?.tableId ?? null,
-      };
+      const tableId = handle.schema.fields.get(idKey(event.payload.fieldId))?.tableId ?? null;
+      if (tableId !== null) {
+        reshaped.add(idKey(tableId));
+      }
+      summary = { ...EMPTY_SUMMARY, tableId };
       break;
     }
 
@@ -465,11 +584,25 @@ function applyEnumChange(
   }
 }
 
-const SUBJECT_KINDS: Readonly<Record<string, ChangeSubjectKindV1>> = {
+/**
+ * `change_history.subject_kind` per event (migration 005's closed set). A
+ * relationship is filed under its reference field; a rule or a formula under
+ * its own ID, which its event carries as the subject's `objectId`.
+ */
+const SUBJECT_KINDS: Readonly<Record<DomainEventV1["kind"], ChangeSubjectKindV1>> = {
   "app.created": "app",
+  "app.renamed": "app",
   "table.created": "table",
+  "table.changed": "table",
   "field.created": "field",
+  "field.changed": "field",
   "enum.changed": "field",
+  "relationship.changed": "field",
+  "relationship.removed": "field",
+  "rule.changed": "rule",
+  "rule.removed": "rule",
+  "formula.changed": "formula",
+  "formula.removed": "formula",
   "record.created": "record",
   "record.patched": "record",
   "record.deleted": "record",
@@ -482,12 +615,12 @@ const SUBJECT_KINDS: Readonly<Record<string, ChangeSubjectKindV1>> = {
 function writeHistory(
   handle: ProjectionHandleV1,
   commit: EventCommitV1,
-  wire: DomainEventV1,
-  event: F02DomainEventV1,
+  wire: WireEventV1,
+  event: DomainEventV1,
   summary: ProjectionChangeSummaryV1,
   restoration: Uint8Array | null,
 ): void {
-  const subjectKind = SUBJECT_KINDS[event.kind] as ChangeSubjectKindV1;
+  const subjectKind = SUBJECT_KINDS[event.kind];
   run(handle, INSERT_CHANGE_HISTORY, [
     wire.eventId,
     commit.commitId,
@@ -495,7 +628,7 @@ function writeHistory(
     event.kind,
     commit.eventClass,
     subjectKind,
-    subjectIdOf(wire, subjectKind),
+    requireSubjectId(wire, subjectKind),
     toSqlInteger(commit.hybridTime.wallTimeMs),
     commit.hybridTime.logicalCounter,
     commit.deviceId,
@@ -505,17 +638,29 @@ function writeHistory(
 }
 
 function subjectIdOf(
-  wire: DomainEventV1,
+  wire: WireEventV1,
+  subjectKind: ChangeSubjectKindV1,
+): Uint8Array | undefined {
+  switch (subjectKind) {
+    case "table":
+      return wire.subject.tableId;
+    case "field":
+      return wire.subject.fieldId;
+    case "record":
+      return wire.subject.recordId;
+    case "rule":
+    case "formula":
+      return wire.subject.objectId;
+    default:
+      return wire.subject.appId;
+  }
+}
+
+function requireSubjectId(
+  wire: WireEventV1,
   subjectKind: ChangeSubjectKindV1,
 ): Uint8Array {
-  const subject =
-    subjectKind === "table"
-      ? wire.subject.tableId
-      : subjectKind === "field"
-        ? wire.subject.fieldId
-        : subjectKind === "record"
-          ? wire.subject.recordId
-          : wire.subject.appId;
+  const subject = subjectIdOf(wire, subjectKind);
   if (subject === undefined) {
     throw new IntegrityError("event does not name the subject its kind needs");
   }
@@ -592,7 +737,7 @@ function assertSameTable(state: RecordState, tableId: Uint8Array): void {
 function applyTableCreated(
   handle: ProjectionHandleV1,
   payload: TableCreatedPayloadV1,
-  wire: DomainEventV1,
+  wire: WireEventV1,
 ): void {
   const tableId = wire.subject.tableId;
   if (tableId === undefined || !equalBytes(tableId, payload.table.tableId)) {
@@ -616,26 +761,254 @@ function applyTableCreated(
 function applyFieldCreated(
   handle: ProjectionHandleV1,
   field: FieldDefV1,
-  wire: DomainEventV1,
-): void {
+  wire: WireEventV1,
+): boolean {
   const fieldId = wire.subject.fieldId;
   if (fieldId === undefined || !equalBytes(fieldId, field.fieldId)) {
     throw new IntegrityError("field.created names another field than its subject");
   }
   if (handle.schema.fields.has(idKey(fieldId))) {
-    return;
+    return false;
   }
-  const table = handle.schema.tables.get(idKey(field.tableId));
+  const table = requireTable(handle, field.tableId);
+  insertField(handle, { ...table, fields: [] }, field);
+  cacheField(handle, field);
+  return true;
+}
+
+// ------------------------------------------------------- schema edits (F04) --
+
+/** The revision a commit's schema rows are stamped with. */
+const schemaRevisionOf = (entry: ProjectionCommitV1): bigint =>
+  entry.commit.schemaRevisionAfter;
+
+/** Above every ordinal a person can reach; the reorder's own events land on top. */
+const PARKED_ORDINAL_BASE = 2 ** 30;
+
+/**
+ * A reorder is one `field.changed` per moved field, and `(table_id,
+ * field_ordinal)` is unique — so two fields trading places would collide on
+ * the first update. Every field a commit re-orders is parked first, then each
+ * event writes its final ordinal.
+ */
+function parkReorderedFields(
+  handle: ProjectionHandleV1,
+  events: readonly DomainEventV1[],
+): void {
+  let parked = 0;
+  for (const event of events) {
+    if (
+      event.kind === "field.changed" &&
+      event.payload.before.fieldOrdinal !== event.payload.after.fieldOrdinal
+    ) {
+      run(handle, UPDATE_SCHEMA_FIELD_ORDINAL, [
+        PARKED_ORDINAL_BASE + parked,
+        event.payload.after.fieldId,
+      ]);
+      parked += 1;
+    }
+  }
+}
+
+function requireTable(
+  handle: ProjectionHandleV1,
+  tableId: Uint8Array,
+): ProjectionTableSummaryV1 {
+  const table = handle.schema.tables.get(idKey(tableId));
   if (table === undefined) {
     throw new IntegrityError("event names a table this projection lacks");
   }
-  insertField(handle, { ...table, fields: [] }, field);
-  const fields = [...(handle.schema.fieldsByTable.get(idKey(field.tableId)) ?? []), field];
+  return table;
+}
+
+/** The field's definition in every cache that answers for it. */
+function cacheField(handle: ProjectionHandleV1, field: FieldDefV1): void {
+  const fields = (handle.schema.fieldsByTable.get(idKey(field.tableId)) ?? []).filter(
+    (candidate) => !equalBytes(candidate.fieldId, field.fieldId),
+  );
   handle.schema.fieldsByTable.set(
     idKey(field.tableId),
-    fields.sort((left, right) => left.fieldOrdinal - right.fieldOrdinal),
+    [...fields, field].sort((left, right) => left.fieldOrdinal - right.fieldOrdinal),
   );
-  handle.schema.fields.set(idKey(fieldId), field);
+  handle.schema.fields.set(idKey(field.fieldId), field);
+}
+
+function applyTableChanged(
+  handle: ProjectionHandleV1,
+  before: TableDefinitionV1,
+  after: TableDefinitionV1,
+  wire: WireEventV1,
+): void {
+  const tableId = wire.subject.tableId;
+  if (
+    tableId === undefined ||
+    !equalBytes(tableId, after.tableId) ||
+    !equalBytes(before.tableId, after.tableId)
+  ) {
+    throw new IntegrityError("table.changed names another table than its subject");
+  }
+  requireTable(handle, after.tableId);
+  run(handle, UPDATE_SCHEMA_TABLE, [
+    after.displayName,
+    after.tableOrdinal,
+    after.keyFieldId,
+    after.labelFieldId,
+    after.isActive ? 1 : 0,
+    toSqlInteger(after.schemaRevision),
+    after.tableId,
+  ]);
+  handle.schema.tables.set(idKey(after.tableId), after);
+}
+
+/**
+ * The field keeps its ID and its table (D57); everything else may move. The
+ * per-session definition cache is refreshed with the complete `after`
+ * definition — that cache, not a column, is where a currency's code lives,
+ * so a type change to currency keeps its code across reads and restarts.
+ */
+function applyFieldChanged(
+  handle: ProjectionHandleV1,
+  before: FieldDefV1,
+  after: FieldDefV1,
+  wire: WireEventV1,
+): void {
+  const fieldId = wire.subject.fieldId;
+  const current = handle.schema.fields.get(idKey(after.fieldId));
+  if (
+    fieldId === undefined ||
+    current === undefined ||
+    !equalBytes(fieldId, after.fieldId) ||
+    !equalBytes(before.fieldId, after.fieldId) ||
+    !equalBytes(before.tableId, after.tableId) ||
+    !equalBytes(current.tableId, after.tableId)
+  ) {
+    throw new IntegrityError("field.changed does not name a field of its own table");
+  }
+  run(handle, UPDATE_SCHEMA_FIELD, [
+    after.displayName,
+    after.fieldOrdinal,
+    after.type.kind,
+    storageKindForFieldType(after.type),
+    after.isRequired ? 1 : 0,
+    after.formulaId === undefined ? 0 : 1,
+    after.isActive ? 1 : 0,
+    after.formulaId ?? null,
+    toSqlInteger(after.schemaRevision),
+    after.fieldId,
+  ]);
+  cacheField(handle, after);
+}
+
+function applyRelationshipChanged(
+  handle: ProjectionHandleV1,
+  relationship: RelationshipDefV1,
+  schemaRevision: bigint,
+): void {
+  const existing = relationshipById(handle, relationship.relationshipId);
+  const stamped = { ...relationship, schemaRevision };
+  if (existing === undefined) {
+    insertRelationship(handle, stamped);
+  } else {
+    run(handle, UPDATE_RELATIONSHIP, [
+      stamped.fromTableId,
+      stamped.fromFieldId,
+      stamped.toTableId,
+      stamped.toKeyFieldId,
+      stamped.detectionSource,
+      stamped.isActive ? 1 : 0,
+      toSqlInteger(stamped.schemaRevision),
+      stamped.relationshipId,
+    ]);
+    handle.schema.relationships.delete(idKey(existing.fromFieldId));
+  }
+  handle.schema.relationships.set(idKey(stamped.fromFieldId), stamped);
+}
+
+/**
+ * The row goes; the reference field keeps its type and its values, which
+ * the validator now reports as unlinked (CA-28: "reference values kept").
+ */
+function applyRelationshipRemoved(
+  handle: ProjectionHandleV1,
+  relationship: RelationshipDefV1,
+): void {
+  const existing = relationshipById(handle, relationship.relationshipId);
+  if (existing === undefined) {
+    throw new IntegrityError("relationship.removed names a relationship this app lacks");
+  }
+  run(handle, DELETE_RELATIONSHIP, [existing.relationshipId]);
+  handle.schema.relationships.delete(idKey(existing.fromFieldId));
+}
+
+function relationshipById(
+  handle: ProjectionHandleV1,
+  relationshipId: Uint8Array,
+): RelationshipDefV1 | undefined {
+  return [...handle.schema.relationships.values()].find((candidate) =>
+    equalBytes(candidate.relationshipId, relationshipId),
+  );
+}
+
+/**
+ * The definition, its dependency edges, and the cache. A computed column's
+ * field must already name the formula — the event before it in the same
+ * commit, or an earlier one — which is exactly what migration 005's trigger
+ * checks; nothing here restates it.
+ */
+function applyFormulaChanged(
+  handle: ProjectionHandleV1,
+  payload: FormulaChangedPayloadV1<FormulaDefinitionV1>,
+  schemaRevision: bigint,
+): void {
+  const entry = {
+    formula: payload.formula,
+    metadata: payload.metadata,
+    isActive: true,
+    schemaRevision,
+  };
+  run(handle, DELETE_FORMULA_DEPENDENCIES, [payload.formula.formulaId]);
+  upsertFormulaRow(handle, entry);
+  insertFormulaDependencies(handle, entry);
+  handle.schema.formulas.set(idKey(payload.formula.formulaId), entry);
+}
+
+function applyFormulaRemoved(
+  handle: ProjectionHandleV1,
+  formulaId: Uint8Array,
+  schemaRevision: bigint,
+): void {
+  const existing = handle.schema.formulas.get(idKey(formulaId));
+  if (existing === undefined) {
+    throw new IntegrityError("formula.removed names a formula this app lacks");
+  }
+  run(handle, DEACTIVATE_FORMULA, [toSqlInteger(schemaRevision), formulaId]);
+  handle.schema.formulas.set(idKey(formulaId), { ...existing, isActive: false, schemaRevision });
+}
+
+/**
+ * Rebuilds a re-shaped table's lanes and search text from its authored
+ * values, and — when the caller handed over the shared validator — its
+ * records' verdicts. A value the new schema cannot index loses its lane and
+ * keeps its authored state; nothing is rewritten in `authored_cbor`.
+ */
+function reindexTable(
+  handle: ProjectionHandleV1,
+  tableKey: string,
+  revalidate: RecordRevalidatorV1 | undefined,
+): void {
+  const table = handle.schema.tables.get(tableKey);
+  if (table === undefined) {
+    return;
+  }
+  for (const row of selectRows(handle, SELECT_RECORDS_FOR_TABLE, [table.tableId])) {
+    const authored = decodeAuthoredRecord(row[1] as Uint8Array);
+    reindexRecord(
+      handle,
+      Number(row[0]),
+      authored,
+      revalidate === undefined ? null : revalidate(authored),
+    );
+  }
 }
 
 /** A restore may only undo a delete of the same record, recorded in history. */

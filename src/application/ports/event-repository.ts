@@ -26,7 +26,14 @@
  * a predecessor hash, or a basis frontier.
  */
 
-import type { F02DomainEventV1 } from "../../domain/model/events.js";
+import type {
+  DomainEventOfV1,
+  F04SchemaEventKindV1,
+  F04SchemaEventPayloadsV1,
+} from "../../domain/model/events.js";
+import type { FormulaDefinitionV1 } from "../../domain/formulas/ir.js";
+import type { ValidationRuleIR, ValidationRuleIRV2 } from "../../domain/validation/rules.js";
+import type { ImpactReportV1 } from "../../domain/validation/schema-impact.js";
 import type {
   AppId,
   CommitId,
@@ -42,6 +49,34 @@ import type {
   HybridTimeV1,
 } from "../../migrations/004_event_format_v1.js";
 import type { ProjectionIssueInputV1 } from "./projection.js";
+
+/** A record rule of either IR version (CA-27): v1 keeps decoding unchanged. */
+export type RecordRuleIRV1 = ValidationRuleIR | ValidationRuleIRV2;
+
+/**
+ * A schema change's counted impact as history keeps it: the counts MOD-014
+ * previewed, never the values (CA-12). Its value patches travel as their own
+ * `record.patched` events in the same commit.
+ */
+export type SchemaImpactCountsV1 = Omit<ImpactReportV1, "patches">;
+
+/**
+ * M01's event union, instantiated with M02's rule IR and impact report and
+ * M03's formula definition — the types M01 may not name itself. M12 states
+ * the same instantiation; `tests/unit/workers/projection-port.test.ts` pins
+ * the two equal.
+ */
+export type DomainEventV1 = DomainEventOfV1<RecordRuleIRV1, FormulaDefinitionV1, SchemaImpactCountsV1>;
+
+/** The F04 payloads, instantiated the same way. */
+export type SchemaEventPayloadsV1 = F04SchemaEventPayloadsV1<
+  RecordRuleIRV1,
+  FormulaDefinitionV1,
+  SchemaImpactCountsV1
+>;
+
+/** One F04 schema, rule or formula event, typed. */
+export type SchemaEventV1 = Extract<DomainEventV1, { readonly kind: F04SchemaEventKindV1 }>;
 
 /**
  * What the next commit of this device must continue. `lastHybridTime` is here
@@ -69,7 +104,7 @@ export interface PlannedEventV1 {
   readonly eventIndex: number;
   readonly subject: EventSubjectV1;
   readonly provenance: EventProvenanceV1;
-  readonly event: F02DomainEventV1;
+  readonly event: DomainEventV1;
 }
 
 export interface CommitPlanV1 {

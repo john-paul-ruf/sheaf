@@ -110,6 +110,7 @@ import type {
   ProjectionRecordDetailV1,
   ProjectionRecordPageResultV1,
   ProjectionDeletedRecordV1,
+  ProjectionFormulaV1,
   ProjectionInertItemV1,
   ProjectionInferenceDecisionV1,
   ProjectionLabeledRecordV1,
@@ -253,6 +254,8 @@ function runQuery(
           : selectRows(handle, SELECT_INFERENCE_DECISIONS_OF_KIND, [query.decisionKind])
         ).map(toDecision),
       );
+    case "list-formulas":
+      return answer(listFormulas(handle, query.tableId));
     default: {
       const unreachable: never = query;
       return unreachable;
@@ -713,6 +716,27 @@ function toDecision(row: Row): ProjectionInferenceDecisionV1 {
 
 // ------------------------------------------------------------------ schema --
 
+/**
+ * The decoded definitions, from the per-session cache `formula.changed`
+ * keeps — the same cache that answers a currency's code, for the same
+ * reason: a `formulas` row holds the IR as opaque CBOR and no dependency
+ * order, while the definition keeps both exactly as authored (CA-25).
+ * Ordered by formula ID, so two reads agree.
+ */
+function listFormulas(
+  handle: ProjectionHandleV1,
+  tableId: Uint8Array | null,
+): readonly ProjectionFormulaV1[] {
+  return [...handle.schema.formulas.values()]
+    .filter(
+      (entry) =>
+        tableId === null ||
+        (entry.formula.target.tableId !== null &&
+          compareDomainIds(entry.formula.target.tableId, tableId) === 0),
+    )
+    .sort((left, right) => compareDomainIds(left.formula.formulaId, right.formula.formulaId));
+}
+
 function readAppState(handle: ProjectionHandleV1): ProjectionAppStateV1 {
   const row = selectRow(handle, SELECT_APP_STATE);
   if (row === null) {
@@ -761,6 +785,7 @@ function toFieldDef(handle: ProjectionHandleV1, row: Row): FieldDefV1 {
     isRequired: numberAt(row, 6) === 1,
     isActive: numberAt(row, 7) === 1,
     schemaRevision: BigInt(numberAt(row, 8)),
+    ...(row[9] === null ? {} : { formulaId: asDomainId("formula", bytesAt(row, 9)) }),
   };
 }
 

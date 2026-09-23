@@ -29,7 +29,7 @@ import type {
   PlannedEventV1,
 } from "../ports/event-repository.js";
 import type { ClockPort } from "../ports/clock.js";
-import type { F02DomainEventV1 } from "../../domain/model/events.js";
+import type { DomainEventV1 } from "../ports/event-repository.js";
 import type {
   EventProvenanceV1,
   EventSubjectV1,
@@ -39,7 +39,7 @@ import type {
 /** One authored event before its identity and index exist. */
 export interface AuthoredEventDraftV1 {
   readonly subject: Omit<EventSubjectV1, "appId">;
-  readonly event: F02DomainEventV1;
+  readonly event: DomainEventV1;
 }
 
 export interface BuildCommitDependenciesV1 {

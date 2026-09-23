@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 
 import type * as Port from "../../../src/application/ports/projection.js";
+import type * as Events from "../../../src/application/ports/event-repository.js";
 import type * as Engine from "../../../src/persistence/projection/types.js";
 
 /** `true` only when `Left` and `Right` are assignable to each other. */
@@ -40,6 +41,11 @@ describe("the projection port and the projection engine", () => {
     mutual<Port.ProjectionAppStateV1, Engine.ProjectionAppStateV1>(true);
     mutual<Port.ProjectionSheetSnapshotV1, Engine.ProjectionSheetSnapshotV1>(true);
     mutual<Port.ProjectionValidationRuleV1, Engine.ProjectionValidationRuleV1>(true);
+    mutual<Port.ProjectionFormulaV1, Engine.ProjectionFormulaV1>(true);
+    // M01 states the F04 payloads generically (it may not name M02/M03); both
+    // layers instantiate them, and the two instantiations must be one type.
+    mutual<Events.DomainEventV1, Engine.DomainEventV1>(true);
+    mutual<Events.RecordRuleIRV1, Engine.RecordRuleIRV1>(true);
     mutual<Port.ProjectionIssueInputV1, Engine.ValidationIssueV1Input>(true);
     mutual<Port.ProjectionRecordV1, Engine.ProjectionRecordV1>(true);
     mutual<Port.ProjectionRecordPageV1, Engine.ProjectionRecordPageV1>(true);
@@ -112,7 +118,8 @@ describe("the projection port and the projection engine", () => {
       "list-sheet-snapshots": true,
       "list-inert-items": true,
       "list-inference-decisions": true,
+      "list-formulas": true,
     };
-    expect(Object.keys(kinds)).toHaveLength(21);
+    expect(Object.keys(kinds)).toHaveLength(22);
   });
 });

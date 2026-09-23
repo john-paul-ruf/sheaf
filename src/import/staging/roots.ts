@@ -21,15 +21,20 @@
  * in migration 005, so hydration structurally requires the fact; a projection
  * that invented a palette would be showing a colour nobody authored (D29).
  *
- * **The checkpoint manifest has two readable shapes (D37).** F03 added the
+ * **The checkpoint manifest has three readable shapes (D37).** F03 added the
  * workbook roots — relationships, validation rules, inert items, inference
  * decisions, import lineages, and each sheet's classification and snapshot
  * revision — as payload evolution inside the encrypted envelope, not as a new
- * version. The encoder always writes the F03 key set. The decoder accepts
- * exactly the F02 key set (and fills the F02-true defaults: every list empty,
- * each sheet `["table"]` at the manifest's schema revision) or exactly the F03
- * key set; any other key set is a `CodecError`. So every GATE-F02 app keeps
- * opening, and a manifest with a stray or missing key still does not.
+ * version; F04 added the `formulas` root the same way (CA-25). The encoder
+ * always writes the F04 key set. The decoder accepts exactly the F02 key set
+ * (and fills the F02-true defaults: every list empty, each sheet `["table"]`
+ * at the manifest's schema revision), exactly the F03 key set (no formulas),
+ * or exactly the F04 key set; any other key set is a `CodecError`. So every
+ * GATE-F02 and GATE-F03 app keeps opening, and a manifest with a stray or
+ * missing key still does not.
+ *
+ * Rules decode at IR v1 or v2 (CA-27), and a field definition carries
+ * `formulaId` only when it is computed (D51).
  */
 
 import { CodecError } from "../../domain/model/errors.js";
@@ -42,12 +47,35 @@ import type {
   SheetId,
   TableId,
 } from "../../domain/model/ids.js";
-import type { AppThemeV1 } from "../../domain/model/events.js";
-import { INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
+import type { AppThemeV1, FormulaMetadataV1 } from "../../domain/model/events.js";
+import {
+  FORMULA_IMPORTED_VALUE_POLICIES,
+  FORMULA_SOURCES,
+  INFERENCE_DISPOSITIONS,
+} from "../../domain/model/events.js";
+import {
+  CATALOG_FUNCTION_NAMES,
+  FORMULA_DEPENDENCY_KINDS,
+  FORMULA_DETERMINISMS,
+  FORMULA_DISPOSITIONS,
+  FORMULA_ERROR_CODES,
+  FORMULA_TARGET_KINDS,
+  IR_BINARY_OPERATORS,
+  MAX_EVALUATION_DEPTH,
+  isAllowedClassification,
+  type FormulaDefinitionV1,
+  type FormulaDependencyV1,
+  type FormulaErrorLiteralV1,
+  type FormulaIRDocumentV1,
+  type FormulaIRV1,
+  type FormulaLiteralV1,
+  type FormulaTargetV1,
+} from "../../domain/formulas/index.js";
 import type {
   CommitId,
   DecisionId,
   EventId,
+  FormulaId,
   InertItemId,
   LineageId,
   RelationshipId,
@@ -73,10 +101,13 @@ import {
   type SheetDescriptorV1,
 } from "../../domain/model/snapshots.js";
 import {
+  COMPARE_OPERATORS,
   VALIDATION_SEVERITIES,
   type MessageParameterV1,
   type RuleConditionV1,
+  type RuleConditionV2,
   type ValidationRuleIR,
+  type ValidationRuleIRV2,
 } from "../../domain/validation/rules.js";
 import {
   MAX_EPOCH_DAY,
@@ -242,7 +273,23 @@ const FIELD_TYPE_KINDS = Object.freeze([
   "reference",
 ] as const);
 
-const encodeFieldDef = (definition: FieldDefV1): CborValue =>
+const FIELD_DEF_KEYS = Object.freeze([
+  "fieldId",
+  "tableId",
+  "displayName",
+  "fieldOrdinal",
+  "type",
+  "isRequired",
+  "isActive",
+  "schemaRevision",
+] as const);
+
+/**
+ * A field definition. `formulaId` (D51) is written only for a computed field,
+ * so an authored field's bytes are exactly the F02/F03 bytes; the decoder
+ * accepts exactly those two key sets.
+ */
+export const encodeFieldDef = (definition: FieldDefV1): CborValue =>
   cborMap([
     ["fieldId", definition.fieldId],
     ["tableId", definition.tableId],
@@ -260,21 +307,17 @@ const encodeFieldDef = (definition: FieldDefV1): CborValue =>
     ["isRequired", definition.isRequired],
     ["isActive", definition.isActive],
     ["schemaRevision", definition.schemaRevision],
+    ...(definition.formulaId === undefined
+      ? []
+      : [["formulaId", definition.formulaId] as const]),
   ]);
 
 export const decodeFieldDef = (value: DecodedValue): FieldDefV1 => {
+  const raw = asMap(value, "a field definition");
+  const isComputed = raw.has("formulaId");
   const map = exactKeys(
-    asMap(value, "a field definition"),
-    [
-      "fieldId",
-      "tableId",
-      "displayName",
-      "fieldOrdinal",
-      "type",
-      "isRequired",
-      "isActive",
-      "schemaRevision",
-    ],
+    raw,
+    isComputed ? [...FIELD_DEF_KEYS, "formulaId"] : [...FIELD_DEF_KEYS],
     "a field definition",
   );
   const typeMap = asMap(field(map, "type"), "a field type");
@@ -295,6 +338,9 @@ export const decodeFieldDef = (value: DecodedValue): FieldDefV1 => {
     isRequired: boolean(field(map, "isRequired"), "a required flag"),
     isActive: boolean(field(map, "isActive"), "an active flag"),
     schemaRevision: BigInt(count(field(map, "schemaRevision"), "a schema revision")),
+    ...(isComputed
+      ? { formulaId: bytesOfLength(field(map, "formulaId"), ID_BYTES, "a formula id") as FormulaId }
+      : {}),
   };
 };
 
@@ -343,7 +389,7 @@ export const decodeTableDef = (value: DecodedValue): TableDefV1 => {
   };
 };
 
-const encodeEnumOption = (option: EnumOptionDefV1): CborValue =>
+export const encodeEnumOption = (option: EnumOptionDefV1): CborValue =>
   cborMap([
     ["optionId", option.optionId],
     ["fieldId", option.fieldId],
@@ -766,7 +812,8 @@ export type CheckpointSheetV1 = Omit<
 export interface CheckpointValidationRuleV1 {
   readonly tableId: TableId;
   readonly displayName: string;
-  readonly rule: ValidationRuleIR;
+  /** IR v1 or v2 (CA-27); v1 bytes keep decoding unchanged. */
+  readonly rule: ValidationRuleIR | ValidationRuleIRV2;
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
 }
@@ -791,6 +838,8 @@ export interface CheckpointManifestV1 {
   readonly inertItems?: readonly InertItemV1[];
   readonly inferenceDecisions?: readonly InferenceDecisionRecordV1[];
   readonly importLineages?: readonly ImportLineageV1[];
+  /** F04 (CA-25): every formula definition, active or removed; absent before F04. */
+  readonly formulas?: readonly CheckpointFormulaV1[];
   readonly recordPages: readonly PageRefV1[];
   readonly semanticSha256: Uint8Array;
 }
@@ -803,6 +852,7 @@ export interface ResolvedCheckpointManifestV1 extends CheckpointManifestV1 {
   readonly inertItems: readonly InertItemV1[];
   readonly inferenceDecisions: readonly InferenceDecisionRecordV1[];
   readonly importLineages: readonly ImportLineageV1[];
+  readonly formulas: readonly CheckpointFormulaV1[];
 }
 
 /**
@@ -828,6 +878,8 @@ export function resolveCheckpointManifest<
     inertItems: manifest.inertItems ?? [],
     inferenceDecisions: manifest.inferenceDecisions ?? [],
     importLineages: manifest.importLineages ?? [],
+    // F02/F03 checkpoints hold no formula: an app before F04 had none live.
+    formulas: manifest.formulas ?? [],
   };
 }
 
@@ -938,7 +990,7 @@ export const encodeRelationship = (relationship: RelationshipDefV1): CborValue =
     ["schemaRevision", relationship.schemaRevision],
   ]);
 
-const decodeRelationship = (value: DecodedValue): RelationshipDefV1 => {
+export const decodeRelationship = (value: DecodedValue): RelationshipDefV1 => {
   const map = exactKeys(
     asMap(value, "a relationship"),
     [
@@ -969,7 +1021,7 @@ const decodeRelationship = (value: DecodedValue): RelationshipDefV1 => {
   };
 };
 
-const encodeCondition = (condition: RuleConditionV1): CborValue => {
+const encodeCondition = (condition: RuleConditionV2): CborValue => {
   switch (condition.kind) {
     case "field-present":
     case "field-absent":
@@ -994,6 +1046,28 @@ const encodeCondition = (condition: RuleConditionV1): CborValue => {
         ["kind", condition.kind],
         ["condition", encodeCondition(condition.condition)],
       ]);
+    case "compare":
+      return cborMap([
+        ["kind", condition.kind],
+        ["left", condition.left],
+        ["op", condition.op],
+        [
+          "right",
+          "field" in condition.right
+            ? cborMap([["field", condition.right.field]])
+            : cborMap([["value", encodeCellValue(condition.right.value)]]),
+        ],
+        ...(condition.measure === undefined ? [] : [["measure", condition.measure] as const]),
+      ]);
+    case "between":
+    case "not-between":
+      return cborMap([
+        ["kind", condition.kind],
+        ["fieldId", condition.fieldId],
+        ["low", encodeCellValue(condition.low)],
+        ["high", encodeCellValue(condition.high)],
+        ...(condition.measure === undefined ? [] : [["measure", condition.measure] as const]),
+      ]);
     default: {
       const unreachable: never = condition;
       return unreachable;
@@ -1001,7 +1075,7 @@ const encodeCondition = (condition: RuleConditionV1): CborValue => {
   }
 };
 
-const CONDITION_KINDS = Object.freeze([
+const V1_CONDITION_KINDS = Object.freeze([
   "field-present",
   "field-absent",
   "field-equals",
@@ -1010,9 +1084,39 @@ const CONDITION_KINDS = Object.freeze([
   "not",
 ] as const);
 
-const decodeCondition = (value: DecodedValue): RuleConditionV1 => {
+/** IR v2 (D52, CA-27) adds comparisons; a v1 rule may not name them. */
+const V2_CONDITION_KINDS = Object.freeze([
+  ...V1_CONDITION_KINDS,
+  "compare",
+  "between",
+  "not-between",
+] as const);
+
+const RULE_MEASURES = Object.freeze(["text-length"] as const);
+
+/** Deep enough for any clause a person can build; bounds decoder recursion. */
+const MAX_RULE_DEPTH = 64;
+
+const measureOf = (
+  map: ReadonlyMap<DecodedKey, DecodedValue>,
+): { readonly measure?: "text-length" } =>
+  map.has("measure") ? { measure: oneOf(field(map, "measure"), RULE_MEASURES, "a rule measure") } : {};
+
+function decodeCondition(value: DecodedValue, irVersion: 1, depth?: number): RuleConditionV1;
+function decodeCondition(value: DecodedValue, irVersion: 1 | 2, depth?: number): RuleConditionV2;
+function decodeCondition(value: DecodedValue, irVersion: 1 | 2, depth = 0): RuleConditionV2 {
+  if (depth > MAX_RULE_DEPTH) {
+    throw new CodecError("a rule condition is nested too deeply");
+  }
   const map = asMap(value, "a rule condition");
-  const kind = oneOf(field(map, "kind"), CONDITION_KINDS, "a rule condition");
+  const kind = oneOf(
+    field(map, "kind"),
+    irVersion === 1 ? V1_CONDITION_KINDS : V2_CONDITION_KINDS,
+    "a rule condition",
+  );
+  const nested = (entry: DecodedValue): RuleConditionV2 => decodeCondition(entry, irVersion, depth + 1);
+  const withMeasure = (names: readonly string[]): readonly string[] =>
+    map.has("measure") ? [...names, "measure"] : names;
   switch (kind) {
     case "field-present":
     case "field-absent":
@@ -1028,21 +1132,42 @@ const decodeCondition = (value: DecodedValue): RuleConditionV1 => {
     case "all":
     case "any":
       exactKeys(map, ["kind", "conditions"], "a rule condition");
-      return {
-        kind,
-        conditions: list(field(map, "conditions"), "rule conditions").map(
-          decodeCondition,
-        ),
-      };
+      return { kind, conditions: list(field(map, "conditions"), "rule conditions").map(nested) };
     case "not":
       exactKeys(map, ["kind", "condition"], "a rule condition");
-      return { kind, condition: decodeCondition(field(map, "condition")) };
+      return { kind, condition: nested(field(map, "condition")) };
+    case "compare": {
+      exactKeys(map, withMeasure(["kind", "left", "op", "right"]), "a rule condition");
+      const right = asMap(field(map, "right"), "a comparison operand");
+      if (right.size !== 1) {
+        throw new CodecError("a comparison operand names exactly one side");
+      }
+      return {
+        kind,
+        left: id16<FieldId>(field(map, "left"), "a field id"),
+        op: oneOf(field(map, "op"), COMPARE_OPERATORS, "a comparison operator"),
+        right: right.has("field")
+          ? { field: id16<FieldId>(field(right, "field"), "a field id") }
+          : { value: decodeCellValue(field(right, "value")) },
+        ...measureOf(map),
+      };
+    }
+    case "between":
+    case "not-between":
+      exactKeys(map, withMeasure(["kind", "fieldId", "low", "high"]), "a rule condition");
+      return {
+        kind,
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+        low: decodeCellValue(field(map, "low")),
+        high: decodeCellValue(field(map, "high")),
+        ...measureOf(map),
+      };
     default: {
       const unreachable: never = kind;
       return unreachable;
     }
   }
-};
+}
 
 /** Labels, types, and counts: text, whole numbers, and booleans only. */
 const encodeMessageParameters = (
@@ -1080,17 +1205,7 @@ export const encodeValidationRule = (rule: CheckpointValidationRuleV1): CborValu
   cborMap([
     ["tableId", rule.tableId],
     ["displayName", rule.displayName],
-    [
-      "rule",
-      cborMap([
-        ["irVersion", rule.rule.irVersion],
-        ["ruleId", rule.rule.ruleId],
-        ["condition", encodeCondition(rule.rule.condition)],
-        ["severity", rule.rule.severity],
-        ["messageKey", rule.rule.messageKey],
-        ["messageParameters", encodeMessageParameters(rule.rule.messageParameters)],
-      ]),
-    ],
+    ["rule", encodeRuleIR(rule.rule)],
     ["isActive", rule.isActive],
     ["schemaRevision", rule.schemaRevision],
   ]);
@@ -1101,25 +1216,388 @@ const decodeValidationRule = (value: DecodedValue): CheckpointValidationRuleV1 =
     ["tableId", "displayName", "rule", "isActive", "schemaRevision"],
     "a validation rule",
   );
-  const ir = exactKeys(
-    asMap(field(map, "rule"), "a rule IR"),
-    ["irVersion", "ruleId", "condition", "severity", "messageKey", "messageParameters"],
-    "a rule IR",
-  );
-  if (count(field(ir, "irVersion"), "a rule IR version") !== 1) {
-    throw new CodecError("a rule declares an unsupported IR version");
-  }
   return {
     tableId: id16<TableId>(field(map, "tableId"), "a table id"),
     displayName: nfcText(field(map, "displayName"), "a rule name"),
-    rule: {
-      irVersion: 1,
-      ruleId: id16<RuleId>(field(ir, "ruleId"), "a rule id"),
-      condition: decodeCondition(field(ir, "condition")),
-      severity: oneOf(field(ir, "severity"), VALIDATION_SEVERITIES, "a rule severity"),
-      messageKey: text(field(ir, "messageKey"), "a message key"),
-      messageParameters: decodeMessageParameters(field(ir, "messageParameters")),
-    },
+    rule: decodeRuleIR(field(map, "rule")),
+    isActive: boolean(field(map, "isActive"), "an active flag"),
+    schemaRevision: revision(field(map, "schemaRevision"), "a schema revision"),
+  };
+};
+
+/**
+ * One rule IR, v1 or v2 (CA-27). v1 bytes decode exactly as they always did;
+ * a v1 rule that names a v2 condition is refused rather than upgraded.
+ */
+export const encodeRuleIR = (rule: ValidationRuleIR | ValidationRuleIRV2): CborValue =>
+  cborMap([
+    ["irVersion", rule.irVersion],
+    ["ruleId", rule.ruleId],
+    ["condition", encodeCondition(rule.condition)],
+    ["severity", rule.severity],
+    ["messageKey", rule.messageKey],
+    ["messageParameters", encodeMessageParameters(rule.messageParameters)],
+  ]);
+
+export const decodeRuleIR = (value: DecodedValue): ValidationRuleIR | ValidationRuleIRV2 => {
+  const ir = exactKeys(
+    asMap(value, "a rule IR"),
+    ["irVersion", "ruleId", "condition", "severity", "messageKey", "messageParameters"],
+    "a rule IR",
+  );
+  const irVersion = count(field(ir, "irVersion"), "a rule IR version");
+  const common = {
+    ruleId: id16<RuleId>(field(ir, "ruleId"), "a rule id"),
+    severity: oneOf(field(ir, "severity"), VALIDATION_SEVERITIES, "a rule severity"),
+    messageKey: text(field(ir, "messageKey"), "a message key"),
+    messageParameters: decodeMessageParameters(field(ir, "messageParameters")),
+  };
+  if (irVersion === 1) {
+    return { irVersion: 1, ...common, condition: decodeCondition(field(ir, "condition"), 1) };
+  }
+  if (irVersion === 2) {
+    return { irVersion: 2, ...common, condition: decodeCondition(field(ir, "condition"), 2) };
+  }
+  throw new CodecError("a rule declares an unsupported IR version");
+};
+
+// ---------------------------------------------------------- formulas (CA-25) --
+
+const IR_NODE_KINDS = Object.freeze([
+  "literal",
+  "error",
+  "field",
+  "column",
+  "related",
+  "formula",
+  "unary",
+  "binary",
+  "call",
+] as const);
+
+const UNARY_OPERATORS = Object.freeze(["+", "-", "%"] as const);
+const LITERAL_KINDS = Object.freeze(["text", "decimal", "boolean"] as const);
+const ERROR_LITERALS = FORMULA_ERROR_CODES.filter(
+  (code): code is FormulaErrorLiteralV1 => code !== "#BUDGET",
+);
+
+/** The interpreter's own depth ceiling bounds the decoder too. */
+const MAX_IR_DEPTH = MAX_EVALUATION_DEPTH;
+
+/** One IR node, exactly as the interpreter reads it: IDs, never names. */
+export const encodeFormulaIR = (node: FormulaIRV1): CborValue => {
+  switch (node.kind) {
+    case "literal":
+      return cborMap([
+        ["kind", node.kind],
+        ["value", encodeCellValue(node.value)],
+      ]);
+    case "error":
+      return cborMap([
+        ["kind", node.kind],
+        ["code", node.code],
+      ]);
+    case "field":
+      return cborMap([
+        ["kind", node.kind],
+        ["fieldId", node.fieldId],
+      ]);
+    case "column":
+      return cborMap([
+        ["kind", node.kind],
+        ["tableId", node.tableId],
+        ["fieldId", node.fieldId],
+      ]);
+    case "related":
+      return cborMap([
+        ["kind", node.kind],
+        ["relationshipId", node.relationshipId],
+        ["referenceFieldId", node.referenceFieldId],
+        ["fieldId", node.fieldId],
+      ]);
+    case "formula":
+      return cborMap([
+        ["kind", node.kind],
+        ["formulaId", node.formulaId],
+      ]);
+    case "unary":
+      return cborMap([
+        ["kind", node.kind],
+        ["operator", node.operator],
+        ["operand", encodeFormulaIR(node.operand)],
+      ]);
+    case "binary":
+      return cborMap([
+        ["kind", node.kind],
+        ["operator", node.operator],
+        ["left", encodeFormulaIR(node.left)],
+        ["right", encodeFormulaIR(node.right)],
+      ]);
+    case "call":
+      return cborMap([
+        ["kind", node.kind],
+        ["name", node.name],
+        ["version", node.version],
+        ["args", node.args.map((argument) => (argument === null ? null : encodeFormulaIR(argument)))],
+      ]);
+    default: {
+      const unreachable: never = node;
+      return unreachable;
+    }
+  }
+};
+
+export const decodeFormulaIR = (value: DecodedValue, depth = 0): FormulaIRV1 => {
+  if (depth > MAX_IR_DEPTH) {
+    throw new CodecError("a formula is nested too deeply");
+  }
+  const map = asMap(value, "a formula node");
+  const kind = oneOf(field(map, "kind"), IR_NODE_KINDS, "a formula node kind");
+  const node = (entry: DecodedValue): FormulaIRV1 => decodeFormulaIR(entry, depth + 1);
+  switch (kind) {
+    case "literal": {
+      exactKeys(map, ["kind", "value"], "a formula literal");
+      const literal = decodeCellValue(field(map, "value"));
+      if (!(LITERAL_KINDS as readonly string[]).includes(literal.kind)) {
+        throw new CodecError("a formula literal is not text, a decimal or a boolean");
+      }
+      return { kind, value: literal as FormulaLiteralV1 };
+    }
+    case "error":
+      exactKeys(map, ["kind", "code"], "a formula error");
+      return { kind, code: oneOf(field(map, "code"), ERROR_LITERALS, "a formula error code") };
+    case "field":
+      exactKeys(map, ["kind", "fieldId"], "a formula field");
+      return { kind, fieldId: id16<FieldId>(field(map, "fieldId"), "a field id") };
+    case "column":
+      exactKeys(map, ["kind", "tableId", "fieldId"], "a formula column");
+      return {
+        kind,
+        tableId: id16<TableId>(field(map, "tableId"), "a table id"),
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+      };
+    case "related":
+      exactKeys(map, ["kind", "relationshipId", "referenceFieldId", "fieldId"], "a related field");
+      return {
+        kind,
+        relationshipId: id16<RelationshipId>(field(map, "relationshipId"), "a relationship id"),
+        referenceFieldId: id16<FieldId>(field(map, "referenceFieldId"), "a field id"),
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+      };
+    case "formula":
+      exactKeys(map, ["kind", "formulaId"], "a formula reference");
+      return { kind, formulaId: id16<FormulaId>(field(map, "formulaId"), "a formula id") };
+    case "unary":
+      exactKeys(map, ["kind", "operator", "operand"], "a unary formula");
+      return {
+        kind,
+        operator: oneOf(field(map, "operator"), UNARY_OPERATORS, "a unary operator"),
+        operand: node(field(map, "operand")),
+      };
+    case "binary":
+      exactKeys(map, ["kind", "operator", "left", "right"], "a binary formula");
+      return {
+        kind,
+        operator: oneOf(field(map, "operator"), IR_BINARY_OPERATORS, "a binary operator"),
+        left: node(field(map, "left")),
+        right: node(field(map, "right")),
+      };
+    case "call":
+      exactKeys(map, ["kind", "name", "version", "args"], "a formula call");
+      return {
+        kind,
+        name: oneOf(field(map, "name"), CATALOG_FUNCTION_NAMES, "a catalog function"),
+        version: count(field(map, "version"), "a function version"),
+        args: list(field(map, "args"), "call arguments").map((argument) =>
+          argument === null ? null : node(argument),
+        ),
+      };
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+};
+
+const encodeFormulaTarget = (target: FormulaTargetV1): CborValue =>
+  cborMap([
+    ["kind", target.kind],
+    ["tableId", target.tableId],
+    ["fieldId", target.kind === "computed-column" ? target.fieldId : null],
+  ]);
+
+const decodeFormulaTarget = (value: DecodedValue): FormulaTargetV1 => {
+  const map = exactKeys(asMap(value, "a formula target"), ["kind", "tableId", "fieldId"], "a formula target");
+  const kind = oneOf(field(map, "kind"), FORMULA_TARGET_KINDS, "a formula target kind");
+  const tableId = optionalId<TableId>(field(map, "tableId"), "a table id");
+  const fieldId = optionalId<FieldId>(field(map, "fieldId"), "a field id");
+  // migration 005's target CHECK, restated so a payload the SQL would refuse
+  // is refused here first.
+  switch (kind) {
+    case "computed-column":
+      if (tableId === null || fieldId === null) {
+        throw new CodecError("a computed column names its table and its field");
+      }
+      return { kind, tableId, fieldId };
+    case "table-metric":
+      if (tableId === null || fieldId !== null) {
+        throw new CodecError("a table metric names its table and no field");
+      }
+      return { kind, tableId };
+    case "dashboard-value":
+      if (fieldId !== null) {
+        throw new CodecError("a dashboard value names no field");
+      }
+      return { kind, tableId };
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+};
+
+const encodeDependency = (dependency: FormulaDependencyV1): CborValue =>
+  cborMap([
+    ["kind", dependency.kind],
+    ["id", dependency.kind === "field" ? dependency.fieldId : dependency.formulaId],
+  ]);
+
+const decodeDependency = (value: DecodedValue): FormulaDependencyV1 => {
+  const map = exactKeys(asMap(value, "a formula dependency"), ["kind", "id"], "a formula dependency");
+  const kind = oneOf(field(map, "kind"), FORMULA_DEPENDENCY_KINDS, "a dependency kind");
+  return kind === "field"
+    ? { kind, fieldId: id16<FieldId>(field(map, "id"), "a field id") }
+    : { kind, formulaId: id16<FormulaId>(field(map, "id"), "a formula id") };
+};
+
+/**
+ * A formula definition (CA-25): target, text, IR, disposition, determinism,
+ * dependencies. `formula.changed` and the checkpoint's `formulas` root carry
+ * the same map, so a definition reads the same from either. It has no key for
+ * a value: nothing here can hold an evaluated result (invariant 7).
+ */
+export const encodeFormulaDefinition = (formula: FormulaDefinitionV1): CborValue =>
+  cborMap([
+    ["formulaId", formula.formulaId],
+    ["target", encodeFormulaTarget(formula.target)],
+    ["displayName", formula.displayName],
+    ["originalText", formula.originalText],
+    [
+      "document",
+      formula.document === null
+        ? null
+        : cborMap([
+            ["irVersion", formula.document.irVersion],
+            ["root", encodeFormulaIR(formula.document.root)],
+          ]),
+    ],
+    ["disposition", formula.disposition],
+    ["determinism", formula.determinism],
+    ["dependencies", formula.dependencies.map(encodeDependency)],
+  ]);
+
+export const decodeFormulaDefinition = (value: DecodedValue): FormulaDefinitionV1 => {
+  const map = exactKeys(
+    asMap(value, "a formula definition"),
+    ["formulaId", "target", "displayName", "originalText", "document", "disposition", "determinism", "dependencies"],
+    "a formula definition",
+  );
+  const disposition = oneOf(field(map, "disposition"), FORMULA_DISPOSITIONS, "a formula disposition");
+  const determinism = oneOf(field(map, "determinism"), FORMULA_DETERMINISMS, "a formula determinism");
+  if (!isAllowedClassification(disposition, determinism)) {
+    throw new CodecError("a formula's disposition and determinism are not a legal pair");
+  }
+  const documentValue = field(map, "document");
+  let document: FormulaIRDocumentV1 | null = null;
+  if (documentValue !== null) {
+    const documentMap = exactKeys(asMap(documentValue, "a formula document"), ["irVersion", "root"], "a formula document");
+    if (count(field(documentMap, "irVersion"), "a formula IR version") !== 1) {
+      throw new CodecError("a formula declares an unsupported IR version");
+    }
+    document = { irVersion: 1, root: decodeFormulaIR(field(documentMap, "root")) };
+  }
+  if (document === null && disposition !== "unsupported") {
+    throw new CodecError("only an unsupported formula may lack its IR");
+  }
+  const displayName = field(map, "displayName");
+  return {
+    formulaId: id16<FormulaId>(field(map, "formulaId"), "a formula id"),
+    target: decodeFormulaTarget(field(map, "target")),
+    displayName: displayName === null ? null : nfcText(displayName, "a formula name"),
+    originalText: nfcText(field(map, "originalText"), "formula text"),
+    document,
+    disposition,
+    determinism,
+    dependencies: list(field(map, "dependencies"), "formula dependencies").map(decodeDependency),
+  };
+};
+
+export const encodeFormulaMetadata = (metadata: FormulaMetadataV1): CborValue =>
+  cborMap([
+    ["catalogVersion", metadata.catalogVersion],
+    [
+      "functionVersions",
+      metadata.functionVersions.map((entry) =>
+        cborMap([
+          ["name", entry.name],
+          ["version", entry.version],
+        ]),
+      ),
+    ],
+    ["source", metadata.source],
+    ["importedValuePolicy", metadata.importedValuePolicy],
+  ]);
+
+export const decodeFormulaMetadata = (value: DecodedValue): FormulaMetadataV1 => {
+  const map = exactKeys(
+    asMap(value, "formula metadata"),
+    ["catalogVersion", "functionVersions", "source", "importedValuePolicy"],
+    "formula metadata",
+  );
+  return {
+    catalogVersion: count(field(map, "catalogVersion"), "a catalog version"),
+    functionVersions: list(field(map, "functionVersions"), "function versions").map((entry) => {
+      const version = exactKeys(asMap(entry, "a function version"), ["name", "version"], "a function version");
+      return {
+        name: text(field(version, "name"), "a function name"),
+        version: count(field(version, "version"), "a function version"),
+      };
+    }),
+    source: oneOf(field(map, "source"), FORMULA_SOURCES, "a formula source"),
+    importedValuePolicy: oneOf(
+      field(map, "importedValuePolicy"),
+      FORMULA_IMPORTED_VALUE_POLICIES,
+      "an imported-value policy",
+    ),
+  };
+};
+
+/** One formula as the checkpoint's `formulas` root holds it (CA-25). */
+export interface CheckpointFormulaV1 {
+  readonly formula: FormulaDefinitionV1;
+  readonly metadata: FormulaMetadataV1;
+  /** A removed formula stays, inactive: its computed field still names it. */
+  readonly isActive: boolean;
+  readonly schemaRevision: bigint;
+}
+
+const encodeCheckpointFormula = (entry: CheckpointFormulaV1): CborValue =>
+  cborMap([
+    ["formula", encodeFormulaDefinition(entry.formula)],
+    ["metadata", encodeFormulaMetadata(entry.metadata)],
+    ["isActive", entry.isActive],
+    ["schemaRevision", entry.schemaRevision],
+  ]);
+
+const decodeCheckpointFormula = (value: DecodedValue): CheckpointFormulaV1 => {
+  const map = exactKeys(
+    asMap(value, "a checkpoint formula"),
+    ["formula", "metadata", "isActive", "schemaRevision"],
+    "a checkpoint formula",
+  );
+  return {
+    formula: decodeFormulaDefinition(field(map, "formula")),
+    metadata: decodeFormulaMetadata(field(map, "metadata")),
     isActive: boolean(field(map, "isActive"), "an active flag"),
     schemaRevision: revision(field(map, "schemaRevision"), "a schema revision"),
   };
@@ -1347,6 +1825,9 @@ const F03_MANIFEST_KEYS = Object.freeze([
   "importLineages",
 ] as const);
 
+/** F04 adds the `formulas` root (CA-25) as payload evolution, exactly as D37 did. */
+const F04_MANIFEST_KEYS = Object.freeze([...F03_MANIFEST_KEYS, "formulas"] as const);
+
 /**
  * True when `map` holds exactly `names`. Used only to choose between the two
  * legal key sets; the chosen set is then enforced by `exactKeys`.
@@ -1358,8 +1839,8 @@ const hasExactly = (
 
 /**
  * The exact bytes `semanticSha256` is computed over: the manifest sans hash.
- * Always the F03 key set — an F02 writer's absent roots are written as their
- * defaults.
+ * Always the F04 key set — an older writer's absent roots are written as
+ * their defaults.
  */
 export function encodeCheckpointBody(
   manifest: Omit<CheckpointManifestV1, "semanticSha256">,
@@ -1380,6 +1861,7 @@ export function encodeCheckpointBody(
       ["inertItems", resolved.inertItems.map(encodeInertItem)],
       ["inferenceDecisions", resolved.inferenceDecisions.map(encodeDecision)],
       ["importLineages", resolved.importLineages.map(encodeLineage)],
+      ["formulas", resolved.formulas.map(encodeCheckpointFormula)],
       ["recordPages", resolved.recordPages.map(encodePageRef)],
     ]),
   );
@@ -1412,9 +1894,10 @@ export function decodeCheckpointManifest(
 ): ResolvedCheckpointManifestV1 {
   const raw = asMap(decodeCanonical(payload), "a checkpoint manifest");
   const isF02 = hasExactly(raw, F02_MANIFEST_KEYS);
+  const isF03 = hasExactly(raw, F03_MANIFEST_KEYS);
   const map = exactKeys(
     raw,
-    isF02 ? [...F02_MANIFEST_KEYS] : [...F03_MANIFEST_KEYS],
+    isF02 ? [...F02_MANIFEST_KEYS] : isF03 ? [...F03_MANIFEST_KEYS] : [...F04_MANIFEST_KEYS],
     "a checkpoint manifest",
   );
   if (count(field(map, "manifestVersion"), "a manifest version") !== VERSION) {
@@ -1463,6 +1946,9 @@ export function decodeCheckpointManifest(
             decodeLineage,
           ),
         }),
+    ...(isF02 || isF03
+      ? {}
+      : { formulas: list(field(map, "formulas"), "formulas").map(decodeCheckpointFormula) }),
     recordPages: list(field(map, "recordPages"), "record pages").map(decodePageRef),
     semanticSha256: bytesOfLength(
       field(map, "semanticSha256"),

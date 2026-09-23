@@ -24,10 +24,13 @@ import type { StorageId16 } from "../../domain/model/bytes.js";
 import type {
   AppThemeV1,
   AuthoredRecordV1,
-  F02DomainEventV1,
+  DomainEventOfV1,
   FieldChangeV1,
+  FormulaMetadataV1,
   Sha256V1,
 } from "../../domain/model/events.js";
+import type { FormulaDefinitionV1 } from "../../domain/formulas/ir.js";
+import type { ImpactReportV1 } from "../../domain/validation/schema-impact.js";
 import type {
   AppId,
   CommitId,
@@ -63,6 +66,7 @@ import type { CellValueV1 } from "../../domain/model/values.js";
 import type {
   ValidationIssueKindV1,
   ValidationRuleIR,
+  ValidationRuleIRV2,
   ValidationSeverityV1,
 } from "../../domain/validation/rules.js";
 import type {
@@ -94,6 +98,19 @@ export const CHANGE_SUBJECT_KINDS = Object.freeze([
 ] as const);
 
 export type ChangeSubjectKindV1 = (typeof CHANGE_SUBJECT_KINDS)[number];
+
+/** A record rule of either IR version (CA-27). */
+export type RecordRuleIRV1 = ValidationRuleIR | ValidationRuleIRV2;
+
+/**
+ * M01's event union over M02's rule IR and impact counts and M03's formula
+ * definition (M01 may not name them); M07 states the same instantiation.
+ */
+export type DomainEventV1 = DomainEventOfV1<
+  RecordRuleIRV1,
+  FormulaDefinitionV1,
+  Omit<ImpactReportV1, "patches">
+>;
 
 // ------------------------------------------------------------ hydration in --
 
@@ -132,7 +149,20 @@ export interface ProjectionSheetSnapshotV1 {
 export interface ProjectionValidationRuleV1 {
   readonly tableId: TableId;
   readonly displayName: string;
-  readonly rule: ValidationRuleIR;
+  /** IR v1 or v2 (CA-27): the same IR CRUD, restore and impact evaluate. */
+  readonly rule: RecordRuleIRV1;
+  readonly isActive: boolean;
+  readonly schemaRevision: bigint;
+}
+
+/**
+ * One `formulas` row with its `formula_dependencies` (CA-25). The definition
+ * holds no result: results are recalculated here and live only in `cells`
+ * (computed lane) and `scalar_formula_results` (D60).
+ */
+export interface ProjectionFormulaV1 {
+  readonly formula: FormulaDefinitionV1;
+  readonly metadata: FormulaMetadataV1;
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
 }
@@ -215,6 +245,8 @@ export interface ProjectionCheckpointV1 {
   readonly enumOptions: readonly EnumOptionDefV1[];
   readonly relationships: readonly RelationshipDefV1[];
   readonly validationRules: readonly ProjectionValidationRuleV1[];
+  /** Load order step 3: after the fields whose `formulaId` names them. */
+  readonly formulas: readonly ProjectionFormulaV1[];
   readonly inertItems: readonly ProjectionInertItemV1[];
   readonly importLineages: readonly ImportLineageV1[];
   readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
@@ -232,7 +264,7 @@ export interface ProjectionCheckpointV1 {
  */
 export interface ProjectionCommitV1 {
   readonly commit: EventCommitV1;
-  readonly events: readonly F02DomainEventV1[];
+  readonly events: readonly DomainEventV1[];
   /**
    * The validator's issues for the record an event leaves behind, keyed by
    * event index. The projection never re-validates (invariant 5), so a caller
@@ -243,7 +275,21 @@ export interface ProjectionCommitV1 {
     number,
     readonly ValidationIssueV1Input[]
   >;
+  /**
+   * The one shared validator, handed over for a commit that changes the
+   * schema: once the commit's events have landed, every record of a table the
+   * commit touched is re-judged through it against the schema as it now
+   * stands (a new rule, a required toggle, a converted type). The projection
+   * still decides nothing — it asks the caller's validator (invariant 5).
+   * Absent: nothing is re-judged, which is right for a record-only commit.
+   */
+  readonly revalidate?: RecordRevalidatorV1;
 }
+
+/** The validator's verdict for one record, as the schema now stands. */
+export type RecordRevalidatorV1 = (
+  record: AuthoredRecordV1,
+) => readonly ValidationIssueV1Input[];
 
 // --------------------------------------------------------------- queries out --
 
@@ -488,7 +534,9 @@ export type ProjectionQueryV1 =
   | {
       readonly kind: "list-inference-decisions";
       readonly decisionKind: DecisionKindV1 | null;
-    };
+    }
+  /** A table's formulas (column, metric, table-scoped dashboard), or all when null. */
+  | { readonly kind: "list-formulas"; readonly tableId: TableId | null };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -513,6 +561,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-sheet-snapshots": readonly ProjectionSheetListingV1[];
   readonly "list-inert-items": readonly ProjectionInertItemV1[];
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
+  readonly "list-formulas": readonly ProjectionFormulaV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];
@@ -532,4 +581,6 @@ export interface ProjectionSchemaCacheV1 {
   readonly optionLabels: Map<string, string>;
   /** Every relationship, keyed by its reference (source) field. */
   readonly relationships: Map<string, RelationshipDefV1>;
+  /** Every formula, active or not, keyed by its ID; `formula.changed` updates it. */
+  readonly formulas: Map<string, ProjectionFormulaV1>;
 }

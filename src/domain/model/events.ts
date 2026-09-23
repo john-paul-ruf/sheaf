@@ -1,12 +1,21 @@
 /**
- * Typed payloads for the event kinds F02 authors (database.md § Event catalog
- * and payload constraints).
+ * Typed payloads for the event kinds Sheaf authors (database.md § Event
+ * catalog and payload constraints).
  *
  * The kind list in `src/migrations/004_event_format_v1.ts` is closed for event
  * format 1 and stays closed: this module types a **subset** of it — the eleven
- * kinds this feature can actually produce — and adds nothing to it.
+ * kinds F02 produces plus the nine F04 schema kinds — and adds nothing to it.
  * `tests/unit/domain/events.test.ts` asserts every kind named here is one 004
  * already declares.
+ *
+ * The F04 payloads carry a rule IR (M02), a formula definition (M03) and an
+ * impact report (M02). M01 imports nothing outward, so it states those
+ * payloads **generically** over the three and never names them:
+ * {@link DomainEventOfV1} is instantiated with the real types by M07
+ * (`src/application/ports/event-repository.ts`) and M12
+ * (`src/persistence/projection/types.ts`), and
+ * `tests/unit/workers/projection-port.test.ts` pins the two instantiations
+ * equal.
  *
  * Two catalog rules are held by the types rather than by review:
  *
@@ -234,3 +243,149 @@ export type F02DomainEventV1 = {
     readonly payload: F02EventPayloadsV1[K];
   };
 }[F02EventKindV1];
+
+// ------------------------------------------------------------ F04 schema --
+
+/**
+ * The schema, rule and formula kinds F04 authors (CA-25, CA-27, CA-28). Every
+ * one is already in migration 004's closed list. There is still no
+ * recalculation kind: a computed value is derived, never authored (invariant
+ * 7), so no payload below can carry one.
+ */
+export const F04_SCHEMA_EVENT_KINDS = Object.freeze([
+  "app.renamed",
+  "table.changed",
+  "field.changed",
+  "relationship.changed",
+  "relationship.removed",
+  "rule.changed",
+  "rule.removed",
+  "formula.changed",
+  "formula.removed",
+] as const);
+
+export type F04SchemaEventKindV1 = (typeof F04_SCHEMA_EVENT_KINDS)[number];
+
+/** Every kind this build authors or replays. */
+export type DomainEventKindV1 = F02EventKindV1 | F04SchemaEventKindV1;
+
+/** A table's own definition, without its fields (each field has its own events). */
+export type TableDefinitionV1 = Omit<TableDefV1, "fields">;
+
+export interface AppRenamedPayloadV1 {
+  readonly priorNameSha256: Sha256V1;
+  readonly displayName: string;
+}
+
+/**
+ * Rename, label or key (D64); values are never touched. `Impact` is the
+ * counted impact MOD-014 previewed — never the values it counted (CA-12).
+ */
+export interface TableChangedPayloadV1<Impact> {
+  readonly priorSha256: Sha256V1;
+  readonly before: TableDefinitionV1;
+  readonly after: TableDefinitionV1;
+  readonly impact: Impact;
+}
+
+/** The table and field IDs never change; everything else may (D57). */
+export interface FieldChangedPayloadV1<Impact> {
+  readonly before: FieldDefV1;
+  readonly after: FieldDefV1;
+  readonly impact: Impact;
+}
+
+export interface RelationshipChangedPayloadV1 {
+  /** The complete endpoints and detection source after the change. */
+  readonly relationship: RelationshipDefV1;
+  /** Hash of the definition this replaces; null when it is new. */
+  readonly priorSha256: Sha256V1 | null;
+}
+
+export interface RelationshipRemovedPayloadV1 {
+  readonly relationship: RelationshipDefV1;
+  /** The rejection evidence that keeps re-detection suppressed (FR-7), if any. */
+  readonly rejectionFingerprint: Sha256V1 | null;
+}
+
+export interface RuleChangedPayloadV1<Rule> {
+  readonly tableId: TableId;
+  readonly displayName: string;
+  /** The complete rule IR (v1 or v2), message parameters included. */
+  readonly rule: Rule;
+  readonly priorSha256: Sha256V1 | null;
+}
+
+export interface RuleRemovedPayloadV1<Rule, Impact> {
+  readonly tableId: TableId;
+  readonly displayName: string;
+  readonly rule: Rule;
+  readonly impact: Impact;
+}
+
+/** Where a formula came from, and what happens to the values an import kept. */
+export const FORMULA_SOURCES = Object.freeze(["authored", "imported"] as const);
+export type FormulaSourceV1 = (typeof FORMULA_SOURCES)[number];
+
+export const FORMULA_IMPORTED_VALUE_POLICIES = Object.freeze([
+  /** Nothing was imported for it: an authored formula. */
+  "none",
+  /** Frozen or unsupported: each imported value stays an authored literal (D51). */
+  "kept-as-literal",
+] as const);
+export type FormulaImportedValuePolicyV1 = (typeof FORMULA_IMPORTED_VALUE_POLICIES)[number];
+
+export interface FormulaFunctionVersionV1 {
+  readonly name: string;
+  readonly version: number;
+}
+
+/** `formulas.metadata_cbor` (CA-25): versions, source and imported-value policy. */
+export interface FormulaMetadataV1 {
+  readonly catalogVersion: number;
+  /** Each catalog function the IR calls, once, at the version it was translated against. */
+  readonly functionVersions: readonly FormulaFunctionVersionV1[];
+  readonly source: FormulaSourceV1;
+  readonly importedValuePolicy: FormulaImportedValuePolicyV1;
+}
+
+/** CA-25: the definition (M03's) and its metadata. Never an evaluated value. */
+export interface FormulaChangedPayloadV1<Formula> {
+  readonly formula: Formula;
+  readonly metadata: FormulaMetadataV1;
+  readonly priorSha256: Sha256V1 | null;
+}
+
+/** Authored literals remain; no result is materialized (database.md). */
+export interface FormulaRemovedPayloadV1<Formula, Impact> {
+  readonly formula: Formula;
+  readonly metadata: FormulaMetadataV1;
+  readonly impact: Impact;
+}
+
+/**
+ * The nine F04 payloads, over the rule IR, formula definition and impact
+ * report types the instantiating layer supplies (see the file comment).
+ */
+export interface F04SchemaEventPayloadsV1<Rule, Formula, Impact> {
+  readonly "app.renamed": AppRenamedPayloadV1;
+  readonly "table.changed": TableChangedPayloadV1<Impact>;
+  readonly "field.changed": FieldChangedPayloadV1<Impact>;
+  readonly "relationship.changed": RelationshipChangedPayloadV1;
+  readonly "relationship.removed": RelationshipRemovedPayloadV1;
+  readonly "rule.changed": RuleChangedPayloadV1<Rule>;
+  readonly "rule.removed": RuleRemovedPayloadV1<Rule, Impact>;
+  readonly "formula.changed": FormulaChangedPayloadV1<Formula>;
+  readonly "formula.removed": FormulaRemovedPayloadV1<Formula, Impact>;
+}
+
+/**
+ * Every authored or replayed event: F02's eleven kinds and F04's nine, each
+ * paired with exactly its own payload.
+ */
+export type DomainEventOfV1<Rule, Formula, Impact> = {
+  [K in DomainEventKindV1]: {
+    readonly kind: K;
+    readonly payload: (F02EventPayloadsV1 & F04SchemaEventPayloadsV1<Rule, Formula, Impact>)[K];
+  };
+}[DomainEventKindV1];
