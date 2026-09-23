@@ -264,3 +264,9 @@ file — additive at the wire, rewritten at the VM):**
 ### F04 delta — SESSION-05 (M37 view models — `src/application/view-models/records.ts`)
 
 - Same reason, the chart VMs are sections of `records.ts`, not `charts.ts`: `selectChartDetailVm` (SCR-033/pinned/preview), `appendTablePage`, `ChartCategoryVm`/`ChartMarkVm`/`ChartScopeVm`/`ChartDetailVm`, `ChartFieldTypeVm`; `selectChartBuilderVm`, `defaultChartDefinition`, `CHART_TYPE_CHOICES`, `groupingKey`/`measureKey`; `selectChartsIndexVm`. `AppHomeVm.pinnedCharts`; `RecordsListVm.chartOrigin` (+ `RecordsQueryVmInput.chartOrigin`), announced as "Selected mark · {chart}"; history sentences for `chart.saved`/`chart.deleted`.
+
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (pointer)
+
+The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).

@@ -106,3 +106,9 @@ family for multi-sheet selection that the delimited screens could not share).
   falling back to "One field, …" when the name is unknown) is recorded inside
   `review-screen.tsx`'s description via the Landed-scope paragraph rather than
   as a separate trailing note.
+
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (pointer)
+
+The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).

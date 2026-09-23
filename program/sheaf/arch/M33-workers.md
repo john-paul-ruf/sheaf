@@ -168,3 +168,9 @@ The SESSION-04 delta for the data-worker record handlers (`query-records` wire, 
 ### F04 delta — SESSION-05 (M33 data worker — `src/workers/data/`)
 
 - New `chart-handlers.ts` (all nine RPCs; wire ↔ domain mapping; drafts), `chart-event-payloads.ts` (`chart.saved`/`chart.deleted` codec over M23's definition codec, refusing a payload whose name/pin/id disagree with its definition). `record-event-payloads.ts`: chart kinds are tail kinds and dispatch there. `app-session.ts` hydrates the checkpoint `charts` root. `record-handlers.ts` exports `toDomainFilter`. `catalog.ts`: app entry `chartDraft?: Uint8Array` — D61's one draft per app, opaque canonical bytes owned by `chart-handlers.ts`, written only when present so older catalog bytes are unchanged.
+
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (pointer)
+
+The SESSION-07 delta for this module is recorded jointly in `arch/M01-domain-model.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).

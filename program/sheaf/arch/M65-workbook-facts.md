@@ -124,3 +124,9 @@ fix.
 - Bounds: `CHART_PART_MAX_SERIES` 64, `CHART_PART_MAX_REF_LENGTH` 1024, `CHART_PART_MAX_TITLE_LENGTH` 256 (code points, NFC), `PIVOT_PART_MAX_FIELDS` 256.
 - Guard: `isChartPartDefinition(definition)`.
 - Canonical mapping: the `definition` key is appended to the preserved-part map only when present. Chart map keys: `chartType, barDirection, grouping, title, series[{name, categoriesRef, valuesRef, xRef, yRef}]`. Pivot map keys: `sourceSheet, sourceRef, rowFields, dataFields[{cacheFieldName, subtotal}]`.
+
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (pointer)
+
+The SESSION-07 delta for this module is recorded jointly in `arch/M58-workbook-fixtures.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).

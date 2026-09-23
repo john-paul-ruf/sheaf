@@ -182,3 +182,9 @@ carries a port.**
 ### F04 delta — SESSION-05 (M32 protocol — `src/workers/protocol/messages.ts`)
 
 - Requests: `listCharts` (L690), `getChart` (L695), `saveChart` (L705), `setChartPin` (L714), `deleteChart` (L722), `getChartDraft` (L730), `saveChartDraft` (L736), `discardChartDraft` (L742), `getChartDataset {source: chart|draft, tableOffset?}` (L751). Wire shapes `ChartGroupingWireV1` (L649), `ChartMeasureWireV1` (L659), `ChartDefinitionWireV1` (L676, a definition without its id), `ChartViewV1` (L2257), `ChartDraftViewV1` (L2269), `ChartRefusalWireV1` (L2276), `ChartCommandOutcomeWireV1` (L2292), `ChartKeyWireV1` (L2348), `ChartMarkWireV1` (L2355), `ChartDatasetViewV1` (L2376), `GetChartDatasetResponseV1` (L2402). Still no byte or key type.
+
+
+<!-- formulas-queries-charts SESSION-07 -->
+### F04 delta — SESSION-07 (pointer)
+
+The SESSION-07 delta for this module is recorded jointly in `arch/M01-domain-model.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
