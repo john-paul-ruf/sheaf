@@ -197,7 +197,6 @@ export function translateProposedFormula(
   formula: ProposedFormulaV1,
   ids: FormulaIdentitiesV1,
 ): FormulaOutcomeV1 {
-  if (formula.originalText === "") return kept("unreadable");
   if (formula.isArray) return kept("array-formula");
   if (formula.target.kind === "computed-column" && formula.shapeMatchCount < dataRowsOf(proposal, formula.target.tableKey)) {
     return kept("not-filled-down");

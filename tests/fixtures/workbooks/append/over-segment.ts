@@ -21,3 +21,25 @@ export function overSegmentCsv(rows: number = OVER_SEGMENT_ROWS): string {
   }
   return `${lines.join("\n")}\n`;
 }
+
+/** Long rows at the head of {@link underestimatedOverSegmentCsv}: they fill pre-flight's whole sample. */
+const LONG_ROWS = 70;
+
+/**
+ * A file too large to append whose **estimate passes** (F03 residual, S07):
+ * pre-flight extrapolates from its first 64 KiB, and here those bytes are 70
+ * rows of long notes, so it expects a few hundred rows; the short rows after
+ * them make it {@link OVER_SEGMENT_ROWS} + 70. The existing-app destination
+ * is therefore offered, and only promotion's exact count refuses it
+ * (`append-too-large`).
+ */
+export function underestimatedOverSegmentCsv(): string {
+  const lines = ["Crew ID,Crew,Notes"];
+  for (let index = 0; index < LONG_ROWS; index += 1) {
+    lines.push(`LR-${String(index).padStart(3, "0")},Crew ${String(index % 40)},${"site notes ".repeat(90).trim()}`);
+  }
+  for (let index = 0; index < OVER_SEGMENT_ROWS; index += 1) {
+    lines.push(`CR-${String(index).padStart(5, "0")},Crew ${String(index % 40)},ok`);
+  }
+  return `${lines.join("\n")}\n`;
+}

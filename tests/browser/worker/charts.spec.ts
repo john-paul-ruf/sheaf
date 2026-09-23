@@ -20,6 +20,7 @@ import type {
   DataWorkerRequestV1,
   DataWorkerResponseV1,
 } from "../../../src/workers/protocol/messages.js";
+import { DEMO_LIVE_STRUCTURE_STATEMENTS } from "../../fixtures/workbooks/ooxml/demo-counts.js";
 import { PASSPHRASE, command, installFixture, start, teardown } from "./runtime.js";
 import { runWorkbookImport } from "./workbook-runtime.js";
 
@@ -54,6 +55,10 @@ async function promotedDemo(page: Page): Promise<string> {
   expect(run.events.some((event) => event.kind === "completed")).toBe(true);
   const stageId = run.stageId as string;
   await ask(page, { kind: "runInference", stageId });
+  for (const statementId of DEMO_LIVE_STRUCTURE_STATEMENTS) {
+    const rejected = await ask(page, { kind: "applyReviewEdit", stageId, edit: { kind: "reject-statement", statementId } });
+    expect(rejected.outcome).toBe("applied");
+  }
   const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: "Fieldwork Q3" });
   if (promoted.outcome !== "promoted") throw new Error(`promotion refused: ${promoted.reason}`);
   return promoted.appId;

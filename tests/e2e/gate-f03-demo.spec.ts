@@ -9,6 +9,10 @@
  * > desktop-handoff instructions. Formulas/charts appear preserved with
  * > provenance (live in F04).
  *
+ * F04 (S07): formulas/chart now live. The demo's formulas and its chart are
+ * rebuilt at import, so the review states them live and the snapshot no
+ * longer lists them as inert; the rest of the script is unchanged.
+ *
  * At 320px (the smallest declared width), under the no-network fixture, through
  * the real entry and the production workers. The selection leaves Archive 2018
  * out — the prescribed demo path (SESSION-08, ROADMAP).
@@ -74,10 +78,10 @@ test("GATE-F03: the F03 demo script, end to end at 320px, offline", async ({ pag
   await expect(review).toContainText("Excel validation rule");
   await expect(review).toContainText("Your VLOOKUP formula");
   await expect(review).toContainText("Each record in “Jobs” belongs to one record in “Customers”.");
-  // Intentionally absent: live formulas (F04) — preserved, with provenance.
-  await expect(review).toContainText("Formulas are preserved, not live yet");
-  await expect(review).toContainText("Original formula preserved");
-  await expect(review).toContainText("“Overview” is kept as a snapshot");
+  // F04: formulas/chart now live — the demo's six formulas and its chart are rebuilt (CAP-38, CAP-34).
+  await expect(review).toContainText("6 formulas keep working");
+  await expect(review).toContainText("Live computed value");
+  await expect(review).toContainText("“Overview” becomes your app dashboard");
   await auditable(page, "SCR-023");
 
   // 4. Reject a proposed relationship (Visits → Jobs).
@@ -112,14 +116,10 @@ test("GATE-F03: the F03 demo script, end to end at 320px, offline", async ({ pag
   const snapshot = screen(page, "SCR-031");
   await expect(snapshot).toContainText("Overview · read only");
   await expect(snapshot.locator("table")).toContainText("Quoted total");
-  // Intentionally absent: live charts (F04) — preserved as an inert item.
-  await expect(snapshot.locator('[data-inert-marker="chart"]')).toContainText("Chart preserved");
-  await expect(snapshot.locator('[data-inert="chart"]')).toContainText(
-    "Kept as a snapshot; rebuilt as a live chart in a later release.",
-  );
-  await expect(snapshot.locator('[data-inert="formula"]')).toContainText(
-    "Imported results are kept as values. The formula is preserved and is not recalculated yet.",
-  );
+  // F04: formulas/chart now live — neither is an inert item of the snapshot any more.
+  await expect(snapshot.locator('[data-inert-marker="chart"]')).toHaveCount(0);
+  await expect(snapshot.locator('[data-inert="chart"]')).toHaveCount(0);
+  await expect(snapshot.locator('[data-inert="formula"]')).toHaveCount(0);
   await auditable(page, "SCR-031");
 
   // 8–9. A macro workbook → the whole import is refused.

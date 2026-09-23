@@ -45,8 +45,20 @@ export interface WorkbookRootsReportV1 {
       readonly classification: readonly string[];
       readonly listedInHead: boolean;
     }[];
+    /** F04: each formula as stored — its text, target, disposition, and the field or label it fills. */
+    readonly formulas: readonly { readonly text: string; readonly target: string; readonly disposition: string; readonly name: string | null }[];
+    /** F04: each chart as stored (CA-30). */
+    readonly charts: readonly { readonly name: string; readonly type: string; readonly provenance: string; readonly pinned: boolean }[];
+    /** `Table.Field` of every computed field (it names a formula, D51). */
+    readonly computedFields: readonly string[];
   };
-  readonly pages: { readonly count: number; readonly records: number; readonly digestsMatch: boolean };
+  /** `valued`: how many record-page values each `Table.Field` holds; a live column holds none (invariant 7). */
+  readonly pages: {
+    readonly count: number;
+    readonly records: number;
+    readonly digestsMatch: boolean;
+    readonly valued: Readonly<Record<string, number>>;
+  };
   /** Every baseline page the head lists, decoded, with the largest one's decoded size. */
   readonly baselines: {
     readonly count: number;
@@ -170,10 +182,19 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
     // Record pages, each checked against its manifest digest.
     let records = 0;
     let digestsMatch = true;
+    const valued: Record<string, number> = {};
+    const qualified = (fieldId: Uint8Array): string => {
+      const table = checkpoint.tables.find((candidate) => candidate.fields.some((field) => same(field.fieldId, fieldId)));
+      return `${table?.displayName ?? "?"}.${fieldName(fieldId) ?? "?"}`;
+    };
     for (const ref of checkpoint.recordPages) {
       const payload = await open(ref.storageId, "app.records", "app.record-page");
       digestsMatch &&= same(await hash.sha256(payload), ref.semanticSha256);
-      records += roots.decodeRecordPage(payload).records.length;
+      const decoded = roots.decodeRecordPage(payload).records;
+      records += decoded.length;
+      for (const record of decoded) {
+        for (const entry of record.values) valued[qualified(entry.fieldId)] = (valued[qualified(entry.fieldId)] ?? 0) + 1;
+      }
     }
 
     // Every baseline page, each checked against the digest the head holds.
@@ -274,8 +295,23 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
           classification: [...sheet.classification],
           listedInHead: listed.has(sheet.snapshotManifestStorageId),
         })),
+        formulas: checkpoint.formulas.map(({ formula }) => ({
+          text: formula.originalText,
+          target: formula.target.kind,
+          disposition: formula.disposition,
+          name: formula.target.kind === "computed-column" ? fieldName(formula.target.fieldId) : formula.displayName,
+        })),
+        charts: checkpoint.charts.map((chart) => ({
+          name: chart.definition.name,
+          type: chart.definition.type,
+          provenance: chart.provenance,
+          pinned: chart.definition.pinned,
+        })),
+        computedFields: checkpoint.tables.flatMap((table) =>
+          table.fields.filter((field) => field.formulaId !== undefined).map((field) => `${table.displayName}.${field.displayName}`),
+        ),
       },
-      pages: { count: checkpoint.recordPages.length, records, digestsMatch },
+      pages: { count: checkpoint.recordPages.length, records, digestsMatch, valued },
       baselines: {
         count: head.baselinePages.length,
         entries: baselineEntries,

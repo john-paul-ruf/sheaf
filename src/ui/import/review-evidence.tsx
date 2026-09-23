@@ -206,8 +206,6 @@ function keptBecause(evidence: FormulaOutcomeVm): string {
       return `Only ${formatCount(evidence.shapeMatchCount)} of ${formatCount(evidence.rowCount ?? 0)} rows hold the same formula${
         evidence.shapeBreakRowIndex === null ? "" : `; row ${formatCount(evidence.shapeBreakRowIndex + 1)} differs`
       }.`;
-    case "unreadable":
-      return "The workbook's formula text could not be read.";
     case "value-not-kept":
       return "It draws random numbers, and a summary value has no row to keep a frozen result in.";
     case null:

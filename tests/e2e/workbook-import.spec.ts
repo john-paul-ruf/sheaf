@@ -14,6 +14,7 @@
  * written into `tests/fixtures/` (another session's corpus) or anywhere else.
  */
 
+import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import {
@@ -45,6 +46,7 @@ import {
 
 const CORPUS = resolve(process.cwd(), "tests/fixtures/workbooks");
 const ZIP_BOMB = resolve(CORPUS, "unsafe/zip-bomb.xlsx");
+const headRevision = execSync("git rev-parse HEAD").toString().trim();
 
 test.afterEach(async ({ page }) => {
   await deleteLocalStore(page);
@@ -122,10 +124,11 @@ test("the demo workbook becomes a multi-table app that survives a reload", async
   }
   await expect(review).toContainText("Each record in “Jobs” belongs to one record in “Customers”.");
   await expect(review).toContainText("Your VLOOKUP formula");
-  await expect(review).toContainText("Formulas are preserved, not live yet");
-  await expect(review).toContainText("Original formula preserved");
+  // F04: formulas/chart now live (CAP-38, CAP-34).
+  await expect(review).toContainText("6 formulas keep working");
+  await expect(review).toContainText("Live computed value");
   await expect(review).toContainText("“Archive 2018” is excluded by your choice");
-  await expect(review).toContainText("“Overview” is kept as a snapshot");
+  await expect(review).toContainText("“Overview” becomes your app dashboard");
   await auditable(page, "SCR-023");
 
   // --- CAP-22: reject the Visits → Jobs connection --------------------------
@@ -164,6 +167,90 @@ test("the demo workbook becomes a multi-table app that survives a reload", async
     await expect(screen(page, "SCR-024")).toContainText(table);
   }
 
+  expectNoEgress(network);
+});
+
+test("CAP-38/CAP-34/CAP-29: the demo's formulas and chart are live — reviewed once, on the home, recalculating, and filtering", async ({
+  page,
+  network,
+}, testInfo) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  // The page is the one built from this revision (the webServer's freshness check).
+  expect(await page.evaluate(() => window.__sheafBuildId)).toBe(headRevision);
+  testInfo.annotations.push({ type: "sheafBuildId", description: headRevision });
+  await protectDevice(page);
+  await openUpload(page);
+  await choose(page, DEMO_XLSX);
+  await expect(screen(page, "SCR-018")).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  await toggleSheet(page, "Archive 2018");
+  await page.getByRole("button", { name: "Import 6 selected sheets" }).click();
+
+  // --- the one review: Live calculations, the rebuilt chart (SCR-023) -------
+  const review = screen(page, "SCR-023");
+  await expect(review).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  const calculations = review.locator('[data-section="live-calculations"]');
+  await expect(calculations).toContainText("6 formulas keep working");
+  await expect(review.locator('[data-calculation="s0.t0.c6"]')).toContainText("“Balance” is a live calculation.");
+  await expect(review.locator('[data-calculation="s0.t0.c6"]')).toContainText("Live computed value");
+  await expect(review.locator('[data-calculation="s5.R3C2"]')).toContainText("“Open jobs” is a live summary value.");
+  const sheets = review.locator('[data-section="sheets-and-snapshots"]');
+  await expect(sheets).toContainText("1 chart and 4 summary values rebuilt");
+  await expect(sheets).toContainText("“Quoted by status” is rebuilt as a live chart from “Jobs”, pinned to the app's home.");
+  await page.screenshot({ path: testInfo.outputPath("scr-023-live-calculations.png"), fullPage: true });
+  await auditable(page, "SCR-023");
+  await page.getByRole("button", { name: "Create Fieldwork Q3" }).click();
+
+  // --- SCR-024: the dashboard values, and the Overview chart pinned (D65) ---
+  const home = screen(page, "SCR-024");
+  await expect(home).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  const appHash = new URL(page.url()).hash;
+  await expect(home).toContainText("At a glance");
+  for (const label of ["Open jobs", "Quoted total", "Paid total", "Balance"]) await expect(home).toContainText(label);
+  await expect(home.locator("[data-metric]")).toHaveCount(4);
+  await expect(home.locator('[data-metric][data-status="ok"]')).toHaveCount(4);
+  const pinned = home.locator("[data-pinned-chart]");
+  await expect(pinned).toContainText("Quoted by status");
+  await page.screenshot({ path: testInfo.outputPath("scr-024-imported.png"), fullPage: true });
+  await auditable(page, "SCR-024");
+
+  // --- a mark of the rebuilt chart → exactly the In-progress jobs ---------
+  await pinned.getByRole("button", { name: /^Filter by In progress, /u }).click();
+  await expect(screen(page, "SCR-025")).toBeVisible();
+  await expect(page.locator("[data-match-count]")).toHaveText("15 records match.");
+  await expect(page.locator("[data-record]")).toHaveCount(15);
+
+  // --- a record's Balance is live; editing Quoted recalculates it -----------
+  await followHash(page, appHash);
+  await page.getByRole("link", { name: "Jobs", exact: true }).first().click();
+  await expect(screen(page, "SCR-025")).toBeVisible();
+  await page.getByLabel("Search Jobs", { exact: true }).fill("J-1001");
+  await page.getByRole("link", { name: "J-1001", exact: true }).click();
+  const detail = screen(page, "SCR-027");
+  await expect(detail).toBeVisible();
+  const balance = detail.locator('[data-computed="ok"]').filter({ hasText: "$" });
+  await expect(balance).toContainText("$287.25");
+  await expect(balance).toContainText("Read-only");
+  const recordHash = new URL(page.url()).hash;
+  await page.getByRole("link", { name: "Edit this record" }).click();
+  await expect(screen(page, "SCR-029")).toBeVisible();
+  await page.getByLabel("Quoted amount", { exact: true }).fill("500");
+  await page.getByRole("button", { name: "Save on this device" }).click();
+  await expect(detail).toContainText("Saved on this device.");
+  await expect(detail.locator('[data-computed="ok"]').filter({ hasText: "$" })).toContainText("$500.00");
+
+  // --- reload + unlock: recomputed from the roots, the edit kept ------------
+  await openApp(page);
+  await attemptUnlock(page, PASSPHRASE);
+  await expect(screen(page, "SCR-010")).toBeVisible({ timeout: DERIVE_TIMEOUT_MS });
+  await followHash(page, recordHash);
+  await expect(screen(page, "SCR-027").locator('[data-computed="ok"]').filter({ hasText: "$" })).toContainText("$500.00", {
+    timeout: DERIVE_TIMEOUT_MS,
+  });
+  await followHash(page, appHash);
+  await expect(screen(page, "SCR-024").locator("[data-pinned-chart]")).toContainText("Quoted by status");
+  await expect(screen(page, "SCR-024").locator("[data-metric]")).toHaveCount(4);
   expectNoEgress(network);
 });
 

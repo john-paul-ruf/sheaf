@@ -54,3 +54,19 @@ export const DEMO_SUMMARY = {
   columnCount: 10,
   valueCount: 8996,
 } as const;
+
+/**
+ * F04 (S07): the statements of the live structure the demo imports — its six
+ * formulas and its rebuilt chart. A consumer whose premise is the F03-shaped
+ * app (no imported formula or chart) declines exactly these at review
+ * (`reject-statement`), which is a person's own choice on SCR-023.
+ */
+export const DEMO_LIVE_STRUCTURE_STATEMENTS = [
+  "formula:s0.t0.c2",
+  "formula:s0.t0.c6",
+  "formula:s5.R3C2",
+  "formula:s5.R4C2",
+  "formula:s5.R5C2",
+  "formula:s5.R6C2",
+  "chart:s5.chart0",
+] as const;

@@ -207,8 +207,6 @@ export const FORMULA_KEEP_REASONS = Object.freeze([
   ...IMPORT_UNSUPPORTED_REASONS,
   /** A column whose rows do not all hold the same formula (the fill-down proof failed). */
   "not-filled-down",
-  /** The formula's text could not be read from the workbook. */
-  "unreadable",
   "array-formula",
   /** A nondeterministic metric or dashboard value: no record exists to keep its frozen value. */
   "value-not-kept",

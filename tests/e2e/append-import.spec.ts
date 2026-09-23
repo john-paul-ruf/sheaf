@@ -13,7 +13,7 @@
 
 import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
-import { OVER_SEGMENT_ROWS, overSegmentCsv } from "../fixtures/workbooks/append/over-segment.js";
+import { OVER_SEGMENT_ROWS, overSegmentCsv, underestimatedOverSegmentCsv } from "../fixtures/workbooks/append/over-segment.js";
 import { auditable, clipped, undersizedTargets } from "./fixtures/a11y.js";
 import {
   COMPACT_VIEWPORT,
@@ -146,6 +146,50 @@ test("a file too large for one commit cannot be appended, and says why (D38)", a
   // The library holds exactly the one app; nothing was staged into it.
   await followHash(page, "#/library");
   await expect(screen(page, "SCR-010")).toContainText("1 app is on this device.");
+  expect(network.unexpected).toEqual([]);
+});
+
+test("an append whose estimate fits but whose rows do not is refused at create, nothing written (append-too-large, D38)", async ({
+  page,
+  network,
+}) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+  const appHash = await importDemoWorkbook(page);
+  await pickDelimited(page, {
+    name: "crew-notes.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(underestimatedOverSegmentCsv(), "utf8"),
+  });
+
+  // Pre-flight read only long rows, so its estimate fits: the destination is offered.
+  await expect(page.getByRole("radio", { name: /Add a table to an existing app/u })).toBeEnabled();
+  await chooseDestination(page, "Add a table to an existing app");
+  await page.getByLabel("Table name", { exact: true }).fill("Crew notes");
+  await page.getByRole("button", { name: "Check size first" }).click();
+  await expect(screen(page, "SCR-018")).toBeVisible();
+  await page.getByRole("button", { name: "Import this table" }).click();
+
+  // The exact count is promotion's: one commit cannot hold these rows.
+  const review = screen(page, "SCR-023");
+  await expect(review).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  await page.getByRole("button", { name: "Add “Crew notes” to Fieldwork Q3" }).click();
+  await expect(review).toContainText("The table was not added.", { timeout: PARSE_TIMEOUT_MS });
+  await expect(review).toContainText(
+    "This file has more rows than one addition to an app can hold, so nothing was written and this review is unchanged. It can be imported as a new app instead.",
+  );
+  await auditable(page, "SCR-023");
+
+  // Nothing reached the app: its tables are the workbook's.
+  await page.getByRole("button", { name: "Cancel import…" }).click();
+  await expect(screen(page, "SCR-022")).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  await followHash(page, appHash);
+  const home = screen(page, "SCR-024");
+  await expect(home).toBeVisible();
+  await expect(home).toContainText("Jobs");
+  await expect(home).not.toContainText("Crew notes");
   expect(network.unexpected).toEqual([]);
 });
 

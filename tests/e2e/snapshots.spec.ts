@@ -57,7 +57,8 @@ test("every imported sheet is a readable snapshot, inert items and discarded row
   await expect(list).not.toContainText("Archive 2018");
   const overviewRow = list.locator("[data-sheet-row]").filter({ hasText: "Overview" });
   await expect(overviewRow).toContainText("Read-only snapshot");
-  await expect(overviewRow).toContainText("1 chart");
+  // F04: formulas/chart now live — the Overview chart is rebuilt, so it is not listed as preserved.
+  await expect(overviewRow).not.toContainText("chart");
   await expect(overviewRow).toContainText("2 drawing objects");
   await expect(list.locator("[data-sheet-row]").filter({ hasText: "Jobs" })).toContainText("Interactive table");
   await auditable(page, "SCR-030");
@@ -69,15 +70,11 @@ test("every imported sheet is a readable snapshot, inert items and discarded row
   const grid = viewer.locator("table");
   await expect(grid).toContainText("Fieldwork Q3 overview");
   await expect(grid).toContainText("Open jobs");
-  await expect(grid.locator('[data-inert-marker="chart"]')).toContainText("Chart preserved · Overview!D2:K18");
+  // F04: formulas/chart now live — the drawings stay inert; the chart and formulas are not.
+  await expect(grid.locator('[data-inert-marker="chart"]')).toHaveCount(0);
   await expect(grid.locator('[data-inert-marker="drawing"]')).toHaveCount(2);
-  // Formulas are preserved, not live (D33); charts are preserved inert (live in F04).
-  await expect(viewer.locator('[data-inert="formula"]')).toContainText(
-    "The formula is preserved and is not recalculated yet.",
-  );
-  await expect(viewer.locator('[data-inert="chart"]')).toContainText(
-    "rebuilt as a live chart in a later release",
-  );
+  await expect(viewer.locator('[data-inert="formula"]')).toHaveCount(0);
+  await expect(viewer.locator('[data-inert="chart"]')).toHaveCount(0);
   await auditable(page, "SCR-031");
 
   // --- SHT-016: export is present, disabled, with its reason ---------------

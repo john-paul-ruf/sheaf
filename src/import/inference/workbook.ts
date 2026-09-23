@@ -1253,23 +1253,27 @@ function proposeWorkbook(
         say(columnScope, "field-type", field.columnKey, field.columnIndex, "override-type", typeEvidence);
         if (field.valueType.kind === "enum") say(columnScope, "enum-options", field.columnKey, field.columnIndex, "edit-enum-options", optionsEvidence);
         // A computed column: one per standalone table, over its joined rows' stats too.
-        if (stats.formulaCount > 0 && candidate.joinedTo === null) {
+        const anchor = { firstRow: firstDataRow, firstColumn: field.columnIndex, lastRow: lastDataRow, lastColumn: field.columnIndex };
+        const columnLocation = locationText(sheetName, anchor.firstRow, anchor.firstColumn, anchor.lastRow, anchor.lastColumn);
+        if (stats.formulaCount > 0 && candidate.joinedTo === null && stats.master === null) {
+          // No readable text: nothing to translate, so the values stay as imported (D33).
+          inertItems.push({ kind: "formula", sheetKey, location: columnLocation, reasonKey: "formula-not-live-yet", anchor });
+        } else if (stats.master !== null && candidate.joinedTo === null) {
           say(columnScope, "formula", field.columnKey, field.columnIndex, "reject-statement", [
             formulaTextEvidence(stats.firstFormula?.text ?? null, stats.firstFormula?.isArray ?? false, stats.firstFormula?.isExternal ?? false, stats.formulaCount),
           ]);
-          const anchor = { firstRow: firstDataRow, firstColumn: field.columnIndex, lastRow: lastDataRow, lastColumn: field.columnIndex };
           formulas.push(
             proposedFormula({
               formulaKey: field.columnKey,
               target: { kind: "computed-column", tableKey, columnKey: field.columnKey },
               displayName: null,
-              originalText: stats.master?.text ?? "",
+              originalText: stats.master.text,
               sheetKey,
-              rowIndex: stats.master?.rowIndex ?? firstDataRow,
+              rowIndex: stats.master.rowIndex,
               columnIndex: field.columnIndex,
-              location: locationText(sheetName, anchor.firstRow, anchor.firstColumn, anchor.lastRow, anchor.lastColumn),
+              location: columnLocation,
               anchor,
-              isArray: stats.master?.isArray ?? false,
+              isArray: stats.master.isArray,
               shapeMatchCount: stats.shapeMatches,
               shapeBreakRowIndex: stats.shapeBreakRowIndex,
             }),
@@ -1347,6 +1351,9 @@ function proposeWorkbook(
         const place = `R${String(cell.rowIndex + 1)}C${String(cell.columnIndex + 1)}`;
         const formulaKey = `${sheetKey}.${place}`;
         const location = locationText(sheetName, cell.rowIndex, cell.columnIndex, cell.rowIndex, cell.columnIndex);
+        const anchor = { firstRow: cell.rowIndex, firstColumn: cell.columnIndex, lastRow: cell.rowIndex, lastColumn: cell.columnIndex };
+        // An undecodable formula is already the adapter's preserved part (D33): nothing to translate.
+        if (cell.text === null) continue;
         say([sheetName, place], "formula", formulaKey, cell.columnIndex, "reject-statement", [
           formulaTextEvidence(cell.text, cell.isArray, false, 1),
         ]);
@@ -1355,12 +1362,12 @@ function proposeWorkbook(
             formulaKey,
             target: { kind: "dashboard-value", sheetKey },
             displayName: cell.label ?? `${sheetName} ${location.slice(location.lastIndexOf("!") + 1)}`,
-            originalText: cell.text ?? "",
+            originalText: cell.text,
             sheetKey,
             rowIndex: cell.rowIndex,
             columnIndex: cell.columnIndex,
             location,
-            anchor: { firstRow: cell.rowIndex, firstColumn: cell.columnIndex, lastRow: cell.rowIndex, lastColumn: cell.columnIndex },
+            anchor,
             isArray: cell.isArray,
             shapeMatchCount: 1,
             shapeBreakRowIndex: null,

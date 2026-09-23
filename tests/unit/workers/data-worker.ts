@@ -29,6 +29,7 @@ import {
   stageSource,
   type StageChannelInboundV1,
 } from "../../../src/workers/protocol/stage-channel.js";
+import { DEMO_LIVE_STRUCTURE_STATEMENTS } from "../../fixtures/workbooks/ooxml/demo-counts.js";
 import { fixtureBytes } from "../import/fixtures.js";
 import { streamWorkbookFixture } from "../staging/workbook-streams.js";
 
@@ -168,6 +169,10 @@ export async function importDemoApp(handler: DataWorkerCommandHandler): Promise<
     edit: { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" },
   });
   if (edited.outcome !== "applied") throw new Error("the review edit did not apply");
+  for (const statementId of DEMO_LIVE_STRUCTURE_STATEMENTS) {
+    const rejected = await ask(handler, { kind: "applyReviewEdit", stageId: begun.stageId, edit: { kind: "reject-statement", statementId } });
+    if (rejected.outcome !== "applied") throw new Error(`rejecting ${statementId} did not apply`);
+  }
   const promoted = await ask(handler, { kind: "promoteImport", stageId: begun.stageId, acceptedName: "Fieldwork Q3" });
   if (promoted.outcome !== "promoted") throw new Error(`promotion refused: ${promoted.reason}`);
   return promoted.appId;

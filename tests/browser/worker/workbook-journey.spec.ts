@@ -209,13 +209,10 @@ test("the first narrow journey: demo workbook → review → multi-table app →
   expect(before.overview?.rows.length).toBeGreaterThan(0);
   expect(before.overview?.rows.flatMap((row) => row.cells).some((cell) => cell.text !== "")).toBe(true);
   const kinds = (before.inert ?? []).map((item) => item.kind);
-  expect(kinds.filter((kind) => kind === "chart")).toHaveLength(1);
+  // F04: formulas/chart now live — the Overview chart is rebuilt and no formula stays inert.
+  expect(kinds.filter((kind) => kind === "chart")).toHaveLength(0);
+  expect(kinds.filter((kind) => kind === "formula")).toHaveLength(0);
   expect(kinds.filter((kind) => kind === "drawing")).toHaveLength(2);
-  // The Balance and Customer formula columns on Jobs, preserved, not live (D33).
-  expect((before.inert ?? []).filter((item) => item.kind === "formula" && item.sheet === "Jobs").length).toBeGreaterThanOrEqual(2);
-  expect((before.inert ?? []).filter((item) => item.kind === "formula").every((item) => item.reason === "formula-not-live-yet")).toBe(
-    true,
-  );
 
   // --- restart: a new page, a new worker, an unlock; the same reads -----------
   await page.evaluate(() => {
@@ -328,6 +325,202 @@ test("the full selection: all seven sheets, Archive 2018's 2,001 rows included, 
   for (const snapshot of roots.snapshots) {
     expect(snapshot, snapshot.name).toMatchObject({ manifestDigestMatches: true, firstChunkDigestMatches: true });
   }
+});
+
+// ------------------------------- F04 S07 CP4: imported structure made live --
+
+/** Every record of a table, with each field's value and computed state, by field name. */
+async function cellsOf(page: Page, appId: string, tableName: string) {
+  const opened = await ask(page, { kind: "openApp", appId });
+  const table = opened.session?.tables.find((candidate) => candidate.displayName === tableName);
+  if (table === undefined) throw new Error(`no ${tableName} table`);
+  const names = new Map(table.fields.map((field) => [field.fieldId, field.displayName]));
+  const rows: Record<string, { value: unknown; state: string | null }>[] = [];
+  let cursor: number | null = null;
+  for (;;) {
+    const answered: DataWorkerResponseV1 = await ask(page, { kind: "queryRecords", appId, tableId: table.tableId, cursor, limit: 100 });
+    if (answered.kind !== "queryRecords" || answered.page === null) throw new Error("no page");
+    for (const record of answered.page.records) {
+      rows.push(
+        Object.fromEntries(
+          record.values.map((entry) => [names.get(entry.fieldId) ?? entry.fieldId, { value: entry.value, state: entry.computed?.state ?? null }]),
+        ),
+      );
+    }
+    if (!answered.page.hasMore) break;
+    cursor = answered.page.nextCursor;
+  }
+  return { table, rows };
+}
+
+const decimalOf = (value: unknown): number | null =>
+  typeof value === "object" && value !== null && (value as { kind: string }).kind === "number" ? Number((value as { decimal: string }).decimal) : null;
+
+async function liveReads(page: Page, appId: string) {
+  const { rows } = await cellsOf(page, appId, "Jobs");
+  const metrics = (await ask(page, { kind: "getAppMetrics", appId })).metrics;
+  const charts = (await ask(page, { kind: "listCharts", appId })).charts;
+  return {
+    balances: rows.map((row) => [row["Quoted amount"]?.value, row["Paid"]?.value, row["Balance"]?.value, row["Balance"]?.state]),
+    customers: rows.map((row) => [row["Customer"]?.value, row["Customer"]?.state]),
+    // The projection lists metrics in its own stable order; read them by name.
+    dashboard: metrics?.dashboard
+      .map((metric) => ({ name: metric.displayName, status: metric.status, value: metric.value }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    charts: charts?.map((chart) => ({ name: chart.definition.name, type: chart.definition.type, pinned: chart.definition.pinned, provenance: chart.provenance })),
+  };
+}
+
+test("CAP-38/CAP-34/CAP-29: the demo's formulas and chart are live after import, and after a restart in a new worker", async ({ page }) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+  const before = await liveReads(page, appId);
+
+  // Jobs Balance is computed: Quoted amount − Paid, exactly, wherever Quoted is a number.
+  const numeric = before.balances.filter(([quoted]) => decimalOf(quoted) !== null);
+  expect(numeric).toHaveLength(58);
+  for (const [quoted, paid, balance, state] of numeric) {
+    expect(state).toBe("ok");
+    expect(decimalOf(balance)).toBeCloseTo((decimalOf(quoted) ?? 0) - (decimalOf(paid) ?? 0), 6);
+  }
+  // A kept "TBD" quote cannot be subtracted: an error, never a zero.
+  expect(before.balances.filter(([quoted]) => decimalOf(quoted) === null).map(([, , , state]) => state)).toEqual(["error", "error"]);
+  // The lookup reads the customer through the relationship (D49); the broken key finds none.
+  expect(before.customers.filter(([, state]) => state === "ok")).toHaveLength(58);
+  expect(before.customers.every(([, state]) => state !== null)).toBe(true);
+
+  // The Overview's four formulas are the app's dashboard values.
+  expect(before.dashboard?.map((metric) => [metric.name, metric.status])).toEqual([
+    ["Balance", "ok"],
+    ["Open jobs", "ok"],
+    ["Paid total", "ok"],
+    ["Quoted total", "ok"],
+  ]);
+  const [balance, open, paid, quoted] = (before.dashboard ?? []).map((metric) => decimalOf(metric.value));
+  expect(open).toBe(15);
+  expect(balance).toBeCloseTo((quoted ?? 0) - (paid ?? 0), 6);
+  // The Overview chart, rebuilt and pinned (D55, D65).
+  expect(before.charts).toEqual([{ name: "Quoted by status", type: "bar", pinned: true, provenance: "imported" }]);
+
+  // Restart: a new worker, an unlock; the same live reads, recomputed from the roots.
+  await page.evaluate(() => {
+    window.__sheafApp?.dispose();
+  });
+  await page.goto("/harness.html");
+  await start(page);
+  expect((await command(page, { kind: "unlock", passphrase: PASSPHRASE })).ok).toBe(true);
+  expect(await liveReads(page, appId)).toEqual(before);
+
+  // The durable roots: formulas and the chart are stored; no live value is (invariant 7).
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.checkpoint.keys).toEqual(expect.arrayContaining(["formulas", "charts"]));
+  expect(roots.checkpoint.formulas.map((formula) => [formula.name, formula.target, formula.disposition])).toEqual([
+    ["Customer", "computed-column", "live"],
+    ["Balance", "computed-column", "live"],
+    ["Open jobs", "dashboard-value", "live"],
+    ["Quoted total", "dashboard-value", "live"],
+    ["Paid total", "dashboard-value", "live"],
+    ["Balance", "dashboard-value", "live"],
+  ]);
+  expect(roots.checkpoint.computedFields).toEqual(["Jobs.Customer", "Jobs.Balance"]);
+  expect(roots.checkpoint.charts).toEqual([{ name: "Quoted by status", type: "bar", provenance: "imported", pinned: true }]);
+  expect(roots.pages.valued["Jobs.Balance"]).toBeUndefined();
+  expect(roots.pages.valued["Jobs.Customer"]).toBeUndefined();
+  expect(roots.pages.valued["Jobs.Quoted amount"]).toBe(60);
+});
+
+test("CAP-30: formulas-live.xlsx — TODAY live and never stored, RAND frozen, unsupported kept and a new row flagged, a cycle flagged", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await unlockedPage(page);
+  const { promoted } = await importAndPromote(page, "ooxml/formulas-live.xlsx", "formulas-live.xlsx");
+  const appId = promoted.appId;
+
+  const { table, rows } = await cellsOf(page, appId, "Jobs");
+  expect(rows).toHaveLength(5);
+  for (const row of rows) {
+    expect(row["Balance"]?.state).toBe("ok");
+    // TODAY() is evaluated from the session clock at hydrate: live, a date, never stored.
+    expect(row["Checked"]).toMatchObject({ state: "ok", value: { kind: "date" } });
+    expect(row["Lucky"]?.state).toBe("frozen");
+    expect(row["Rate"]?.state).toBe("unsupported");
+    expect(row["Mixed"]?.state).toBe("unsupported");
+  }
+  const sorted = (values: readonly (number | null)[]) => [...values].sort((left, right) => (left ?? 0) - (right ?? 0));
+  expect(sorted(rows.map((row) => decimalOf(row["Lucky"]?.value)))).toEqual([0.08, 0.17, 0.42, 0.61, 0.93]);
+  expect(sorted(rows.map((row) => decimalOf(row["Rate"]?.value)))).toEqual([120, 250, 400, 610, 900]);
+
+  // A new row: the unsupported column is empty and flagged, never zero; RAND draws once.
+  const idOf = (name: string): string => table.fields.find((field) => field.displayName === name)?.fieldId as string;
+  const created = await ask(page, {
+    kind: "createRecord",
+    appId,
+    tableId: table.tableId,
+    values: [
+      { fieldId: idOf("Job"), value: { kind: "text", text: "J-6" } },
+      { fieldId: idOf("Quoted"), value: { kind: "number", decimal: "50" } },
+      { fieldId: idOf("Paid"), value: { kind: "number", decimal: "20" } },
+    ],
+  });
+  if (created.outcome !== "accepted") throw new Error(`the new job was refused: ${JSON.stringify(created)}`);
+  const after = (await cellsOf(page, appId, "Jobs")).rows;
+  const added = after.find((row) => JSON.stringify(row["Job"]?.value) === JSON.stringify({ kind: "text", text: "J-6" }));
+  expect(added?.["Rate"]).toEqual({ value: { kind: "missing" }, state: "unsupported-new-row" });
+  expect(added?.["Lucky"]?.state).toBe("frozen");
+  expect(decimalOf(added?.["Balance"]?.value)).toBe(30);
+
+  // The two loop values read each other: flagged as a cycle, never evaluated.
+  const metrics = (await ask(page, { kind: "getAppMetrics", appId })).metrics;
+  const byName = (left: readonly unknown[], right: readonly unknown[]) => String(left[0]).localeCompare(String(right[0]));
+  expect(metrics?.dashboard.map((metric) => [metric.displayName, metric.status]).sort(byName)).toEqual([
+    ["Loop A", "cycle"],
+    ["Loop B", "cycle"],
+    ["Quoted total", "ok"],
+  ]);
+  expect(
+    metrics?.tables.flatMap((entry) => entry.metrics.map((metric) => [metric.displayName, metric.status, decimalOf(metric.value)])).sort(byName),
+  ).toEqual([
+    ["Total Qty", "ok", 25],
+    ["Total Quoted", "ok", 2330],
+  ]);
+
+  // CAP-36 import leg: the imported `Quoted >= 0` validation fires through the real
+  // write path. It flags, never refuses (FR-4), so a violating save is kept and warned.
+  const ruleWarningsOf = async (recordId: string) =>
+    ((await ask(page, { kind: "getRecord", appId, recordId })).record?.issues ?? []).filter(
+      (issue) => issue.kind === "record-rule",
+    );
+  expect(await ruleWarningsOf(created.receipt.recordId)).toEqual([]);
+  const violating = await ask(page, {
+    kind: "createRecord",
+    appId,
+    tableId: table.tableId,
+    values: [
+      { fieldId: idOf("Job"), value: { kind: "text", text: "J-7" } },
+      { fieldId: idOf("Quoted"), value: { kind: "number", decimal: "-5" } },
+    ],
+  });
+  if (violating.outcome !== "accepted") throw new Error(`a flagged job was refused: ${JSON.stringify(violating)}`);
+  expect(await ruleWarningsOf(violating.receipt.recordId)).toEqual([
+    {
+      fieldId: null,
+      kind: "record-rule",
+      severity: "warning",
+      messageKey: "rule-compare",
+      messageParameters: { leftLabel: "Quoted", operator: "ge", ruleLabel: "Quoted", valueType: "decimal" },
+    },
+  ]);
+
+  // Stored: frozen and unsupported literals; not one live value.
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.pages.valued["Jobs.Balance"]).toBeUndefined();
+  expect(roots.pages.valued["Jobs.Checked"]).toBeUndefined();
+  expect([roots.pages.valued["Jobs.Lucky"], roots.pages.valued["Jobs.Rate"], roots.pages.valued["Jobs.Mixed"]]).toEqual([5, 5, 5]);
+  expect(roots.checkpoint.inert.filter((item) => item.kind === "formula").map((item) => item.reason)).toEqual([
+    "formula-not-supported",
+    "formula-not-supported",
+  ]);
 });
 
 // ------------------------------------------------ CP4: every format (CAP-27) --

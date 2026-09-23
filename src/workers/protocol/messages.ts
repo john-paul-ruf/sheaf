@@ -1356,7 +1356,6 @@ export type FormulaKeepReasonWireV1 =
   | "unsupported-error-literal"
   | "number-out-of-range"
   | "not-filled-down"
-  | "unreadable"
   | "array-formula"
   | "value-not-kept";
 

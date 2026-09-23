@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import { applyWorkbookReviewEdit } from "../../../../src/import/inference/review-edits.js";
 import type { ProposedWorkbookV1 } from "../../../../src/import/inference/workbook-proposal.js";
 import { testFormulaIdentities } from "../delimited-proposal.js";
-import { DEMO, proposeFixture } from "./demo-harness.js";
+import { inferWorkbook } from "../../../../src/import/inference/workbook.js";
+import { streamWorkbookFixture } from "../../staging/workbook-streams.js";
+import { DEMO, contextFor, proposeFixture } from "./demo-harness.js";
 
 const LIVE = "ooxml/formulas-live.xlsx";
 
@@ -129,5 +131,20 @@ describe("the review decides, and every outcome follows", () => {
     expect(
       proposal.statements.find((statement) => statement.statementId === "formula:s0.t0.c2")?.evidence.at(-1),
     ).toMatchObject({ kind: "formula-outcome", disposition: "live", relatedTableName: "Customers" });
+  });
+});
+
+describe("a formula whose text cannot be read", () => {
+  it("is never proposed (migration 005 keeps no formula without text); its values stay, and say so", async () => {
+    const stream = await streamWorkbookFixture("biff/formulas.xls", {});
+    if (stream === null) throw new Error("formulas.xls did not size");
+    const proposal = inferWorkbook(stream.items, contextFor("formulas.xls", null));
+    expect(proposal.formulas.every((formula) => formula.originalText !== "")).toBe(true);
+    // The two undecodable cells are the adapter's own preserved parts, listed once; the array formula is kept.
+    expect(formulaInert(proposal)).toEqual([
+      ["Calc!A3", "formula-not-live-yet"],
+      ["Calc!B3", "formula-not-live-yet"],
+      ["Calc!A2", "formula-not-supported"],
+    ]);
   });
 });
