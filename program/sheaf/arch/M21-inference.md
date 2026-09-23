@@ -2,18 +2,25 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / Import inference + § Import Architecture Stage 3.
-> Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+> Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
-- **Owns:** Evidence-weighted proposals, not source parsing — for both a
-  single delimited table and (F03) a multi-sheet workbook.
-- **Exports:** `inferProposal` (delimited, F02 shape — now a thin adapter),
-  `inferWorkbook` (F03, multi-table), `applyReviewEdit` /
-  `applyWorkbookReviewEdit`, `sourceTextToCellValue`, `tableRowExtents`,
-  `delimitedStream`. `RowIdentityProposal` (F06) is still unbuilt.
+- **Owns:** Evidence-weighted proposals, not source parsing — for a single
+  delimited table, a multi-sheet workbook (F03), and (F04) the live-structure
+  legs of a workbook import: formula translation, chart mapping, and
+  validation→rule conversion.
+- **Exports:** `inferWorkbook` (F04: the sole entry — `inferProposal` is
+  removed, see below), `applyReviewEdit` / `applyWorkbookReviewEdit`,
+  `sourceTextToCellValue`, `tableRowExtents`, `delimitedStream`, and (F04)
+  `translateProposedFormula`, `refreshFormulas`, `deriveFormulaSurface`,
+  `mapChartPart`, `chartMappingEvidence`, `deriveChartSurface`,
+  `ruleConditionOf`. `RowIdentityProposal` (F06) is still unbuilt.
 - **Depends on:** M65 (workbook facts), M03 (formulas — lookup/reference
-  extraction), M01 (`values`, `schema`, `events`).
+  extraction and, since F04, translation), M01 (`values`, `schema`, `events`).
+  **Boundary:** inference imports no `ids.ts` — identities (including F04's
+  formula/chart ids) are injected as `FormulaIdentitiesV1`, never generated
+  here.
 - **Contract:** Declared structure beats inference; lookup formula beats key
   match (FR-7); every decision carries evidence and a reversible review edit;
   a review rejection is an explicit stored negative decision
@@ -51,24 +58,27 @@ closed union with `EVIDENCE_EXAMPLE_LIMIT = 3`; `statementIdOf`,
 `inferenceStatement`, `evidenceFingerprintInput`. **Fingerprint rule:** the
 input names *what the decision was about*, never *how much was seen*, so
 appending rows leaves fingerprints unchanged and a recorded rejection keeps
-standing.
+standing. **F04** adds the `formula` and `chart` subjects and the
+`formula-outcome` / `chart-mapping` evidence kinds.
 
-`infer.ts` — `inferProposal(items, {fileName}) → ProposedAppV1`. **Throws** on
-a stream with no summary. `ProposedAppV1 {fileName, appName, table{...},
-headerRowIndex, leadingRows, discardedRows, discardedRowCount, rowCount,
-isRowCountExact: true, statements, diagnostics}`. Type priority: currency →
-boolean → iso-date → slash-date → number → email → url → phone → enum → text,
-at `TYPE_CONFIDENCE = 0.9`. Header detection takes the first full-width row of
-non-empty, non-value-shaped, distinct cells. Also exports `detectHeaderRow`,
+`infer.ts` — `ProposedAppV1 {fileName, appName, table{...}, headerRowIndex,
+leadingRows, discardedRows, discardedRowCount, rowCount, isRowCountExact: true,
+statements, diagnostics}`. Type priority: currency → boolean → iso-date →
+slash-date → number → email → url → phone → enum → text, at `TYPE_CONFIDENCE =
+0.9`. Header detection takes the first full-width row of non-empty,
+non-value-shaped, distinct cells. Also exports `detectHeaderRow`,
 `fieldNamesFrom`, `generatedFieldName`, `DISCARD_REASONS`,
-`PROPOSAL_DISCARDED_ROW_LIMIT = 50`.
+`PROPOSAL_DISCARDED_ROW_LIMIT = 50`, and **`delimitedStream(items)`** — strips
+a delimited stream's one `sheet` fact so F02's statements/fingerprints
+(`isDelimited: true`) stay exact.
 
-**F03: `inferProposal` is a thin adapter over `inferWorkbook`,** kept alive
-only because S02's own tests still call it directly (no `src/` caller
-remains) — carried debt, owner: the next session leasing this directory,
-removable once those tests migrate. `infer.ts` also exports
-**`delimitedStream(items)`** — strips a delimited stream's one `sheet` fact so
-F02's statements/fingerprints (`isDelimited: true`) stay exact.
+**F04: `inferProposal` is removed.** F03 kept it alive as a thin adapter over
+`inferWorkbook` only because S02's own tests still called it directly; F04's
+SESSION-07 removed it from `infer.ts` (types + `delimitedStream` kept) once
+those tests moved to the F02 view helper `tests/unit/import/
+delimited-proposal.ts`. `infer.ts` now has no `src/` caller of a
+delimited-only entry point — `inferWorkbook` is the sole entry for every
+format, including a single implicit sheet.
 
 `review-edits.ts` — `applyReviewEdit(proposal, edit) → ReviewEditResultV1`,
 pure and total; property-proven to never throw, never mutate, be idempotent.
@@ -78,9 +88,10 @@ violation counts drop to `null` rather than go stale.
 
 ### F03 workbook tier (SESSION-02, CA-19 producer)
 
-New files (Custom Rule 7): `workbook.ts` (`inferWorkbook`), `regions.ts`
-(builder, header rules, discards), `types.ts` (column stats + declared/value
-typing), `keys.ts`, `relationships.ts`, `classify.ts`, `rejection-memory.ts`,
+Files (Custom Rule 7): `workbook.ts` (`inferWorkbook`), `regions.ts` (builder,
+header rules, discards — F04 adds footer/totals-row capture for table
+metrics), `types.ts` (column stats + declared/value typing), `keys.ts`,
+`relationships.ts`, `classify.ts`, `rejection-memory.ts`,
 `workbook-proposal.ts` (the proposal's types, split out so inference and edits
 share them without importing each other).
 
@@ -99,8 +110,9 @@ statements and fingerprint inputs (`isDelimited: true`).
 
 `ProposedWorkbookV1 {fileName, isDelimited, appName, sheets, tables,
 relationships, recordRules, inertItems, inertCounts, statements, diagnostics,
-isRowCountExact: true}`; keys: sheet `s<i>`, declared table `s<i>.t<n>`,
-region table `s<i>.r<n>`, column `<tableKey>.c<sheetColumn>`, relationship
+isRowCountExact: true}` (F04 adds `formulas`, `charts`, `lastDataRowIndex` —
+see below); keys: sheet `s<i>`, declared table `s<i>.t<n>`, region table
+`s<i>.r<n>`, column `<tableKey>.c<sheetColumn>`, relationship
 `rel:<childColumnKey>`, rule `rule:<columnKey>`; statement id
 `<subject>:<targetKey>`.
 
@@ -113,7 +125,9 @@ join. `decisionKindOf(subject)` (total; name-only subjects → null);
 Fingerprint v2: `["sheaf.inference.v2", subject, sheetName, tableIdentity,
 column?, ...qualitative terms]`; `previously-rejected` never enters it.
 `applyWorkbookReviewEdit(proposal, edit) → ReviewEditResultV2` over
-`WorkbookReviewEditV1` (13 kinds); total/pure/idempotent.
+`WorkbookReviewEditV1` (F04: 13 kinds, unchanged in count from F03 — the F04
+formula/chart/rule legs are producer-side inference, not new review-edit
+kinds); total/pure/idempotent.
 
 Thresholds: `KEY_SKETCH_LIMIT = 10_000`, `KEY_MATCH_CONTAINMENT = 0.98`,
 `KEY_MATCH_MINIMUM_VALUES = 8`, `LABEL_DISTINCT_SHARE = 0.8`,
@@ -127,10 +141,38 @@ Thresholds: `KEY_SKETCH_LIMIT = 10_000`, `KEY_MATCH_CONTAINMENT = 0.98`,
 pass (`candidatesOf`, itself extracted so its behaviour stays pinned by S02's
 suites), for M23's promotion row plan. `TableRowExtentV1` exported.
 
-**Known limit (accepted, not fixed in F03):** HTML demo pair produces **no**
+**Known limit (accepted, not fixed):** HTML demo pair produces **no**
 key-match relationship (58/60 = 0.967 < `KEY_MATCH_CONTAINMENT`, a broken key
 appears twice) — a conservative default, not a defect; recorded in the
-GATE-F03 demo package's known-limits list.
+GATE-F03/F04 demo packages' known-limits list.
+
+### F04: live-structure inference (SESSION-07)
+
+- `formulas.ts` (new): `translateProposedFormula`, `refreshFormulas(proposal,
+  ids)`, `deriveFormulaSurface`. Fill-down proof via M03's `relativeShapeKey`.
+  Shared-formula children take their master's shape. A nondeterministic
+  metric/dashboard value (a table-metric or dashboard-value target evaluating
+  `RAND`-family functions) becomes `unsupported`, reason `value-not-kept`,
+  rather than frozen (freezing is per-record, and a metric has no record).
+- `charts.ts` (new): `mapChartPart` (D55: single series only; bar/column/
+  stacked/line/pie/doughnut/scatter map; pivots map to bar), the mapping
+  requires every category and value series to reference **one** column each of
+  the same imported table region. `chartMappingEvidence`,
+  `deriveChartSurface`. Area, multi-series, two-sheet-series and sparkline
+  charts → `chart-not-rebuilt` (D55's named non-candidates).
+- `rules.ts` (new): `ruleConditionOf` maps workbook comparison validations to
+  rule IR v2 (`compare` / `between` / `not-between`, measure `text-length`
+  for text-length validations). Non-comparison (`custom`) validations stay
+  inert.
+- `workbook-proposal.ts` gains `ProposedFormulaV1`, `ProposedChartV1`,
+  `formulas`, `charts`, `lastDataRowIndex`, and `FORMULA_KEEP_REASONS`. A
+  formula whose text could not be read is never proposed — it stays an inert
+  `formula-not-live-yet` item, because migration 005 requires
+  `original_text`; `unreadable` is therefore dropped from
+  `FORMULA_KEEP_REASONS` and from the wire `FormulaKeepReasonWireV1` at CP4.
+  `regions.ts` captures table footers so a totals row becomes a table metric.
+  Statements gain the `formula` / `chart` subjects and their evidence kinds
+  (above).
 
 ## Dependency edges as landed
 
@@ -138,7 +180,8 @@ GATE-F03 demo package's known-limits list.
 - M14 → M13, M19, M65 (F03), never an adapter
 - M15–M20 → M13, M65
 - M19 → M13, M01 (`domain/model/values`), M65
-- M21 → M65 (facts), M03 (formulas — F03), M01 (`values`, `schema`, `events`)
+- M21 → M65 (facts), M03 (formulas — F03 extraction, F04 translation), M01
+  (`values`, `schema`, `events`)
 
 `tests/unit/import/module-boundaries.test.ts` asserts mechanically that the
 **pipeline directories** import nothing from `src/persistence/`,
@@ -173,13 +216,11 @@ rejection-memory → review-edits` has no runtime cycle.
   "F03 note" placeholders about reference/relationship inference replaced with
   the landed contract; the HTML key-match known limit recorded once, here,
   rather than only in the Final Report.
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (M21 — import inference (`src/import/inference/`))
-
-- `inferProposal` removed from `infer.ts` (types + `delimitedStream` kept). Tests use the F02 view helper `tests/unit/import/delimited-proposal.ts`.
-- New `formulas.ts`: `translateProposedFormula`, `refreshFormulas(proposal, ids)`, `deriveFormulaSurface`. Fill-down proof via `relativeShapeKey`. Shared-formula children take their master's shape. Nondeterministic metric/dashboard values → unsupported `value-not-kept`.
-- New `charts.ts`: `mapChartPart` (D55: single series only; bar/column/stacked/line/pie/doughnut/scatter; pivots map to bar), `chartMappingEvidence`, `deriveChartSurface`. Area, multi-series, two-sheet and sparkline charts → `chart-not-rebuilt`.
-- New `rules.ts`: `ruleConditionOf` maps workbook validations to rule IR v2 (`compare` / `between` / `not-between`, measure `text-length`).
-- `workbook-proposal.ts`: adds `ProposedFormulaV1`, `ProposedChartV1`, `formulas`, `charts` and `lastDataRowIndex`, plus `FORMULA_KEEP_REASONS`. CP4: a formula whose text could not be read is never proposed; it stays an inert `formula-not-live-yet` item (migration 005 requires `original_text`), so `unreadable` is dropped from `FORMULA_KEEP_REASONS` and from the wire `FormulaKeepReasonWireV1`. `regions.ts` captures table footers (totals row → table metrics). Statements gain the `formula` / `chart` subjects and the `formula-outcome` / `chart-mapping` evidence.
-- Boundary: inference imports no `ids.ts`. Identities are injected as `FormulaIdentitiesV1`.
+- 2026-09-23 — F04: `formulas.ts`, `charts.ts`, `rules.ts` landed and
+  `inferProposal` fully removed by SESSION-07 (`978bb77`..`f9a1565`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-07 delta
+  folded into a new "F04: live-structure inference" subsection; the "thin
+  adapter, carried debt" note for `inferProposal` replaced with its actual
+  removal, so the fragment no longer describes a debt that is already paid;
+  the workbook-tier section's proposal shape and review-edit kind count
+  updated to name the F04 additions without re-deriving the whole contract.

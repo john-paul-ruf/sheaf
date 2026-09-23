@@ -1,7 +1,7 @@
 # M54 — Routes (`src/routes/`)
 
 Extracted from specs/architecture.md §Module Contracts (Routes).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns:** URL ↔ approved-SCR mapping, lock-state guards, (later) OAuth
   return routing.
@@ -11,15 +11,26 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
     `SessionPhase`, `RouteGuardResult`, `guardRoute`, `fallbackRoute`,
     `LOCKED_ROUTES`, `UNLOCKED_ROUTES`, `FIRST_RUN_ROUTES`, `appPath`,
     `appHref`, `appHistoryPath`, `tablePath`, `newRecordPath`, `recordPath`,
-    `editRecordPath`, `hashHref`, `isAppAreaPath`, and (F03)
-    `appSnapshotsPath`, `snapshotPath`, `APP_AREA_PATH`.
+    `editRecordPath`, `hashHref`, `isAppAreaPath`, `appSnapshotsPath`,
+    `snapshotPath`, `APP_AREA_PATH` (F03), and (F04) `chartsPath`,
+    `newChartPath`, `chartPath`, `editChartPath`, `structurePath`,
+    `appSettingsPath`, `appThemePath`.
   - `app-runtime.tsx` → `useSheafRuntime`, `RuntimeState`, `SheafRuntime`,
     `SecurityWiring`; plus the `ImportArea` and `AppArea` compositions.
-  - (F03) `app-area-hooks.tsx` → `AppAreaWiring`, `useTableSwitcher`,
+  - `app-area-hooks.tsx` (F03) → `AppAreaWiring`, `useTableSwitcher`,
     `useListReferences`, `referenceSearchFor`.
-  - (F03) `snapshot-routes.tsx` → `SnapshotsRoute`, `SnapshotViewerRoute`.
+  - `snapshot-routes.tsx` (F03) → `SnapshotsRoute`, `SnapshotViewerRoute`.
+  - `filter-intent.ts` (F04, new) → `RECORDS_FILTER_INTENT_KEY`,
+    `filterIntentState`, `readFilterIntent`, `RECORDS_FILTER_ORIGIN_KEY`,
+    `readFilterOrigin`.
+  - `chart-routes.tsx` (F04, new) → `ChartsIndexRoute`, `ChartBuilderRoute`,
+    `ChartDetailRoute`, `usePinnedCharts`, `openMarkRecords`.
+  - `schema-routes.tsx` (F04, new) → `StructureRoute`, `AppSettingsRoute`,
+    `useSchemaChange(area)`.
+  - `theme-routes.tsx` (F04, new) → `ThemeRoute`, `usePalettes`, `glyphOf`.
 - **Depends on:** M53 (`startApp`, `spawnImportWorker`), M36 (all machines +
-  `createImportServices`), M37 (selectors), M41–M44, M38 (`Button`,
+  `createImportServices`, and F04's `schema-services`/`theme-services`),
+  M37 (selectors), M41–M46 (F04 adds M45/M46), M38 (`Button`,
   `BusyIndicator`), M51 (`file-pick.ts`, and F03 `clipboard.ts`),
   react-router 8 (`HashRouter`) and `@xstate/react`.
 - **Must not:** implement commands; infer state from provider availability;
@@ -35,8 +46,11 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 `/settings/security/passphrase`, `/settings/security/recovery-codes`,
 `/settings/security/reset`, `/library/search`, `/upload`, `/import`, plus the
 app area matched by *shape*: `/app/:appId`, `/app/:appId/history`,
-`/app/:appId/t/:tableId`, `…/new`, `…/r/:recordId`, `…/r/:recordId/edit`, and
-(F03) `/app/:appId/snapshots`, `/app/:appId/snapshots/:sheetId`.
+`/app/:appId/t/:tableId`, `…/new`, `…/r/:recordId`, `…/r/:recordId/edit`,
+`/app/:appId/snapshots`, `/app/:appId/snapshots/:sheetId` (F03), and (F04)
+`/app/:appId/charts`, `/app/:appId/charts/new`, `/app/:appId/charts/:chartId`,
+`/app/:appId/charts/:chartId/edit`, `/app/:appId/structure`,
+`/app/:appId/settings`, `/app/:appId/theme`.
 
 ## CA-07 guards
 
@@ -58,14 +72,28 @@ at the app path, URL preserved.
 
 ### Amendment 3 (S08, F03) — snapshots
 
-`APP_AREA_PATH` now matches **eight** shapes, adding `/app/{id}/snapshots`
-and `/app/{id}/snapshots/{sheetId}`. Both are unlocked-only, per the amendment
-2 precedent. An unknown sheet id renders the truthful notice "That sheet
-snapshot is not in this app." at the path, with "All snapshots".
+`APP_AREA_PATH` matches `/app/{id}/snapshots` and
+`/app/{id}/snapshots/{sheetId}`, unlocked-only. An unknown sheet id renders
+the truthful notice "That sheet snapshot is not in this app." at the path,
+with "All snapshots".
 
-The matrix is asserted case by case in `tests/e2e/route-guards.spec.ts`: 46
-rows across first-run/locked/unlocked, plus the app-path, library-search and
-(F03) amendment-3 rows.
+### Amendment 4 (S05/S06/S08, F04) — charts, structure, settings, theme
+
+`APP_AREA_PATH` grows to **fifteen** shapes total, adding: `/app/{id}/charts`
+(DF-2 index), `/app/{id}/charts/new` (SCR-034), `/app/{id}/charts/{chartId}`
+(SCR-033), `/app/{id}/charts/{chartId}/edit` (SCR-034 on an existing chart),
+`/app/{id}/structure` (SCR-035), `/app/{id}/settings` (SCR-037), and
+`/app/{id}/theme` (SCR-036). All are unlocked-only, per the amendment 2
+precedent. **A filter intent travels through router navigation state, never
+the URL** (invariant 3 spirit — a filter can carry a reference value, so it
+stays out of the hash): `RECORDS_FILTER_INTENT_KEY =
+"sheaf.records.filterIntent"`, plus `RECORDS_FILTER_ORIGIN_KEY` naming the
+chart and record labels a mark-driven filter came from. Each of the three
+owning sessions (S05 charts, S06 structure/settings, S08 theme) extended
+`isAppAreaPath` and `route-guards.test.ts` independently, in dependency
+order, with no cross-lease conflict.
+
+The full matrix is asserted case by case in `tests/e2e/route-guards.spec.ts`.
 
 ## Structural facts
 
@@ -82,15 +110,19 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 - **A lock ends the parser.** `ImportArea`'s cleanup calls
   `services.terminate()`.
 - **The composition point is here (PC-12/D17).** `SecurityWiring` gains
-  `records: RecordsServices`; the import services are built inside
-  `ImportArea`.
+  `records: RecordsServices`, and (F04) `schema: SchemaServices`, `theme:
+  ThemeServices`; `AppAreaWiring` gains `charts: ChartServices` (F04) beside
+  its F03 relationship/table-switcher hooks. The import services are built
+  inside `ImportArea`.
 - **`AppAreaWiring`** is what every app-area route is given: the open
   session, the navigation, the worker edge, an `announce`, and a `refresh`.
-  **F03** grows it into `app-area-hooks.tsx` (Custom Rule 7): the same file
-  now also holds `useTableSwitcher`, `useListReferences` and
-  `referenceSearchFor`, which every relationship-consuming screen (record
-  detail, form, table switcher) shares rather than each re-deriving its own
-  reference-search plumbing.
+  F03 grows it into `app-area-hooks.tsx` (Custom Rule 7): the same file also
+  holds `useTableSwitcher`, `useListReferences` and `referenceSearchFor`,
+  which every relationship-consuming screen shares. **F04** adds `structure`
+  (loaded per opened app), `recalculated`, `announce(sentence,
+  recalculatedFieldIds?)`, and `charts` to this wiring — all in the same
+  file, again per Custom Rule 7 (the hooks file, not the routes it composes,
+  is the shared home).
 - **New dependency edges (F02):** M54 → M43, M54 → M44, M54 → M51
   (`file-pick.ts`), M54 → M36's `importMachine`/`createImportServices`.
 - **F03: `route-table.tsx` composes `WorkbookPreflightScreen`** (SCR-018/019
@@ -102,6 +134,17 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
   needed their own route components, separate from the records-table routes
   `app-area-hooks.tsx` already served): `SnapshotsRoute`,
   `SnapshotViewerRoute`.
+- **F04: `chart-routes.tsx`** (Custom Rule 7): draft restore, a debounced
+  live preview, MOD-012/MOD-013 wiring for the builder; `usePinnedCharts` and
+  `openMarkRecords` feed both the app home and the records route.
+- **F04: `schema-routes.tsx`** (Custom Rule 7): `useSchemaChange(area)` is
+  the one hook every schema-editing surface shares — preview → MOD-014 →
+  apply at `preview.schemaRevision`; on `stale-preview` it re-previews and
+  shows the new counts; only `applied` announces, after the commit, then
+  calls `area.refresh()`.
+- **F04: `theme-routes.tsx`** (Custom Rule 7): `usePalettes` reads the
+  built-in palette list once per app-theme session; `glyphOf` resolves the
+  library-tile glyph the theme editor previews.
 
 ## Change History
 
@@ -120,27 +163,13 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 - 2026-09-23 — reconciled by Archivist (F03 final pass): two staples folded
   into the Route table, CA-07 amendment list, Exports and Structural-facts
   sections.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M54 Routes (`src/routes/`))
-
-- `filter-intent.ts` (D63): `RECORDS_FILTER_INTENT_KEY = "sheaf.records.filterIntent"`, `filterIntentState(filters)` and `readFilterIntent(state)`. `RecordsRoute` keys its query state by `location.key` and starts from the intent.
-- `AppAreaWiring` gains `structure` (loaded per opened app), `recalculated`, and `announce(sentence, recalculatedFieldIds?)`.
-- `AppHomeRoute` loads `getAppMetrics`.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M54 routes — `src/routes/`)
-
-- CA-07 amendment 4 (chart half): `chartsPath`, `newChartPath`, `chartPath`, `editChartPath` (`guards.tsx`); `isAppAreaPath` now also matches `/charts(/{id}(/edit)?)?` (incl. `/charts/new`). New `chart-routes.tsx`: `ChartsIndexRoute`, `ChartBuilderRoute` (draft restore, debounced preview, MOD-012/MOD-013), `ChartDetailRoute`, `usePinnedCharts`, `openMarkRecords`. `filter-intent.ts`: `filterIntentState(filters, origin?)`, `RECORDS_FILTER_ORIGIN_KEY`, `readFilterOrigin` (chart name + record labels, beside S04's intent key). `app-runtime.tsx` composes `ChartServices`; `app-area-hooks.tsx` `AppAreaWiring.charts`; `route-table.tsx` mounts the four chart paths and feeds app home and the records route.
-
-<!-- formulas-queries-charts SESSION-06 -->
-### F04 delta — SESSION-06 (M54 — routes)
-
-- `guards.tsx`: `structurePath(appId)`, `appSettingsPath(appId)`; `APP_AREA_PATH` gains `/structure` and `/settings` (CA-07 amendment 4, structure/settings half — fourteen shapes).
-- `schema-routes.tsx` (new): `StructureRoute`, `AppSettingsRoute`, and the exported `useSchemaChange(area)` hook (preview → MOD-014 → apply at `preview.schemaRevision`; on `stale-preview` re-previews and shows the new counts; only `applied` announces, after the commit, then `area.refresh()`).
-- `app-runtime.tsx`: `SecurityWiring.schema`; `app-area-hooks.tsx`: `AppAreaWiring.schema`; `route-table.tsx`: `#/app/:appId/structure`, `#/app/:appId/settings`, `nav.structure`, `nav.settings`.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M54 routes — `guards.tsx`, `theme-routes.tsx` (new), `schema-routes.tsx`, `route-table.tsx`, `app-runtime.tsx`, `app-area-hooks.tsx`)
-
-- CA-07 am.4: `appThemePath(appId)` = `/app/{id}/theme`; `isAppAreaPath` accepts it (15 shapes). `ThemeRoute` (SCR-036); `usePalettes`, `glyphOf`.
+- 2026-09-23 — F04: `filter-intent.ts` and the structure/metrics wiring by
+  SESSION-04 (`f736fa8`..`27a2667`); the chart half of amendment 4 +
+  `chart-routes.tsx` by SESSION-05 (`6ee204c`..`3dd1d2d`); the structure/
+  settings half + `schema-routes.tsx` by SESSION-06 (`e7e7fe2`..`7ec391e`);
+  the theme half + `theme-routes.tsx` by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): four SESSION deltas
+  folded into the Route table (now stating all fifteen app-area shapes as one
+  list), a new "Amendment 4" subsection replacing the three separate partial
+  amendment-4 notes, and the Structural-facts section; the Exports list
+  updated to name every F04 file.

@@ -1,7 +1,7 @@
 # M37 — View models (`src/application/view-models/`)
 
 Extracted from specs/architecture.md §Module Contracts (View models).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns:** Minimum-data projections for approved surfaces + announcements.
 - **Depends on:** M36 (machine snapshot types + the ordering and phrase
@@ -13,18 +13,17 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   "your passphrase" unqualified (exact-secret scope strings live in the VM per
   design.md §Content Patterns).
 
-## Files (landed at `30396a9`)
+## Files (landed at `5bc19fb`)
 
-`security.ts`, `library.ts`, `import.ts`, `records.ts`. **There is no
-`snapshots.ts`.** F03's S08 planned one in its Files table; the snapshot view
-models it needed (`selectSnapshotsListVm`, `selectSnapshotViewerVm`,
-`selectSnapshotOptionsVm`, `toSnapshotFindVm`, and their supporting types) all
-turned out to belong beside the records VMs they read alongside
-(`src/application/view-models/records.ts`), so they were added there instead
-and the file was never created — a real structural finding disclosed under
-Custom Rule 7's mirror case (a planned file that a checkpoint's own proof did
-not need), not an omission. `tests/unit/view-models/snapshots.test.ts` imports
-from `records.ts`.
+`security.ts`, `library.ts`, `import.ts`, `records.ts`, and (F04, new)
+`schema.ts`, `theme.ts`. **There is no `snapshots.ts` or `charts.ts`.** Both
+were planned as their own files at some point (F03 for snapshots, F04 for
+charts) and both turned out to belong beside the records VMs they read
+alongside (`records.ts`), so neither file was created — a real structural
+finding disclosed under Custom Rule 7's mirror case (a planned file that a
+checkpoint's own proof did not need), not an omission.
+`tests/unit/view-models/snapshots.test.ts` and the chart VM tests import from
+`records.ts`.
 
 ### `security.ts` (F01)
 
@@ -40,10 +39,12 @@ from `records.ts`.
 `REFUSAL_ANNOUNCEMENT` is `Readonly<Record<DataWorkerErrorKindV1, string>>` —
 an **exhaustive map over M32's closed union**. Any new error kind breaks this
 file, so the union and this map are one change, not two, and belong in one
-lease (PROGRAM-CONFIG's closed-union convention). F03 added no
-`DATA_WORKER_ERROR_KINDS_V1` member (D42), so this map is unchanged.
+lease (PROGRAM-CONFIG's closed-union convention). Neither F03 nor F04 added a
+`DATA_WORKER_ERROR_KINDS_V1` member (D42; F04's four new request families each
+got their own typed refusal union instead — see `M32-worker-protocol.md`), so
+this map is unchanged since F02.
 
-### `library.ts` (F01, reworked F02, extended F03)
+### `library.ts` (F01, reworked F02, extended F03, F04)
 
 `selectLibraryVm(apps, searchQuery?)` → `LibraryVm = EmptyLibraryVm |
 PopulatedLibraryVm`; `LibraryTileVm`, `LibraryTileStatusV1`,
@@ -51,7 +52,9 @@ PopulatedLibraryVm`; `LibraryTileVm`, `LibraryTileStatusV1`,
 `LibraryActionVm` is a union: the enabled variant carries `intent`, the
 disabled one carries `reason`, and neither has the other's field. F03 adds
 `AppChoiceVm` and `selectAppChoices(apps, selectedAppId)` (SCR-017's "which
-app" destination list for CSV/TSV append, CAP-26).
+app" destination list for CSV/TSV append, CAP-26). **F04:**
+`LibraryTileVm.themeTile?` (the palette/logo the library screen paints a
+tile with).
 
 ### `import.ts` (F02, rewritten multi-table for F03)
 
@@ -100,10 +103,13 @@ file — additive at the wire, rewritten at the VM):**
 - **`PromotionIssueGroupVm` carries `columnKey`, `fieldName` and `tableName`,**
   mapped through the current (reviewed) proposal's tables; `null` when the
   issue has no column or the review no longer has that column (closed by
-  OWNER-PROMOTION-SEAMS `0634e81`, additive `columnKey?` on the wire). This
-  closes the F02-inherited gap below.
+  OWNER-PROMOTION-SEAMS `0634e81`, additive `columnKey?` on the wire).
 
-### `records.ts` (F02, extended F03)
+**F04 additions (SESSION-07):** `ReviewCalculationVm`, `ReviewChartVm` (with
+`isPinned`), `ReviewRuleVm` — the review screen's per-statement articles for a
+computed column, a rebuilt chart, and a converted validation rule.
+
+### `records.ts` (F02, extended F03, F04)
 
 `selectAppHomeVm`, `selectRecordsListVm`, `selectRecordDetailVm`,
 `selectRecordFormVm`, `selectChangeHistoryVm`, `selectDeleteRecordDialogVm`,
@@ -120,20 +126,69 @@ file — additive at the wire, rewritten at the VM):**
   `selectHasManyVm`, `RelatedRecordVm`, `RecordDetailContext`,
   `ReferencePickerVm` / `ReferenceCandidateVm` / `selectReferencePickerVm`,
   `TableSwitcherVm` / `selectTableSwitcherVm`. `ChangeHistoryEntryVm` now
-  names its table (closes the F02-inherited "assumes one table" gap below).
-- Snapshots (the planned `snapshots.ts` — see Files, above): `SheetUseTagV1` +
-  `SHEET_USE_LABEL` + `sheetUseTag` ("Interactive table" / "Read-only
-  snapshot" / "Mixed use"), `selectSnapshotsListVm`, `inertKindName`,
-  `describeInertCount`, `INERT_REASON_SENTENCE` (exhaustive over the inert
-  reason keys), `toInertItemVm`, `columnLetters`, `SNAPSHOT_PAGE_ROWS = 50`,
-  `pageStartFor`, `selectSnapshotViewerVm` (`previousFirstRow`/`nextFirstRow`,
-  so the pager does not derive page size from a short last page),
-  `toSnapshotFindVm`, `liveTableForSheet`, `selectSnapshotOptionsVm`, and
-  `EXPORT_SHEET_LATER` ("Export arrives in a later release.", owner F07).
+  names its table.
+- Snapshots (folded here rather than a standalone file — see "Files", above):
+  `SheetUseTagV1` + `SHEET_USE_LABEL` + `sheetUseTag` ("Interactive table" /
+  "Read-only snapshot" / "Mixed use"), `selectSnapshotsListVm`,
+  `inertKindName`, `describeInertCount`, `INERT_REASON_SENTENCE` (exhaustive
+  over the inert reason keys — F04 extends it to 10 keys, see below),
+  `toInertItemVm`, `columnLetters`, `SNAPSHOT_PAGE_ROWS = 50`, `pageStartFor`,
+  `selectSnapshotViewerVm` (`previousFirstRow`/`nextFirstRow`, so the pager
+  does not derive page size from a short last page), `toSnapshotFindVm`,
+  `liveTableForSheet`, `selectSnapshotOptionsVm`, and `EXPORT_SHEET_LATER`
+  ("Export arrives in a later release.", owner F07).
 - **No `announcements.ts`.** Folding was allowed and taken: each announcement
   has exactly one consumer and depends on the fact beside it, so it lives on
   its VM (`announcement`) or beside its outcome type
   (`announceRecordCommand`).
+
+**F04 additions (SESSION-04, CA-26/CA-29):**
+
+- **Records list:** `RecordsListVm` gains `matchCount` (exact or null) and
+  `partial` (`RecordsPartialVm`); `filters` (`FilterChipVm[]`),
+  `filterableFields` (`FilterableFieldVm[]`, SHT-004–008, enum options
+  including retired ones); `sort` (`SortVm`) and `sortableFields`.
+  `selectRecordsListVm(table, page, references?, {filters, sort,
+  recordLabels?})`.
+- **Query exports:** `RecordsFilterV1` and `RecordsSortV1` (wire aliases for
+  the UI), `filterSheetFor`, `describeActiveFilters`, `describeFilterRefusal`.
+- **Computed values (CA-26):** `computedFieldsOf(structure)` and
+  `ComputedFieldVm`; `ComputedCellVm {state, badge: "Live" | "Frozen at
+  import" | "Unsupported formula", note, expression}` on
+  `RecordDetailFieldVm.computed` and `RecordFormFieldVm.computed`;
+  `announceRecalculated(fieldIds, fields)` (D60).
+- **Metrics:** `selectMetricsVm(metrics, tables, structure)` returns
+  `MetricVm[]`; `AppHomeVm.metrics` via `selectAppHomeVm(session, metrics =
+  [])`.
+- **Change history:** `describeEvent` moved here from the UI and names F04's
+  structure kinds, with a truthful generic sentence for unnamed kinds.
+
+**F04 additions (SESSION-05, CA-30, charts live here — see "Files"):**
+`selectChartDetailVm` (SCR-033/pinned/preview), `appendTablePage`,
+`ChartCategoryVm`/`ChartMarkVm`/`ChartScopeVm`/`ChartDetailVm`,
+`ChartFieldTypeVm`; `selectChartBuilderVm`, `defaultChartDefinition`,
+`CHART_TYPE_CHOICES`, `groupingKey`/`measureKey`; `selectChartsIndexVm`.
+`AppHomeVm.pinnedCharts`; `RecordsListVm.chartOrigin` (+
+`RecordsQueryVmInput.chartOrigin`), announced as "Selected mark · {chart}";
+history sentences for `chart.saved`/`chart.deleted`.
+
+**F04 correction (SESSION-06, lease r2, CP4a `3b7ecfa`) — rule-issue
+sentences and `optionLabels` copy.** `toIssueVm(issue, fields = [])`:
+`rule-compare` / `rule-between` record-rule issues are now said from their own
+parameters instead of a generic sentence: `"{left} must be on or after
+{right}."` (the words follow the compared fields' kind, taken from `fields`;
+neutral words without them), `"{left} must be at least the number set in the
+rule "{ruleLabel}"."` for a literal (its kind, never its value), `"{field} is
+outside what the rule "{ruleLabel}" allows."` for a range (`between` and
+`not-between` share the key). Unknown keys or missing parameters keep the
+generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010
+now pass the table's fields so these sentences can be composed. This landed
+here — not filed as a `M38-ui-primitives.md` delta, where an identical block
+was mistakenly also stapled; see PROGRAM-CONFIG's fragment-reconciliation
+note for the move.
+
+**F04 additions (SESSION-08):** `LibraryTileVm.themeTile?` — see `library.ts`,
+above (recorded once, there).
 
 ## Contracts worth recording
 
@@ -143,10 +198,11 @@ file — additive at the wire, rewritten at the VM):**
   future writer cannot fill one. No view-model file names a passphrase-bearing
   field. For F02: no fictional library tile state is constructible
   (`LibraryTileStatusV1` has no conflict / listed-only / too-large / backed-up
-  member — F05–F07); `RecordsListVm` has no match-count field; `AppHomeVm` has
-  no metrics or chart field (F04). For F03: `ReferenceCellVm`'s broken variant
-  cannot be constructed without `originalKey`; `SheetEstimateVm` has no exact
-  member.
+  member — F05–F07); `RecordsListVm` has no match-count field (retired at F04
+  — it now has one, truthfully, per CAP-31); `AppHomeVm` had no metrics or
+  chart field (F02/F03; both landed at F04, per CAP-29/32/33). For F03:
+  `ReferenceCellVm`'s broken variant cannot be constructed without
+  `originalKey`; `SheetEstimateVm` has no exact member.
 - **Truthful enumeration.** `ReadableResetVm.inventory` is
   `"loading" | "none" | rows` — there is deliberately no `"unknown"`.
 - **Estimate flags survive in both directions (D24).** Pre-flight's
@@ -176,7 +232,8 @@ file — additive at the wire, rewritten at the VM):**
   exhaustive over `FieldTypeWireV1` with a `never` check; `reference` maps to
   `{kind:"unsupported", control:"read-only"}` rather than a picker (D25 — F02;
   unchanged by F03's relationship work, which reads through `ReferenceCellVm`
-  instead).
+  instead). A **computed** field (F04) never reaches this mapping at all — it
+  renders through `ComputedCellVm`, read-only by construction.
 - **Announcement copy provenance.** Mock-quoted strings carry source comments;
   states with no mock sentence are composed from facts in Content Patterns
   style.
@@ -187,20 +244,51 @@ file — additive at the wire, rewritten at the VM):**
 - **The boundary sweep can no longer go stale.**
   `tests/unit/workflows/module-boundaries.test.ts` checks its two file lists
   against the directories themselves, so a new M36/M37 file that is not swept
-  fails the suite.
+  fails the suite. F04's two new files (`schema.ts`, `theme.ts`) were
+  pre-issued into S06's and S08's leases before dispatch (WF-BOUNDARY), so
+  neither session hit this as a blocking seam.
 
-## Known gaps with owners (open at `30396a9`)
+## `schema.ts` (new, F04, SESSION-06; extended SESSION-08)
+
+`selectStructureVm(structure, selection)` → `StructureVm` (tables with
+`fieldCountLabel`/`hasKey`, a table with fields/rules/metrics/`calculations`,
+field detail with calculation, options, connection + detection-source
+evidence, dashboard values). Nothing the read lacks is drawn: no per-choice
+record counts, no type-inference evidence, no saved-rule failing counts.
+
+`typeLabel`, `typeChoicesFor`, `typeForChoice`, `CHANGEABLE_TYPES`,
+`CALCULATED_COLUMN_TYPES`; `ruleFieldChoices`, `operatorChoicesFor`,
+`ruleValueFrom`, `ruleValueText`, `ruleValueHint`, `ruleSentence`,
+`describeRuleCondition`.
+
+MOD-014: `selectImpactVm({change, preview, structure, wasStale})` →
+`ImpactDialogVm {title, counts, preservation, applyLabel, blocker,
+staleNote}`; a refused preview shows no counts. `describeChange`,
+`describeSchemaRefusal` (incl. known `schema.*` transition keys),
+`describeApplyFailure`, `describeFormulaError` (appends S03's best-guess
+position). `describeChange` for `change-field-type` with `optionLabels`
+(lease r2): `"Change {field} to Choice list with the choices A, B"`.
+
+MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`,
+`LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three
+targets.
+
+## `theme.ts` (new, F04, SESSION-08)
+
+`ThemeDraft`, `draftFromTheme`, `draftTheme`, `draftLogo`,
+`selectThemeVerdict`, `selectThemeEditorVm` (SCR-036), `describeThemeSummary`
+("Cedar · light · comfortable"), `describeContrastCheck` (design.md headings
++ mode), `describeLogoRefusal`, `describeThemeOutcome`.
+
+## Known gaps with owners (open at `5bc19fb`)
 
 - **SCR-020 has no progress percentage** — no truthful denominator exists
-  during a streamed parse (F02, unchanged by F03: SCR-020 shows "Sheet k of n"
-  + rows committed instead, still no percentage, D24 class).
-- **Glyph and accent are not on `AppSessionViewV1`** — per-app identity renders
-  from the catalog tile, not from the open session. Promoting them is F04's
-  theme work. F03 touched no theme code.
+  during a streamed parse (F02, unchanged by F03/F04: SCR-020 shows "Sheet k
+  of n" + rows committed instead, still no percentage, D24 class).
 - **`recordDetail`'s composed copy "Open in {table} →"** departs from the mock
   ("Open customer →") because there is no singularization source (D43,
   SESSION-08 surprise 7). Not a gap — a recorded, approved departure — but kept
-  visible here for the GATE-F03 reviewer.
+  visible here for the GATE-F03/F04 reviewer.
 
 ## Closed in F03 (were open at `5ab3b07`, resolved here — not re-carried)
 
@@ -213,6 +301,14 @@ file — additive at the wire, rewritten at the VM):**
   name mapping S07 CP3 renders.
 - **`ChangeHistoryScreen` assumed one table** — closed by S08 (`tableId` named
   on every history entry).
+
+## Closed in F04 (were open at `30396a9`, resolved here — not re-carried)
+
+- **`AppSessionViewV1` carried no glyph or accent** — closed by S08 (CA-32,
+  `AppSessionViewV1.accentId?`/`glyph?`).
+- **`AppHomeVm` had no metrics or chart field** — closed by S04 (metrics) and
+  S05 (pinned charts).
+- **`RecordsListVm` had no match-count field** — closed by S04 (CAP-31).
 
 ## Change History
 
@@ -243,45 +339,18 @@ file — additive at the wire, rewritten at the VM):**
   change-history table naming) — all three were still listed as open in the
   fragment Roshi wrote at the F02 final pass, and F03's own sessions closed
   them without a return trip through this file.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M37 View models (`records.ts`))
-
-- **Records list:** `RecordsListVm` gains:
-  - `matchCount` (exact or null) and `partial` (`RecordsPartialVm`);
-  - `filters` (`FilterChipVm[]`), `filterableFields` (`FilterableFieldVm[]`, SHT-004–008, enum options including retired ones);
-  - `sort` (`SortVm`) and `sortableFields`.
-  - `selectRecordsListVm(table, page, references?, {filters, sort, recordLabels?})`.
-- **Query exports:** `RecordsFilterV1` and `RecordsSortV1` (wire aliases for the UI), `filterSheetFor`, `describeActiveFilters`, `describeFilterRefusal`.
-- **Computed values (CA-26):**
-  - `computedFieldsOf(structure)` and `ComputedFieldVm`;
-  - `ComputedCellVm {state, badge: "Live" | "Frozen at import" | "Unsupported formula", note, expression}` on `RecordDetailFieldVm.computed` and `RecordFormFieldVm.computed`;
-  - `announceRecalculated(fieldIds, fields)` (D60).
-- **Metrics:** `selectMetricsVm(metrics, tables, structure)` returns `MetricVm[]`; `AppHomeVm.metrics` via `selectAppHomeVm(session, metrics = [])`.
-- **Change history:** `describeEvent` moved here from the UI and names F04's structure kinds, with a truthful generic sentence for unnamed kinds.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M37 view models — `src/application/view-models/records.ts`)
-
-- Same reason, the chart VMs are sections of `records.ts`, not `charts.ts`: `selectChartDetailVm` (SCR-033/pinned/preview), `appendTablePage`, `ChartCategoryVm`/`ChartMarkVm`/`ChartScopeVm`/`ChartDetailVm`, `ChartFieldTypeVm`; `selectChartBuilderVm`, `defaultChartDefinition`, `CHART_TYPE_CHOICES`, `groupingKey`/`measureKey`; `selectChartsIndexVm`. `AppHomeVm.pinnedCharts`; `RecordsListVm.chartOrigin` (+ `RecordsQueryVmInput.chartOrigin`), announced as "Selected mark · {chart}"; history sentences for `chart.saved`/`chart.deleted`.
-
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (pointer)
-
-The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
-
-<!-- formulas-queries-charts SESSION-06 -->
-### F04 delta — SESSION-06 (M37 — view models (`src/application/view-models/schema.ts`) — new file)
-
-- `selectStructureVm(structure, selection)` → `StructureVm` (tables with `fieldCountLabel`/`hasKey`, table with fields/rules/metrics/`calculations`, field detail with calculation, options, connection + detection-source evidence, dashboard values). Nothing the read lacks is drawn: no per-choice record counts, no type-inference evidence, no saved-rule failing counts.
-- `typeLabel`, `typeChoicesFor`, `typeForChoice`, `CHANGEABLE_TYPES`, `CALCULATED_COLUMN_TYPES`; `ruleFieldChoices`, `operatorChoicesFor`, `ruleValueFrom`, `ruleValueText`, `ruleValueHint`, `ruleSentence`, `describeRuleCondition`.
-- MOD-014: `selectImpactVm({change, preview, structure, wasStale})` → `ImpactDialogVm {title, counts, preservation, applyLabel, blocker, staleNote}`; a refused preview shows no counts. `describeChange`, `describeSchemaRefusal` (incl. known `schema.*` transition keys), `describeApplyFailure`, `describeFormulaError` (appends S03's best-guess position).
-- MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`, `LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three targets.
-- Registered in `tests/unit/workflows/module-boundaries.test.ts` `VIEW_MODEL_FILES` (WF-BOUNDARY lease addition).
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M37 view models — `src/application/view-models/theme.ts` (new), `library.ts`)
-
-- `ThemeDraft`, `draftFromTheme`, `draftTheme`, `draftLogo`, `selectThemeVerdict`, `selectThemeEditorVm` (SCR-036), `describeThemeSummary` ("Cedar · light · comfortable"), `describeContrastCheck` (design.md headings + mode), `describeLogoRefusal`, `describeThemeOutcome`.
-- `LibraryTileVm.themeTile?`.
+- 2026-09-23 — F04: `records.ts`'s query/computed/metrics extensions by
+  SESSION-04 (`f736fa8`..`27a2667`); the chart VM families (in `records.ts`,
+  per Custom Rule 7) by SESSION-05 (`6ee204c`..`3dd1d2d`); the import review
+  VMs by SESSION-07 (`978bb77`..`f9a1565`); `schema.ts` (new) by SESSION-06
+  (`e7e7fe2`..`7ec391e`); the `toIssueVm`/`describeChange` correction by
+  SESSION-06 lease r2 (`3b7ecfa`); `theme.ts` (new) and `LibraryTileVm.
+  themeTile?` by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): six SESSION deltas
+  folded into "Files", per-file sections, and two new file sections
+  (`schema.ts`, `theme.ts`); the SESSION-06 lease-r2 correction — which was
+  stapled into `M38-ui-primitives.md` instead of here, the module its content
+  actually describes — moved into this fragment (Principle 2 / PROGRAM-CONFIG's
+  fragment-reconciliation note); "Known gaps" reconciled against the F04
+  Capability Readiness table so a reader does not find a gap already closed
+  by CAP-29/31/32/33 still described as open.

@@ -1,7 +1,7 @@
 # M42 — UI library (`src/ui/library/`)
 
 Extracted from specs/architecture.md §Module Structure (UI modules).
-Reconciled against the tree at `5ab3b07` (F02 final).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns surfaces (full target):** SCR-010–015, MOD-003, SHT-011.
 - **Landed:** SCR-010 (populated library), SCR-011 (empty state), SCR-012
@@ -42,6 +42,13 @@ disabled branch is byte-for-byte the F01 Button (`disabledReason` +
   called directly, injectable for tests, so no route owner has to pass a handler
   for the control to mean something.
 
+## Per-app identity on the tile (F04, SESSION-08)
+
+A tile's mark is, in priority order: the app's logo (decorative, `alt=""`)
+when one is set; else the theme's glyph on the theme's primary colour and
+label; else the D29 accent monogram it always fell back to before F04. No
+tile state or copy changed — only which mark a themed app now draws.
+
 ## Recorded deviations
 
 - **Accessibility, tile monogram.** The mocks draw a tile's monogram chip as a
@@ -80,8 +87,7 @@ disabled branch is byte-for-byte the F01 Button (`disabledReason` +
   the head's "F01 subset: empty state only" and the "F02: enable the upload
   action" debt line are both discharged and removed; the interim `#/upload`
   default recorded as the landed `navigateToUpload` it became.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M42 library — `src/ui/library/library-screen.tsx`)
-
-- The tile mark is the logo (decorative, alt ""), or the glyph on the theme's primary and label, or the D29 accent.
+- 2026-09-23 — F04: the tile's logo/glyph precedence by SESSION-08
+  (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-08 delta
+  folded into a new "Per-app identity on the tile" section.

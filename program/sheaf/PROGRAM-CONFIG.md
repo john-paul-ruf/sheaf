@@ -34,8 +34,8 @@ Parsed from `specs/architecture.md` § Stack Decision (approved 2026-09-08). Do 
 | Binary encoding | Canonical CBOR, explicit codec version; compress before encrypt |
 | Containers | zip.js (OPC/ODS); custom bounded CFB reader (legacy XLS) — **F03 planning note:** the container reader is a native fallback (`src/import/source/{zip,xml,cfb,opc}.ts`), not `@zip.js/zip.js`; see the F03 landed-modules note below (D30) |
 | Import parsers | Sheaf-owned format adapters (OOXML, XLSB, BIFF, ODS, delimited, html-table). SheetJS is export-only, never import |
-| Formula engine | Sheaf-owned parser/IR/graph/evaluator. No eval, no dynamic Function |
-| Charts | Chart.js 4.x + Sheaf-owned accessible text/table alternative |
+| Formula engine | Sheaf-owned parser/IR/graph/evaluator. No eval, no dynamic Function. **Landed F04** (`src/domain/formulas/`; F03 built only the parser/reference-extraction subset) |
+| Charts | **Chart.js 4.5.1, exact-pinned** (+ `@kurkle/color` 0.3.4, transitive) + Sheaf-owned accessible text/table alternative. **Landed F04, S05** (`src/ui/charts/chart-canvas.tsx`, the only importer; CP0 probe confirmed no eval/Function/network/blob-worker use and tree-shaken registration) |
 | Export | SheetJS CE (export-only), pdf-lib, Canvas/Blob |
 | PWA | Web App Manifest + Workbox InjectManifest |
 | Package manager | pnpm, frozen lockfile, exact-pinned direct deps |
@@ -90,6 +90,12 @@ fragments), closing three fragments that still recorded an F02 gap their own
 F03 sessions had already resolved (M12's unconstructible import-lineage
 input, M37's live-region pluralization and stale `promotionIssues` mapping,
 M44's missing deleted-record read and single-table change history) — see
+`ROSHI-LOG.md` 2026-09-23. F04's final pass repeated it again over
+twenty-six touched fragments (two new-module fragments seeded at F04
+planning — M45, M46 — plus twenty-four extended fragments), closing the
+F01/F02/F03-carried currency-code gap (M01, M12; disproved as a schema
+defect, not a migration) and reframing M03's head contract from "F03 builds
+only the parser subset" to the landed full-engine contract — see
 `ROSHI-LOG.md` 2026-09-23.
 
 **A delta that describes a *different* module belongs in that module's
@@ -100,7 +106,13 @@ fragment if there is none — F02 needed three moves (M58's fixture-byte contrac
 out of M19, M61's e2e contract out of M51, and M54's CA-07 amendment 2 out of
 M44). A fragment may therefore be created by the final pass, not only by Forge
 at planning time. F03 needed no such move: every session's delta landed in the
-fragment its own module owns.
+fragment its own module owns. **F04 needed one:** a lease-r2 correction
+describing six modules (M02, M32, M33, M34, M37, M46) was staple-appended a
+seventh time, to `M38-ui-primitives.md` — a module the correction never
+touches (`git diff --stat` over the whole feature shows zero lines changed in
+`src/ui/primitives/`). Of the six rightful homes, four already carried the
+delta independently; the two that did not (M37, M46) received it during this
+reconciliation, and the misfiled M38 copy was deleted.
 
 ### F01 landed modules (git-verified at `2c0248a`)
 
@@ -125,10 +137,6 @@ added twelve and extended thirteen:
 Test modules: M56, M57, M58, M60, M61 all grew; M59, M62, M63, M64 are still
 planned. Arch fragments now exist for M58 and M61 (created by Roshi at the F02
 final pass, see the fragment-reconciliation note above).
-
-### F04 planning note (2026-09-23)
-
-F04 `formulas-queries-charts` adds two UI modules, **M45** (`src/ui/charts/`) and **M46** (`src/ui/schema/`). Their fragments were seeded at planning. F04 also adds **Chart.js** as the only new runtime dependency (the approved stack; pinned in S05). The `schema_fields` currency-code round-trip carried from F02 was **disproved as a schema defect**: the code lives in the encrypted field definition, and the projection caches definitions per session. No DB re-entry was needed.
 
 ### F03 landed modules (git-verified at `425562d`, code ≡ `30396a9`)
 
@@ -156,6 +164,30 @@ third-party package** anywhere in the import pipeline. The Stack table above
 is corrected accordingly; `@zip.js/zip.js` was never installed
 (`package.json`/`pnpm-lock.yaml` carry no such dependency at `30396a9`).
 
+### F04 landed modules (git-verified at `5bc19fb`)
+
+Forty product modules now exist in code (plus DB-phase-owned M10). F04 added
+two — both UI — and extended twenty-three:
+
+| | modules |
+|---|---|
+| **New in F04** | M45 (UI charts, `src/ui/charts/`), M46 (UI schema, `src/ui/schema/`) |
+| **Extended in F04** | M01 (`FormulaId`/`ChartId`, `filters.ts`, `charts.ts`, F04 schema/chart event kinds, theme v2 + the contrast gate), M02 (rule IR v2, `schema-impact.ts`, `set-table-key`, M02→M03 type-only edge), M03 (the F03 parser subset grown to the **full engine** — IR, catalog, translate, render, evaluate, graph, disposition), M07 (`event-repository.ts`/`projection.ts` restated over the F04 formulas/query/chart surface), M12 (recalculation via M03, `query-records`, chart rows/dataset, the theme codec's v2 fields), M15 (OOXML chart/pivot part definitions), M21 (`formulas.ts`/`charts.ts`/`rules.ts`, `inferProposal` fully removed), M23 (checkpoint formulas/charts roots, `formula-identities.ts`, `live-structure.ts`, built-in palettes, theme v2 codec), M32 (structure/query/chart/theme RPCs), M33 (`structure-handlers.ts`, `chart-handlers.ts`, `theme-handlers.ts`, `schema-event-payloads.ts`), M34 (`schema-commands.ts`, `formula-env.ts`, `chart-commands.ts`, `theme-commands.ts`), M35 (`structure.ts`, `budgets.ts`, `filters.ts`, `charts.ts`), M36 (`schema-services.ts`, `theme-services.ts`, `ChartServices` in `records-services.ts`), M37 (query/computed/metrics/chart VM families in `records.ts`; new `schema.ts`, `theme.ts`), M39 (app-theme chrome roles on the rail), M40 (`app-theme.ts`, dark-mode system-semantic text roles), M42 (tile logo/glyph precedence), M43 (live-structure review articles), M44 (filters/sort/computed UI, Charts/Structure/Settings destinations, per-app chrome), M54 (CA-07 amendment 4 — chart/structure/settings/theme routes, `filter-intent.ts`, `chart-routes.tsx`, `schema-routes.tsx`, `theme-routes.tsx`), M58 (chart/pivot/live-formula fixtures), M61 (six new e2e specs, 71 total), M65 (chart/pivot part-definition fields, CA-33 reason keys) |
+| **Unchanged in F04** | M08, M09, M11, M13, M14, M16, M17, M18, M19, M20, M22, M38 (confirmed by three sessions and by `git diff --stat`), M41, M50, M51, M53, M55 |
+| **Still planned (at F04 close)** | M04, M05, M06, M24–M31, M47–M49, M52 |
+
+Test modules: M56, M57, M58, M60, M61 all grew again; M59, M62, M63, M64
+remain planned.
+
+**Currency-code gap disproved, not fixed by migration.** The `schema_fields`
+currency-code round-trip carried from F02 (a gap first recorded at F02 close
+and repeated at F03 close) was **disproved as a schema defect** at F04
+planning: the code lives in the encrypted field definition, and the
+projection caches definitions per session (`arch/M01-domain-model.md`,
+`arch/M12-projection.md`). S03 CP1 wired the cache to refresh on
+`field.changed`; no DB re-entry was needed. Both fragments now record this
+as closed, not open.
+
 ### Domain (pure; no outward imports)
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
@@ -181,7 +213,7 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 | M09 | Codecs | src/persistence/codecs/ | Canonical CBOR, compression, framing, versioned decode | — | canonical-cbor.ts, framing.ts |
 | M10 | Migrations | src/migrations/ | Every durable format transition. **DB-phase owned, permanently. No session's `Owns` may include this path.** | M09 (old/new codecs), transactional ports | 001–006 + index.ts (exist) |
 | M11 | Envelope store | src/persistence/envelope-store/ | The only persistent local DB connection; encrypted transactions, staging, revisions, quota | Dexie, M09, M10 (runner), M07 | store.ts, staging.ts |
-| M12 | Projection | src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, replay, hydration, FTS, invalidation. Runs only in data worker | SQLite WASM, M01, M02, M03 | hydrate.ts, query-exec.ts |
+| M12 | Projection | src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, replay, hydration, FTS, invalidation. Runs only in data worker | SQLite WASM, M01, M02, M03 (F04) | hydrate.ts, query-exec.ts |
 
 ### Infrastructure — import
 
@@ -189,16 +221,16 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 |----|--------|------|------|--------------|---------------------|
 | M13 | Import source | src/import/source/ | Random-access source over File/Blob/staged chunks; content sniffing; **landed F03:** the native container readers (zip/XML/CFB/OPC), no third-party package | M07 (FilePort) | source.ts, sniff.ts |
 | M14 | Pre-flight | src/import/preflight/ | Metadata-only sizing, safety bounds, macro detection, selection plan. Never iterates cells; **landed F03:** `preflightWorkbook` (multi-sheet) beside the F02 delimited path | M13, M04 | preflight.ts, refusal.ts |
-| M15 | OOXML adapter | src/import/formats/ooxml/ | Streaming XLSX/OPC facts. **Landed F03** | M13, M65 | index.ts (landed) |
+| M15 | OOXML adapter | src/import/formats/ooxml/ | Streaming XLSX/OPC facts, incl. (F04) chart/pivot part definitions | M13, M65 | index.ts (landed) |
 | M16 | XLSB adapter | src/import/formats/xlsb/ | Streaming XLSB records, macro-sheet detection. **Landed F03** | M13, M65, M17 (`ptg.ts`) | index.ts (landed) |
 | M17 | BIFF adapter | src/import/formats/biff/ | Bounded CFB + BIFF/XLS records, VBA/XLM refusal signals, the shared `Ptg` decoder. **Landed F03** | M13, M65 | index.ts, ptg.ts (landed) |
 | M18 | ODS adapter | src/import/formats/ods/ | Streaming ODS facts. **Landed F03** | M13, M65 | index.ts (landed) |
 | M19 | Delimited adapter | src/import/formats/delimited/ | Chunked CSV/TSV detection and row facts | M13, M65 (F03) | — |
 | M20 | HTML-table adapter | src/import/formats/html-table/ | Non-executing tokenizer for legacy HTML-as-XLS. **Landed F03** | M13, M65 | index.ts (landed) |
-| M21 | Inference | src/import/inference/ | Evidence-weighted schema/type/relationship proposals, rejection memory; **landed F03:** the full multi-sheet workbook tier | M01, M03, M65 | — |
+| M21 | Inference | src/import/inference/ | Evidence-weighted schema/type/relationship proposals, rejection memory, and (F04) live-structure (formula/chart/rule) mapping | M01, M03, M65 | — |
 | M22 | Snapshots | src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted source chunks, inert inventory; **landed F03:** the per-sheet v2 format + writer | M08, M11 (via ports) | — |
-| M23 | Staging | src/import/staging/ | Provisional encrypted import model, atomic promotion, no-partial-app guarantee; **landed F03:** multi-sheet promotion + append-into-existing-app (D38) | M08, M11 (via ports), M65 (F03) | — |
-| M65 | Workbook facts | src/import/facts/ | The format-neutral `WorkbookFact` stream vocabulary every adapter emits (v2: sheets, typed values, formats, formulas, declared tables, validations, merges, preserved parts), the adapter/inventory interfaces, and the fact→canonical-CBOR value mapping. **Landed F03** — sole home of the vocabulary since D32 closed (the F02 `formats/delimited/facts.ts` copy is deleted) | M01 (`values` only) | workbook-facts.ts, adapter.ts (landed) |
+| M23 | Staging | src/import/staging/ | Provisional encrypted import model, atomic promotion, no-partial-app guarantee; multi-sheet promotion + append (D38, F03); durable codecs for rule IR/formulas/charts and built-in theme palettes (F04) | M08, M11 (via ports), M03 (F04), M65 (F03) | — |
+| M65 | Workbook facts | src/import/facts/ | The format-neutral `WorkbookFact` stream vocabulary every adapter emits (v2: sheets, typed values, formats, formulas, declared tables, validations, merges, preserved parts, and — F04 — chart/pivot part definitions), the adapter/inventory interfaces, and the fact→canonical-CBOR value mapping. Sole home of the vocabulary since D32 closed | M01 (`values` only) | workbook-facts.ts, adapter.ts (landed) |
 
 ### Infrastructure — sync and export
 
@@ -218,7 +250,7 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
 | M32 | Worker protocol | src/workers/protocol/ | Versioned typed RPC, cancellation, progress, transfer, error redaction | M01 (safe types) | messages.ts, client.ts |
-| M33 | Worker entries | src/workers/*.worker.ts **+ src/workers/<name>/** (leasing unit: `src/workers/**` minus `protocol/`) | Per-worker composition: data (keys+DB+projection), import (parse, all formats since F03), io (ciphertext+OAuth I/O), export (plaintext, no network) | M32 + composed app/infra per worker | data.worker.ts + data/{handlers,catalog,session}.ts (landed); import.worker.ts + import/{parse-session,adapters}.ts (landed); io.worker.ts, export.worker.ts |
+| M33 | Worker entries | src/workers/*.worker.ts **+ src/workers/<name>/** (leasing unit: `src/workers/**` minus `protocol/`) | Per-worker composition: data (keys+DB+projection+F04 structure/chart/theme handlers), import (parse, all formats since F03), io (ciphertext+OAuth I/O), export (plaintext, no network) | M32 + composed app/infra per worker | data.worker.ts + data/{handlers,catalog,session}.ts (landed); import.worker.ts + import/{parse-session,adapters}.ts (landed); io.worker.ts, export.worker.ts |
 
 > M33 path correction (Roshi, post-F01): the entry file is a composition root
 > only; every command body lives beside it in `src/workers/data/` so it is
@@ -246,8 +278,8 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 | M42 | UI library | src/ui/library/ | SCR-010–015; MOD-003; SHT-011 | M38–M40, M37 | — |
 | M43 | UI import | src/ui/import/ | SCR-016–023, 043–045; MOD-004–008, 034–035; SHT-013 | M38–M40, M37 | — |
 | M44 | UI records | src/ui/records/ | SCR-024–032; MOD-009–011; SHT-001–010, 016 | M38–M40, M37 | — |
-| M45 | UI charts | src/ui/charts/ | SCR-033–034; MOD-012–013; SHT-012, 017 | M38–M40, M37, Chart.js | — |
-| M46 | UI schema | src/ui/schema/ | SCR-035–037; MOD-014–015; SHT-014 | M38–M40, M37 | — |
+| M45 | UI charts | src/ui/charts/ | SCR-033–034, 053; MOD-012–013; SHT-012, 017. **Landed F04** | M38–M40, M37, Chart.js | — |
+| M46 | UI schema | src/ui/schema/ | SCR-035–037; MOD-014–015; SHT-014. **Landed F04** | M38–M40, M37 | — |
 | M47 | UI durability | src/ui/durability/ | SCR-038–042; MOD-001–002, 016–019, 025–026, 036; SHT-015 | M38–M40, M37 | — |
 | M48 | UI reconciliation | src/ui/reconciliation/ | SCR-046–048; SHT-018 | M38–M40, M37 | — |
 | M49 | UI ownership | src/ui/ownership/ | SCR-049–052; MOD-027–031 | M38–M40, M37 | — |
@@ -260,7 +292,7 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 | M51 | Platform | src/platform/ | File acquisition, save/share handoff, install prompt, visibility, storage estimate; **landed F03:** clipboard | browser APIs | — |
 | M52 | PWA | src/pwa/ | Manifest, service worker, precache, Chromium share-target inbox, safe update | Workbox, M50 | sw.ts, manifest |
 | M53 | Bootstrap | src/bootstrap/ | Capability checks, lock/unlock lifetime, composition, worker startup/termination | M50–M52, M32 | — |
-| M54 | Routes | src/routes/ | Hash routes, guards, approved screen composition, OAuth return routing; **landed F03:** CA-07 amendment 3 (snapshot routes) | M41–M49, M37 | — |
+| M54 | Routes | src/routes/ | Hash routes, guards, approved screen composition, OAuth return routing; CA-07 amendment 3 (snapshot routes, F03), amendment 4 (chart/structure/settings/theme routes, F04) | M41–M49, M37 | — |
 | M55 | Entry | src/main.tsx | Minimal browser entry + fatal bootstrap handling | M53, M54 | main.tsx |
 
 ### Tests
@@ -284,7 +316,9 @@ is corrected accordingly; `@zip.js/zip.js` was never installed
 `src/vite-env.d.ts`, `public/` have no module ID. They are **owner-seam
 paths**: the scaffolding session owns them at creation; afterwards, changes ride
 in the session whose work requires them, listed explicitly in that session's
-`Owns`. Two concurrent sessions may never both lease a root manifest.
+`Owns`. Two concurrent sessions may never both lease a root manifest. F04's
+S05 held `package.json`/`pnpm-lock.yaml` alone (Chart.js's pin), per the
+Dependency Graph's own serial rule.
 
 **`harness.html` + `src/harness/**` are owner-seam paths too (D11, F01).** The
 browser-test harness is a second Vite rollup input and a *test-toolchain*
@@ -293,9 +327,9 @@ artifact — no module ID, never a product surface, never imported by
 `src/**` files are reachable from built output without any later session editing
 a build input. Its build products (`harness.html`, `dist/assets/harness-*.js`,
 `dist/assets/probe.worker-*.js`, ~534 kB) must be excluded from the F08
-precache. Details in `arch/M55-entry.md`. F03 added no new build input; every
-new F03 module was reachable through the existing glob with zero edits here,
-confirming the property this owner-seam path was built for.
+precache. Details in `arch/M55-entry.md`. Neither F03 nor F04 added a new
+build input; every new module (F03's seven, F04's M45/M46) was reachable
+through the existing glob with zero edits here.
 
 ## Conventions
 
@@ -310,9 +344,9 @@ confirming the property this owner-seam path was built for.
 Added by Roshi after F01 (each crossed Vow 4's in-cycle recurrence bar — three
 or more distinct sessions in one feature cycle; instances cited):
 
-- **A dependency must-not ships as a test, not a review note.** Every module whose arch fragment states a forbidden import owns a `module-boundaries.test.ts` (or equivalent) asserting it mechanically. F01 grew five independently: `tests/unit/crypto/module-boundaries.test.ts` (M09 has no third-party import, S02), `tests/unit/ui/architecture.test.ts` (`src/ui/**` imports only `react` + `react-aria-components`, S03), `tests/unit/envelope-store/module-boundaries.test.ts` (Dexie confined to three files, S04), `tests/unit/workers/module-boundaries.test.ts` (`messages.ts` imports nothing, S05), `tests/unit/workflows/module-boundaries.test.ts` (M36/M37 import no React/crypto/persistence, S06). Two cross-lease violations were prevented by these tests rather than caught in review. F03 grew the pattern further without a new instance count needed: the pipeline sweep gained M03/M15–M20/M65's directories (S01/S02/S04/S05), and the staging sweep gained the workbook codec files (S06) — each session extending an existing mechanical sweep rather than writing a new one, exactly as the rule anticipates.
-- **Encode a must-not as a type or a runtime throw wherever the language allows it.** Precedents to follow: `ButtonProps` requires `disabledReason` when `isDisabled` (S03); `applyShellTheme` throws on a system-owned property (S03); the RPC union names no byte or key type at all, so key bytes are type-excluded rather than merely absent (S05); locked view models declare no inventory field, so a future writer cannot fill one (S06); `frameToRow` refuses a frame sealed at another revision (S04). F03 added `ReferenceCellVm`'s broken variant (cannot be constructed without `originalKey`), `SheetEstimateVm` (no exact member), and `CheckboxProps` (mirrors `ButtonProps`'s `disabledReason` requirement). Prefer this to a comment every time; state in the fragment which contract is type-held.
-- **Test filters take no bare `--`.** `pnpm test:browser <filter>` and `pnpm test:e2e <filter>` filter; `pnpm test:browser -- <filter>` silently runs the **whole** suite — the mirror image of a zero-selected run, and it passes vacuously. Observed and re-confirmed across S01, S05 and S06. (The Verification Commands table below was corrected to the no-`--` forms by Forge at F02 planning, 2026-09-08.) No F03 instance.
+- **A dependency must-not ships as a test, not a review note.** Every module whose arch fragment states a forbidden import owns a `module-boundaries.test.ts` (or equivalent) asserting it mechanically. F01 grew five independently: `tests/unit/crypto/module-boundaries.test.ts` (M09 has no third-party import, S02), `tests/unit/ui/architecture.test.ts` (`src/ui/**` imports only `react` + `react-aria-components`, S03), `tests/unit/envelope-store/module-boundaries.test.ts` (Dexie confined to three files, S04), `tests/unit/workers/module-boundaries.test.ts` (`messages.ts` imports nothing, S05), `tests/unit/workflows/module-boundaries.test.ts` (M36/M37 import no React/crypto/persistence, S06). Two cross-lease violations were prevented by these tests rather than caught in review. F03 grew the pattern further without a new instance count needed: the pipeline sweep gained M03/M15–M20/M65's directories (S01/S02/S04/S05), and the staging sweep gained the workbook codec files (S06) — each session extending an existing mechanical sweep rather than writing a new one, exactly as the rule anticipates. F04 held the same way: the formulas sweep raised its minimum-sources bound (6→17) rather than growing a new sweep, the validation sweep gained a value/type-only distinction over the new M02→M03 edge, and the projection sweep gained the M03 recalculation edge — all extensions of existing sweeps.
+- **Encode a must-not as a type or a runtime throw wherever the language allows it.** Precedents to follow: `ButtonProps` requires `disabledReason` when `isDisabled` (S03); `applyShellTheme` throws on a system-owned property (S03); the RPC union names no byte or key type at all, so key bytes are type-excluded rather than merely absent (S05); locked view models declare no inventory field, so a future writer cannot fill one (S06); `frameToRow` refuses a frame sealed at another revision (S04). F03 added `ReferenceCellVm`'s broken variant (cannot be constructed without `originalKey`), `SheetEstimateVm` (no exact member), and `CheckboxProps` (mirrors `ButtonProps`'s `disabledReason` requirement). F04 added `ComputedCellVm`'s read-only-by-construction shape (a computed field never reaches the authored-input mapping at all) and `assertPresentationOnly`'s unification of the shell/app theme guard into one throwing function. Prefer this to a comment every time; state in the fragment which contract is type-held.
+- **Test filters take no bare `--`.** `pnpm test:browser <filter>` and `pnpm test:e2e <filter>` filter; `pnpm test:browser -- <filter>` silently runs the **whole** suite — the mirror image of a zero-selected run, and it passes vacuously. Observed and re-confirmed across S01, S05 and S06. (The Verification Commands table below was corrected to the no-`--` forms by Forge at F02 planning, 2026-09-08.) No F03 or F04 instance.
 
 Added by Roshi at the F02 interim pass (crossed Vow 4's **in-cycle** axis —
 three distinct instances inside one feature cycle; instances cited):
@@ -321,7 +355,7 @@ three distinct instances inside one feature cycle; instances cited):
   1. **Name module directories, never the shared parent** — in a session's `Owns` and in any recursive `module-boundaries` sweep. S03's `tests/unit/import/module-boundaries.test.ts` swept all of `src/import` and asserted no `/persistence/` import; S04's landed M23 correctly imports M09's canonical CBOR, so `pnpm verify` went red on a file outside the failing session's lease and S04 **returned blocked at CP1**. The re-scoped sweep at `978f4ff` now lists the four directories and says so in its own header comment.
   2. **A lease must contain every path its own checkpoint proofs write** — fixtures, config manifests, test directories — checked at planning against each checkpoint's stated gate, not against the Files table. F02 needed two pre-dispatch lease amendments for exactly this (PC-01: `tests/browser/fixtures/**`, which S01's own CP1 sqlite proof had to create; PC-07: the five test/toolchain configs D16 required).
   3. **A fixture corpus is owned by one session and unreachable to every later one.** Plan the later session's fixtures inside its own lease, or name the corpus owner as a supplier. S04 could not add to `tests/fixtures/workbooks/**` (S03's) and built synthetic in-page fixtures for its volume cases instead — truthful, but a workaround a lease boundary forced.
-  This is the same class as F01's replan F-01 (harness entry in no lease) and F-08 (test deps in no lease): **four instances across two cycles, three inside F02 alone.** F03 held this rule without a new instance: S01's fixture-builder toolkit (`tests/fixtures/workbooks/build/`) was planned into S01's own lease from the start and reused unmodified by S02/S04/S05, exactly rule 3's better path.
+  This is the same class as F01's replan F-01 (harness entry in no lease) and F-08 (test deps in no lease): **four instances across two cycles, three inside F02 alone.** F03 held this rule without a new instance: S01's fixture-builder toolkit (`tests/fixtures/workbooks/build/`) was planned into S01's own lease from the start and reused unmodified by S02/S04/S05, exactly rule 3's better path. **F04 held it again, with the same shape:** S02's `ooxml-builder.ts` extension (its own F03 lease) served S05 and S07's chart-fixture needs with zero new instances.
 
 Added by Roshi at the F02 final pass (crossed Vow 4's **in-cycle** axis — three
 distinct sessions inside one feature cycle; instances cited):
@@ -330,7 +364,32 @@ distinct sessions inside one feature cycle; instances cited):
   1. **S04** needed `import-stage-missing`/`conflict` kinds, could not add them, and shipped idempotent reads instead — a recorded CA-12 deviation rather than a contract extension.
   2. **S05** was explicitly instructed not to extend the union (auto-decision, wave 4) so a serial-chain typecheck break could not land between it and S06 — a plan constraint standing in for a lease.
   3. **S06** cleared the seam by gating every mutating stage call on `getImportStage`, because it was the first session holding *both* files. Between (1) and (3) the shipped copy for an ordinary reload-mid-import said "the local store did not pass its integrity check", which is false — found by the interim drift check, not by a session.
-  **The rule:** when decomposition splits a closed union from a map that must stay exhaustive over it, co-lease them, sequence them so the consumer leads, or state in the plan which session may extend the union. Treat it exactly like a serial lease takeover, because that is what it is. (Also recorded as a framework recommendation for `FORGE.md`, where it binds every program.) **F03 held this rule and produced positive evidence it works when followed at planning time:** D42 named the sole extender (`PROMOTION_REJECTIONS` gains `append-too-large`, S06 only, co-leased with `M37`'s `import.ts`) before any session started, and the union never bit a session mid-run — zero new instances.
+  **The rule:** when decomposition splits a closed union from a map that must stay exhaustive over it, co-lease them, sequence them so the consumer leads, or state in the plan which session may extend the union. Treat it exactly like a serial lease takeover, because that is what it is. (Also recorded as a framework recommendation for `FORGE.md`, where it binds every program.) **F03 held this rule and produced positive evidence it works when followed at planning time:** D42 named the sole extender (`PROMOTION_REJECTIONS` gains `append-too-large`, S06 only, co-leased with `M37`'s `import.ts`) before any session started, and the union never bit a session mid-run — zero new instances. **F04 produced a mixed result, worth recording exactly:** the same shape (a closed query/kind union plus its exhaustive test pin) bit S04 once — adding `query-records` to `ProjectionQueryV1` broke `tests/unit/workers/projection-port.test.ts` and `tests/unit/commands/fakes.ts`, both outside S04's original lease, forcing a same-context lease revision (r1→r2) — and was then pre-empted for every later producer: S05's chart query kinds were pre-issued into its own lease r1 from the start, and S06/S08's `workflows/module-boundaries.test.ts` file-list additions (the same "exhaustive map over a set of files" shape, generalized beyond a TS union) were pre-issued before dispatch as the WF-BOUNDARY seam. **Four F04 instances: one blocked, three pre-empted after the first was observed** — the rule works when applied *before* the first session in a wave needing it starts, and the F04 run corrected forward within the same cycle rather than repeating the miss for every later producer.
+
+Added by Archivist at the F04 final pass (crossed Vow 4's **in-cycle** axis —
+three distinct instances inside one feature cycle; instances cited):
+
+- **A payload cached by the projection (M12) and sealed by staging (M23) is
+  the same durable fact encoded twice, and a version change must lease
+  both.** M12 cannot import M23 (a live-session cache may not depend on the
+  staging/promotion module), so three F04 payload types — rule IR, chart
+  definitions, and theme v2 — are each encoded once by M23's `roots.ts` for
+  the durable checkpoint root and once more by M12's own `cbor-values.ts`
+  for the in-memory session cache. F04 produced three occurrences of the
+  identical shape: rule IR shipped correctly because both copies landed in
+  the same session; chart definitions were protected *proactively* — S05
+  pinned `cbor-values.ts#encodeChartDefinition` byte-identical to M23's
+  codec in `roots.test.ts` before either could drift; theme v2 was **not**
+  protected proactively — S08's first attempt shipped with `cbor-values.ts`
+  still encoding only the v1 shape, so "keep the logo" silently dropped it,
+  caught only by a fail-before test after the fact, forcing a lease revision
+  (r1→r2, `+ cbor-values.ts`). **The rule:** any session changing a payload
+  shape that `src/persistence/projection/cbor-values.ts` also encodes must
+  lease that file too, and should default to a byte-equality test against
+  the durable codec the way S05's chart codec did, rather than relying on a
+  fail-before counterexample to catch the gap. See `M12-projection.md`'s
+  "Duplicate codecs" section for the full evidence and the file-by-file
+  detail.
 
 ## Verification Commands
 
@@ -355,6 +414,17 @@ distinct sessions inside one feature cycle; instances cited):
 > typecheck 0, lint 0, `pnpm test` 155 files / 1728 passed / 3 skipped. Build,
 > browser and e2e are inherited from F03 (57 e2e passed @ `30396a9`). The F04
 > STATE.md Verification Baseline is the active record.
+>
+> **Archivist note (not an edit — this section is outside Archivist's
+> charter):** this table's last re-verification note above still names the
+> F04 *planning* revision `21946c7`. F04's own STATE.md Verification Baseline
+> (final revision `5bc19fb`) supersedes it per the table's own rule: every
+> command row is unchanged in form; re-verified at `5bc19fb` — typecheck 0,
+> lint 0, `pnpm test` 197 files / 2339 passed / 3 skipped, full `pnpm
+> test:e2e` **71 passed**, full `pnpm test:browser` **141 passed**. Reported
+> for Planner/Orchestrator to reconcile at the next feature's planning, not
+> corrected here — consistent with how this note has been handled at every
+> prior feature boundary (F02→F03, F03→F04).
 
 | Check | Command | Scope |
 |---|---|---|
@@ -399,8 +469,8 @@ needs real Dropbox/OneDrive test accounts, and is never a checkpoint gate.
 4. **Share/open-in is platform-conditional.** Chromium share-target only; WebKit gets the file picker and must not claim share-target status (approved clarification in architecture.md).
 5. **UI surfaces come from the design inventory.** A missing surface is a design-fill seam for Jikijitsu, never an invention. Mock Tailwind classes are reference only — production styling is CSS Modules + tokens.
 6. **Format versions come from `src/migrations/index.ts`** (`CURRENT_FORMAT_VERSIONS`). No session redeclares them; consume the export.
-7. **A session's `Owns` glob is authoritative; its Files table is indicative.** A worker may create a file inside its lease that the plan did not name, provided it (a) names the file and the reason in its return, and (b) records it in the arch delta. This is not lease widening and needs no amendment. F01 saw it in four of seven sessions, each time for a real structural reason: `src/ui/primitives/class-names.ts` (S03), `src/workers/data/handlers.ts` (S05 — so commands are testable without a worker), `tests/unit/workflows/fakes.ts` + `module-boundaries.test.ts` (S06), `src/routes/app-runtime.tsx` + `src/ui/security/{frames,verdict}.tsx` (S07). F02 added seven more (S03 +1, S04 +3, S07 +3, S08 +2, each disclosed). F03 added at least a dozen more across nearly every session (each format adapter's internal file split, `M23`'s `roots.ts`/`events.ts`/`theme.ts`/`fact-codec.ts`/`row-plan.ts`/`import-commit.ts`, `M54`'s `app-area-hooks.tsx`/`snapshot-routes.tsx`), **and F03 also produced the mirror case for the first time**: S08's Files table listed `src/application/view-models/snapshots.ts`, which its own checkpoint proof never needed — the snapshot VMs landed in `records.ts` instead. The rule already covers this direction too (the Files table is indicative, not binding, in *either* direction); no amendment needed, recorded here as the first observed instance. *(Added by Roshi after F01; extended by Archivist at the F03 final pass.)*
-8. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N. GATE-F03 was approved on 2026-09-23 (ROADMAP Gate Log, revision `30396a9`). F04 `formulas-queries-charts` is planned (Planner, base `21946c7`), and it halts at GATE-F04.
+7. **A session's `Owns` glob is authoritative; its Files table is indicative.** A worker may create a file inside its lease that the plan did not name, provided it (a) names the file and the reason in its return, and (b) records it in the arch delta. This is not lease widening and needs no amendment. F01 saw it in four of seven sessions, each time for a real structural reason: `src/ui/primitives/class-names.ts` (S03), `src/workers/data/handlers.ts` (S05 — so commands are testable without a worker), `tests/unit/workflows/fakes.ts` + `module-boundaries.test.ts` (S06), `src/routes/app-runtime.tsx` + `src/ui/security/{frames,verdict}.tsx` (S07). F02 added seven more (S03 +1, S04 +3, S07 +3, S08 +2, each disclosed). F03 added at least a dozen more across nearly every session (each format adapter's internal file split, `M23`'s `roots.ts`/`events.ts`/`theme.ts`/`fact-codec.ts`/`row-plan.ts`/`import-commit.ts`, `M54`'s `app-area-hooks.tsx`/`snapshot-routes.tsx`), **and F03 also produced the mirror case for the first time**: S08's Files table listed `src/application/view-models/snapshots.ts`, which its own checkpoint proof never needed — the snapshot VMs landed in `records.ts` instead. F04 produced the mirror case again, twice: S05's planned `view-models/charts.ts` and S06/S08's several planned schema/theme file splits all instead folded into files the rule already permits (`records.ts` for the charts VMs, per the S08 F03 precedent). The rule already covers both directions; no amendment needed, recorded here as continuing corroboration. *(Added by Roshi after F01; extended by Archivist at the F03 and F04 final passes.)*
+8. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N. GATE-F03 was approved on 2026-09-23 (ROADMAP Gate Log, revision `30396a9`). F04 `formulas-queries-charts` is **done** (all 8 sessions, final revision `5bc19fb`) and halts at **GATE-F04**, awaiting the human verdict (ROADMAP Gate Log). F05 planning starts only after GATE-F04.
 
 ## Genesis Sources
 

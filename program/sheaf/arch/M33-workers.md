@@ -1,14 +1,14 @@
 # M33 — Worker entries (`src/workers/**`, minus `protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC) +
-§Runtime Topology. Reconciled against the tree at `425562d` (F03 final; code ≡
-`30396a9`).
+§Runtime Topology. Reconciled against the tree at `5bc19fb` (F04 final;
+formulas-queries-charts).
 
 - **Owns:** Per-worker composition roots and key confinement.
 - **Landed scope:** `data.worker.ts` (sole owner of the main IndexedDB
   database and of every unlocked key handle) and `import.worker.ts` (parse
-  only, now every accepted format). `io.worker` (F05) and `export.worker`
-  (F07) do not exist yet — do not stub them.
+  only, every accepted format). `io.worker` (F05) and `export.worker` (F07)
+  do not exist yet — do not stub them.
 - **Depends on:** M08, M09, M11, M12, M21, M22, M23, M32, M34, M35, M65
   (F03), migrations index.
 - **Must not:** import DOM/React; send key bytes or catalog plaintext to the
@@ -27,17 +27,22 @@ dispose}`).
 
 | File | Holds |
 |---|---|
-| `data/catalog.ts` | `LocalCatalogV1` + entry types, `buildLocalCatalog`, `encodeLocalCatalog`, `decodeLocalCatalog`, `validateLocalCatalog`, `withIdleTimeout`, `idleTimeoutMinutes`, `CATALOG_VERSION`, `APP_ACCENT_IDS`, `AppIdentityV1` |
+| `data/catalog.ts` | `LocalCatalogV1` + entry types, `buildLocalCatalog`, `encodeLocalCatalog`, `decodeLocalCatalog`, `validateLocalCatalog`, `withIdleTimeout`, `idleTimeoutMinutes`, `CATALOG_VERSION`, `APP_ACCENT_IDS`, `AppIdentityV1`; (F04) app entry `chartDraft?: Uint8Array` and the `themeTile` cache |
 | `data/session.ts` | `WorkerSession`, `AttemptDelay`, `attemptDelayMs`, `ATTEMPT_FREE_FAILURES = 5`, `ATTEMPT_FIRST_DELAY_MS = 2_000`, `ATTEMPT_DELAY_CAP_MS = 3_600_000` |
 | `data/handlers.ts` | Command registration, unlock/lock lifetime, dispose; (F03) hands `appSession`/`closeAppSession` to the import handlers |
-| `data/import-handlers.ts` | Port adapters, the channel receiver, fact accumulation, the import commands (F03: workbook stages, `runInference`/`applyReviewEdit`/promotion/append over every format) |
-| `data/app-session.ts` | Durable roots → projection mapping, `AppSessionRegistry`; (F03) `appSession(appId)`, `closeAppSession(appId)` |
-| `data/event-store.ts` | `loadApp`, `openAppKey`, `createEventStore`, `deviceOnlyChangeCount` |
-| `data/record-event-payloads.ts` | Both directions of the record payload codec, incl. (F03) tail decoders |
-| `data/record-handlers.ts` | The app commands and the wire↔domain mapping, incl. (F03) the nine relationship/snapshot RPCs |
+| `data/import-handlers.ts` | Port adapters, the channel receiver, fact accumulation, the import commands (F03: workbook stages, `runInference`/`applyReviewEdit`/promotion/append over every format; F04: refreshes formulas after rejection memory, proposal wire carries formulas/charts/rules) |
+| `data/app-session.ts` | Durable roots → projection mapping, `AppSessionRegistry`; (F03) `appSession(appId)`, `closeAppSession(appId)`; (F04) `localClockReading(clock)`, tail replay through the command layer's `projectionRevalidator` |
+| `data/event-store.ts` | `loadApp`, `openAppKey`, `createEventStore`, `deviceOnlyChangeCount`; (F04) the head's `schemaRevision` now advances with `commit.schemaRevisionAfter` |
+| `data/record-event-payloads.ts` | Both directions of the record payload codec, incl. (F03) tail decoders, (F04) every schema/rule/formula/chart tail kind and the optional fourth `evidence: {frozen}` provenance key |
+| `data/record-handlers.ts` | The app commands and the wire↔domain mapping, incl. (F03) the nine relationship/snapshot RPCs, (F04) `recalculated` on every accepted command, computed-cell mapping, `refreshVolatile` before reads, `toDomainFilter` |
+| `data/structure-handlers.ts` (F04, new) | The four schema/metrics RPCs; wire↔domain; definition digests over M23's canonical encoders + M08 SHA-256; the relationship-removal fingerprint via M21's `workbookFingerprintInput`; per-event payload size for D38; local-time formula clock; forwards `optionLabels` (lease r2) |
+| `data/schema-event-payloads.ts` (F04, new) | The F04 schema payload codec, exact keys; `encodeTableDefinition` |
+| `data/chart-handlers.ts` (F04, new) | The nine chart RPCs; wire↔domain mapping; drafts |
+| `data/chart-event-payloads.ts` (F04, new) | `chart.saved`/`chart.deleted` codec over M23's definition codec, refusing a payload whose name/pin/id disagree with its definition |
+| `data/theme-handlers.ts` (F04, new) | `listThemePalettes`, `changeTheme` (authored `theme.changed` through `executeCommand`; updates the catalog's `themeTile` cache on the same path as `noteAppOpened`), `toThemeWire`, `toThemeTileWire`, `themeTileOf` |
 | `import.worker.ts` | Sniff → size → refuse, or await the stage and stream facts + source (F03: reads `acceptedFlows`, emits `workbook-preflight`, validates `selectedSheets`) |
 | `import/parse-session.ts` | `preflightFile`, `streamFacts`, `streamSource`, (F03) `streamWorkbookFacts` |
-| `import/adapters.ts` (F03, new) | `WORKBOOK_REGISTRY {readers, adapters}` — xlsx (OOXML), xlsb, xls (BIFF), ods, html-table (D35) |
+| `import/adapters.ts` (F03) | `WORKBOOK_REGISTRY {readers, adapters}` — xlsx (OOXML), xlsb, xls (BIFF), ods, html-table (D35) |
 
 ## Attempt delay (CA-05, pinned by AD-5)
 
@@ -45,12 +50,13 @@ Failures 1–5 carry **no** delay; the first delay is **2s at the 6th
 consecutive failed attempt**, doubling per further failure to a 1h cap; reset
 on success and on worker termination; **never persisted** (D4). The counter
 also covers recovery-code attempts and passphrase re-checks; any success
-resets it. Unchanged by F03.
+resets it. Unchanged by F03/F04.
 
 ## Catalog (CA-03, D10 / AD-8, CA-09)
 
 `LocalCatalogV1` is a CBOR map per database.md, sealed with `deflate-raw-v1` in
-a single `local.catalog` scope. Unchanged by F03. `validateLocalCatalog`
+a single `local.catalog` scope. Unchanged in shape by F03/F04 beyond the F04
+`chartDraft`/`themeTile` additive fields (above). `validateLocalCatalog`
 implements database.md checks 1–6; check 7 is CAP-07's reset-path obligation
 (handlers + e2e). The D10 recovery-code view is its own nested envelope.
 `LocalCatalogAppEntryV1` carries `displayName`, `identity: AppIdentityV1
@@ -69,7 +75,7 @@ from each app's decrypted head frontier.
   **encrypt → commit → ack**, never the other way (invariant 1). A
   `MessagePort` must be `start()`ed explicitly — `streamFacts` does this.
 - `bootstrap/import-worker.ts` (M53) holds `spawnImportWorker` and
-  `createImportWorkerClient`; untouched by F03.
+  `createImportWorkerClient`; untouched by F03/F04.
 - The unlock path runs `sweepStaleImports` **before the session view is
   returned**.
 
@@ -78,7 +84,9 @@ acceptedFlows = ["delimited"], registry)` → `proceed | workbook | refused`;
 `acceptedSelection(report, selection)`; `streamFacts` (delimited, opened with
 its sheet fact), `streamWorkbookFacts` (selected sheets via the registry
 adapter), `openContainer`, one ack-gated `sendItems` loop; progress names
-every sheet a batch opens; failures carry `detail`.
+every sheet a batch opens; failures carry `detail`. Unchanged by F04 — every
+F04 import extension rides the same fact-stream vocabulary (see
+`M32-worker-protocol.md`).
 
 **F03: `data/import-handlers.ts`.** Workbook stages (inventory + selection
 validated, D31 budget), existing-app destination for delimited; `runInference`
@@ -92,7 +100,7 @@ fact chunks (digest-checked) when the channel's copy is incomplete;
 `rejectedPromotionResponse(result)` (OWNER-PROMOTION-SEAMS `cd4fe9d`) so promote
 and append both surface `columnKey`.
 
-## App session composition (F02, extended F03)
+## App session composition (F02, extended F03, F04)
 
 - `app-session.ts` maps durable roots → projection. Issues are recomputed by
   the one shared validator and required to agree with the record page's
@@ -105,18 +113,32 @@ and append both surface `columnKey`.
   `validateAgainstProjection` (live schema, real resolver, provenance rule);
   `AppSessionV1.openSnapshot(storageId)` checks the manifest digest against
   `head.snapshotManifests` and the chunk digest against the manifest ref.
+- **F04:** `localClockReading(clock)` computes the local calendar day; the
+  projection is opened with it (M12's required `clock` init param); tail
+  replay now also passes the command layer's `projectionRevalidator`, so an
+  F04 schema/rule/formula event replayed from an older segment is checked
+  against the *current* projection state, not just decoded.
 - `event-store.ts` verifies every root's `semanticSha256` and each record
   page's declared count before believing it. One transaction per command.
   `chainState()` requires the head's frontier and its decoded segments to
-  agree and fails closed otherwise.
+  agree and fails closed otherwise. **F04:** the head's `schemaRevision` now
+  actually advances with `commit.schemaRevisionAfter` — an F02/F03 oversight
+  (it was never advanced) that F04's schema commands made load-bearing and so
+  forced the fix.
 - `record-event-payloads.ts` encodes through M23's own
   `encodeCellValue`/`decodeCellValue`. **F03:** `TAIL_EVENT_KINDS`,
   `isTailEventKind`, `decodeTailEventPayload` (reads promotion's
   `table.created` with or without `sourceSheet`, `field.created`,
-  `enum.changed`, `inference-decision.recorded`).
+  `enum.changed`, `inference-decision.recorded`). **F04:** every schema/rule/
+  formula/chart kind is a tail kind too; value provenance may carry an
+  optional fourth key `evidence: {frozen: text}` (D51) — three-key payloads
+  from F02/F03 decode unchanged.
 - `record-handlers.ts`: an app that is not open opens itself. **F03:** nine
   new RPCs (relationships, snapshots, inert, deleted-record, table list);
-  `toDomainValue` maps authored `reference`.
+  `toDomainValue` maps authored `reference`. **F04:** `recalculated` on every
+  accepted command; computed cells mapped to wire (`toComputedEntry`);
+  `refreshVolatile(60 s)` before `queryRecords`/`getRecord`/`getAppMetrics`;
+  `toDomainFilter` for `query-records`.
 - `handlers.ts`: `lock()` and `dispose()` destroy every open projection and
   app key **and** dispose the import handlers.
 
@@ -147,47 +169,17 @@ and append both surface `columnKey`.
   into the Landed-structure table and the Import-composition/App-session
   sections; two duplicate SESSION-03 headings in the source delta (one for
   `data/`, one for tests) merged into this one fragment without loss.
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M33 — Data worker (`src/workers/data/`))
-
-- New `structure-handlers.ts` (the four RPCs; wire ↔ domain; composes definition digests over M23 canonical encoders + M08 SHA-256, the relationship-removal fingerprint via **M21's `workbookFingerprintInput`** (imported, not restated) + SHA-256, per-event payload size for D38, local-time formula clock). `DataWorkerDependencies.schemaCommitLimits?` (tests pin a small cap).
-- New `schema-event-payloads.ts` (F04 payload codec, exact keys; `encodeTableDefinition`). `record-event-payloads.ts`: `encodeRecordEventPayload` now encodes every authored kind (records, command `field.created`/`enum.changed`, F04 kinds) and refuses import-commit kinds; tail kinds include F04; value provenance may carry `evidence: {frozen: text}` (D51) as an optional fourth key (three-key payloads decode unchanged).
-- `app-session.ts`: `localClockReading(clock)` (local calendar day); projection opened with it; tail replay passes the command layer's `projectionRevalidator`.
-- `event-store.ts`: the head's `schemaRevision` now advances with `commit.schemaRevisionAfter` (was never advanced).
-- `record-handlers.ts`: `recalculated` on every accepted command; computed cells mapped to wire (`toComputedEntry`); `refreshVolatile(60 s)` before `queryRecords`/`getRecord` (and `getAppMetrics`).
-- Worker sweep `tests/unit/workers/module-boundaries.test.ts` covers the new files and has a negative control.
-
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (record handlers)
-
-The SESSION-04 delta for the data-worker record handlers (`query-records` wire, validation, typed refusals, redaction in `src/workers/data/record-handlers.ts`) is recorded jointly with M32 in `arch/M32-worker-protocol.md` under the same marker.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M33 data worker — `src/workers/data/`)
-
-- New `chart-handlers.ts` (all nine RPCs; wire ↔ domain mapping; drafts), `chart-event-payloads.ts` (`chart.saved`/`chart.deleted` codec over M23's definition codec, refusing a payload whose name/pin/id disagree with its definition). `record-event-payloads.ts`: chart kinds are tail kinds and dispatch there. `app-session.ts` hydrates the checkpoint `charts` root. `record-handlers.ts` exports `toDomainFilter`. `catalog.ts`: app entry `chartDraft?: Uint8Array` — D61's one draft per app, opaque canonical bytes owned by `chart-handlers.ts`, written only when present so older catalog bytes are unchanged.
-
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (pointer)
-
-The SESSION-07 delta for this module is recorded jointly in `arch/M01-domain-model.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
-
-
-<!-- formulas-queries-charts SESSION-06 r2 -->
-### F04 delta — SESSION-06 lease r2 (CP4a 3b7ecfa)
-
-
-- **M02** `schema-impact.ts`: `SchemaChangeV1` `change-field-type` gains optional `enumOptions` (the field's complete option list after the change; the named choices active). `analyzeSchemaChange` converts against `change.enumOptions` when present, else the field's own options; the exact-label comparison (`convertValueForType`) is unchanged. Nothing is derived from the column's values.
-- **M34** `schema-commands.ts`: `SchemaChangeRequestV1` `change-field-type` gains optional `optionLabels`. When a non-enum field becomes `enum`, the command allocates one active option per named label (new ids, ordinals as given); options from an earlier choice-list life stay, inactive, after them. With no label, the after-schema has no active option and the transition is refused `schema.enum-field-without-options`, as before. Events in one commit: `field.changed` → `enum.changed` (prior digest when earlier options exist) → `record.patched` for each rewritten value.
-- **M32** `messages.ts`: `SchemaChangeWireV1` `change-field-type` gains optional `optionLabels: readonly string[]`. **M33** `structure-handlers.ts` `toRequest` forwards it.
-- **M37** `records.ts`: `toIssueVm(issue, fields = [])`. `rule-compare` / `rule-between` record-rule issues are said from their own parameters: `"{left} must be on or after {right}."` (the words follow the compared fields' kind, from `fields`; neutral words without them), `"{left} must be at least the number set in the rule “{ruleLabel}”."` for a literal (its kind, never its value), `"{field} is outside what the rule “{ruleLabel}” allows."` for a range (between and not-between share the key). Unknown keys or missing parameters keep the generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010 pass the table's fields.
-- **M37** `schema.ts`: `describeChange` for `change-field-type` with `optionLabels`: `Change {field} to Choice list with the choices A, B`. **M46** `field-editor.tsx`: when the chosen kind is Choice list and the field is not one, a `[data-editor="new-choices"]` list asks the person to name the choices; Change type is disabled until at least one choice is named.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M33 data worker — `src/workers/data/theme-handlers.ts` (new), `catalog.ts`, `record-event-payloads.ts`)
-
-- `createThemeHandlers`: `listThemePalettes`, `changeTheme` (authored `theme.changed` commit through `executeCommand`; the catalog's `themeTile` cache is updated on the same path as `noteAppOpened`). `toThemeWire`, `toThemeTileWire`, `themeTileOf`.
-- `theme.changed` is a tail event kind (encode/decode, v2 fields included).
+- 2026-09-23 — F04: `structure-handlers.ts`, `schema-event-payloads.ts`, the
+  F04 tail-kind/recalc/schema-revision wiring by SESSION-03 (`a69e6e0`..
+  `2235cce`); the `query-records` record-handler leg by SESSION-04
+  (`f736fa8`..`27a2667`); `chart-handlers.ts`/`chart-event-payloads.ts`/the
+  catalog `chartDraft` field by SESSION-05 (`6ee204c`..`3dd1d2d`); the
+  `optionLabels` forwarding correction by SESSION-06 lease r2 (`3b7ecfa`);
+  `theme-handlers.ts` and the catalog `themeTile` cache by SESSION-08
+  (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): five SESSION deltas
+  folded into the Landed-structure table (four new `data/` files added) and
+  the App-session-composition section; the `schemaRevision`-never-advanced
+  fact recorded as a closed F02/F03 latent defect that F04 made load-bearing,
+  rather than left as a bare one-line note; the SESSION-07 pointer left as a
+  cross-reference to `M01-domain-model.md`.

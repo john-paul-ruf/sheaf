@@ -1,7 +1,8 @@
 # M39 — UI layout (`src/ui/layout/`)
 
 Extracted from specs/architecture.md §Module Contracts + specs/design.md
-§Layout Classes. Reconciled against the tree at `5ab3b07` (F02 final).
+§Layout Classes. Reconciled against the tree at `5bc19fb` (F04 final;
+formulas-queries-charts).
 
 - **Owns:** Responsive composition, safe areas, sticky regions, focus order.
 - **Exports (landed):** `AuthShell` (centered pre-unlock column, 16px
@@ -31,10 +32,16 @@ Extracted from specs/architecture.md §Module Contracts + specs/design.md
   design.md §Layout Classes.
 - `AppShell` reserves 96px + safe-area at the bottom on compact; keep that
   assertion alive as real screens land.
-- **Exactly one primary navigation per layout class — inside an app too.** F02's
-  `AppFrame` (M44) is a *sibling* composition, not a second nav:
-  `accessibility.spec.ts` now asserts the single-primary-navigation claim inside
-  the app area as well as in the shell.
+- **Exactly one primary navigation per layout class — inside an app too.**
+  M44's `AppFrame` is a *sibling* composition, not a second nav:
+  `accessibility.spec.ts` asserts the single-primary-navigation claim inside
+  the app area as well as in the shell — including F04's six-destination app
+  nav (home, table, Charts, Structure, Settings, All apps).
+- **F04:** `src/ui/layout/app-shell.module.css`'s rail paints
+  `--color-chrome`/`--color-chrome-text` (M40's chrome roles), and `.root`
+  re-reads `color: var(--color-text)` so an app root's theme remap reaches
+  the shell's own text — the shell itself carries no per-app colour logic,
+  it just stops hardcoding a colour a themed root now overrides.
 
 ## Known gap with an owner
 
@@ -42,7 +49,7 @@ Extracted from specs/architecture.md §Module Contracts + specs/design.md
 `top: 68px` because **M39 exposes no top-bar height token**. The literal is
 correct against today's shell and will silently drift if the bar's height
 changes. Owner: M39 — publish the height as a token and let the app area
-consume it.
+consume it. Unchanged by F04.
 
 ## Change History
 
@@ -67,8 +74,10 @@ consume it.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the app-area
   single-navigation assertion and the top-bar token gap recorded here rather
   than only in SESSION-08's return. F02 wrote no delta into this fragment.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M39 layout — `src/ui/layout/app-shell.module.css`)
-
-- The rail paints `--color-chrome`/`--color-chrome-text`; `.root` re-reads `color: var(--color-text)` so an app root's remap reaches its text.
+- 2026-09-23 — F04: the rail's chrome-role repaint (dark/light app themes) by
+  SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-08 delta
+  folded into the Shell-contracts section (the single-navigation note now
+  names F04's six-destination app nav as the current, largest instance of the
+  claim it asserts); the known top-bar-token gap confirmed still open, no F04
+  session touched it.

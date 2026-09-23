@@ -2,20 +2,25 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / Snapshots and staging + `specs/database.md` § Import
-> staging. Reconciled against the tree at `425562d` (F03 final; code ≡
-> `30396a9`).
+> staging. Reconciled against the tree at `5bc19fb` (F04 final;
+> formulas-queries-charts).
 
 ## Contract
 
 - **Owns:** Provisional encrypted import model (delimited and, since F03,
   multi-sheet workbook), cancellation cleanup, review edits, explicit-accept
-  promotion, append-into-existing-app, and the no-partial-app guarantee.
+  promotion, append-into-existing-app, the no-partial-app guarantee, and
+  (F04) the durable codecs for rule IR, formulas and charts, plus built-in
+  theme palettes.
 - **Exports:** `ImportStageV1` codec + stage lifecycle functions,
-  `ProvisionalImport`, `PromotionReceipt`, `cleanupImport`, and (F03)
-  `promoteImport`, `appendTable`, `sealImportCommit`, `RowPlan`.
+  `ProvisionalImport`, `PromotionReceipt`, `cleanupImport`, `promoteImport`,
+  `appendTable`, `sealImportCommit`, `RowPlan` (F03), and (F04)
+  `reviewFormulaIdentities`, `allocatedFormulaIdentities`,
+  `importedFormulasOf`, `liveComputedFieldsOf`, `importedChartsOf`,
+  `BUILT_IN_PALETTES`, `builtInPalette`.
 - **Depends on:** M08/M11 **via injected ports**, M09 codecs, M01/M02 for
-  promotion validation, M22 for retained chunks, M21 for the workbook
-  proposal shapes, M65 for the fact stream.
+  promotion validation, M03 (F04, formula definitions), M22 for retained
+  chunks, M21 for the workbook proposal shapes, M65 for the fact stream.
 - **Contract (database.md, binding):**
   - At pre-flight acceptance the data worker generates a random provisional
     app key + `ImportStageId`; the provisional key **becomes the app key on
@@ -31,7 +36,8 @@
     replaces catalog, advances bootstrap; acknowledge only after commit.
   - **F03: one import-class commit (CA-11, amended).** `app.created` (now
     carrying `relationships`) first; then per table `table.created` (with
-    `sourceSheet`), `field.created`×n, `enum.changed`×k;
+    `sourceSheet`), `field.created`×n (F04: with `formulaId` for a live
+    computed column — see `encodeFieldDef`, below), `enum.changed`×k;
     `inference-decision.recorded` for EDITED/REJECTED statements only; then
     `import.accepted` last (evidence ledger lists every sheet with its
     snapshot). No `record.created` — rows live in the checkpoint's record
@@ -62,11 +68,16 @@
 - `roots.ts` → `AppHeadV1`, `CheckpointManifestV1`, `RecordPageV1`,
   `BaselinePageV1`, their encode/decode pairs, `encodeAppHeadBody`/
   `encodeCheckpointBody`, `compareRecordKeys`, `RECORD_PAGE_MAX_RECORDS =
-  1024`, `PAGE_MAX_DECODED_BYTES = 524288`, `encodeAppTheme`/`decodeAppTheme`.
+  1024`, `PAGE_MAX_DECODED_BYTES = 524288`, `encodeAppTheme`/`decodeAppTheme`
+  (F04: v2), and (F04) the formula/chart/filter codecs below.
 - `events.ts` → `encodeImportEventPayload`: the semantic payload↔CBOR mapping
   for every import-class event.
 - `theme.ts` → `DEFAULT_APP_THEME`, `DEFAULT_THEME_KEY`, `APP_ACCENT_ORDER`,
-  `accentForApp`, `glyphForApp`.
+  `accentForApp`, `glyphForApp`, and (F04) `BUILT_IN_PALETTES:
+  BuiltInPaletteV1[] {key, name, light, dark}` (cedar, indigo, clay, graphite
+  — DF-1's values, pinned against design.md by
+  `tests/unit/staging/theme.test.ts`), `builtInPalette(key)`.
+  `DEFAULT_APP_THEME` itself is unchanged.
 
 ## F03: workbook staging (SESSION-06, unless noted)
 
@@ -79,31 +90,37 @@
   `proposal: ProposedWorkbookV1 | null`, `reviewEdits:
   WorkbookReviewEditV1[]`.
 - `lifecycle.ts`: `stageWithProposal`/`stageWithReviewEdit` take the workbook
-  shapes. New `readStageRows(ports, root, workflow)` — the rows a stage names
+  shapes. `readStageRows(ports, root, workflow)` — the rows a stage names
   even when its payload no longer decodes (see the unlock-sweep contract,
   above).
-- NEW `fact-codec.ts`: `encodeFactStreamItem`/`decodeFactStreamItem` — the
-  exact-key inverse of M65's canonical mapping (CA-17 stage round trip).
-- NEW `workbook-proposal-codec.ts`: exact-key codec for `ProposedWorkbookV1`
-  and its statement/evidence/edit types (reuses `proposal-codec.ts`
-  primitives and the F02 mappings; rule values refuse enum/reference).
-- NEW `row-plan.ts`: `RowPlan(proposal, extents)` + `walkRows(items, visitor)`
-  — places each staged row as inference did, **in stream order**;
+- `fact-codec.ts`: `encodeFactStreamItem`/`decodeFactStreamItem` — the
+  exact-key inverse of M65's canonical mapping (CA-17 stage round trip). **F04
+  (S02):** decodes the optional chart/pivot `definition` with exact keys and
+  closed sets; a definition on any other part kind, or a chart definition on
+  a pivot (or the reverse), is a `CodecError`. Absent stays absent, so
+  pre-F04 staged chunks are byte-identical.
+- `workbook-proposal-codec.ts`: exact-key codec for `ProposedWorkbookV1` and
+  its statement/evidence/edit types (reuses `proposal-codec.ts` primitives and
+  the F02 mappings; rule values refuse enum/reference). Accepts both the F03
+  and F04 key sets (F04 adds formulas/charts).
+- `row-plan.ts`: `RowPlan(proposal, extents)` + `walkRows(items, visitor)` —
+  places each staged row as inference did, **in stream order**;
   `assertMatches(proposal)` refuses a plan whose data-row counts differ from
   the reviewed exact counts; `sourceTextAt`.
-- NEW `import-commit.ts`: `sealImportCommit(...)` — the one import-class
-  commit builder (M09 `sealEventCommit`, one segment per commit, accumulated-
-  set chain check). Promotion and append both use it.
+- `import-commit.ts`: `sealImportCommit(...)` — the one import-class commit
+  builder (M09 `sealEventCommit`, one segment per commit, accumulated-set
+  chain check). Promotion and append both use it.
 - `promotion.ts` rewritten for workbooks: `allocateSchema`, `buildRecords`
   (two passes: keyed tables' ids + parent key-text maps, then records;
-  references `reference{recordId}` or `invalid-preserved{key}`), `writeSnapshots`,
-  `inertItemsOf`, `decisionsOf`, `tableEvents`, `decisionEvent`, `rootSealer`,
-  `sealRecordPages`; `INERT_REASON_OF` (M65 → M01, total, test-pinned).
-  Checkpoint written with every F03 root; head lists every snapshot manifest.
-  Memory bound: one RecordId per keyed-table row + one entry per distinct
-  parent key text, ≤ the D31 250,000-cell budget.
-- NEW `append.ts`: `appendTable(deps, {loaded, facts, target, deviceId})`
-  (D38, CA-23): one import commit (`table.created{table, sourceSheet}`,
+  references `reference{recordId}` or `invalid-preserved{key}`),
+  `writeSnapshots`, `inertItemsOf`, `decisionsOf`, `tableEvents`,
+  `decisionEvent`, `rootSealer`, `sealRecordPages`; `INERT_REASON_OF` (M65 →
+  M01, total, test-pinned, F04: 10 keys). Checkpoint written with every root;
+  head lists every snapshot manifest. Memory bound: one RecordId per
+  keyed-table row + one entry per distinct parent key text, ≤ the D31
+  250,000-cell budget.
+- `append.ts`: `appendTable(deps, {loaded, facts, target, deviceId})` (D38,
+  CA-23): one import commit (`table.created{table, sourceSheet}`,
   `field.created`, `enum.changed`, `record.created`×rows,
   `inference-decision.recorded`; no `import.accepted`); caps
   `APPEND_MAX_EVENTS = 10_000`, `APPEND_MAX_SEGMENT_BYTES = 16_777_216` →
@@ -128,6 +145,50 @@ verifies; KAT in `tests/unit/staging/roots.test.ts`). New codecs:
 `encodeCellRange`/`decodeCellRange`, `encodeSheetDescriptor`/
 `decodeSheetDescriptor`, `decodeFieldDef`/`decodeTableDef`/`decodeEnumOption`;
 relationship, validation-rule, inert, decision, lineage codecs (internal).
+
+## F04: formulas, charts and the theme codec (SESSION-03/05/07/08)
+
+- **`roots.ts` — checkpoint manifest gains a fourth readable key set.** F02,
+  F03, F04-formula (= F03 + `formulas`, the shape S03 wrote), and full F04
+  (= F04-formula + `charts`, S05); the decoder accepts any of the four, and
+  the encoder always writes the full F04 set — F02/F03/F04-formula bytes
+  decode to `charts: []` (and F02/F03 bytes to `formulas: []`).
+  `CheckpointFormulaV1 {formula, metadata, isActive, schemaRevision}`;
+  `CheckpointChartV1 {definition, ordinal, provenance, chartRevision}`.
+- **Exported formula codecs (S03):** `encodeFieldDef` (writes `formulaId`
+  only for a computed field; the decoder accepts both key sets — F03's second
+  field-def encoder in `staging/events.ts` was folded to reuse this one
+  by S07, so an imported computed column's `formulaId` is never dropped),
+  `encodeEnumOption`, `decodeRelationship`, `encodeRuleIR`/`decodeRuleIR` (IR
+  v1 or v2; a v1 rule naming a v2 condition is refused),
+  `encodeFormulaIR`/`decodeFormulaIR` (depth-bounded by
+  `MAX_EVALUATION_DEPTH`, catalog names closed),
+  `encodeFormulaDefinition`/`decodeFormulaDefinition` (refuses an illegal
+  disposition/determinism pair, a live/frozen formula without IR, a target
+  the migration CHECK would refuse), `encodeFormulaMetadata`/
+  `decodeFormulaMetadata`. `CheckpointValidationRuleV1.rule` is v1|v2.
+  `tests/unit/staging/roots.test.ts` carries a committed F03 checkpoint KAT
+  (generated at `4ce7f54`) proving the older bytes still decode.
+- **Exported chart codecs (S05):** `encodeFilter`/`decodeFilter`,
+  `encodeChartDefinition`/`decodeChartDefinition`,
+  `encodeCheckpointChart`/`decodeCheckpointChart`. S07 CP2 writes imported
+  charts here with `provenance: "imported"`.
+- **`formula-identities.ts` (new, S07):** `reviewFormulaIdentities(entropy)`
+  (review stand-ins), `allocatedFormulaIdentities(identities)` (promotion).
+- **`live-structure.ts` (new, S07):** `importedFormulasOf`,
+  `liveComputedFieldsOf`, `importedChartsOf`.
+- **`promotion.ts` (S07):** writes the formulas root, computed field defs
+  with `formulaId` (via `encodeFieldDef`), and the charts root pinned per D65
+  (first sheet with a valid rebuilt chart). Also applies the D51 value policy
+  (live computed values are omitted from record pages; frozen and unsupported
+  values are kept) and promotes rules as `irVersion` 2.
+- **`theme.ts` / `roots.ts` (S08):** `BUILT_IN_PALETTES` (above);
+  `encodeAppTheme`/`decodeAppTheme` v2 — the v2 keys are written only when
+  set, so F02/F03 bytes round-trip byte-identically; the decode is
+  exact-keys, and a logo is PNG, 1..256 edges, ≤ 64 KiB. This durable codec is
+  **mirrored** by M12's own `cbor-values.ts` copy for the projection's
+  session cache; see `M12-projection.md`'s "Duplicate codecs" section for the
+  payload-evolution seam this created (S08 lease r2, a counterexample).
 
 ## Contracts held by the code, not by its callers
 
@@ -170,11 +231,11 @@ relationship, validation-rule, inert, decision, lineage codecs (internal).
 
 ## Dependency edges as landed
 
-M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
-(`canonical-cbor`, `event-commit`), M13/M14/M19/M21 shapes, M22 chunking, M65
-(F03, fact stream), and the M07 ports — nothing else. No `src/crypto/`, no
-`src/persistence/envelope-store/`, no `dexie`, no `src/ui/`, no
-`src/workers/`.
+M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M03 (F04,
+formula definitions), M09 (`canonical-cbor`, `event-commit`), M13/M14/M19/M21
+shapes, M22 chunking, M65 (F03, fact stream), and the M07 ports — nothing
+else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
+`src/ui/`, no `src/workers/`.
 
 ## Dependency must-nots (ship as tests)
 
@@ -183,7 +244,7 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
   injection only. Asserted by `tests/unit/staging/module-boundaries.test.ts`,
   which also fails on a zero-file sweep.
 
-## Carried debt (open at `30396a9`, owners named — not defects)
+## Carried debt (open at `5bc19fb`, owners named — not defects)
 
 - **F03 roots stay optional on `CheckpointManifestV1`,** and
   `ValidationContext.referenceTargets` (M02) stays optional — both because
@@ -192,8 +253,6 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
 - **`import.accepted.originalBaselineStorageId` is single-id** while
   `AppHeadV1.baselinePages` lists every page. Owner: M01/database owner at F06
   planning (re-upload must read `baselinePages`, not the single field).
-- **`inferProposal` is removable** once S02's own tests stop calling it
-  directly. Owner: next session leasing `src/import/inference/**`.
 
 ## Change History
 
@@ -214,36 +273,18 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
   original single-page defect are stated as one history rather than as a
   standalone owner-correction note the reader has to reconstruct; carried
   debt consolidated into one list with owners.
-
-<!-- formulas-queries-charts SESSION-02 -->
-### F04 delta — SESSION-02 (M23 — staging (`src/import/staging/fact-codec.ts`))
-
-- Decodes the optional `definition` with exact keys and closed sets. A definition on any other part kind, or a chart definition on a pivot (or the reverse), is a `CodecError`. Absent stays absent, so pre-F04 staged chunks are byte-identical.
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M23 — Staging (`src/import/staging/roots.ts`))
-
-- Checkpoint manifest has **three** readable key sets: F02, F03 (formulas → `[]`), F04 (= F03 + `formulas`); the encoder writes F04. `CheckpointFormulaV1 { formula, metadata, isActive, schemaRevision }`.
-- Exported codecs: `encodeFieldDef` (writes `formulaId` only for a computed field; decoder accepts both key sets), `encodeEnumOption`, `decodeRelationship`, `encodeRuleIR`/`decodeRuleIR` (IR v1 or v2; a v1 rule naming a v2 condition is refused), `encodeFormulaIR`/`decodeFormulaIR` (depth-bounded by `MAX_EVALUATION_DEPTH`, catalog names closed), `encodeFormulaDefinition`/`decodeFormulaDefinition` (refuses an illegal disposition/determinism pair, a live/frozen formula without IR, a target the migration CHECK would refuse), `encodeFormulaMetadata`/`decodeFormulaMetadata`. `CheckpointValidationRuleV1.rule` is v1|v2.
-- `tests/unit/staging/roots.test.ts` carries a committed F03 checkpoint KAT (generated at 4ce7f54).
-- Note for S07: `src/import/staging/events.ts` still has its own field-def encoder without `formulaId`; imported computed columns must use `encodeFieldDef`.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M23 staging — `src/import/staging/roots.ts`)
-
-- Exported codecs `encodeFilter`/`decodeFilter` (L1706/L1712), `encodeChartDefinition`/`decodeChartDefinition` (L1796/L1817), `CheckpointChartV1 {definition, ordinal, provenance, chartRevision}` (L1857), `encodeCheckpointChart`/`decodeCheckpointChart` (L1864/L1872).
-- Checkpoint `charts` root: `CheckpointManifestV1.charts?` (L856), resolved default `[]` (L899); key sets F02, F03, **F04-formula** (`F03 + formulas`, L2109 — the shape S03 wrote) and full **F04** (`+ charts`, L2112). The encoder always writes the full set; F02/F03/F04-formula bytes decode to `charts: []`. **S07 CP2 writes imported charts here with `provenance: "imported"`.**
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (M23 — import staging (`src/import/staging/`))
-
-- New `formula-identities.ts`: `reviewFormulaIdentities(entropy)` (review stand-ins), `allocatedFormulaIdentities(identities)` (promotion).
-- New `live-structure.ts`: `importedFormulasOf`, `liveComputedFieldsOf`, `importedChartsOf`.
-- `promotion.ts`: writes the formulas root, computed field defs with `formulaId` (via the roots `encodeFieldDef`), and the charts root pinned per D65 (first sheet with a valid rebuilt chart). Also applies the D51 value policy (live computed values are omitted from record pages; frozen and unsupported values are kept) and promotes rules as irVersion 2.
-- The staged proposal codec accepts both the F03 and F04 key sets. `review-edits.ts` / `lifecycle.ts` take formula identities.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M23 staging — `src/import/staging/{theme,roots}.ts`)
-
-- `BUILT_IN_PALETTES: BuiltInPaletteV1[] {key, name, light, dark}` (cedar, indigo, clay, graphite), DF-1 values pinned against design.md by `tests/unit/staging/theme.test.ts`. `builtInPalette(key)`. `DEFAULT_APP_THEME` is unchanged.
-- `encodeAppTheme`/`decodeAppTheme` v2: the v2 keys are written only when set, so F02/F03 bytes round-trip byte-identically. The decode is exact-keys: a logo is PNG, 1..256 edges, ≤ 64 KiB.
+- 2026-09-23 — F04: checkpoint formulas root + fact-codec chart/pivot
+  decoding by SESSION-02/03 (`1f77153`..`2235cce`); chart codecs and root by
+  SESSION-05 (`6ee204c`..`3dd1d2d`); `formula-identities.ts`,
+  `live-structure.ts`, promotion of live structure and the `encodeFieldDef`
+  consolidation by SESSION-07 (`978bb77`..`f9a1565`); built-in palettes and
+  the theme v2 codec (lease r2, a counterexample against M12's mirrored copy)
+  by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): five SESSION deltas
+  folded into a new "F04: formulas, charts and the theme codec" section and
+  the head Contract/Exports/Depends-on lines; the S03 followUp note ("the
+  `staging/events.ts` encoder still has its own field-def encoder without
+  `formulaId`") removed as a live gap and recorded instead as closed, per
+  S07's own disclosure that it now reuses `encodeFieldDef`; the theme-codec
+  counterexample cross-referenced to `M12-projection.md`'s new "Duplicate
+  codecs" section rather than described twice.

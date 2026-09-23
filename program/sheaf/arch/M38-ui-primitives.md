@@ -1,8 +1,8 @@
 # M38 — UI primitives (`src/ui/primitives/`)
 
 Extracted from specs/architecture.md §Module Contracts (UI primitives, layout,
-and theme). Reconciled against the tree at `425562d` (F03 final; code ≡
-`30396a9`).
+and theme). Reconciled against the tree at `5bc19fb` (F04 final;
+formulas-queries-charts).
 
 - **Owns:** Accessible interactions and semantic visual states for CTL IDs.
 - **Exports (landed):** `button` (CTL-014), `text-field`,
@@ -27,7 +27,7 @@ and theme). Reconciled against the tree at `425562d` (F03 final; code ≡
 - `ButtonProps` and (F03) `CheckboxProps` — `isDisabled: true` *requires*
   `disabledReason: string`, the same type-held contract on both controls.
 - `BusyIndicatorProps.cancellation` accepts only `"unavailable"`.
-- `InlineLink` throws on the `externalHandoff` variant (still true at F03 —
+- `InlineLink` throws on the `externalHandoff` variant (still true at F04 —
   see the backlog below).
 - Dependency edges are **verified as a test, not a grep**:
   `tests/unit/ui/architecture.test.ts` asserts `src/ui/**` imports exactly
@@ -52,20 +52,21 @@ determinate progress; CTL-014's busy state (routed to `BusyIndicator`).
 ## Backlog (owners: the next session holding this lease)
 
 F02's UI sessions did not hold `src/ui/primitives/`, so three controls were
-composed inside their feature modules instead; F03's UI sessions did not hold
-it either (F03 only touched this module to *add* `checkbox.tsx` and
-`TextField.inputId`, both new primitives in their own right, not fixes to the
-backlog below):
+composed inside their feature modules instead; neither F03's nor F04's UI
+sessions held it either (F03 only touched this module to *add*
+`checkbox.tsx` and `TextField.inputId`; F04 confirmed it **unchanged** — no
+F04 session leased or edited any file in this directory, per `git diff --stat`
+against the base revision):
 
 - **CTL-044** (radio choice with a disabled state) — still composed in M43
   from React Aria's `RadioGroup`/`Radio` for SCR-017's destination choice.
-  Unchanged by F03.
+  Unchanged by F03/F04.
 - **`TextArea`** — the review screen's enum-options editor, same situation.
-  Unchanged by F03.
+  Unchanged by F03/F04.
 - **`InlineLink`'s `externalHandoff` still throws.** F03 built its own
   reference-picker and maps-style handoffs (M44) without needing this
-  primitive either — every F03 external-style handoff (the recovery/maps
-  precedent from F02) still routes around it. Whoever writes it must keep
+  primitive either; F04's charts and schema editors likewise route around it
+  (chart-mark filters, structure-editor dialogs). Whoever writes it must keep
   invariant 10's "no unapproved handoff" property the throw stands in for.
 
 ## Cross-cutting note for later UI sessions
@@ -94,26 +95,19 @@ this is a test-visibility constraint only.
   that F03 added to this module without closing any of its three items —
   each F03 UI session found a different, real reason to touch
   `src/ui/primitives/` without the backlog's three controls being in its way.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M38 Primitives)
-
-- Unchanged.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M38 primitives)
-
-- Unchanged.
-
-<!-- formulas-queries-charts SESSION-06 -->
-### F04 delta — SESSION-06 (M38 — primitives)
-
-- Unchanged.
-
-## Lease r2 (CP4a `3b7ecfa`): Text → Choice list with named choices; rule refusal copy
-
-- **M02** `schema-impact.ts`: `SchemaChangeV1` `change-field-type` gains optional `enumOptions` (the field's complete option list after the change; the named choices active). `analyzeSchemaChange` converts against `change.enumOptions` when present, else the field's own options; the exact-label comparison (`convertValueForType`) is unchanged. Nothing is derived from the column's values.
-- **M34** `schema-commands.ts`: `SchemaChangeRequestV1` `change-field-type` gains optional `optionLabels`. When a non-enum field becomes `enum`, the command allocates one active option per named label (new ids, ordinals as given); options from an earlier choice-list life stay, inactive, after them. With no label, the after-schema has no active option and the transition is refused `schema.enum-field-without-options`, as before. Events in one commit: `field.changed` → `enum.changed` (prior digest when earlier options exist) → `record.patched` for each rewritten value.
-- **M32** `messages.ts`: `SchemaChangeWireV1` `change-field-type` gains optional `optionLabels: readonly string[]`. **M33** `structure-handlers.ts` `toRequest` forwards it.
-- **M37** `records.ts`: `toIssueVm(issue, fields = [])`. `rule-compare` / `rule-between` record-rule issues are said from their own parameters: `"{left} must be on or after {right}."` (the words follow the compared fields' kind, from `fields`; neutral words without them), `"{left} must be at least the number set in the rule “{ruleLabel}”."` for a literal (its kind, never its value), `"{field} is outside what the rule “{ruleLabel}” allows."` for a range (between and not-between share the key). Unknown keys or missing parameters keep the generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010 pass the table's fields.
-- **M37** `schema.ts`: `describeChange` for `change-field-type` with `optionLabels`: `Change {field} to Choice list with the choices A, B`. **M46** `field-editor.tsx`: when the chosen kind is Choice list and the field is not one, a `[data-editor="new-choices"]` list asks the person to name the choices; Change type is disabled until at least one choice is named.
+- 2026-09-23 — F04: sessions S04/S05/S06 each confirmed this module
+  unchanged. **A correction actually describing M02/M32/M33/M34/M37/M46**
+  (the Text → Choice list / rule-sentence copy fix, S06 lease r2, CP4a
+  `3b7ecfa`) was mistakenly staple-appended to this fragment as well, under a
+  bare `## Lease r2` heading with no module content of its own.
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the misfiled lease-r2
+  delta **removed** from this fragment. Its content covers six modules; four
+  (M02, M32, M33, M34) already carried it independently, so only the two that
+  did not — `M37-view-models.md` (the `toIssueVm`/rule-sentence copy) and
+  `M46-ui-schema.md` (the `field-editor.tsx` named-choices UI) — received it
+  during this reconciliation. See PROGRAM-CONFIG's fragment-reconciliation
+  note, which now records this as F04's first "delta describing another
+  module" instance since F02. `git diff --stat 237732e..5bc19fb --
+  src/ui/primitives` confirms zero lines changed in this directory across the
+  whole feature, corroborating that the misfile carried no real M38 content
+  to lose.

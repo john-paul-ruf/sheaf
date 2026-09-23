@@ -1,7 +1,7 @@
 # M07 — Application ports (`src/application/ports/`)
 
 Extracted from specs/architecture.md §Module Contracts (Application ports).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns:** Dependency-inversion contracts.
 - **Exports (full target):** LocalEventRepository, ProjectionEngine,
@@ -24,8 +24,8 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 | `envelope-store.ts` | `EnvelopeStorePort` | M23 staging (F02) |
 | `envelope-crypto.ts` | `EnvelopeCryptoPort` | M23 staging (F02) |
 | `staging-catalog.ts` | `StagingCatalogPort` | M23 cancellation (F02) |
-| `projection.ts` | `ProjectionEnginePort` | M34/M35 (F02, extended F03) |
-| `event-repository.ts` | `LocalEventRepository` | M34 commands (F02) |
+| `projection.ts` | `ProjectionEnginePort` | M34/M35 (F02, extended F03, F04) |
+| `event-repository.ts` | `LocalEventRepository` | M34 commands (F02, extended F04) |
 
 ### `envelope-store.ts` (F02, S04)
 
@@ -36,7 +36,7 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 cancellation's step 1 must delete the workflow key-wrap in the same transaction
 that replaces the catalog and adds the cleanup ticket (database.md § Import
 staging). The matching M11 delete path landed at `978f4ff` — the port is fully
-implemented.
+implemented. Untouched by F03/F04.
 
 ### `envelope-crypto.ts` (F02, S04)
 
@@ -44,7 +44,7 @@ implemented.
 plus `EnvelopeKeyRefV1`, `SealEnvelopeRequestV1`, `OpenedEnvelopeV1`.
 `EnvelopeKeyRefV1` is declared **structurally** (`{ purpose: string }`) so M08's
 `SecretKeyHandle` satisfies it with no adapter and the port cannot widen back
-into bytes — the `DomainEntropy` idiom from M01.
+into bytes — the `DomainEntropy` idiom from M01. Untouched by F03/F04.
 
 ### `staging-catalog.ts` (F02, S04)
 
@@ -52,18 +52,44 @@ into bytes — the `DomainEntropy` idiom from M01.
 `StagingCatalogRefsV1` and `SealedCatalogV1`. It exposes only the two reference
 lists a staging transaction may move, so the four-step cancellation order can
 live in M23 (where database.md puts it) while the catalog's shape and its seven
-checks stay in M33 (where CA-03 puts them).
+checks stay in M33 (where CA-03 puts them). Untouched by F03/F04.
 
-### `projection.ts` (F02, S05; extended F03 S03)
+### `projection.ts` (F02, S05; extended F03 S03; extended F04 S03/S04/S05)
 
 `ProjectionEnginePort` — `execute` (**synchronous**, closed query union) and
 `applyEvents`. It **restates M12's session vocabulary structurally** because
 M34/M35 may not import `src/persistence/`; `tests/unit/workers/
 projection-port.test.ts` pins every shape mutually assignable in both
-directions (with a firing negative control), now over M12's full 21-kind F03
-query surface. `ProjectionChangeSummaryV1.tableId: TableId | null` (F03).
+directions (with a firing negative control), now over M12's full **26-kind**
+F04 query surface (21 at F03 close, +1 `query-records` at S04, +2
+`list-charts`/`chart-dataset` at S05 — see the individual F04 additions below).
+`ProjectionChangeSummaryV1.tableId: TableId | null` (F03).
 
-### `event-repository.ts` (F02, S05)
+**F04 additions (SESSION-03):** `ProjectionFormulaV1`;
+`ProjectionCheckpointV1.formulas`; `ProjectionValidationRuleV1.rule:
+RecordRuleIRV1`; `ProjectionCommitV1.events: DomainEventV1[]` + optional
+`revalidate(record) → issues` (the shared validator the projection asks for a
+re-shaped table, invariant 5); `ProjectionComputedCellV1` (CA-26's eight
+states, value only where one exists) on `ProjectionRecordSummaryV1.computed`;
+`ProjectionScalarResultV1`; `ProjectionApplyReceiptV1 {recalculatedFieldIds}`;
+queries `list-formulas {tableId|null}`, `scalar-results`;
+`ProjectionEnginePort.applyEvents` resolves with the receipt; new
+`refreshVolatile(maxAgeMs)`.
+
+**F04 additions (SESSION-04):** the `query-records` kind and its result
+structurally restated, mutual assignability pinned in
+`tests/unit/workers/projection-port.test.ts`.
+
+**F04 additions (SESSION-05):** `ProjectionChartV1 = ChartStateV1`;
+`ProjectionCheckpointV1.charts?` (absent = none). Query kinds `list-charts` →
+`ProjectionChartV1[]` (display order) and `chart-dataset {tableId, filters:
+ProjectionFilterTermV1[], shape: ProjectionChartShapeV1, sourceRowBudget}` →
+`ProjectionChartDatasetV1 | null`; shapes `ProjectionChartKeyV1` (`empty |
+value{value,label,parents} | empty-parent{parents} | unreadable`),
+`ProjectionChartGroupV1` (`records, measured, sum, min, max` as canonical
+decimals), `ProjectionChartPointV1`. Mirrored in M12 `types.ts`.
+
+### `event-repository.ts` (F02, S05; extended F04 S03)
 
 `LocalEventRepository` — `chainState()` and `append(request)`. A command hands
 over a `CommitPlanV1` carrying **typed** events; the implementation derives the
@@ -72,6 +98,11 @@ check is held by construction. `AppChainStateV1` carries `lastHybridTime` so a
 backwards clock cannot make a new commit sort before its own predecessor.
 `CommitReceiptV1.commit` is the sealed commit, so the caller replays the bytes
 that were written.
+
+**F04 additions (SESSION-03):** `DomainEventV1` (the concrete instantiated
+union — see `M01-domain-model.md`'s "Type-held rule"), `RecordRuleIRV1`,
+`SchemaImpactCountsV1`, `SchemaEventPayloadsV1`, `SchemaEventV1`;
+`PlannedEventV1.event: DomainEventV1`.
 
 ## Change History
 
@@ -91,20 +122,13 @@ that were written.
   untouched by SESSION-06.
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 and
   SESSION-06 staples folded into the `projection.ts` row and its own section.
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M07 — Ports)
-
-- `event-repository.ts`: `DomainEventV1` (instantiated union), `RecordRuleIRV1`, `SchemaImpactCountsV1`, `SchemaEventPayloadsV1`, `SchemaEventV1`; `PlannedEventV1.event: DomainEventV1`.
-- `projection.ts`: `ProjectionFormulaV1`; `ProjectionCheckpointV1.formulas`; `ProjectionValidationRuleV1.rule: RecordRuleIRV1`; `ProjectionCommitV1.events: DomainEventV1[]` + optional `revalidate(record) → issues` (the shared validator the projection asks for a re-shaped table, invariant 5); `ProjectionComputedCellV1` (CA-26's eight states, value only where one exists) on `ProjectionRecordSummaryV1.computed`; `ProjectionScalarResultV1`; `ProjectionApplyReceiptV1 { recalculatedFieldIds }`; queries `list-formulas {tableId|null}`, `scalar-results`; `ProjectionEnginePort.applyEvents` resolves with the receipt; new `refreshVolatile(maxAgeMs)`.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M07 Ports (`src/application/ports/projection.ts`))
-
-- Restates the `query-records` kind and its result structurally, with mutual assignability pinned in `tests/unit/workers/projection-port.test.ts` (24 kinds).
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M07 ports — `src/application/ports/projection.ts`)
-
-- `ProjectionChartV1 = ChartStateV1`; `ProjectionCheckpointV1.charts?` (absent = none).
-- Query kinds `list-charts` → `ProjectionChartV1[]` (display order) and `chart-dataset {tableId, filters: ProjectionFilterTermV1[], shape: ProjectionChartShapeV1, sourceRowBudget}` → `ProjectionChartDatasetV1 | null`; shapes `ProjectionChartKeyV1` (`empty | value{value,label,parents} | empty-parent{parents} | unreadable`), `ProjectionChartGroupV1` (`records, measured, sum, min, max` as canonical decimals), `ProjectionChartPointV1`. Mirrored in M12 `types.ts`; `projection-port.test.ts` pins both (26 kinds).
+- 2026-09-23 — F04: `event-repository.ts`'s F04 event-type instantiation and
+  `projection.ts`'s formulas/recalculation surface by SESSION-03
+  (`a69e6e0`..`2235cce`); `query-records` restated by SESSION-04
+  (`f736fa8`..`27a2667`); the chart query surface by SESSION-05
+  (`6ee204c`..`3dd1d2d`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): three SESSION deltas
+  folded into the `projection.ts`/`event-repository.ts` sections and the query
+  surface's kind count corrected to 26 (21 F03 + query-records + list-charts +
+  chart-dataset), stated once rather than left as three separate running
+  counts.

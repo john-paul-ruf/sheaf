@@ -4,9 +4,8 @@
 > § Module Contracts / Format adapters ("a shared stream of WorkbookFact
 > values plus PreservedPartDescriptor and ImportDiagnostic") and the M19
 > fragment's standing instruction that `facts.ts` is "the file to relocate
-> unchanged when [the workbook adapters] land, not to copy". New module ID
-> (IDs are never reused; M64 was the last). Reconciled against the tree at
-> `425562d` (F03 final; code ≡ `30396a9`).
+> unchanged when [the workbook adapters] land, not to copy". Reconciled
+> against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -19,7 +18,8 @@
   `CancellationTokenV1`, `ImportDiagnosticV1` + `IMPORT_DIAGNOSTIC_CODES`,
   `PreservedPartDescriptorV1` + `PRESERVED_PART_KINDS`, `SheetInventoryItemV1`,
   `WorkbookInventoryV1`, `WorkbookAdapterV1`, `InventoryReaderV1`,
-  `factStreamItemToCanonicalValue`.
+  `factStreamItemToCanonicalValue`, and (F04) the chart/pivot part-definition
+  types (below).
 - **Depends on:** M01 `values` only. Nothing else in the repository, no
   third-party package.
 - **Contract:**
@@ -37,8 +37,13 @@
     user-understandable location, and a closed reason key (FR-9).
   - A macro signal is never a fact: it is an inventory outcome that refuses the
     whole import before any stage exists (invariant 8).
+  - **F04:** a chart or pivot definition, when readable within bounds, is an
+    **additive optional** field on the existing `preserved-part` fact — it
+    changes no existing fact, kind, or bound; the part still gets its
+    unchanged F03 `preserved-part` fact even when the definition cannot be
+    read.
 
-## Landed surface (SESSION-01, created)
+## Landed surface (SESSION-01, F03; extended SESSION-02, F04)
 
 - `workbook-facts.ts`: V1 moved unchanged (`WorkbookFactV1`,
   `WorkbookFactBatchV1`, `WorkbookSummaryV1`, `WorkbookFactStreamItemV1`,
@@ -51,9 +56,10 @@
   `SHEET_KINDS`/`SheetKindV1`, `SHEET_VISIBILITIES`/`SheetVisibilityV1`,
   `DateSystemV1`, `FORMAT_CLASSES`/`FormatClassV1`, `VALIDATION_RULES`,
   `VALIDATION_OPERATORS` (kebab-case), `ValidationListSourceV1`,
-  `PRESERVED_PART_KINDS` (D40), `PRESERVED_REASON_KEYS` (13, closed),
-  `PRESERVED_REASON_BY_KIND`, `WORKBOOK_FACTS_PER_BATCH = 1024`,
-  `factStreamItemToCanonicalValue` (total over V2, all integers bigint).
+  `PRESERVED_PART_KINDS` (D40), `PRESERVED_REASON_KEYS` (F04: 10, was 8 —
+  adds `chart-not-rebuilt`, `formula-not-supported`), `PRESERVED_REASON_BY_KIND`,
+  `WORKBOOK_FACTS_PER_BATCH = 1024`, `factStreamItemToCanonicalValue` (total
+  over V2, all integers bigint).
 - Field naming: the discriminator is `kind`, so the sheet's kind is
   **`sheetKind`** and the preserved part's kind is **`partKind`**.
 - `numbers.ts` (Custom Rule 7 — S04's XLSB/BIFF share the same doubles and
@@ -70,6 +76,35 @@
   **type-only** imports of M13 (`bounds`, `cfb`, `source`, `zip`) — enforced
   by the sweep.
 
+### F04: chart/pivot part definitions (SESSION-02)
+
+`preserved-part` gains `readonly definition?: ChartPartDefinitionV1 |
+PivotPartDefinitionV1`. Present only on `partKind` `chart` (chart definition)
+or `pivot-table` (pivot definition) whose part was read within its bounds;
+otherwise the key is absent (never `undefined`). No new fact kind, reason
+key, or diagnostic code.
+
+New closed sets: `CHART_PART_TYPES` (`bar|line|pie|scatter|area|other`),
+`CHART_BAR_DIRECTIONS` (`bar|col`), `CHART_GROUPINGS`
+(`clustered|stacked|percentStacked|standard`), `PIVOT_SUBTOTALS`
+(`sum|count|average|min|max`).
+
+New types: `ChartPartSeriesV1 {name, categoriesRef, valuesRef, xRef, yRef}`
+(all `string|null`), `ChartPartDefinitionV1 {chartType, barDirection|null,
+grouping|null, title|null, series[]}`, `PivotPartDefinitionV1 {sourceSheet|
+null, sourceRef, rowFields: string[], dataFields: {cacheFieldName,
+subtotal}[]}`.
+
+Bounds: `CHART_PART_MAX_SERIES` 64, `CHART_PART_MAX_REF_LENGTH` 1024,
+`CHART_PART_MAX_TITLE_LENGTH` 256 (code points, NFC), `PIVOT_PART_MAX_FIELDS`
+256. Guard: `isChartPartDefinition(definition)`.
+
+Canonical mapping: the `definition` key is appended to the preserved-part map
+only when present. Chart map keys: `chartType, barDirection, grouping,
+title, series[{name, categoriesRef, valuesRef, xRef, yRef}]`. Pivot map
+keys: `sourceSheet, sourceRef, rowFields, dataFields[{cacheFieldName,
+subtotal}]`.
+
 ## F03: migration off `delimited/facts.ts` (D30/D32, closed)
 
 F02 landed the fact vocabulary in M19's `formats/delimited/facts.ts`. S01
@@ -80,8 +115,8 @@ import from here directly** (`4287569`). The re-export's last remaining
 reason to exist — S01's own pin in
 `tests/unit/import/facts/workbook-facts.test.ts` — was removed together with
 `delimited/facts.ts` itself by OWNER-IMPORT-F03-SEAMS (`87da253`). **M65
-`src/import/facts/` is now the sole home of the fact vocabulary; no other
-file in the repository defines it.**
+`src/import/facts/` is the sole home of the fact vocabulary; no other file in
+the repository defines it, in F03 or F04.**
 
 ## F03: ODS declared-table ordering counterexample (OWNER-IMPORT-F03-SEAMS, closed)
 
@@ -114,19 +149,12 @@ fix.
   named F03 subsections, so the transition from "V1 lives in M19" to "V1 and
   V2 live only in M65" reads as one completed history rather than three
   separate, chronologically ambiguous notes.
-
-<!-- formulas-queries-charts SESSION-02 -->
-### F04 delta — SESSION-02 (M65 — workbook facts (`src/import/facts/workbook-facts.ts`) — additive public API)
-
-- `preserved-part` gains `readonly definition?: ChartPartDefinitionV1 | PivotPartDefinitionV1`. It is present only on `partKind` `chart` (chart definition) or `pivot-table` (pivot definition) whose part was read within its bounds. Otherwise the key is absent (never `undefined`). No new fact kind, reason key, or diagnostic code.
-- New closed sets: `CHART_PART_TYPES` (`bar|line|pie|scatter|area|other`), `CHART_BAR_DIRECTIONS` (`bar|col`), `CHART_GROUPINGS` (`clustered|stacked|percentStacked|standard`), `PIVOT_SUBTOTALS` (`sum|count|average|min|max`).
-- New types: `ChartPartSeriesV1 {name, categoriesRef, valuesRef, xRef, yRef}` (all `string|null`), `ChartPartDefinitionV1 {chartType, barDirection|null, grouping|null, title|null, series[]}`, `PivotPartDefinitionV1 {sourceSheet|null, sourceRef, rowFields: string[], dataFields: {cacheFieldName, subtotal}[]}`.
-- Bounds: `CHART_PART_MAX_SERIES` 64, `CHART_PART_MAX_REF_LENGTH` 1024, `CHART_PART_MAX_TITLE_LENGTH` 256 (code points, NFC), `PIVOT_PART_MAX_FIELDS` 256.
-- Guard: `isChartPartDefinition(definition)`.
-- Canonical mapping: the `definition` key is appended to the preserved-part map only when present. Chart map keys: `chartType, barDirection, grouping, title, series[{name, categoriesRef, valuesRef, xRef, yRef}]`. Pivot map keys: `sourceSheet, sourceRef, rowFields, dataFields[{cacheFieldName, subtotal}]`.
-
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (pointer)
-
-The SESSION-07 delta for this module is recorded jointly in `arch/M58-workbook-fixtures.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
+- 2026-09-23 — F04: the additive chart/pivot `definition` field and its
+  bounded types landed by SESSION-02 (`1f77153`..`15b4d5b`); consumed by
+  S07's mapping (`M21-inference.md`) and the CA-33 reason-key extension
+  (`M01-domain-model.md`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-02 delta
+  folded into a new "F04: chart/pivot part definitions" section; the
+  "sole home of the fact vocabulary" sentence extended to state it still
+  holds at F04 close (a fact this module's own contract makes worth
+  re-asserting each time a feature adds to the vocabulary).

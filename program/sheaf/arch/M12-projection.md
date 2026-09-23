@@ -2,8 +2,8 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / Projection and `specs/database.md` § In-Memory SQLite
-> Projection. Reconciled against the tree at `425562d` (F03 final; code ≡
-> `30396a9`).
+> Projection. Reconciled against the tree at `5bc19fb` (F04 final;
+> formulas-queries-charts).
 
 ## Contract
 
@@ -11,9 +11,10 @@
 - **Exports:** `openProjection`, `hydrateApp`, `applyEvents`, `executeQuery`,
   `disposeProjection` (`createExportCursor` is F07).
 - **Depends on:** SQLite WASM (`@sqlite.org/sqlite-wasm`), M09 pure helpers,
-  M01/M02 types, M10 read-only. Schema authority:
-  `src/migrations/005_projection_v1.sql` executed via `migrateProjectionSchema`
-  from `src/migrations/index.js` (CA-06: never redeclare, never inline SQL DDL).
+  M01/M02 types, M03 (F04, the recalculation engine — see below), M10 read-only.
+  Schema authority: `src/migrations/005_projection_v1.sql` executed via
+  `migrateProjectionSchema` from `src/migrations/index.js` (CA-06: never
+  redeclare, never inline SQL DDL).
 - **Contract:** Runs only in `src/workers/data.worker.ts`. Opened `:memory:`
   only. Persists nothing; destroyed on lock (worker termination is the scrub).
   All SQL comes from closed prepared templates with bound parameters — user
@@ -42,10 +43,11 @@
 the tree is internal and unreachable from it.
 
 ```ts
-openProjection(init: { sha256: Sha256Fn }): Promise<ProjectionHandleV1>
+openProjection(init: { sha256: Sha256Fn, clock: () => EvaluationClockReadingV1 })
+  : Promise<ProjectionHandleV1>                                    // clock: F04
 hydrateApp(handle, checkpoint: ProjectionCheckpointV1,
            tailCommits?: readonly ProjectionCommitV1[]): Promise<void>
-applyEvents(handle, commits: readonly ProjectionCommitV1[]): Promise<void>
+applyEvents(handle, commits: readonly ProjectionCommitV1[]): Promise<ProjectionApplyReceiptV1>
 executeQuery<K>(handle, query: Extract<ProjectionQueryV1, {kind: K}>)
   : ProjectionQueryResultsV1[K]                                    // synchronous
 disposeProjection(handle): void
@@ -61,25 +63,38 @@ Also exported: `TEXT_SORT_KEY_VERSION`, `DECIMAL_ORDER_KEY_VERSION`,
 `ProjectionRecordPageResultV1`, `ProjectionChangeEventV1`,
 `ProjectionChangeSummaryV1`, `ProjectionChangeHistoryPageV1`,
 `ChangeHistoryCursorV1`, `ChangeSubjectKindV1`, `SheetClassificationV1`,
-`Sha256Fn`).
+`Sha256Fn`, and (F04) `ProjectionFormulaV1`, `ProjectionScalarResultV1`,
+`ProjectionComputedCellV1`, `ProjectionApplyReceiptV1`, `ProjectionChartV1`,
+`ProjectionChartDatasetV1`, `ProjectionChartKeyV1`, `ProjectionChartGroupV1`,
+`ProjectionChartPointV1`.
 
-**F02 query set (unchanged):** `app-state`, `list-tables`, `list-fields`,
-`list-enum-options`, `list-validation-rules`, `count-records`, `page-records`,
-`search-records`, `record-by-id`, `page-change-history`,
-`record-change-history`. Page sizes are bounded to 1–1024 and refused outside
-it.
+**Query set, 26 kinds at F04 close (F02's 11, +10 F03, +1 `query-records` +
+2 chart kinds F04):**
 
-**F03 additions:** `record-is-live`, `list-relationships{tableId|null}`,
-`related-parent{recordId, fieldId}`, `related-children{relationshipId,
-parentRecordId, afterRecordPk, limit}` (via `idx_cells_field_id`),
-`count-related-children`, `reference-candidates{relationshipId, text, limit}`
-(FTS over the parent table; a blank query browses), `deleted-record{recordId}`,
-`list-sheet-snapshots` (+ inert counts per kind via `idx_inert_content_sheet`),
-`list-inert-items{sheetId|null}`, `list-inference-decisions{decisionKind|null}`.
-Labels resolve as the label field else the key, as display text. `listTables`
-gained a variant taking `appId` (see the "Consumer note" below) — `openApp`
-already returned exact table counts, so this is a second read path, not a new
-fact.
+- **F02 (unchanged):** `app-state`, `list-tables`, `list-fields`,
+  `list-enum-options`, `list-validation-rules`, `count-records`,
+  `page-records`, `search-records`, `record-by-id`, `page-change-history`,
+  `record-change-history`. Page sizes are bounded to 1–1024 and refused
+  outside it.
+- **F03:** `record-is-live`, `list-relationships{tableId|null}`,
+  `related-parent{recordId, fieldId}`, `related-children{relationshipId,
+  parentRecordId, afterRecordPk, limit}` (via `idx_cells_field_id`),
+  `count-related-children`, `reference-candidates{relationshipId, text,
+  limit}` (FTS over the parent table; a blank query browses),
+  `deleted-record{recordId}`, `list-sheet-snapshots` (+ inert counts per kind
+  via `idx_inert_content_sheet`), `list-inert-items{sheetId|null}`,
+  `list-inference-decisions{decisionKind|null}`. `listTables` gained a variant
+  taking `appId` — `openApp` already returned exact table counts, so this is a
+  second read path, not a new fact.
+- **F04:** `list-formulas {tableId|null}`, `scalar-results` (S03);
+  `query-records {tableId, search, filters, sort, after, limit,
+  candidateBudget} → ProjectionRecordQueryResultV1 {records, hasMore, next,
+  total, partial}` (S04, D53's query budget); `list-charts` →
+  `ProjectionChartV1[]` (display order) and `chart-dataset {tableId, filters,
+  shape, sourceRowBudget} → ProjectionChartDatasetV1 | null` (S05, D53's
+  chart budget).
+
+Labels resolve as the label field else the key, as display text.
 
 ## Internal modules
 
@@ -87,12 +102,16 @@ fact.
 |---|---|
 | `engine.ts` | `:memory:` open, `ProjectionMigrationHost`, statement cache, `withTransaction` (rollback **then dispose**), `disposeProjection` |
 | `sort-keys.ts` | `textSortKeyV1` (NFC UTF-8), `decimalOrderKeyV1` (20 bytes, `null` outside the v1 exponent domain), `compareSortKeys` |
-| `cbor-values.ts` | The projection's payload columns: authored record, theme, rule IR, change summary, message parameters, frontier |
+| `cbor-values.ts` | The projection's own payload-column codecs: authored record, theme, rule IR, formulas (F04), charts (F04), change summary, message parameters, frontier — see "Duplicate codecs" below |
 | `record-rows.ts` | One record → `records`/`cells`/`record_issues`/`record_search`; `projectCellValue`, `searchableTextFor`, `deriveIssueId` |
-| `statements.ts` | **Every** SQL statement, as literals with `?` placeholders; `toFtsMatchQuery` |
-| `hydrate.ts` | The load order, one transaction for metadata and one per record page |
-| `apply-events.ts` | Replay guards and per-kind row effects |
+| `statements.ts` | **Every** SQL statement, as literals with `?` placeholders; `toFtsMatchQuery`; `RECORD_SUMMARY_COLUMNS` (F04) |
+| `hydrate.ts` | The load order, one transaction for metadata and one per record page; `upsertChartRow` (F04) |
+| `apply-events.ts` | Replay guards and per-kind row effects, including every F04 schema/rule/formula/chart kind |
 | `query-exec.ts` | The closed read surface |
+| `recalc-plan.ts` / `recalc.ts` (F04) | Pure recalculation planning and the SQL that carries it out |
+| `filter-sql.ts` (F04) | Prepared-statement composition for `query-records`, from literal fragments only |
+| `authored-functions.ts` (F04) | Two deterministic SQL functions: `sheaf_authored_kind`, `sheaf_fold_text` |
+| `chart-query.ts` (F04) | `chartDataset(handle, query, labelOf)` — the bounded aggregation behind `chart-dataset` |
 
 ## Dependency edges
 
@@ -103,7 +122,13 @@ fact.
   `PROJECTION_MIGRATION_ORDER`, and `005_projection_v1.sql?raw` as a build asset
   (CA-06). No DDL string exists anywhere in M12.
 - **M12 → M01/M02**: domain ids, values, schema, events, provenance, and the
-  validator's issue/rule vocabulary (types only — the projection never validates).
+  validator's issue/rule vocabulary (types only — the projection never validates
+  on its own authority; F04's `revalidate` callback asks the *caller's* shared
+  validator, it does not embed one).
+- **M12 → M03** (F04, new): recalculation runs through the one bounded
+  interpreter (D60, invariant 8) instead of a second evaluator; the projection
+  sweep `tests/unit/projection/module-boundaries.test.ts` allows exactly this
+  edge and its negative control still refuses the import pipeline.
 - **M12 → `@sqlite.org/sqlite-wasm`.** M12 is the first product module that
   imports it, reachable from the production entry graph since F02
   (`index.html` → app-bootstrap → the data-worker chunk).
@@ -114,13 +139,16 @@ fact.
   `src/persistence/envelope-store/`. The projection never reads IndexedDB —
   callers hand it decoded checkpoint pages and commits.
 - Enforced by `tests/unit/projection/module-boundaries.test.ts`: an import
-  allow-list, a forbidden list (dexie, envelope-store, ui, import, sync,
-  libsodium), a no-DDL scan, and a negative control that proves the scan fires.
+  allow-list (now including `src/domain/formulas/`), a forbidden list (dexie,
+  envelope-store, ui, import, sync, libsodium), a no-DDL scan, and a negative
+  control that proves the scan fires.
 
 ## Contracts a consumer must know
 
 - **The engine never reads storage and never decrypts.** Callers hand it decoded
   checkpoint pages and decoded commits. It holds no key; SHA-256 is injected.
+  **F04:** local calendar time is injected too — `OpenProjectionInitV1.clock`
+  is required, and the handle carries `clock` and `volatileReading`.
 - **`ProjectionCommitV1` pairs the raw `EventCommitV1` with typed events.**
   `EventCommitV1.payload` is `unknown` by contract (M09 carries payloads as
   opaque canonical CBOR), so the caller supplies the typed events alongside.
@@ -129,10 +157,12 @@ fact.
   M07's `LocalEventRepository` discharges it by deriving the wire payload from
   the typed event.
 - **Issues come from the one shared validator.** The checkpoint carries them per
-  record; replay carries them in `issuesByEventIndex`. The engine authors exactly
-  one issue of its own: `validation.decimal-out-of-domain` (warning, kind
-  `type`) when a canonical decimal falls outside the v1 order-key exponent
-  domain.
+  record; replay carries them in `issuesByEventIndex`. The engine authors two
+  issues of its own: `validation.decimal-out-of-domain` (warning, kind `type`)
+  when a canonical decimal falls outside the v1 order-key exponent domain, and
+  (F04) the recalculated `formula` issue for a computed cell in an error/cycle/
+  unsupported state (id `computedIssueId`: pk ‖ `0xff` ‖ fieldId[0..7],
+  disjoint from validator ordinals).
 - **`records.authored_cbor` is the record; `cells` is an index over it.** Values
   with no lane (missing, blank, invalid-preserved, wrong-typed, out-of-domain
   decimal) remain completely readable through `record-by-id`.
@@ -148,7 +178,10 @@ fact.
 - **FTS5 detail=column cannot answer a phrase query.** Search issues per-word
   quoted AND terms with a trailing `*`, and the `MATCH` must be unaliased.
 - **`totalCount` on a search page is the TABLE count** (CA-14); the scope says
-  which. There is no match-count field.
+  which. **F04's `query-records`** adds an *exact* `total` within the D53
+  budget, and `partial {scanned, tableTotal, cause:"query-budget",
+  remedy:"narrow-filters"}` past it — a plain browse/search keeps the F03
+  semantics unchanged.
 - **An `app/table/field.created` arriving in a TAIL commit writes change history
   only** — it creates no schema row, **except** F03's `table.created` tail
   handler (below), which builds the row for the one case database.md's
@@ -164,20 +197,75 @@ fact.
 - **F03 relationships travel with the checkpoint, not the tail.**
   `RelationshipDefV1` rows arrive only in `ProjectionCheckpointV1.relationships`
   (CA-20); nothing in the tail creates or edits one.
+- **F04: recalculation lives in the same SQLite transaction as the record
+  mutation** (D60). Only downstream nodes are recomputed
+  (`idx_formula_dependencies_dependency`): a record commit recomputes only
+  `downstreamOf` the moved fields, and only the written rows for a row-local
+  formula (widening to every row for column/related/formula reads); a schema
+  commit is a full pass; hydrate step 6 is a full pass once the graph loads;
+  `refreshVolatile` re-evaluates clock-volatile formulas when the reading is
+  ≥ 60 s old or on another local day. Frozen/unsupported columns project the
+  authored literal into the computed lane and are never evaluated; cycles are
+  flagged, never evaluated. Record writes delete only authored cells and
+  validator issues (`DELETE_AUTHORED_CELLS_FOR_RECORD`,
+  `DELETE_VALIDATOR_ISSUES_FOR_RECORD`) — the computed lane is rebuilt, not
+  deleted-and-reinserted wholesale. Computed fields are excluded from
+  `record_search`. `readComputedCells` derives each computed cell's state from
+  its lane + issue (+ authored literal); every record summary carries
+  `computed`.
+- **F04: `field.changed` refreshes the per-session definition cache.** This is
+  where a currency field's `currencyCode` actually lives across a schema
+  change — closed the F02/F03-carried "currency code cannot round-trip" gap
+  without a migration (see "Known gaps", below, for the full disposition).
+- **F04: `charts` rows.** `UPSERT_CHART` / `DELETE_CHART` / `SELECT_CHART_IDS`;
+  `upsertChartRow` hydrates the checkpoint root and caches definitions in
+  `schema.charts` (engine cache; reads come from it). Replay requires
+  `chartRevision = 0` for a new chart or held revision + 1, and a payload
+  consistent with its definition; a taken ordinal is refused by `UNIQUE
+  (chart_ordinal)`. History subject `chart`, subject id = `objectId`.
+
+## Duplicate codecs: M12's session cache vs. M23's durable roots (payload-evolution seam)
+
+**M12 cannot import M23** (a cache running inside the data worker's live
+session may not depend on the staging/promotion module), so three payloads —
+rule IR, chart definitions, and (F04) theme v2 — are encoded **twice**: once by
+M23's `roots.ts` for the durable checkpoint root, and once by M12's own
+`cbor-values.ts` for the projection's in-memory cache column. This is
+structurally necessary, not an oversight, but it is a real drift risk: a
+payload version change that updates one copy and not the other is a silent
+divergence, not a compile error.
+
+**F04 evidence, three occurrences of the identical shape:**
+
+1. **Rule IR** (S03) — both copies landed together in the same checkpoint;
+   no counterexample.
+2. **Chart definitions** (S05) — the risk was recognized and closed
+   *proactively*: `cbor-values.ts#encodeChartDefinition` is pinned
+   byte-identical to M23's codec in `roots.test.ts` before either drifted.
+3. **Theme v2** (S08) — the risk was **not** closed proactively. S08's first
+   attempt found `cbor-values.ts`'s theme codec still encoding only the v1
+   shape, so "keep the logo" silently dropped it; a lease revision
+   (`+ cbor-values.ts`, with a fail-before test) was required to add the v2
+   fields and pin them byte-equal to M23's `encodeAppTheme`
+   (`tests/unit/projection/cbor-values.test.ts`).
+
+Two of three payload versions needed no correction because their producing
+session's lease already held both files or pinned them proactively; one did
+not, and broke. **Any future payload-shape change to a value this cache also
+holds must lease `cbor-values.ts` alongside the durable codec it mirrors**, and
+should default to a byte-equality test the way S05's chart codec did. See
+PROGRAM-CONFIG's Conventions for the promoted form of this rule.
 
 ## Known gaps with owners (recorded, not defects)
 
-- `schema_fields` has no `currencyCode` column, so a currency field cannot
-  round-trip; `list-fields` refuses rather than guesses. First hurt: F04's
-  schema editor → DB re-entry at F04 planning. Unchanged by F03.
 - The chain guard keeps the accumulated commit set in memory. Correct at
   current scale; revisit for long tails.
 - Test-time fixture output `dist/__projection__/` joins the F08 precache
   exclusion debt.
-- Deliberate absences with later owners: formulas (live), charts, baselines'
-  full read path (F03 writes them; nothing reads a baseline page back through
-  the projection yet — the baseline is a recovery artifact, not a query
-  source), conflicts, merges.
+- Deliberate absences with later owners: baselines' full read path (F03
+  writes them; nothing reads a baseline page back through the projection yet
+  — the baseline is a recovery artifact, not a query source), conflicts,
+  merges.
 
 ## Closed in F03 (was open at `5ab3b07`, resolved here — not re-carried)
 
@@ -188,6 +276,16 @@ fact.
   promotion (`decisionsOf`, the import commit's `inference-decision.recorded`
   events) and append path are the producers CA-23/CA-19 name, and
   `list-inference-decisions`/rejection-memory reads consume them.
+
+## Closed in F04 (was open at `425562d`, resolved here — not re-carried)
+
+- **`schema_fields` had no `currencyCode` column, so a currency field could
+  not round-trip through the projection** — disproved as a schema defect at
+  F04 planning, not fixed as one: the currency code lives in the encrypted
+  field definition (M01's `FieldTypeV1`), and the projection's per-session
+  definition cache already carries the whole `FieldDefV1`. S03 CP1 wired the
+  cache to refresh on `field.changed`, closing the gap with no migration and
+  no `list-fields` change.
 
 ## Change History
 
@@ -215,38 +313,17 @@ fact.
   name F03's one exception (`table.created` in an append), which the F02 text
   did not anticipate and would otherwise read as contradicting M23's landed
   append path.
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M12 — Projection (`src/persistence/projection/`))
-
-- **New edge M12 → M03** (`../../domain/formulas/`): recalculation runs through the one bounded interpreter (D60, invariant 8) instead of a second evaluator; the projection sweep `tests/unit/projection/module-boundaries.test.ts` allows it and its negative control still refuses the import pipeline.
-- `OpenProjectionInitV1.clock: () => EvaluationClockReadingV1` (required; the worker supplies local time). Handle carries `clock` and `volatileReading`.
-- Replay (`apply-events.ts`) handles every F04 kind inside the commit's transaction: `schema_tables`/`schema_fields` (incl. `is_computed`, `formula_id`) updates, `relationships` insert/update/delete, `validation_rules` upsert/retire (rows are never deleted — issues reference them), `formulas` upsert/retire + `formula_dependencies`; app name. Reorders park moved fields above `2^30` first (unique `(table_id, field_ordinal)`). History subject kinds: relationship → `field`, rule/formula → their `objectId`. A commit that re-shapes an existing table rebuilds its authored lanes + search text and, with `revalidate`, its verdicts (`reindexRecord`).
-- `field.changed` refreshes the per-session definition cache — the currency code lives there (F02 carry closed).
-- **Recalculation** (`recalc-plan.ts` pure, `recalc.ts` SQL): hydrate step 6 = full pass after the graph is loaded; a record commit recomputes only `downstreamOf` the moved fields, and only the written rows for a row-local formula (widening to every row for column/related/formula reads); a schema commit is a full pass; `refreshVolatile` re-evaluates clock-volatile formulas when the reading is ≥ 60 s old or on another local day. Writes CA-26 exactly: computed lane (`origin='computed'`), recalculated `formula` issue (ids `computedIssueId`: pk ‖ 0xff ‖ fieldId[0..7], disjoint from validator ordinals), or `scalar_formula_results` (evaluated_at_ms = session clock). Frozen/unsupported columns project the authored literal into the computed lane and are never evaluated; cycles are flagged, never evaluated. Record writes delete only authored cells and validator issues (`DELETE_AUTHORED_CELLS_FOR_RECORD`, `DELETE_VALIDATOR_ISSUES_FOR_RECORD`). Computed fields are excluded from `record_search`.
-- Reads: `readComputedCells` derives each computed cell's state from its lane + issue (+ authored literal); every record summary carries `computed`.
-- Checkpoint load inserts formulas (after fields, all before any dependency).
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M12 Projection (`src/persistence/projection/`))
-
-- New query kind `query-records` on the closed `ProjectionQueryV1` union: `{tableId, search, filters: ProjectionFilterTermV1[], sort: ProjectionRecordSortV1 | null, after: ProjectionQueryCursorV1 | null, limit, candidateBudget}` → `ProjectionRecordQueryResultV1 {records, hasMore, next: {recordPk, sortValue} | null, total: number | null, partial: {scanned, tableTotal} | null}`.
-- `filter-sql.ts` composes the statements from literal fragments only. Every value is bound, and the only request-chosen SQL is `?` counts and the choice among literal fragments. Terms: `id-in`, `integer-range`, `decimal-range` (20-byte order key), `text-equals` / `text-contains`, `reference-broken`, `is-empty`, `not-empty`.
-- Two registered deterministic SQL functions (`authored-functions.ts`):
-  - `sheaf_authored_kind(authored_cbor, field_id)` returns the closed value kind only.
-  - `sheaf_fold_text(text)` returns case-folded NFC (`foldText`); text filters are case-insensitive.
-- Sort: one field, keyset over `(sort value, record_pk)`; missing values last in both directions. Enum sorts by option ordinal, reference by the parent's label (else key) field.
-- Budget: candidates are the table ∧ search. Past the budget, the first N candidates in `record_pk` order are admitted and the result has `total: null` plus `partial {scanned, tableTotal}`. Within the budget, `total` is an exact `count(*)`.
-- `RECORD_SUMMARY_COLUMNS` is exported from `statements.ts`.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M12 projection — `src/persistence/projection/`)
-
-- `charts` rows: `UPSERT_CHART` / `DELETE_CHART` / `SELECT_CHART_IDS` (`statements.ts`); `upsertChartRow` (`hydrate.ts`) hydrates the checkpoint root and caches definitions in `schema.charts` (engine cache; reads come from it, `definition_cbor` is written by `cbor-values.ts#encodeChartDefinition`, byte-identical to M23's codec — pinned in `roots.test.ts`).
-- Replay (`apply-events.ts`): `chart.saved` requires `chartRevision` = 0 for a new chart or held revision + 1, and a payload consistent with its definition; `chart.deleted` requires a held chart. A taken ordinal is refused by `UNIQUE (chart_ordinal)`. History subject `chart`, subject id = `objectId`.
-- New `chart-query.ts#chartDataset(handle, query, labelOf)`: bounded page loop (1,000 rows/statement) over the newest `sourceRowBudget` rows by `record_pk DESC`, one `cells` alias per dimension/measure, S04's filter terms via `filter-sql.ts#queryWhere` (now exported), exact decimal aggregation (M03 `decimal.ts`), text grouped case-insensitively (`foldText`) as the text filter matches, dates bucketed by epoch-day arithmetic, relationship groupings join reference → parent record → parent lane and keep the parents per category. `query-exec.ts` dispatches it with its own `recordLabel`.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M08/M10 projection value codec — `src/persistence/projection/cbor-values.ts` (lease r2))
-
-- The `theme_cbor` codec carries the v2 fields with the same keys and canonical bytes as M23's `encodeAppTheme` (pinned byte-equal in `tests/unit/projection/cbor-values.test.ts`). It still does not import M23.
+- 2026-09-23 — F04: the M03 recalculation edge, formulas root and computed-cell
+  contract by SESSION-03 (`a69e6e0`..`2235cce`); `query-records` by SESSION-04
+  (`f736fa8`..`27a2667`); charts rows and dataset aggregation by SESSION-05
+  (`6ee204c`..`3dd1d2d`); the theme codec's v2 fields (lease r2, a
+  counterexample) by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): four SESSION deltas
+  folded into the public API, internal-modules, dependency-edges and
+  contracts sections; the currency-code gap moved to "Closed in F04" (it was
+  still open text in the F03-reconciled fragment); a new "Duplicate codecs"
+  section added recording the M12/M23 payload-evolution seam as a named,
+  recurring risk (three F04 instances — rule IR, charts, theme — the third of
+  which broke and needed a lease correction) rather than leaving the theme
+  counterexample as an isolated session surprise with no forward-looking
+  contract. See PROGRAM-CONFIG's Conventions for the promoted rule.

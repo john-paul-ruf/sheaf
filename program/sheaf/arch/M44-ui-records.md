@@ -2,7 +2,7 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / UI feature modules + `specs/design.md`. Reconciled
-> against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+> against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -11,7 +11,8 @@
 - **Exports:** Route components and typed user intents.
 - **Depends on:** M38 (`Button`, `Dialog`, `TextField`, `Checkbox`,
   `StatusBanner`, `InlineLink`, `cx`, visually-hidden), M39 (`AppShell`), M40
-  (tokens), M37 (`src/application/view-models/records.js`).
+  (tokens; F04 `appThemeVariables`), M37 (`src/application/view-models/
+  records.js`).
 - **Must not:** Acknowledge a save before `CommitConfirmed`, calculate merge
   eligibility, hide partial/broken/stale states, hold a state-machine runtime,
   or import anything but `react` and `react-aria-components` as packages
@@ -35,26 +36,40 @@ SHT-016 (snapshot options); SCR-027's relationships section
 ("Belongs to"/"Has many"); the deleted-record read for MOD-010's original
 values; multi-table change history.
 
-### Files (17)
+F04 (S04/S05/S06/S08 @ `5bc19fb`): SCR-024's metrics and pinned charts
+(closing the F02/F03 "truthful absence" carry), SCR-025's type-aware filter
+chips and sort (SHT-004–009), computed-value display, SCR-036's dark/light
+per-app chrome on `AppFrame`, and the app nav's Charts/Structure/Settings
+destinations.
+
+### Files (23)
 
 `app-frame.tsx`, `app-home-screen.tsx`, `records-screen.tsx`,
 `record-detail-screen.tsx`, `record-form-screen.tsx`, `enum-picker-sheet.tsx`,
 `record-actions-sheet.tsx`, `delete-record-dialog.tsx`,
 `restore-record-dialog.tsx`, `change-history-screen.tsx`, `records.module.css`,
-`values.ts` — plus six added by F03 (Custom Rule 7):
-`reference-picker-sheet.tsx` (SHT-002; `ReferencePickerSheet`, and
-`ReferenceSearchBody`, which MOD-011 shares), `repair-reference-dialog.tsx`
-(MOD-011), `table-switcher-sheet.tsx` (SHT-003; `TableSwitcherTrigger`,
-`TableSwitcherSheet`), `snapshots-screen.tsx` (SCR-030),
-`snapshot-viewer-screen.tsx` (SCR-031), `snapshot-options-sheet.tsx`
-(SHT-016).
+`values.ts`, `reference-picker-sheet.tsx` (F03, SHT-002; `ReferencePickerSheet`,
+`ReferenceSearchBody`, shared with MOD-011), `repair-reference-dialog.tsx`
+(F03, MOD-011), `table-switcher-sheet.tsx` (F03, SHT-003;
+`TableSwitcherTrigger`, `TableSwitcherSheet`), `snapshots-screen.tsx` (F03,
+SCR-030), `snapshot-viewer-screen.tsx` (F03, SCR-031),
+`snapshot-options-sheet.tsx` (F03, SHT-016), and (F04, Custom Rule 7)
+`filter-chips.tsx`, `filter-sheets.tsx`, `sort-sheet.tsx`,
+`computed-value.tsx`.
 
 Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 
 - `app-frame.tsx` — the app area's shell composition. Every app-area surface
   renders inside one identity + one set of destinations; a screen that built
   its own frame would be free to disagree with the next one. F03 adds
-  `"snapshots"` to `AppArea`.
+  `"snapshots"` to `AppArea`; **F04** adds `"charts" | "structure" |
+  "settings"`, and the frame root now carries `data-app-mode`,
+  `data-app-density` and `appThemeVariables(...)` directly (`appThemeStyle`
+  was removed as a separate helper). The app nav's six destinations (home,
+  table, Charts, Structure, Settings, All apps) are why Sheet snapshots and
+  Change history moved off the bar in F04 (reached from SCR-037 and the app
+  home instead, so every 320px target stays ≥ 44px) — `appSnapshots`/
+  `appHistory` remain in `AppNavigation`.
 - `values.ts` — the value/format helpers the screens share: `describeValue`,
   `formatCurrency`, `formatEpochDay`, `epochDayToIsoDate`, `isoDateToEpochDay`,
   `isCanonicalDecimalText`, `monogramFor`, `formatCount`, `describeRecordCount`,
@@ -66,55 +81,80 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 `describeIssueCounts`), `RecordFormScreen` (+ `AuthoredEntryIntentV1`,
 `AuthoredValueIntentV1`, `intentFor`, `initialDraft`), `EnumPickerSheet`,
 `RecordActionsSheet`, `DeleteRecordDialog`, `RestoreRecordDialog`,
-`ChangeHistoryScreen` (+ `describeEvent`), `AppFrame` (+ `AppIdentity`,
-`AppNavigation`, `AppTableLink`, `AppArea`, `AppThemeVm`, `appThemeStyle`), and
-(F03) `ReferencePickerSheet`, `ReferenceSearchBody`, `RepairReferenceDialog`,
-`TableSwitcherTrigger`, `TableSwitcherSheet`, `SnapshotsScreen`,
-`SnapshotViewerScreen`, `SnapshotOptionsSheet`.
+`ChangeHistoryScreen` (+ `describeEvent`, moved to M37 at F04 — see
+`M37-view-models.md`), `AppFrame` (+ `AppIdentity`, `AppNavigation`,
+`AppTableLink`, `AppArea`, `AppThemeVm`), `ReferencePickerSheet`,
+`ReferenceSearchBody`, `RepairReferenceDialog`, `TableSwitcherTrigger`,
+`TableSwitcherSheet`, `SnapshotsScreen`, `SnapshotViewerScreen`,
+`SnapshotOptionsSheet` (F03), and (F04) `FilterChips`, `FilterSheet`,
+`SortSheet`, `ComputedValue`.
 
 ## Decisions worth carrying forward
 
 - **`AppFrame` is a sibling of M41's `UnlockedFrame`, not a variant.** Inside an
-  app the destinations are the app's own (home, its tables, its change history,
-  and — F03 — its snapshots) plus "All apps". M39 still exposes exactly one
-  primary navigation per layout class, which `accessibility.spec.ts` asserts
-  inside the app area as well as in the shell.
-- **The app theme lands here.** `AppSessionViewV1.theme` (D29) becomes six
-  `--app-*` custom properties on the frame's root, typed as
-  `CSSProperties & Record<\`--app-${string}\`, string>` so a system-owned
-  property cannot be written from a theme even by mistake.
+  app the destinations are the app's own (home, its tables, Charts, Structure,
+  Settings — F04) plus "All apps". M39 still exposes exactly one primary
+  navigation per layout class, which `accessibility.spec.ts` asserts inside
+  the app area as well as in the shell.
+- **The app theme lands here.** `AppSessionViewV1.theme` (D29) becomes the six
+  `--app-*` custom properties **and** (F04) the full `appThemeVariables(...)`
+  presentation-role remap on the frame's root, typed as `CSSProperties &
+  Record<\`--app-${string}\`, string>` so a system-owned property cannot be
+  written from a theme even by mistake. F04's SCR-024 `.hero` paints
+  `--color-chrome`/`--color-chrome-text` (app-ink chrome with app-surface text
+  in light mode, app-surface chrome with app-ink text in dark mode) so it no
+  longer goes near-white-on-near-white when an app theme is dark; outside an
+  app theme it falls back to ink-950/white as before.
 - **One list, densified — never a second copy of the rows.** The same list is
   laid out as cards up to the desktop class and as dense rows above it.
 - **A number is a text input with `inputmode="decimal"`, not `type="number"`.**
   What was typed crosses as `{kind:"number"}` when it is a canonical decimal
   and as `{kind:"text"}` when it is not — the one validator refuses it
-  (invariant 5, D23). `isCanonicalDecimalText` fails *closed*.
+  (invariant 5, D23). `isCanonicalDecimalText` fails *closed*. **F04:** a
+  computed field never reaches this input path at all — it renders through
+  `computed-value.tsx`, read-only, with its badge/note/expression and a
+  reduced-motion-respecting recalculation underline.
 - **The success sentence is a prop the route sets from the receipt**, never
   from a submit — invariant 1 at the surface.
 - **The maps handoff href is built here** over M37's `{kind:"maps", query}`
   fact, because choosing a provider is a platform decision M37 must not make.
 - **A reference field opens SHT-002 from the record form** (F03); a broken
   reference's original key is read straight from `ReferenceCellVm`'s broken
-  variant, never re-derived in the screen.
+  variant, never re-derived in the screen. `ReferenceSearchBody` (F04) takes
+  an optional `selectedIds` for multi-select.
 - **The snapshot viewer never renders workbook markup.** SCR-031 reads only
   M37's normalized cell text, merge ranges and inert anchors (D41); "Find in
   sheet" moves focus via M38's `TextField.inputId`.
+- **F04: filters and sort are sheets over a sticky chip row.**
+  `filter-chips.tsx` scrolls sideways below 900px and wraps at the desktop
+  class; `filter-sheets.tsx` composes SHT-004–008 on `Dialog`; `sort-sheet.tsx`
+  is SHT-009. `records-screen.tsx` shows the match count, a "Clear all
+  filters" action, the STA-014 partial banner, the STA-026 filtered-empty
+  state, and a refusal banner for an invalid filter combination. App home
+  shows "At a glance" only when metrics or a pinned chart actually exist —
+  closing the F02/F03 truthful-absence carry named below.
+  `app-home-screen.tsx` also gains an "Edit structure" link (when `nav.
+  structure` is present) and pinned-chart tiles (mark → filtered records,
+  "View data table" → SCR-033, "Edit chart").
 
-## Known gaps with owners (open at `30396a9`)
+## Known gaps with owners (open at `5bc19fb`)
 
 - **`InlineLink`'s `externalHandoff` still throws** (M38 backlog, unchanged
   since F02) — paging elsewhere (records list) is exercised by unit tests only
   where the demo corpus is smaller than a page.
-- **`AppSessionViewV1` carries no glyph or accent**, so the app home computes
-  its monogram the way M23's `glyphForApp` does. If per-app identity grows
-  (F04's theme editor), promote it into the view model rather than
-  duplicating the rule a third time.
 - **`top: 68px` is a literal** where M39 has no top-bar height token. Owner:
   M39.
 - **CTL-044 (SCR-017's destination radio group) has no M38 wrapper** — still
   composed in-place from React Aria's `RadioGroup`/`Radio` (M43, not M44).
   Recorded once here for cross-reference; the owning gap lives in
   `M38-ui-primitives.md`.
+- **F04: the chart canvas recolours only on the next render after a live
+  scheme flip** (system dark/light toggling mid-session) — carried to the
+  next feature leasing `src/ui/charts/**`.
+- **F04: no add-plain-field surface in SCR-035.** Every new field in this
+  cycle's demo journey is a live calculation; whether an authored, non-
+  computed field needs its own add path is a product/requirements question
+  carried to the GATE-F04 reviewer, not a UI gap in this module.
 
 ## Closed in F03 (were open at `5ab3b07`, resolved here — not re-carried)
 
@@ -133,6 +173,17 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
   is M37's gap, and is recorded as closed there (S08 CP1) — not duplicated
   here.
 
+## Closed in F04 (was open at `30396a9`, resolved here — not re-carried)
+
+- **SCR-024 rendered truthful absence for metrics and charts** because
+  neither existed yet. Closed: S04 (metrics) and S05 (pinned charts) both
+  land in "At a glance", and the absence card now draws only when both are
+  genuinely absent.
+- **`AppSessionViewV1` carried no glyph or accent**, so the app home computed
+  its monogram the way M23's `glyphForApp` does. Closed: S08 lands
+  `accentId`/`glyph` on the view model (see `M37-view-models.md`); this
+  module now reads them rather than re-deriving the rule.
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F02 planning).
@@ -150,36 +201,15 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
   recorded as open (MOD-010's missing deleted-record read, single-table change
   history, unit-only paging) are moved to "Closed in F03" with their closing
   evidence, rather than left standing beside the surfaces that closed them.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M44 Records UI (`src/ui/records/`))
-
-- New:
-  - `filter-chips.tsx`: a sticky chip row that scrolls sideways below 900px and wraps at the desktop class;
-  - `filter-sheets.tsx`: SHT-004–008 on `Dialog`;
-  - `sort-sheet.tsx`: SHT-009;
-  - `computed-value.tsx`: read-only computed value with badge, note and expression, and a recalculation underline that respects reduced motion through the duration tokens.
-- `records-screen.tsx`: chips, match count, "Clear all filters", the STA-014 banner, the STA-026 filtered-empty state, and a refusal banner.
-- Detail and form render computed columns read-only. App home shows "At a glance" only when metrics exist.
-- `ReferenceSearchBody` takes an optional `selectedIds` for multi-select.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M44 records UI — `src/ui/records/`)
-
-- `app-frame.tsx`: `AppArea` gains `"charts"`; `AppNavigation.charts?` adds the "Charts" destination (after the table) → SCR-053. `app-home-screen.tsx`: pinned charts (mark → records filtered, "View data table" → SCR-033, "Edit chart"); the F02 absence card is drawn only when there are no metrics and no pinned chart. `records-screen.tsx`: the heading eyebrow names the chart a mark's filter came from.
-
-<!-- formulas-queries-charts SESSION-06 -->
-### F04 delta — SESSION-06 (M44 — records UI)
-
-- `app-frame.tsx`: `AppArea` += `"structure" | "settings"`; `AppNavigation` += optional `structure`, `settings`. Destinations are now Home · table · Charts · Structure · Settings · All apps (schema.html / app-settings.html rails); Sheet snapshots and Change history left the bar (six destinations keep each 320px target ≥44px) and are reached from SCR-037 and app home. `appSnapshots`/`appHistory` stay in `AppNavigation` (app home and SCR-037 link them).
-- `app-home-screen.tsx`: "Edit structure" link in the "Open a table" section head when `nav.structure` is present (app-home.html).
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M44 app frame — `src/ui/records/app-frame.tsx`, `app-home-screen.tsx`)
-
-- The frame root carries `data-app-mode`, `data-app-density` and `appThemeVariables(...)`. `appThemeStyle` removed. The app-home hero shows the logo (alt = app name) in place of the monogram.
-
-<!-- formulas-queries-charts SESSION-08 CP4 -->
-### F04 delta — SESSION-08 (M44 app frame — `src/ui/records/records.module.css` (CP4, r3))
-
-- The SCR-024 `.hero` paints `--color-chrome` / `--color-chrome-text` (M40 roles): app-ink chrome with app-surface text in light mode, app-surface chrome with app-ink text in dark mode; outside an app theme it falls back to ink-950 / white as before.
+- 2026-09-23 — F04: filters/sort/computed display by SESSION-04
+  (`f736fa8`..`27a2667`); the Charts destination and pinned-chart tiles by
+  SESSION-05 (`6ee204c`..`3dd1d2d`); the Structure/Settings destinations by
+  SESSION-06 (`e7e7fe2`..`7ec391e`); per-app chrome, the logo hero and the
+  `.hero` chrome-role repaint by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): four SESSION deltas
+  folded into Landed scope/Files/Exports/Decisions; the truthful-absence and
+  glyph/accent gaps (open since F02/F03) moved to "Closed in F04" with their
+  closing sessions, rather than left describing a state the current tree no
+  longer has; two new open gaps (chart-recolour timing, no add-plain-field
+  surface) recorded from the Final Report's residual-gaps list so this
+  module's own fragment states its own open questions.

@@ -2,7 +2,7 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / UI feature modules + `specs/design.md`. Reconciled
-> against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+> against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -30,13 +30,17 @@ SCR-021's macro/unsafe refusal detail, SCR-022's per-sheet failure detail,
 SCR-023 rewritten **multi-table** (connections, calculations, sheets &
 snapshots). SCR-043–045 and MOD-034/035 remain F06 (re-upload).
 
+F04 (S07 @ `f9a1565`): SCR-023's review copy grows a **live-structure**
+article per statement kind, on top of the F03 multi-table shape — no new
+screen, no new SCR/MOD id.
+
 ### Exports
 
 - `upload-screen.tsx` → `UploadScreen`, `ChooseAnotherFileButton` (F03: a
   CSV/TSV picker for "table targeting" alongside the workbook flows).
 - `delimited-target-screen.tsx` → `DelimitedTargetScreen`, `formatCount`,
   `describeRowCount`, `describeContradiction`.
-- `workbook-preflight-screen.tsx` (**new, F03**) → SCR-018/019's workbook
+- `workbook-preflight-screen.tsx` (new, F03) → SCR-018/019's workbook
   steps, MOD-004 dialog, the handoff card.
 - `preflight-screens.tsx` → `PreflightFitsScreen`, `PreflightOverBudgetScreen`
   (delimited variants only — the workbook variants live in the new file
@@ -50,9 +54,16 @@ snapshots). SCR-043–045 and MOD-034/035 remain F06 (re-upload).
 - `review-screen.tsx` → `ReviewScreen`, rewritten multi-table (F03):
   connections with Change connection → reject/restore/retarget, Live
   calculations as preserved-not-live, Sheets & snapshots with STA-012 inert
-  items, excluded sheets.
+  items, excluded sheets. **F04 (SESSION-07):** live-structure articles — a
+  computed column carries `ReviewCalculationVm`'s reject/restore/why article; a
+  rebuilt chart carries `ReviewChartVm` (including whether it lands pinned);
+  a converted validation carries `ReviewRuleVm`'s description; the section
+  header states "N formulas keep working" from the exact count; a summary
+  sheet's dashboard values get their own sentence.
 - `review-evidence.tsx` → `EvidenceSheet`, `evidenceTag`, `describeEvidence`,
-  `describeDiagnostic`, `EvidenceVm`, `ImportDiagnosticVm`.
+  `describeDiagnostic`, `EvidenceVm`, `ImportDiagnosticVm`. **F04:** gains the
+  formula-outcome evidence copy (why a formula was translated, kept
+  unsupported, or frozen).
 - `review-edit-dialog.tsx` → `ReviewEditDialog`, `ReviewEditDraftV1`,
   `ReviewEditIntentV1` (F03: now the structural twin of
   `WorkbookReviewEditWireV1`), `FieldTypeVm`, `describeFieldType`,
@@ -64,6 +75,8 @@ Files beyond the F02 plan's table (Custom Rule 7): `import-stages.tsx`,
 `review-evidence.tsx`, `review-edit-dialog.tsx`. F03 adds one more:
 `workbook-preflight-screen.tsx` (SCR-018/019 needed a whole second pre-flight
 family for multi-sheet selection that the delimited screens could not share).
+F04 adds no new file — the live-structure articles are new copy inside the
+existing `review-screen.tsx`/`review-evidence.tsx`.
 
 ## Two type-held facts
 
@@ -80,11 +93,11 @@ family for multi-sheet selection that the delimited screens could not share).
 - **CTL-044 has no M38 wrapper.** SCR-017's destination choice is composed
   from React Aria's `RadioGroup`/`Radio` inside M43. Same for the enum-options
   editor's `TextArea`. Both belong in M38 when a session holds that lease.
-  Unchanged by F03 (see `M38-ui-primitives.md`).
+  Unchanged by F03/F04 (see `M38-ui-primitives.md`).
 - **SCR-020 shows no percentage.** A streamed parse has no truthful
   denominator; F03's per-sheet naming ("Sheet k of n · name · rows committed")
   is a richer determinate fact, still not a percentage — D24 class, unchanged.
-- SHT-014 is F04.
+- SHT-014 belongs to M46 (F04, landed).
 
 ## Change History
 
@@ -106,9 +119,10 @@ family for multi-sheet selection that the delimited screens could not share).
   falling back to "One field, …" when the name is unknown) is recorded inside
   `review-screen.tsx`'s description via the Landed-scope paragraph rather than
   as a separate trailing note.
-
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (pointer)
-
-The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
+- 2026-09-23 — F04: the live-structure review articles landed by SESSION-07
+  (`978bb77`..`f9a1565`) (delta recorded jointly with `M36-workflows.md`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-07 delta
+  folded into "Landed scope" and the `review-screen.tsx`/`review-evidence.tsx`
+  export descriptions, rather than left only as a cross-reference to
+  `M36-workflows.md` — a reader of this fragment alone can now see what F04
+  changed in the module it actually owns.

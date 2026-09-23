@@ -1,7 +1,7 @@
 # M36 — Workflows (`src/application/workflows/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workflows).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns:** Explicit lifecycle state for long operations and destructive gates.
 - **Depends on:** M32 (`workers/protocol/client.js` for
@@ -39,12 +39,14 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   "kind">)`, `proceed({stageId, selectedSheets?})`, `listLibrary()`,
   `listTables({appId})` (F03).
 - `records-services.ts` — `RecordsServices`, `RecordsWorkerPort`,
-  `createRecordsServices(port)`: the F02 ten app commands, plus (F03, S08)
-  nine reads bound verbatim to S03's RPCs — `getRelatedRecords`,
-  `getRelatedChildren`, `searchReferenceCandidates`, `getDeletedRecord`,
-  `listTables`, `listSheetSnapshots`, `getSnapshotPage` (≤ 1,000 rows/page),
-  `findInSnapshot`, `listInertItems`. Each is a straight `port.send({kind,
-  ...})`, with no reshaping. No machine: short-running request/response pairs.
+  `createRecordsServices(port)`: the F02 ten app commands, the nine F03 reads
+  (`getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`,
+  `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`
+  (≤ 1,000 rows/page), `findInSnapshot`, `listInertItems`) bound verbatim to
+  S03's RPCs, and (F04) `getAppStructure`, `getAppMetrics`;
+  `queryRecords`/`getRecord`/etc. now pass `filters`, `sort` and
+  `sortCursor` through. Each is a straight `port.send({kind, ...})`, with no
+  reshaping. No machine: short-running request/response pairs.
 - `import.machine.ts` — `importMachine` plus `ImportInput`, `ImportContext`,
   `ImportEvent`, `PARSER_STOP_TIMEOUT_MS = 5_000`.
 
@@ -90,6 +92,39 @@ before and after the commit and records the new table id.
 `promoting`, `cancelling.{stopping,cleaning}`, `cancelled`, `failing`,
 `failed`, `done` (final).
 
+### F04: schema and theme services (SESSION-06, SESSION-08)
+
+- `schema-services.ts` (new): `SchemaServices {getAppStructure,
+  previewSchemaChange, applySchemaChange}` + `createSchemaServices(port:
+  RecordsWorkerPort)`; typed adapters, no machine; every outcome stays a
+  result.
+- `theme-services.ts` (new): `ThemeServices {listThemePalettes, changeTheme,
+  prepareLogo}`; `createThemeServices(port, codec = browserLogoCodec)`.
+  `LogoCodecPort.toPng(file, maxEdge)` decodes with `createImageBitmap` and
+  re-encodes a PNG ≤ 256 px on an `OffscreenCanvas`. `prepareLogo` refuses
+  types other than PNG/JPEG/WebP, unreadable files, and PNGs over 64 KiB.
+  Wired as `SecurityWiring.theme` → `AppAreaWiring.theme`.
+- `ChartServices` + `createChartServices(port)` (SESSION-05) live in
+  `records-services.ts`, **not** a new `chart-services.ts`: the file-list
+  sweep `tests/unit/workflows/module-boundaries.test.ts` enumerates the
+  directory's files, and adding a file it does not already list is an
+  out-of-lease edit for a session that does not hold that test (the S08
+  precedent, Custom Rule 7). All three of `WORKFLOW_FILES`/`VIEW_MODEL_FILES`
+  additions (`schema-services.ts`, `view-models/schema.ts`, `theme-services.ts`,
+  `view-models/theme.ts`) were pre-issued as a lease addition to S06 and S08
+  before dispatch (the WF-BOUNDARY seam), so neither session was blocked by
+  it — see PROGRAM-CONFIG's lease/boundary-sweep convention.
+
+### F04: import review VM/UI extensions (SESSION-07)
+
+`import.ts` VM gains `ReviewCalculationVm`, `ReviewChartVm` (with
+`isPinned`), `ReviewRuleVm`; `records.ts`'s inert sentences are revised
+(exported types unchanged). `src/ui/import/review-screen.tsx` gains
+calculation articles (reject/restore/why), rule descriptions, an "N formulas
+keep working" count, and dashboard-sheet copy; `review-evidence.tsx` gains
+formula-outcome evidence copy. (Both files are M43's; recorded here because
+the delta landed jointly with M36's own CA-33/live-structure work.)
+
 ## Contracts worth recording
 
 - **Secret hygiene is structural.** A secret lives in a machine's `draft`
@@ -114,9 +149,10 @@ before and after the commit and records the new table id.
 - **The M37 error-kind seam is cleared without widening
   `DataWorkerErrorKindV1`.** Every mutating stage call is gated on
   `getImportStage` first; a `null` stage becomes `failure: "stage-missing"`,
-  never the data worker's `integrity` kind. Unchanged by F03; the F03 workbook
-  stage calls (`runInference`/`applyReviewEdit`/`promoteImport`) are gated
-  the same way.
+  never the data worker's `integrity` kind. Unchanged by F03/F04; the F03
+  workbook stage calls and F04's schema/chart/theme services are all
+  request/response pairs outside the machine, so they never touch this seam
+  at all.
 - **A typed promotion rejection returns to `reviewing`, not to `failed`.**
 - **The source file is never retained in context.**
 - **The target screen's names enter the proposal as review edits.**
@@ -126,14 +162,16 @@ Each F02 contract above ships with a non-vacuous negative control in
 `tests/unit/workflows/import.machine.test.ts`; the cancel-ordering suite (6
 cases) was verified to fail 5 of 6 against the pre-correction F02 machine.
 F03's rewrite kept every one of these tests green while replacing the
-single-table shape underneath them.
+single-table shape underneath them. F04 added no machine states — every F04
+surface (structure, charts, theme) is request/response services plus route
+hooks, not a new XState machine.
 
 ## Known gaps with owners
 
 - `recoveryMachine` exposes `retryAfterMs` but has **no ticking countdown
   actor** — the countdown is `unlockMachine`'s only. Owner: the next session
   that touches the unlock/recovery machines (F05's vault-recovery work at the
-  latest). Unchanged by F03 (F03 touched no recovery flow).
+  latest). Unchanged by F03/F04 (neither touched the recovery machine).
 - `PARSER_STOP_TIMEOUT_MS = 5_000` remains a fixed bound; F03 measured real
   xlsx cancel latency (13.5–17.9 ms) and left it unchanged rather than tuning
   it — ~280× headroom, not a defect.
@@ -160,30 +198,17 @@ single-table shape underneath them.
   of the machine as it now stands, per Principle 2 ("the head contract is the
   authoritative statement; a delta that supersedes it is folded in, not left
   below it").
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M36 Records services)
-
-- `queryRecords` passes `filters`, `sort` and `sortCursor` through.
-- New `getAppStructure({appId})` and `getAppMetrics({appId})`.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M36 workflows — `src/application/workflows/records-services.ts`)
-
-- `ChartServices` + `createChartServices(port)` live here (not in a new `chart-services.ts`): `tests/unit/workflows/module-boundaries.test.ts` enumerates the directory's files and is outside S05's lease (Custom Rule 7, the S08 precedent).
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (M36 / M37 / M43 — view-models and UI (import review))
-
-- `import.ts` VM: `ReviewCalculationVm`, `ReviewChartVm` (with `isPinned`), `ReviewRuleVm`. `records.ts` inert sentences revised (exported types unchanged).
-- `src/ui/import/review-screen.tsx`: calculation articles (reject/restore/why), rule descriptions, "N formulas keep working" count, dashboard sheet copy. `review-evidence.tsx`: formula-outcome evidence copy.
-
-<!-- formulas-queries-charts SESSION-06 -->
-### F04 delta — SESSION-06 (M36 — workflows (`src/application/workflows/schema-services.ts`) — new file)
-
-- `SchemaServices {getAppStructure, previewSchemaChange, applySchemaChange}` + `createSchemaServices(port: RecordsWorkerPort)`; typed adapters, no machine; every outcome stays a result. Registered in `WORKFLOW_FILES`.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M36 workflows — `src/application/workflows/theme-services.ts` (new))
-
-- `ThemeServices {listThemePalettes, changeTheme, prepareLogo}`; `createThemeServices(port, codec = browserLogoCodec)`. `LogoCodecPort.toPng(file, maxEdge)` decodes with `createImageBitmap` and re-encodes a PNG ≤ 256 px on an `OffscreenCanvas`. `prepareLogo` refuses types other than PNG/JPEG/WebP, unreadable files, and PNGs over 64 KiB. Wired as `SecurityWiring.theme` → `AppAreaWiring.theme`.
+- 2026-09-23 — F04: `records-services.ts`'s `queryRecords` filter/sort pass-
+  through and `getAppStructure`/`getAppMetrics` by SESSION-04
+  (`f736fa8`..`27a2667`); `ChartServices` (in `records-services.ts`, per
+  Custom Rule 7) by SESSION-05 (`6ee204c`..`3dd1d2d`); the import review
+  VM/UI copy by SESSION-07 (`978bb77`..`f9a1565`); `schema-services.ts` by
+  SESSION-06 (`e7e7fe2`..`7ec391e`); `theme-services.ts` by SESSION-08
+  (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): five SESSION deltas
+  folded into "Landed exports" (a new F04 subsection) and "Contracts worth
+  recording"; the WF-BOUNDARY lease seam recorded as successfully pre-empted
+  (zero sessions blocked), which is the positive counterpart to S04's
+  `projection-port.test.ts`/`commands/fakes.ts` seam recorded in
+  `M07-ports.md` and `M35-queries.md` — see PROGRAM-CONFIG's Conventions for
+  both.

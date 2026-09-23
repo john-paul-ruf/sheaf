@@ -1255,3 +1255,348 @@ its scope (CL-03/CL-05) is unchanged in status, only unmeasured this pass.
   verified, re-slice anything, or turn a finding into a mid-run human prompt.
   GATE-F03 remains ACTIVE and the human's, unchanged by this pass.
 
+
+## 2026-09-23 — final pass, cycle **F04 / formulas-queries-charts**
+
+Base `21946c7` (F04 planning revision), final `1e4707e` (final-report commit;
+code ≡ `5bc19fb`). Read in full before writing: `FINAL-REPORT.md`
+(`prompts/formulas-queries-charts/`); `STATE.md` end to end (1,751 lines, all
+eight session handoffs plus three owner corrections and two design fills,
+Capability Readiness, Contract Agreements, Current Blockers, Design Decisions
+D49–D65, the Wave Plan and Dependency Graph, Inherited obligations); all
+twenty-six touched `arch/` fragments plus the two new-module fragments
+(M45, M46) — every one read in full, not skimmed; `PROGRAM-CONFIG.md`; this
+log's F01, F02-interim, F02-final, F03-planning-completeness and F03-final
+entries; `program-agents/ORCHESTRATOR.md` and `program-agents/PLANNER.md`
+(read for Principle 3 adoption checks, grepped for specific evidence).
+Spot-checked against the tree, not taken on a session's word: `chart.js`'s
+installed version and `@kurkle/color`'s transitive pin (`package.json`,
+`pnpm-lock.yaml`), `mocks/charts.html`'s existence, `specs/design.md`'s
+"Built-in app palettes"/"System semantics in dark mode"/SCR-053 sections,
+`src/ui/charts/`'s and `src/ui/schema/`'s file lists, `git diff --stat` for
+the whole feature (146 files, +28,515/-899) and for `src/ui/primitives/`
+specifically (zero lines — see the M38 finding below), and `git log --oneline`
+across the full commit range against STATE.md's own commit citations.
+
+### Verdict on the cycle
+
+Eight Planner sessions, thirty-one planned checkpoints, three owner
+corrections, two design fills, one planning-completeness Archivist pass —
+zero sessions ended blocked at final receive (four blocked returns were
+cleared by same-context resume, matching STATE.md's own account). Nine of
+eleven in-scope capabilities are verified through the real entry; the other
+two (CAP-32/33 canvas click, CAP-31 device-level partial) have named,
+approved partial coverage with the gap stated, not hidden. All of CAP-28
+through CAP-38 read **verified** against current sources at `5bc19fb`,
+each citing its own commit and test file — none found stale on inspection.
+The feature now halts at GATE-F04, a standing human product-design gate;
+nothing here changes that.
+
+### Drift found and reconciled (`arch/`)
+
+Twenty-six fragments touched by F04 deltas (two new-module fragments seeded
+at planning — M45, M46 — plus twenty-four extended fragments), all
+reconciled: every `<!-- formulas-queries-charts SESSION-NN -->` /
+`<!-- formulas-queries-charts OWNER-* -->` marker folded into its head
+contract and removed (verified by `grep -rl "<!--" arch/` returning
+nothing). Four were substantive rather than cosmetic:
+
+1. **`M38-ui-primitives.md` carried a delta that was never about M38.** A
+   correction landing at S06 lease r2 (CP4a `3b7ecfa` — the Text → Choice
+   list named-choices editor and its rule-sentence copy) names six modules
+   in its own text: M02, M32, M33, M34, M37, M46. It was staple-appended a
+   **seventh** time, to `M38-ui-primitives.md`, under a bare `## Lease r2`
+   heading with no primitives content at all. `git diff --stat
+   237732e..5bc19fb -- src/ui/primitives` confirms zero lines changed in
+   that directory across the whole feature — the misfile carried no real
+   M38 content to lose. Of the six rightful homes, four (M02, M32, M33,
+   M34) already held the delta independently; the two that did not — M37
+   (the `toIssueVm`/rule-sentence copy) and M46 (the `field-editor.tsx`
+   named-choices UI) — were each missing exactly the part of the correction
+   their own module actually needed. Moved: the misfiled M38 copy removed,
+   its content split into M37 and M46 where it belonged, and the move
+   recorded in all three fragments' Change Histories and in
+   `PROGRAM-CONFIG.md`'s fragment-reconciliation note. This is the first
+   "delta describing another module" instance since F02 (id
+   `f823e9a910b0a671` in the standing ledger, below).
+2. **`M03-formulas.md`'s head contract had been fully superseded by its own
+   delta and not yet folded in.** The seeded head (F03 planning) stated "F03
+   builds only the parser and reference-extraction subset (D34); the IR,
+   catalog, graph and evaluator are F04's" as the *current* contract, with
+   the SESSION-01 delta appended below describing the landed full engine.
+   A reader taking the fragment top-down would still believe the module is
+   a parser subset. Rewritten so the Contract/Landed-surface sections state
+   the full engine as the module's current shape, with the parser/IR/
+   catalog/evaluator/graph/disposition each under its own heading, and the
+   D34 supersession recorded once in Change History rather than left as a
+   contradiction between the file's own head and its own delta (id
+   `3ddf907567cd76e6`).
+3. **`M01-domain-model.md` and `M12-projection.md` each still recorded the
+   `schema_fields` currency-code gap as open**, carried through F02 and F03
+   close, even though PROGRAM-CONFIG's own F04 planning note already
+   recorded it as disproved (not a schema defect — the code lives in the
+   encrypted field definition and the projection's per-session cache) and
+   S03 CP1 closed it by wiring the cache to refresh on `field.changed`.
+   Both fragments moved the gap to a "Closed in F04" section naming the
+   disproof and the closing commit, rather than leaving a reader of either
+   module's own fragment believing a defect stands that the program's own
+   planning note already retired.
+4. **`M37-view-models.md` and `M44-ui-records.md` each carried F02/F03-open
+   gaps that F04 closed without a return trip through the fragment**: M37's
+   "`AppSessionViewV1` carries no glyph or accent" (closed by S08),
+   "`AppHomeVm` has no metrics or chart field" (closed by S04/S05),
+   "`RecordsListVm` has no match-count field" (closed by S04); M44's
+   truthful-absence card and the same glyph/accent gap. Both fragments
+   gained a "Closed in F04" section with the closing session and commit,
+   matching the shape Roshi established at the F02 and F03 final passes for
+   exactly this class of drift.
+
+Everything else was merge-and-normalize: session-level facts folded into the
+section that owns them (M07/M12/M32/M33/M34/M35/M36's F04 additions,
+M15/M21/M23/M65's live-structure work, M40/M42/M44/M54's per-app-identity
+work), each fragment's Change History extended with its F04 landing and
+reconciliation lines. `PROGRAM-CONFIG.md`: added the F04 landed-modules
+table (two new modules, twenty-three extended, sixteen unchanged,
+git-verified at `5bc19fb`); corrected the Stack table's Charts row to
+`Chart.js 4.5.1` exact + `@kurkle/color` 0.3.4 (verified in
+`pnpm-lock.yaml`) and the Formula-engine row to landed; extended the
+fragment-reconciliation note and the "delta describing another module" note
+with the M38→M37/M46 move (finding 1, above); extended Custom Rule 7 with
+F04's continuing mirror-case evidence (the planned `view-models/charts.ts`
+folded into `records.ts`); updated Custom Rule 8's gate status to F04 done,
+GATE-F04 awaiting the human verdict; added a new Verification-Commands
+Archivist note (not an edit — outside this charter) recording F04's final
+numbers and that the table itself is now stale again, per its own
+supersession rule, exactly as at F02→F03 and F03→F04's own planning
+reconciliation.
+
+### Findings reconciled outside `arch/` (reported to Orchestrator, not edited)
+
+None found this pass. Every Contract Agreement row (CA-25 through CA-33,
+CA-07 am.4) and every Capability Readiness row (CAP-28 through CAP-38)
+already names its landing commit and current status — no `Producer: planned`
+or `Status: planned` cell survives a landed producer or a passed acceptance
+assertion, corroborating the adopted recommendation `b06241fe8526baa2`
+(below) for the second cycle running with zero recurrence found. The
+Dependency Graph's serial-handoff lines each name their paired test
+directory, corroborating `1f54dec2254e8f15`'s practiced-but-unadopted status
+(also below). No stale ledger summary found in Capability Readiness or
+Current Blockers against the tree at `5bc19fb`.
+
+### Conventions promoted to PROGRAM-CONFIG (Vow 4)
+
+**One, crossing Vow 4's in-cycle axis (three distinct instances inside one
+feature cycle):**
+
+- id `ed1f65d3f1c1e905` **"A payload cached by the projection (M12) and
+  sealed by staging (M23) is the same durable fact encoded twice; a version
+  change must lease both."** M12 cannot import M23, so three F04 payload
+  types are each encoded once in M23's `roots.ts` (the durable checkpoint
+  root) and once more in M12's own `cbor-values.ts` (the in-memory session
+  cache): rule IR, chart definitions, and theme v2. **Three in-cycle
+  instances:** rule IR shipped correctly (both copies landed together);
+  chart definitions were protected *proactively* (S05 pinned
+  `cbor-values.ts#encodeChartDefinition` byte-identical to M23's codec
+  before either could drift); theme v2 was **not** protected proactively
+  and broke — S08's first attempt shipped a `cbor-values.ts` still encoding
+  only the v1 shape, so "keep the logo" silently dropped it, caught only by
+  a fail-before counterexample after the fact, forcing a lease revision.
+  Promoted at this pass, not deferred, per Principle 4: the threshold is
+  met now and the pattern's clearest instance (the one that broke) has
+  already happened — there is nothing to wait for. Full evidence and the
+  file-by-file detail live in `M12-projection.md`'s new "Duplicate codecs"
+  section.
+
+**Considered and declined, stated rather than left to silence:** the Final
+Report's own Granularity-feedback bullet, "Exhaustive-list test pins recur
+as lease seams" (naming `projection-port.test.ts`, `commands/fakes.ts`,
+`workflows/module-boundaries.test.ts`, `record-event-payloads.test.ts`'s TAIL
+list, `workers/module-boundaries.test.ts`), is **not** minted as a third,
+separate standing-recommendation row. Every one of its five named files is a
+concrete instance of one of two *already-promoted* conventions — the closed-
+union-and-exhaustive-map rule (`d7d81c3b2cf8e9c9`: `projection-port.test.ts`,
+`commands/fakes.ts`, the TAIL list) or the lease/boundary-sweep rule
+(`b73d9bab7c196038`: the `module-boundaries.test.ts` file lists) — read
+narrowly enough to name a TS union and broadly enough to name a directory
+sweep, but not a third shape. Recording it separately would fork one
+underlying mechanism into three rows a reader has to reconcile by hand. The
+Final Report's evidence is folded into both existing rows' instance counts
+instead (below), which is where a future Planner reading the standing
+ledger will actually find it.
+
+### Proposed for the framework (Vow 3 — recommendations only, never edits)
+
+Adoption checked by **reading the current text** of `program-agents/
+ORCHESTRATOR.md` and `program-agents/PLANNER.md` (this program's copies) and
+grepping for the specific substance each recommendation names, not by
+observing that Archivist did not write them. These files remain untracked in
+this repository (`git log` on them returns nothing), so adoption is a claim
+about the human's action based on content read at this pass, exactly as
+every prior pass recorded it.
+
+**Still adopted, re-confirmed:**
+
+- id `b06241fe8526baa2` **"Landed proof legs left in STATE's `planned:` list
+  at receive."** `ORCHESTRATOR.md:351`'s CA/CAP status invariant is
+  unchanged. **F04 is the second cycle of corroborating evidence**: zero
+  stale `planned:` cells found across nine CA rows and eleven CAP rows (see
+  "Findings reconciled outside `arch/`", above).
+- id `3261d808a9c412da` **"Verification Commands has no post-baseline
+  maintainer."** The rule text at the top of that section is unchanged and
+  still fires correctly: this pass added the third consecutive Archivist
+  note there (F02→F03, F03→F04-planning, now F04-final), each pointing the
+  next reconciler at the current STATE.md baseline without editing the
+  table itself. The table is a maintenance surface that needs a note every
+  cycle by design, not a defect recurring.
+
+**Still open, re-checked and re-raised:**
+
+1. id `442cb40af6e1a830` **"No interim drift check scheduled below 16
+   sessions."** `ORCHESTRATOR.md:725-726` is unchanged: *"1-15 sessions: no
+   additional interim drift checks by default."* F04 ran 8 sessions and got
+   **no** interim drift check and, unlike F01/F02, no ad-hoc mitigation
+   either (matching F03's own gap). This pass then found two fragments
+   (M38's misfile, M03's stale head-contract framing) that sat undetected
+   for the run's full ~7.5 hours — the exact shape an interim check would
+   have caught mid-run. **4 cycles, 2 new in-cycle instances** (21 total
+   across F01–F04). The pattern is not weakening, and F03's and F04's
+   consecutive zero-mitigation cycles are themselves worth naming as a
+   sub-pattern: the "no additional check by default" clause has now gone
+   two cycles running with no human or Orchestrator override at all.
+2. id `f1442f23b7f0949d` **"Archivist's envelope write set omits the
+   cleanup ledger `ARCHIVIST.md` requires it to own."** The final-pass
+   envelope template in `ORCHESTRATOR.md`'s "Calling Archivist" section
+   still lists exactly `STATE.md`, `arch/`, `PROGRAM-CONFIG.md`,
+   `ARCHIVIST-LOG.md` — no `CLEANUP-LEDGER.md`. Resolved conservatively a
+   fifth time: this pass's cleanup findings are carried inside this entry
+   (below), and no file named `program/sheaf/CLEANUP-LEDGER.md` exists on
+   disk. **4 cycles, 5 instances** (one per final/near-final pass that has
+   had to work around it).
+3. id `1f54dec2254e8f15` **"A declared serial-lease-handoff line for a
+   source directory should name its paired test-directory handoff"**
+   (`PLANNER.md`). Text unchanged; `git log` on the file returns nothing.
+   **Practiced correctly in F04 without the document being amended**: every
+   line in STATE.md's Dependency Graph under "Serial lease handoffs" names
+   its paired test directory (`src/persistence/projection/**` +
+   `tests/unit/projection/**` + `tests/browser/projection/**` +
+   `tests/property/projection/**`, and so on for every other row). Zero new
+   gap instances — positive behavioral corroboration that the recommended
+   practice works, but the document itself is still the human's to amend if
+   the practice is to survive a Planner who has not read this log.
+4. id `1c51a85390a3f964` **"A rule a concurrently-dispatched sibling
+   discovers mid-run has no channel to reach another concurrently-dispatched
+   sibling."** Text unchanged. F04's own plan explicitly designed around
+   this risk (STATE.md's Inherited-obligations table: "the only concurrent
+   pairs are S01∥S02 (no shared vocabulary) and S06∥S07 (S06 consumes S03's
+   stable RPCs, not S07's)"), and it held — zero new instances. Same
+   disposition as item 3: practiced, not adopted as text.
+
+**New this pass:**
+
+5. **NEW — id `242f2bb3c9d6af33`.** `PLANNER.md`: a checkpoint's seed
+   instruction should name the exact producing function a session must
+   call when it is reusing an already-proven pattern, not only the file or
+   fixture it lives in. The F04 planning-completeness pass (this log,
+   2026-09-23, before wave 1) found S03 CP4's seed step named only a
+   fixture path; the concrete correction named the exact function chain
+   (`installFixture` → `runWorkbookImport` → `promoteImport`) already
+   proven in a read-only reference spec. Caught and corrected before
+   dispatch, at zero cost — but it is the second time in two cycles a
+   planning-completeness pass has had to add a function name a checkpoint's
+   own seed instruction should have carried the first time (F03's
+   planning-completeness pass found a comparable gap in a different shape,
+   the paired-test-directory omission, id `1f54dec2254e8f15`). **1 cycle
+   (F04), 1 instance**, recorded now per Vow 3's no-threshold rule.
+6. **NEW — id `abf5cf9b579e46b5`.** `CODER.md` / `PLANNER.md`: a worker-tier
+   proving assertion should require an exact count, not an inequality, at
+   the first checkpoint that proves a capability. S03 CP4's first narrow
+   journey used a `≥` assertion where an exact count was available and
+   would have failed; that weak assertion **masked** the M02 rule-identity
+   defect (`validate-record.ts`'s `valueOf` matching field ids by object
+   identity, so separately-decoded rule ids never matched) all the way
+   through S06's real-entry checkpoint, where it was finally caught and
+   required an owner correction (OWNER-M02-RULE-IDENTITY, `c6ed8dd`) to
+   close. The defect existed from S01; the weak assertion is why it
+   survived two full sessions of green checkpoints before being found. **1
+   cycle (F04), 1 instance** — but it is exactly the class of gap Principle
+   4 says to record immediately rather than wait for a second occurrence,
+   because the next feature's first narrow journey is where this can recur.
+
+### Cleanup scout (read-only; nothing deleted, nothing rewritten)
+
+| ID | Finding | Evidence at `5bc19fb` | Confidence | Blast radius | Proposed check | Status |
+|---|---|---|---|---|---|---|
+| CL-02 | `tests/browser/fixtures/smoke.module.css` proves a **unit**-runner setting from the browser fixtures dir | Still present; no F04 session touched `tests/browser/fixtures/**` | medium | one fixture + one include glob | relocate, then `pnpm test` | tracking (unchanged) |
+| CL-03 | F01 value exports with no consumer (~17 at F02 close) | **Not re-scanned a third consecutive pass** — a full whole-word grep across `src/`+`tests/` was not repeated this pass either; not re-derived without doing the check. Noting the pattern itself: three final passes in a row without the promised rescan is worth a future pass actually doing it, not carrying it a fourth time on faith | low | none today | do the rescan at F05 planning, not carry a fourth time unchecked | tracking (unchanged, now three cycles stale) |
+| CL-05 | Exported-but-unconsumed value surface growing (92 symbols at F02 close) | **Not re-scanned this pass** — F04 added a large new surface (M03's full engine, M45, M46) that a fresh scan would need to classify; not re-derived without doing the check | low | none today | re-scan at F05 planning per the standing brief ("Prove or name every unconsumed export") | tracking (unchanged; likely larger, not measured) |
+| CL-06 | Chart.js dead timeseries/log-scale classes remain bundle-reachable though no chart type uses them | Recorded by S05 itself (`M45-ui-charts.md` "Known gaps") and by the Final Report's residual-gaps list; only the needed controllers/elements/scales are *registered* (proven by CP0's probe), but the unused classes are still importable from the `chart.js` package and were not excluded from the bundle | medium | bundle size only, no behavior | measure the actual dead-code delta with a bundle analyzer before proposing an exclusion | tracking (new) |
+
+No campaign crosses a briefing threshold this pass (one new low-blast-radius
+item, two unchanged trackers, one unchanged tracker flagged for its own
+staleness). **No new cleanup brief emitted.** The standing F02/F03 brief
+("Prove or name every unconsumed export") remains open and unaccepted; its
+scope (CL-03/CL-05) is unchanged in status, only unmeasured across three
+consecutive passes now.
+
+### Standing recommendations (full open backlog — carried forward from here)
+
+| id | pattern | cycles | in-cycle instances | first seen | status |
+| --- | --- | ---: | ---: | --- | --- |
+| `27bf4a350ec2f23c` | A dependency must-not ships as a test, not a review note | 4 | 5(F01)+3(F02)+5(F03)+3(F04) | F01 | promoted → PROGRAM-CONFIG Conventions |
+| `33dba11758afa4e2` | Encode a must-not as a type or a runtime throw | 4 | 5(F01)+8(F02)+3(F03)+2(F04) | F01 | promoted → PROGRAM-CONFIG Conventions |
+| `3e30962a53a57c2f` | Test filters take no bare `--` | 1 | 3 | F01 | promoted → PROGRAM-CONFIG Conventions; no F02/F03/F04 instance |
+| `f279893d1ad0a40d` | `Owns` authoritative, Files table indicative | 4 | 7(F01)+9(F02)+12+(F03)+1(F04) | F01 | promoted → Custom Rule 7; F04's continuing mirror-direction instance recorded |
+| `3ddf907567cd76e6` | Arch fragment head contract superseded by its own delta | 4 | 4(F01)+6(F02)+6(F03)+1(F04) | F01 | promoted → fragment policy; still firing each cycle (M03, F04) |
+| `b73d9bab7c196038` | Lease or boundary sweep drawn over the wrong tree | 2 | 3(F02) | F01 | promoted at F02 interim → PROGRAM-CONFIG Conventions; held — 0 new instances F03 or F04 |
+| `d7d81c3b2cf8e9c9` | Closed union and its exhaustive map split across leases | 2 | 3(F02)+0(F03)+4(F04) | F02 | promoted → PROGRAM-CONFIG Conventions; F04 mixed result — one blocked (S04), three pre-empted after (S05, S06, S08) |
+| `f823e9a910b0a671` | A delta describing another module | 3 | 4(F01)+4(F02)+0(F03)+1(F04) | F01 | promoted → fragment policy; new F04 instance (M38→M37/M46), see Drift-found above |
+| `442cb40af6e1a830` | No interim drift check scheduled below 16 sessions | 4 | 4(F01)+10(F02)+5(F03)+2(F04) | F01 | open (Vow 3 → ORCHESTRATOR.md); two cycles running with zero mitigation (F03, F04) |
+| `f1442f23b7f0949d` | Archivist envelope write set omits the cleanup ledger it is asked to own | 4 | 1(F01)+2(F02)+1(F03)+1(F04) | F01 | open (Vow 3 → ORCHESTRATOR.md) |
+| `b06241fe8526baa2` | Landed proof legs left in STATE's `planned:` list at receive | 1 | 13 | F02 | **adopted** — ORCHESTRATOR.md's receive step 7 CA/CAP status invariant; F04 shows zero recurrence for the second cycle running |
+| `b027c25ef168decb` | STATE table rows that lose a cell go unnoticed | 1 | 6 | F02 | open (Vow 3 → ORCHESTRATOR.md); no new instance found in F03 or F04 (not exhaustively checked either time) |
+| `06e04ece038e736d` | A module no session leased has no route into its own fragment | 1 | 6 | F02 | open (Vow 3 → ORCHESTRATOR.md); 0 new instances F03 or F04 (M45/M46 both seeded and leased correctly) |
+| `3261d808a9c412da` | FORGE-CONFIG Verification Commands has no post-baseline maintainer | 1 | 2 | F01 | adopted (rule + supersession text exist); third consecutive cycle of the expected maintenance note, not a recurrence of the original gap |
+| `1a8974acd0d1350e` | Checkpoint boundary blur: capability bodies and proofs split across checkpoints | 2 | 2(F01)+0(F02) | F01 | retired — settled negative at F02; no F03 or F04 instance either (32+31+35 checkpoints across three cycles, no sizing failure) |
+| `26e3bdf9a1e6dd6f` | Authorized contract change breaks a consumer outside the lease | 1 | 1 | F02 | not proposed — substance already present in the role docs |
+| `6fdb29d40829b4ec` | Files staged in the shared index from outside any lease | 1 | 3 | F01 | retired as an agent concern (environmental, proven F01); do not re-raise |
+| `1f54dec2254e8f15` | A declared serial-lease-handoff line for a source directory should name its paired test-directory handoff | 1 | 4 | F03 | open (Vow 3 → PLANNER.md); practiced correctly in F04 with 0 new gap instances — see Findings-outside-arch, above |
+| `1c51a85390a3f964` | A rule a concurrently-dispatched sibling session discovers mid-run has no channel to reach another concurrently-dispatched sibling building against the same shared fact vocabulary | 1 | 1 | F03 | open (Vow 3 → PLANNER.md); mitigated in F04's own plan, 0 new instances |
+| `ed1f65d3f1c1e905` | A payload cached by the projection (M12) and sealed by staging (M23) is the same durable fact encoded twice; a version change must lease both | 1 | 3 | F04 | **promoted → PROGRAM-CONFIG Conventions** (this pass) |
+| `242f2bb3c9d6af33` | A checkpoint's seed instruction should name the exact producing function, not just the file | 1 | 1 | F04 | open (Vow 3 → PLANNER.md) |
+| `abf5cf9b579e46b5` | A worker-tier proving assertion requires exact counts, not an inequality, at the first checkpoint that proves a capability | 1 | 1 | F04 | open (Vow 3 → CODER.md / PLANNER.md) |
+
+### Verification of this pass
+
+- Every claim above traces to `git`/`STATE.md`/the Final Report/a line of
+  source read at `5bc19fb`, or a grep re-run at this pass (the `chart.js`/
+  `@kurkle/color` pin, the `mocks/charts.html` and `specs/design.md` section
+  checks, the `M38`/`M37`/`M46` lease-r2 distribution, and the `git diff
+  --stat` module-touch confirmation were each executed fresh, not taken from
+  a session's own report).
+- Fragments re-read after writing. Twenty-six fragments touched (all
+  reconciled), sixteen untouched (`M08-crypto`, `M09-codecs`,
+  `M11-envelope-store`, `M13-import-source`, `M14-preflight`, `M16-xlsb`,
+  `M17-biff`, `M18-ods`, `M19-delimited`, `M20-html-table`, `M22-snapshots`,
+  `M41-ui-security`, `M50-config`, `M51-platform`, `M53-bootstrap`,
+  `M55-entry` — confirmed by their own absence from `grep -rl
+  formulas-queries-charts arch/` before this pass's edits, out of
+  forty-two fragments that exist on disk today), zero remaining
+  `<!-- formulas-queries-charts ... -->` markers (`grep -rl "<!--" arch/`
+  confirms), one `## Change History` section per touched fragment, no
+  fragment contradicting a sibling — cross-checked in particular for
+  M12/M23 (the new duplicate-codecs contract, described once in M12 and
+  cross-referenced, not restated, from M23), M32/M37 (the closed-union
+  contract's F04 evidence), and M36/M43 (the live-structure review copy,
+  described once in M43's own fragment rather than only cross-referenced),
+  which each now agree.
+- `program-agents/PLANNER.md`, `CODER.md`, `UI-CODER.md`, `ORCHESTRATOR.md`
+  byte-identical to how this pass found them — verified by reading them
+  read-only and never invoking a write tool against `program-agents/**`.
+  Read for adoption via targeted `grep`, which is how the two "adopted" rows
+  were re-confirmed and the four "open" rows were not.
+- `STATE.md`, `MASTER.md`, session prompts, `specs/`, `mocks/`, `src/**`,
+  `tests/**` and the run folder untouched. Only `arch/**` (26 files),
+  `PROGRAM-CONFIG.md`, and this log entry were written.
+- Archivist did not choose product behavior, clear dispatch, mark evidence
+  verified, re-slice anything, or turn a finding into a mid-run human
+  prompt. GATE-F04 remains ACTIVE and the human's, unchanged by this pass.

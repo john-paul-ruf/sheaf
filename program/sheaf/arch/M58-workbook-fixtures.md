@@ -1,7 +1,7 @@
 # M58 — Workbook fixtures (`tests/fixtures/workbooks/`)
 
 > Fragment created by Roshi at the F02 final pass. Reconciled against the tree
-> at `425562d` (F03 final; code ≡ `30396a9`).
+> at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -12,8 +12,11 @@
   F02's S04 hit this and built synthetic in-page fixtures for its volume cases
   instead. F03 avoided a repeat: S01's `tests/fixtures/workbooks/build/`
   generator toolkit was planned into S01's own lease and reused *unmodified*
-  by S02/S04/S05 through its exported helpers, rather than each format's
-  session needing its own corpus lease.
+  by S02/S04/S05 through its exported helpers. **F04 continued the pattern
+  without incident**: S02 extended `ooxml-builder.ts` (its own F03-owned
+  fixture-building lease) to add chart/pivot specs, and every later F04
+  session that needed a chart-bearing fixture (S05, S07) read S02's corpus
+  rather than building a second one.
 
 ## Byte fidelity (`.gitattributes`)
 
@@ -64,7 +67,27 @@ encoding cases.
 - **`append/`** (SESSION-06): `over-segment.ts` (the D38 append-too-large
   fixture generator).
 
-## Tests grown in F03
+## F04 corpus (charts, pivots, live formulas)
+
+- **`ooxml/` extended (SESSION-02):** `ooxml-builder.ts` gains `ChartSpec
+  extends AnchorSpec {type?, barDir?, grouping?, title?, series?:
+  ChartSeriesSpec[]}` with `ChartSeriesSpec {name?, nameRef?, cat?, val?, x?,
+  y?}` (no `type` → the part keeps F03's empty `c:chart` bytes) and
+  `PivotSpec {name, ref, cache?: {fields, source: {sheet, ref} | {name},
+  rowFields?, colFields?, dataFields?: {name, fld, subtotal?}[]}}` (no
+  `cache` → the parts stay F03's bare shells). New fixture `ooxml/charts.xlsx`
+  (nine charts: clustered/stacked/percentStacked bars, line, pie, doughnut,
+  scatter, area, and a series spanning two sheets); `ooxml/pivot-table.xlsx`
+  (a real cache over `Data!A1:B4`, sum-by-default + count, at
+  `Summary!A3:C5`); `ooxml/fieldwork-q3.xlsx`'s Overview chart becomes a real
+  clustered column chart, "Quoted by status" (name `Jobs!$E$1`, cat
+  `Jobs!$D$2:$D$61`, val `Jobs!$E$2:$E$61`). Every `DEMO_*` pin is unchanged.
+- **`ooxml/formulas-live.xlsx`** (SESSION-07): the GATE-F04 demo's live-
+  formula import fixture. `demo-counts.ts` exports
+  `DEMO_LIVE_STRUCTURE_STATEMENTS`. `tests/browser/worker/workbook-roots.ts`
+  exposes the formulas, charts and computedFields roots.
+
+## Tests grown in F03/F04
 
 `tests/unit/import/ods/{corpus,inventory,parse}.test.ts`,
 `tests/unit/import/html-table/{corpus,inventory,parse}.test.ts`,
@@ -72,12 +95,17 @@ encoding cases.
 `tests/unit/staging/{fact-codec,promotion,append}.test.ts`,
 `workbook-streams.ts` (real adapter streams via the registry);
 `tests/unit/workers/parse-session.test.ts`; `fakes.ts`'s `FakeCrypto` now pads
-to real v1 buckets (SESSION-06). Browser:
+to real v1 buckets (SESSION-06, F03). Browser:
 `tests/browser/worker/{workbook-staging,workbook-journey}.spec.ts`,
 `workbook-runtime.ts` (`runWorkbookImport`, `installBytes`, `zipEntryLayout`,
 `corruptZipEntryCrc`), `workbook-roots.ts` (`readWorkbookRoots`: every root
-from raw IndexedDB, every digest recomputed) (SESSION-06). `runtime.ts`'s
+from raw IndexedDB, every digest recomputed) (SESSION-06, F03). `runtime.ts`'s
 checkpoint digest now goes through `checkpointSemanticBody`.
+
+F04 grew `tests/unit/import/ooxml/{charts,pivots}.test.ts` (S02),
+`tests/unit/import/facts/workbook-facts.test.ts` and
+`tests/unit/staging/fact-codec.test.ts` (chart/pivot definition round-trip,
+S02), and the browser worker fixtures named above (S07).
 
 ## Change History
 
@@ -95,19 +123,10 @@ checkpoint digest now goes through `checkpointSemanticBody`.
   F02 workaround note extended with F03's actual precedent (a shared,
   planned-for-reuse toolkit) as evidence the rule is being followed, not just
   cited.
-
-<!-- formulas-queries-charts SESSION-02 -->
-### F04 delta — SESSION-02 (M58 — fixtures)
-
-- `ooxml-builder.ts`:
-  - `ChartSpec extends AnchorSpec {type?, barDir?, grouping?, title?, series?: ChartSeriesSpec[]}` with `ChartSeriesSpec {name?, nameRef?, cat?, val?, x?, y?}`. Without `type`, the part keeps F03's empty `c:chart` bytes.
-  - `PivotSpec {name, ref, cache?: {fields, source: {sheet, ref} | {name}, rowFields?, colFields?, dataFields?: {name, fld, subtotal?}[]}}`. Without `cache`, the parts stay F03's bare shells.
-- New fixture `ooxml/charts.xlsx` (FIDELITY_WORKBOOKS): nine charts covering clustered/stacked/percentStacked bars, line, pie, doughnut, scatter, area, and a series spanning two sheets.
-- `ooxml/pivot-table.xlsx`: a real cache over `Data!A1:B4`, one row field, and data fields for sum (default) and count. The pivot is at `Summary!A3:C5`.
-- `ooxml/fieldwork-q3.xlsx`: the Overview chart is now a clustered column chart, "Quoted by status", with name `Jobs!$E$1`, cat `Jobs!$D$2:$D$61`, val `Jobs!$E$2:$E$61`. Every `DEMO_*` pin is unchanged.
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (M58 / M65 — tests and fixtures)
-
-- New fixture `tests/fixtures/workbooks/ooxml/formulas-live.xlsx`. `demo-counts.ts` exports `DEMO_LIVE_STRUCTURE_STATEMENTS`.
-- `tests/browser/worker/workbook-roots.ts` exposes the formulas, charts and computedFields roots.
+- 2026-09-23 — F04: `ooxml/charts.xlsx`, `ooxml/pivot-table.xlsx` and the
+  Overview chart rebuild by SESSION-02 (`1f77153`..`15b4d5b`);
+  `ooxml/formulas-live.xlsx` by SESSION-07 (`978bb77`..`f9a1565`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): two SESSION deltas
+  folded into a new "F04 corpus" section and "Tests grown"; the corpus-owner
+  rule's evidence list extended with F04's own zero-new-instance
+  confirmation (S05/S07 read S02's corpus rather than building a second one).

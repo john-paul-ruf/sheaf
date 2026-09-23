@@ -1,7 +1,7 @@
 # M32 — Worker protocol (`src/workers/protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 - **Owns:** Thread boundary semantics: versioned typed RPC, correlation,
   cancellation, progress, transfer ownership, error redaction.
@@ -12,7 +12,9 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   boundary are redacted via allowlist (CA-04). **Key bytes are type-excluded,
   not merely absent** — the union names no `Uint8Array`, `ArrayBuffer`,
   `Transferable`, port, or key type anywhere, and a grep assertion pins it.
-  Import bytes therefore live in `import-messages.ts`, never here.
+  Import bytes therefore live in `import-messages.ts`, never here. **F04: a
+  logo crosses as base64 text** (`AppLogoWireV1.pngBase64`), for the same
+  reason — no byte type crosses this contract, ever.
 
 ## Files
 
@@ -52,21 +54,67 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   `ChangeHistoryEntryViewV1.tableId?`.
   `AuthoredCellWireValueV1` now admits `reference` (still excludes
   `invalid`).
-- Response union `DataWorkerResponseV1` + `ResponseForV1<K>`; views
-  `UnlockedSessionViewV1`, `LockedSessionViewV1`, `SessionStatusViewV1`,
-  `LocalSettingsViewV1`, `ResetInventoryViewV1`, `ImportStageViewV1`,
-  `LibraryAppV1`, `ImportCleanupReceiptViewV1`, `AppSessionViewV1`,
-  `RecordPageViewV1`, `RecordDetailViewV1`, `ChangeHistoryPageViewV1`, and the
-  restated proposal shapes.
-- Error envelope `DataWorkerErrorV1 { kind, retryAfterMs? }` over the closed
-  `DATA_WORKER_ERROR_KINDS_V1`.
-- Message envelopes + the `isDataWorker*MessageV1` guards.
+- **F04: structure requests (S03).** `getAppStructure`,
+  `previewSchemaChange`, `applySchemaChange`, `getAppMetrics`; wire types
+  `SchemaChangeWireV1`, `RuleConditionWireV1`, `FormulaTargetWireV1`,
+  `AppStructureViewV1` (+ table/field/rule/relationship/formula views),
+  `ImpactReportWireV1`, `SchemaRefusalWireV1`, `SchemaPreviewViewV1`,
+  `SchemaApplyOutcomeV1`, `MetricViewV1`, `AppMetricsViewV1`.
+  `ComputedCellWireV1 {state, code?}`; `CellWireEntryV1.computed?` (additive;
+  `CellWireValueV1` **not** widened). `RecalculatedNoticeV1 {fieldIds}` as
+  optional `recalculated` on the accepted `RecordCommandOutcomeV1` (always
+  sent by the worker). `SchemaChangeWireV1.change-field-type` gains optional
+  `optionLabels: readonly string[]` (S06 lease r2, D57's Text → Choice list
+  step).
+- **F04: query requests (S04).** `QueryRecordsRequestV1` gains optional
+  `filters?: FilterWireV1[]`, `sort?: SortWireV1 | null` and `sortCursor?:
+  SortCursorWireV1 | null`. `SortCursorWireV1` is `{kind: "none" | "integer" |
+  "key"}`, where `key` carries base64url text — no bytes cross the wire.
+  `RecordPageViewV1` gains optional `nextSortCursor`, `total` and `partial`
+  (`RecordQueryPartialWireV1`). `QueryRecordsResponseV1` gains optional
+  `refusal?: FilterRefusalWireV1`, returned with `page: null`. The handler
+  NFC-normalizes filter text (D28); a malformed id yields `malformed-request`,
+  redacted to its kind.
+- **F04: chart requests (S05).** `listCharts`, `getChart`, `saveChart`,
+  `setChartPin`, `deleteChart`, `getChartDraft`, `saveChartDraft`,
+  `discardChartDraft`, `getChartDataset {source: chart|draft, tableOffset?}`.
+  Wire shapes `ChartGroupingWireV1`, `ChartMeasureWireV1`,
+  `ChartDefinitionWireV1` (a definition without its id), `ChartViewV1`,
+  `ChartDraftViewV1`, `ChartRefusalWireV1`, `ChartCommandOutcomeWireV1`,
+  `ChartKeyWireV1`, `ChartMarkWireV1`, `ChartDatasetViewV1`,
+  `GetChartDatasetResponseV1`. Still no byte or key type.
+- **F04: theme requests (S08).** `listThemePalettes` →
+  `ThemePaletteWireV1[]`; `changeTheme {appId, themeKey, mode, density,
+  customAccent|null, logo: keep|remove|set(AppLogoWireV1)}` →
+  `ThemeOutcomeWireV1` `changed|unchanged|refused(ThemeRefusalWireV1:
+  unknown-palette|invalid-accent|logo{unreadable|over-bytes|over-edge}|
+  contrast{failures})|unknown-app`. `AppThemeWireV1` v2: optional `mode`,
+  `density`, `customAccent`, `darkTokens` (the palette's dark set), `logo:
+  AppLogoWireV1 {pngBase64, width, height}`. `LibraryAppV1.themeTile?:
+  LibraryThemeTileV1 {primary, label, logo|null}`;
+  `AppSessionViewV1.accentId?`/`glyph?` (closes the F02 carry).
+- **F04: schema/theme copy correction (S06 lease r2, CP4a `3b7ecfa`).**
+  `records.ts`'s `toIssueVm(issue, fields = [])` composes rule-issue sentences
+  from the rule's own parameters instead of a generic message (see
+  `M37-view-models.md`); `schema.ts`'s `describeChange` names the new choices
+  for a `change-field-type` with `optionLabels`; `structure-handlers.ts`
+  forwards the wire's `optionLabels` unchanged (below).
+
+Response union `DataWorkerResponseV1` + `ResponseForV1<K>`; views
+`UnlockedSessionViewV1`, `LockedSessionViewV1`, `SessionStatusViewV1`,
+`LocalSettingsViewV1`, `ResetInventoryViewV1`, `ImportStageViewV1`,
+`LibraryAppV1`, `ImportCleanupReceiptViewV1`, `AppSessionViewV1`,
+`RecordPageViewV1`, `RecordDetailViewV1`, `ChangeHistoryPageViewV1`, and the
+restated proposal shapes.
+Error envelope `DataWorkerErrorV1 { kind, retryAfterMs? }` over the closed
+`DATA_WORKER_ERROR_KINDS_V1`.
+Message envelopes + the `isDataWorker*MessageV1` guards.
 
 ### Two contracts the type system holds
 
-- **`DATA_WORKER_ERROR_KINDS_V1` is unchanged across all of F02 and F03**
-  (CA-12 deviation from F02, recorded and accepted; D42 reaffirms it for F03
-  — no new kind, no new `RefusalV1` kind). Validation failures cross as typed
+- **`DATA_WORKER_ERROR_KINDS_V1` is unchanged across all of F02, F03 and
+  F04** (CA-12 deviation from F02, recorded and accepted; D42 reaffirms it —
+  no new kind, no new `RefusalV1` kind). Validation failures cross as typed
   **results** carrying the whole `ValidationReport` (D23); absent-stage reads
   answer idempotently; M36 gates every *mutating* stage call on
   `getImportStage` so no caller reaches for a kind that does not exist. The
@@ -74,15 +122,18 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   is a cross-lease change — see PROGRAM-CONFIG's lease conventions. F03's
   plan named the sole extender in advance (`PROMOTION_REJECTIONS` gains
   `append-too-large`, co-leased with `M37`'s `import.ts` by S06) — the closed
-  union stayed intact and no cross-lease seam repeated.
+  union stayed intact and no cross-lease seam repeated. **F04 needed no new
+  member either** — the schema/query/chart/theme refusal families are each
+  their own typed result union (`SchemaRefusalV1`, `FilterRefusalWireV1`,
+  `ChartRefusalWireV1`, `ThemeRefusalWireV1`), following the D23 pattern
+  rather than growing the one shared closed union.
 - **`CellWireValueV1` (pinned, F02 S05).** `text` · `number{decimal}` ·
   `boolean` · `option{optionId}` · `date{epochDay}` · `blank` · `missing` ·
   `invalid{sourceText}` · `reference{recordId}` (F03: now **authorable** —
   see above). `AuthoredCellWireValueV1 = Exclude<CellWireValueV1,
   {kind:"invalid"} | {kind:"reference"}>` in F02; F03 lifts the `reference`
-  exclusion (D25's type-exclusion of authored references is deliberately
-  narrowed to `invalid` only, now that CAP-24's reference picker exists). D28:
-  authored text is NFC-normalized in the wire→domain mapping, silently.
+  exclusion. D28: authored text is NFC-normalized in the wire→domain mapping,
+  silently.
 
 The proposal shapes are restated structurally rather than imported, and
 `tests/unit/workers/proposal-wire.test.ts` pins them mutually assignable with
@@ -106,14 +157,18 @@ M21's proposal types at compile time.
 `ImportWorkbookPreflightEventV1`; `ImportFailedEventV1.detail?:
 ImportFailureDetailV1 {stage: container|sheet-stream|stage, sheetOrdinal|null,
 diagnostic: UnreadableDetailV1|"parse-failed"}`, `IMPORT_FAILURE_STAGES_V1`.
-`stage-channel.ts` batches are now `WorkbookFactStreamItemV2`.
+`stage-channel.ts` batches are now `WorkbookFactStreamItemV2`. **F04 makes no
+further change to this protocol version** — every F04 import-side extension
+(formulas, charts, rules) rides the existing fact-stream item vocabulary
+(M65) rather than a new protocol shape.
 
 `messages.ts` gains (still import-free, byte-free):
 `BeginImportStageRequestV1.detected: DetectedDelimitedV1 | DetectedWorkbookV1`,
 `.preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1`, `.destination?:
 ImportDestinationWireV1`; `WorkbookFormatWireV1`, `WorkbookSheetSummaryWireV1`;
 the CA-19 wire `ProposedWorkbookWireV1` (+ its per-table/sheet/relationship/
-rule/statement/evidence wire families) and `WorkbookReviewEditWireV1`;
+rule/statement/evidence wire families, F04-extended with formula/chart
+families) and `WorkbookReviewEditWireV1`;
 `RunInferenceResponseV1.proposal`/`ApplyReviewEditResponseV1.proposal` are the
 workbook wire; `ApplyReviewEditRequestV1.edit` is
 `WorkbookReviewEditWireV1`. F02's `ProposedAppWireV1`/`ReviewEditWireV1`
@@ -162,47 +217,15 @@ carries a port.**
   import-protocol section; the closed-union note updated to record that F03's
   plan pre-named the sole extender (co-leased), which is why the pattern that
   bit F02 twice did not recur here.
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M32 — Protocol (`src/workers/protocol/messages.ts`))
-
-- `ComputedCellWireV1 { state, code? }`; `CellWireEntryV1.computed?` (additive; `CellWireValueV1` **not** widened).
-- `RecalculatedNoticeV1 { fieldIds }` as optional `recalculated` on the accepted `RecordCommandOutcomeV1` (always sent by the worker).
-- Requests `getAppStructure`, `previewSchemaChange`, `applySchemaChange`, `getAppMetrics`; wire types `SchemaChangeWireV1`, `RuleConditionWireV1`, `FormulaTargetWireV1`, `AppStructureViewV1` (+ table/field/rule/relationship/formula views), `ImpactReportWireV1`, `SchemaRefusalWireV1`, `SchemaPreviewViewV1`, `SchemaApplyOutcomeV1`, `MetricViewV1`, `AppMetricsViewV1`. Still no byte type and no import in the file.
-
-<!-- formulas-queries-charts SESSION-04 -->
-### F04 delta — SESSION-04 (M32/M33 Worker protocol and record handlers)
-
-- `QueryRecordsRequestV1` gains optional `filters?: FilterWireV1[]`, `sort?: SortWireV1 | null` and `sortCursor?: SortCursorWireV1 | null`. `SortCursorWireV1` is `{kind: "none" | "integer" | "key"}`, where `key` carries base64url text; no bytes cross the wire.
-- `RecordPageViewV1` gains optional `nextSortCursor`, `total` and `partial` (`RecordQueryPartialWireV1`).
-- `QueryRecordsResponseV1` gains optional `refusal?: FilterRefusalWireV1`, returned with `page: null`.
-- The handler NFC-normalizes filter text (D28). A malformed id yields `malformed-request` and is redacted to its kind.
-
-<!-- formulas-queries-charts SESSION-05 -->
-### F04 delta — SESSION-05 (M32 protocol — `src/workers/protocol/messages.ts`)
-
-- Requests: `listCharts` (L690), `getChart` (L695), `saveChart` (L705), `setChartPin` (L714), `deleteChart` (L722), `getChartDraft` (L730), `saveChartDraft` (L736), `discardChartDraft` (L742), `getChartDataset {source: chart|draft, tableOffset?}` (L751). Wire shapes `ChartGroupingWireV1` (L649), `ChartMeasureWireV1` (L659), `ChartDefinitionWireV1` (L676, a definition without its id), `ChartViewV1` (L2257), `ChartDraftViewV1` (L2269), `ChartRefusalWireV1` (L2276), `ChartCommandOutcomeWireV1` (L2292), `ChartKeyWireV1` (L2348), `ChartMarkWireV1` (L2355), `ChartDatasetViewV1` (L2376), `GetChartDatasetResponseV1` (L2402). Still no byte or key type.
-
-
-<!-- formulas-queries-charts SESSION-07 -->
-### F04 delta — SESSION-07 (pointer)
-
-The SESSION-07 delta for this module is recorded jointly in `arch/M01-domain-model.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
-
-
-<!-- formulas-queries-charts SESSION-06 r2 -->
-### F04 delta — SESSION-06 lease r2 (CP4a 3b7ecfa)
-
-
-- **M02** `schema-impact.ts`: `SchemaChangeV1` `change-field-type` gains optional `enumOptions` (the field's complete option list after the change; the named choices active). `analyzeSchemaChange` converts against `change.enumOptions` when present, else the field's own options; the exact-label comparison (`convertValueForType`) is unchanged. Nothing is derived from the column's values.
-- **M34** `schema-commands.ts`: `SchemaChangeRequestV1` `change-field-type` gains optional `optionLabels`. When a non-enum field becomes `enum`, the command allocates one active option per named label (new ids, ordinals as given); options from an earlier choice-list life stay, inactive, after them. With no label, the after-schema has no active option and the transition is refused `schema.enum-field-without-options`, as before. Events in one commit: `field.changed` → `enum.changed` (prior digest when earlier options exist) → `record.patched` for each rewritten value.
-- **M32** `messages.ts`: `SchemaChangeWireV1` `change-field-type` gains optional `optionLabels: readonly string[]`. **M33** `structure-handlers.ts` `toRequest` forwards it.
-- **M37** `records.ts`: `toIssueVm(issue, fields = [])`. `rule-compare` / `rule-between` record-rule issues are said from their own parameters: `"{left} must be on or after {right}."` (the words follow the compared fields' kind, from `fields`; neutral words without them), `"{left} must be at least the number set in the rule “{ruleLabel}”."` for a literal (its kind, never its value), `"{field} is outside what the rule “{ruleLabel}” allows."` for a range (between and not-between share the key). Unknown keys or missing parameters keep the generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010 pass the table's fields.
-- **M37** `schema.ts`: `describeChange` for `change-field-type` with `optionLabels`: `Change {field} to Choice list with the choices A, B`. **M46** `field-editor.tsx`: when the chosen kind is Choice list and the field is not one, a `[data-editor="new-choices"]` list asks the person to name the choices; Change type is disabled until at least one choice is named.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M32 protocol — `src/workers/protocol/messages.ts`)
-
-- RPCs `listThemePalettes` → `ThemePaletteWireV1[]`; `changeTheme {appId, themeKey, mode, density, customAccent|null, logo: keep|remove|set(AppLogoWireV1)}` → `ThemeOutcomeWireV1` changed|unchanged|refused(`ThemeRefusalWireV1`: unknown-palette|invalid-accent|logo{unreadable|over-bytes|over-edge}|contrast{failures})|unknown-app.
-- `AppThemeWireV1` v2: optional `mode`, `density`, `customAccent`, `darkTokens` (the palette's dark set), `logo: AppLogoWireV1 {pngBase64, width, height}` (base64, because no byte type crosses the contract).
-- `LibraryAppV1.themeTile?: LibraryThemeTileV1 {primary, label, logo|null}`; `AppSessionViewV1.accentId?`/`glyph?` (closes the F02 carry).
+- 2026-09-23 — F04: structure/query requests + computed-cell wire by SESSION-03
+  (`a69e6e0`..`2235cce`); query filter/sort/partial requests by SESSION-04
+  (`f736fa8`..`27a2667`); chart requests by SESSION-05 (`6ee204c`..`3dd1d2d`);
+  the `optionLabels`/`toIssueVm`/`describeChange` correction by SESSION-06
+  lease r2 (`3b7ecfa`); theme requests by SESSION-08 (`42decba`..`7df22fb`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): five SESSION deltas
+  folded into the `messages.ts` section in landing order; the closed-error-kind
+  paragraph extended with F04's own zero-new-instance evidence (four new
+  request families, each given its own typed refusal union rather than
+  growing `DATA_WORKER_ERROR_KINDS_V1`); the SESSION-07 pointer (recorded
+  jointly in `M01-domain-model.md`) left as a one-line cross-reference rather
+  than restated.

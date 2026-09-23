@@ -1,7 +1,7 @@
 # M61 — E2E tests (`tests/e2e/`)
 
 > Fragment created by Roshi at the F02 final pass. Reconciled against the tree
-> at `425562d` (F03 final; code ≡ `30396a9`).
+> at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -16,12 +16,12 @@
   builds exist.
 - **The filter form takes no bare `--`.**
 
-## Suites at `30396a9` (57 passing, no expected-failures)
+## Suites at `5bc19fb` (71 passing, no expected-failures)
 
 | Spec | Proves |
 |---|---|
 | `first-journey.spec.ts` | F01's setup → lock → unlock → reload journey |
-| `route-guards.spec.ts` | CA-07's matrix incl. deep links and all three amendments |
+| `route-guards.spec.ts` | CA-07's matrix incl. deep links and all four amendments |
 | `capability-gate.spec.ts` | CAP-08 with stubbed capability ids |
 | `accessibility.spec.ts` | axe + 320px/44px/200% over the approved surfaces |
 | `offline-guard.spec.ts` | deny-by-default network, extended across import + CRUD |
@@ -33,23 +33,31 @@
 | `relationships.spec.ts` (F03) | CAP-24: labels, belongs-to/has-many both directions, broken-reference original key, repair, reference picker, table switcher, reload + unlock |
 | `snapshots.spec.ts` (F03) | CAP-25 + CAP-23's full 7-sheet selection with a reload; SCR-030/031, SHT-016, F02 CSV snapshot, unknown-sheet notice |
 | `gate-f03-demo.spec.ts` (F03) | the executable twin of the ROADMAP F03 demo script, at 320 px with no network |
+| `records-query.spec.ts` (F04) | CAP-31: filters, sort, partial scope, no-results, no SQL surface |
+| `charts.spec.ts` (F04) | CAP-32/33: mark → filter, builder, pin, drafts, accessibility view |
+| `structure.spec.ts` (F04) | CAP-28/35/36: live computed columns, all 8 schema-edit steps incl. Text → Choice, authored rule refusal |
+| `theme.spec.ts` (F04) | CAP-37: palettes, mode, density, logo, contrast, persistence, tile |
+| `dark-semantics.spec.ts` (F04) | dark-mode semantic text-ink contrast (OWNER-THEME-DARK-SEMANTICS) |
+| `gate-f04-demo.spec.ts` (F04) | the executable twin of the ROADMAP F04 demo script, at 320px with no network |
 
 ## Shared fixtures
 
 `tests/e2e/fixtures/` holds `a11y.ts` (`auditable`, `clipped`,
 `undersizedTargets`, `overlaps`, `AXE_TAGS`), `app.ts`, `no-network.ts`,
-`records.ts`, and (F03) `workbook.ts` — S07's workbook steps, moved out of
+`records.ts`, `workbook.ts` (F03 — S07's workbook steps, moved out of
 `workbook-import.spec.ts`, plus `rejectConnection`, `VISITS_TO_JOBS` and
-`importDemoWorkbook(page, {allSheets})`.
+`importDemoWorkbook(page, {allSheets})`), and (F04) `structure.ts` (S06's
+schema-editing steps, shared with `gate-f04-demo.spec.ts`).
 
 **A fixture corpus a session does not lease is generated in the spec.** F02's
 S07 needed a parse long enough to interrupt and `tests/fixtures/workbooks/**`
 was S03's; the large delimited file is generated in-spec from M19's own
 `generateLargeDelimited`. Truthful, and a workaround a lease boundary forced —
-see PROGRAM-CONFIG's corpus-owner rule. F03 avoided the equivalent seam (see
-`M58-workbook-fixtures.md`'s corpus-owner note): `workbook.ts` was S07's own
-lease to write, moved out of a spec S07 also owned, and S08 leased
-`tests/e2e/**` serially afterward.
+see PROGRAM-CONFIG's corpus-owner rule. F03 and F04 both avoided the
+equivalent seam (see `M58-workbook-fixtures.md`'s corpus-owner note):
+`workbook.ts` was S07's own lease to write in F03, moved out of a spec S07
+also owned; F04's `structure.ts` was likewise S06's own lease to write,
+reused unmodified by S08's `gate-f04-demo.spec.ts` afterward.
 
 ## Change History
 
@@ -66,9 +74,14 @@ lease to write, moved out of a spec S07 also owned, and S08 leased
   `30396a9`). Suite size at wave close: 57 e2e tests (baseline 36).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): two SESSION staples
   folded into the Suites table and Shared-fixtures section.
-
-<!-- formulas-queries-charts SESSION-08 -->
-### F04 delta — SESSION-08 (M61 e2e (CP4, `7df22fb`))
-
-- `tests/e2e/theme.spec.ts`: CAP-37 real-entry proof (320px offline and desktop; axe light and dark on SCR-036/037/024; dark-chrome focus ring; reload and unlock persistence; tile; failing accent refused).
-- `tests/e2e/gate-f04-demo.spec.ts`: the GATE-F04 journey and MOD-015 through the real entry.
+- 2026-09-23 — F04: `records-query.spec.ts` by SESSION-04 (`f736fa8`..
+  `27a2667`); `charts.spec.ts` by SESSION-05 (`6ee204c`..`3dd1d2d`);
+  `structure.spec.ts` + `fixtures/structure.ts` by SESSION-06 (`e7e7fe2`..
+  `7ec391e`); `theme.spec.ts` and `gate-f04-demo.spec.ts` by SESSION-08
+  (`42decba`..`7df22fb`); `dark-semantics.spec.ts` by
+  OWNER-THEME-DARK-SEMANTICS (`beb094a`, `c92f393`). Suite size at feature
+  close: 71 e2e tests (baseline 57).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): five SESSION/owner
+  deltas folded into the Suites table (now stating all seventeen specs as one
+  list) and the Shared-fixtures section; the corpus-owner cross-reference
+  extended with F04's own instance.

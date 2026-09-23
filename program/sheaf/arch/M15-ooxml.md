@@ -3,7 +3,7 @@
 > Seeded by Planner for F03 (workbook-fidelity) from `specs/architecture.md`
 > § Import and inference (module table), § Module Contracts / Format adapters,
 > § Import Architecture Stages 1–2 and § Fidelity and preservation.
-> Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+> Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -31,8 +31,11 @@
     value facts; the formula is a separate fact.
   - External links are never fetched; their text and cached value are preserved
     and identified as inert.
+  - **F04:** a chart or pivot part's definition, when readable within bounds,
+    is carried as an **additive optional** fact field (below) — reading it
+    changes no existing fact, kind, or bound.
 
-## Landed surface (SESSION-01)
+## Landed surface (SESSION-01, F03; extended SESSION-02, F04)
 
 Exports: `ooxmlInventoryReader` (the `readOoxmlInventory` role, as an
 `InventoryReaderV1` value) and `ooxmlAdapter` (`index.ts`). Internal files:
@@ -43,12 +46,41 @@ Exports: `ooxmlInventoryReader` (the `readOoxmlInventory` role, as an
 `SHEET_PREFIX_MAX_BYTES = 1 MiB`, `macroSignalOf`, `readWorkbookPart`,
 `sheetPartsOf`, `readDeclaredDimension`, `readTablePart`), `styles.ts`,
 `shared-strings.ts` (`SHARED_STRINGS_MAX_COUNT = 1_048_576`,
-`SHARED_STRINGS_MAX_CHARACTERS = 33_554_432`), `sheet.ts`, `parse.ts`.
+`SHARED_STRINGS_MAX_CHARACTERS = 33_554_432`), `sheet.ts`, `parse.ts`, and
+(F04) `charts.ts`, `pivots.ts`.
 
 Inventory is metadata only; the worksheet prefix read stops at `<sheetData>`
 (spy-proven, `tests/unit/import/ooxml/preflight.test.ts`). Consumed by S06's
 worker registration (`src/workers/import/adapters.ts`, D35) and proven through
 the first narrow journey (S06 CP3) and every subsequent e2e/gate proof.
+
+### `charts.ts` / `pivots.ts` (new, F04, SESSION-02)
+
+- `readChartDefinition(zip, partPath) → PartDefinitionReadV1<ChartPartDefinitionV1>`:
+  a bounded streaming read to the end of `c:chart`. The first `c:plotArea` plot
+  element sets the type; a combo (more than one plot) → `other`. Cached points
+  are never read. `PartDefinitionReadV1<T>` (`{definition, refusal: null} |
+  {definition: null, refusal}`), `PartDefinitionRefusalV1` (`not-declared |
+  over-bounds | unsupported-source | UnreadableDetailV1`), `refusedDefinition`.
+  A refusal (DTD, bounds, no plot) is **contained**: the fact stays F03's,
+  without a `definition` key — no import fails because a chart could not be
+  read.
+- `readPivotDefinition(zip, pivotPart)`: reads `pivotTableDefinition`
+  (rowFields/dataFields), follows the pivot part's own `pivotCacheDefinition`
+  relationship, and reads `cacheSource`/`worksheetSource`/`cacheFields`.
+  `pivotCacheRecords` is never opened.
+- `sheet.ts`'s `preservedPart(...)` takes an optional 5th `definition`
+  argument; the drawing (chart) and `pivottable` relationship cases attach
+  definitions. Chart sheets reach charts through their drawing, so the same
+  path applies.
+- No new import edges: the `ooxml` → M13 (`source/*`) and M65 (`facts/*`)
+  edges already existed.
+
+**Premise recorded at S02 CP0 (ECMA-376 Part 1 §21.2/§18.10), unverified
+against real Excel.** No real Excel-authored chart or pivot file exists in the
+corpus; the fixtures (`charts.xlsx`, `pivot-table.xlsx`, the demo's Overview
+chart) are generated from the element shapes `charts.ts`/`pivots.ts` rely on.
+Carried to the GATE-F04 reviewer alongside the F03 BIFF12 item.
 
 ## Dependency must-nots (ship as tests)
 
@@ -66,13 +98,10 @@ the first narrow journey (S06 CP3) and every subsequent e2e/gate proof.
   adapter.
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-01 delta
   folded into "Landed surface"; no contradiction found.
-
-<!-- formulas-queries-charts SESSION-02 -->
-### F04 delta — SESSION-02 (M15 — OOXML adapter (`src/import/formats/ooxml/`))
-
-- New `charts.ts`: `readChartDefinition(zip, partPath) → PartDefinitionReadV1<ChartPartDefinitionV1>`. It does a bounded streaming read to the end of `c:chart`. The first `c:plotArea` plot element sets the type; a combo (more than one plot) → `other`. Cached points are never read.
-  - Also exports `PartDefinitionReadV1<T>` (`{definition, refusal: null} | {definition: null, refusal}`), `PartDefinitionRefusalV1` (`not-declared | over-bounds | unsupported-source | UnreadableDetailV1`) and `refusedDefinition`.
-  - A refusal (DTD, bounds, no plot) is contained: the fact stays F03's, without a definition.
-- New `pivots.ts`: `readPivotDefinition(zip, pivotPart)`. It reads `pivotTableDefinition` (rowFields/dataFields), follows the pivot part's own `pivotCacheDefinition` relationship, and reads `cacheSource`/`worksheetSource`/`cacheFields`. `pivotCacheRecords` is never opened.
-- `sheet.ts`: `preservedPart(...)` takes an optional 5th `definition` argument. The drawing (chart) and `pivottable` relationship cases attach definitions. Chart sheets reach charts through their drawing, so the same path applies.
-- No new import edges: the `ooxml` → M13 (`source/*`) and M65 (`facts/*`) edges already existed.
+- 2026-09-23 — F04: `charts.ts`/`pivots.ts` and the additive `definition` fact
+  field landed by SESSION-02 (`1f77153`..`15b4d5b`); consumed by S07's mapping
+  (`M21-inference.md`) and proven through the real entry by S07 CP4 (CAP-34).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-02 delta
+  folded into "Landed surface" as its own subsection; the S02 CP0 premise
+  record moved out of the session return and into the fragment itself, next
+  to the F03 BIFF12 premise it travels with to the reviewer.

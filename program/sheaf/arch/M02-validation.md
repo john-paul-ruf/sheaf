@@ -1,8 +1,8 @@
 # M02 — Validation (`src/domain/validation/`)
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
-> § Module Contracts / Validation. Reconciled against the tree at `425562d`
-> (F03 final; code ≡ `30396a9`).
+> § Module Contracts / Validation. Reconciled against the tree at `5bc19fb`
+> (F04 final; formulas-queries-charts).
 
 ## Contract
 
@@ -10,20 +10,23 @@
   validation.
 - **Exports (full target):** `ValidationRuleIR`, `ValidationContext`,
   `ValidationReport`, `validateRecord`, `validateSchemaTransition`,
-  `analyzeImpact`.
-- **Depends on:** M01 domain model and formula result types (M03 arrives F04's
-  IR/catalog/graph/evaluator; F02/F03 use a placeholder-free subset that names
-  no formula results).
+  `analyzeImpact` (landed as `analyzeSchemaChange`, F04 — see below).
+- **Depends on:** M01 domain model, and (F04) M03 **type-only** — `import
+  type` from `src/domain/formulas/`, never a value import. Enforced by
+  `tests/unit/validation/module-boundaries.test.ts` (pure `violationsOf` with
+  zero-file and value-import negative controls).
 - **Must not:** Let any caller opt out of referential or cross-field checks.
 - **Invariant 5 (binding):** the exact same `validateRecord` implementation is
   called for an authored write, restore, automatic merge, manual repair, and
-  adoption replay/promotion. That means: record CRUD (M34), record restore
-  (M34), and import promotion (M23/M33) all call this one function.
+  adoption replay/promotion, and (F04) schema-change value conversion. That
+  means: record CRUD (M34), record restore (M34), import promotion (M23/M33),
+  and schema-change patches (M34's `schema-commands.ts`) all call this one
+  function.
 
 ## Landed surface
 
-`analyzeImpact` and the full `validateSchemaTransition` surface belong to F04's
-schema editors and are **not exported**; a test asserts their absence.
+`analyzeImpact` (full generality) is superseded by the landed, more specific
+F04 `analyzeSchemaChange` (below); `validateSchemaTransition` is F04's.
 
 - `rules.ts` — `VALIDATION_ISSUE_KINDS` / `VALIDATION_SEVERITIES` (migration
   005's `record_issues` closed sets, pinned by test), `ValidationIssueV1`,
@@ -33,11 +36,27 @@ schema editors and are **not exported**; a test asserts their absence.
   no arithmetic, no calls, nothing that could execute imported behavior.
   Reasons are `messageKey` + typed `messageParameters`; **the offending cell
   value is never a parameter.**
+
+  **F04 rule IR v2 (CA-27, D52).** `RuleConditionV2`, `ValidationRuleIRV2
+  {irVersion: 2, …}`, `COMPARE_OPERATORS`, `RuleMeasureV2` (`"text-length"`,
+  the optional `measure` on `compare`/`between`), `RULE_V2_MESSAGE_KEYS`,
+  `FORMULA_ISSUE_MESSAGE_KEYS` (unprefixed CA-26 keys, unlike F02/F03's
+  `validation.*` keys).
+
 - `validate-record.ts` — `validateRecord(context, record)`, `ValidationContext`
-  (table, enum options, rules, `referenceExists` resolver, and — F03 —
-  `referenceTargets?`), `RecordUnderValidationV1`, `ReferenceResolver`.
-  **Invariant 5 is held by the signature**: two parameters, no options object,
-  so no caller can opt out of the referential or cross-field checks.
+  (table, enum options, rules, `referenceExists` resolver, `referenceTargets?`
+  — F03 — and, since F04, `ValidationContext.rules: readonly
+  (ValidationRuleIR | ValidationRuleIRV2)[]`), `RecordUnderValidationV1`,
+  `ReferenceResolver`. **Invariant 5 is held by the signature**: two
+  parameters, no options object, so no caller can opt out of the referential
+  or cross-field checks.
+
+  **F04 additions.** `ruleHolds(rule, record)` — three-valued: an
+  undetermined comparison never fires; v1 rules evaluate exactly as before.
+  Computed fields (`formulaId` set) skip required/type checks; a
+  `user`-provenance value on a computed field without `evidence.frozen`
+  produces a blocking `formula` issue `computed-not-authored`.
+
 - `schema-checks.ts` — `validateSchema(tables, enumOptions, relationships = [])`:
   unique IDs and ordinals, labels present, enum-option ownership/activity,
   key/label fields owned by their table, and — F03 — migration 005's
@@ -47,12 +66,38 @@ schema editors and are **not exported**; a test asserts their absence.
   `schema.relationship-target-not-key`,
   `schema.duplicate-relationship-source`, `schema.duplicate-relationship-id`).
 
-**Severity policy (F02-binding, unchanged by F03):** imported-invalid values and
-broken references are preserved and flagged as **warnings** — they commit,
-which is what FR-4 requires. Blocking is reserved for what a user authored and
-can fix now: wrong type, missing required, unknown enum option, unknown field,
-wrong table. D23 carries the **whole** `ValidationReport` across the RPC as a
-typed result, never as an error kind.
+- `schema-impact.ts` (new, F04) — `SchemaChangeV1` (D59's 16-kind closed
+  union plus `set-table-key` from S03's lease r1, CA-28/D64 — 17 kinds total),
+  `SchemaSnapshotV1`, `analyzeSchemaChange(change, schema, records,
+  ImpactEnvV1) → ImpactReportV1` (exact counts + `patches` = the
+  `record.patched` values), `convertValueForType` (also returns `unchanged`),
+  `validateSchemaTransition(before, after) → {isAllowed, refusals}`
+  (`SCHEMA_TRANSITION_REFUSALS`, 9 kinds; reuses `validateSchema`).
+
+  `set-table-key {tableId, keyFieldId: FieldId | null}` (S03, CA-28
+  \"set key\" → `table.changed`, D64): impact is `missingNow` (records with no
+  key value) and `keptAndFlagged` (records repeating an earlier record's key
+  value); nothing is patched. Its transition reuses `validateSchemaTransition`
+  → `validateSchema`'s endpoint rule, so a key still targeted by a
+  relationship is refused (`schema.relationship-target-not-key`); computed or
+  inactive keys are refused as before.
+
+  `change-field-type` gains optional `enumOptions` (S06 lease r2, CP4a
+  `3b7ecfa`): the field's complete option list after the change, with the
+  newly named choices active. `analyzeSchemaChange` converts against
+  `change.enumOptions` when present, else the field's own options; the
+  exact-label comparison (`convertValueForType`) is unchanged, and nothing is
+  derived from the column's existing values. This is the domain half of D57's
+  Text → Choice list step (SCR-035); the command half (`optionLabels` on the
+  wire and in `schema-commands.ts`) is M34's, described there.
+
+**Severity policy (F02-binding, unchanged by F03/F04):** imported-invalid
+values and broken references are preserved and flagged as **warnings** — they
+commit, which is what FR-4 requires. Blocking is reserved for what a user
+authored and can fix now: wrong type, missing required, unknown enum option,
+unknown field, wrong table, and (F04) an authored write to a computed field.
+D23 carries the **whole** `ValidationReport` across the RPC as a typed result,
+never as an error kind.
 
 **F03: reference-field severity (D36).** In a `reference` field,
 `invalid-preserved` ⇒ `broken-reference` **warning**; `reference{recordId}` not
@@ -69,10 +114,13 @@ this write*.
 ## Dependency must-nots (ship as tests)
 
 - No import from `src/persistence/`, `src/workers/`, `src/import/`, `src/ui/`,
-  `react`, or any third-party package. Pure domain.
-- Shipped as `tests/unit/validation/module-boundaries.test.ts`:
-  `src/domain/{model,validation}` import only relative paths, never a package,
-  never outward; M02 → M01 only, never the reverse.
+  `react`, or any third-party package. Pure domain. **F04: a value import from
+  M03 is refused; a type-only import is required to be present** (the sweep
+  checks both directions, so the module can neither drift back to no formula
+  awareness nor smuggle in a runtime coupling).
+- Shipped as `tests/unit/validation/module-boundaries.test.ts`: `src/domain/
+  {model,validation}` import only relative paths, never a package, never
+  outward; M02 → M01 (+ M03 type-only) only, never the reverse.
 
 ## Change History
 
@@ -89,37 +137,12 @@ this write*.
   (D36) landed by SESSION-03 (`f29ac33`..`a2c4cf0`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
   folded into the per-file sections and the severity-policy paragraph.
-
-<!-- formulas-queries-charts SESSION-01 -->
-### F04 delta — SESSION-01 (M02 — Validation (`arch/M02-validation.md`))
-
-- `rules.ts`: `RuleConditionV2`, `ValidationRuleIRV2 {irVersion: 2, …}` (CA-27), `COMPARE_OPERATORS`, `RuleMeasureV2`
-  (`"text-length"`, optional `measure` on `compare`/`between` — the CA-27 conversion bullet's "len operand"),
-  `RULE_V2_MESSAGE_KEYS`, `FORMULA_ISSUE_MESSAGE_KEYS` (unprefixed CA-26 keys).
-- `validate-record.ts`: `ValidationContext.rules: readonly (ValidationRuleIR | ValidationRuleIRV2)[]`; new export
-  `ruleHolds(rule, record)` (three-valued: an undetermined comparison never fires; v1 unchanged). Computed fields
-  (`formulaId` set) skip required/type; a `user`-provenance value without `evidence.frozen` → blocking `formula`
-  `computed-not-authored`. Still the only entrance, still two parameters.
-- New `schema-impact.ts`: `SchemaChangeV1` (D59, 17 kinds), `SchemaSnapshotV1`, `analyzeSchemaChange(change, schema,
-  records, ImpactEnvV1) → ImpactReportV1` (exact counts + `patches` = the `record.patched` values), `convertValueForType`,
-  `validateSchemaTransition(before, after) → {isAllowed, refusals}` (`SCHEMA_TRANSITION_REFUSALS`, 9 kinds; reuses
-  `validateSchema`).
-- Dependency edge now **M02 → M03 type-only** (`import type` from `src/domain/formulas/`), enforced by the rewritten
-  `tests/unit/validation/module-boundaries.test.ts` (pure `violationsOf` with zero-file and value-import negative controls;
-  the "F02 withholds F04 exports" assertion is replaced by "F04 exports present, no evaluator in M02").
-
-<!-- formulas-queries-charts SESSION-03 -->
-### F04 delta — SESSION-03 (M02 — Validation (`src/domain/validation/schema-impact.ts`, lease r1, S01-KEY))
-
-- `SchemaChangeV1` gains `{ kind: "set-table-key"; tableId; keyFieldId: FieldId | null }` (CA-28 "set key" → `table.changed`, D64). Impact: `missingNow` = records with no key value, `keptAndFlagged` = records repeating an earlier record's key value; nothing patched. Transition: reuses `validateSchemaTransition` → `validateSchema`'s endpoint rule, so a key still targeted by a relationship is refused (`schema.relationship-target-not-key`); computed/inactive keys refused as before.
-
-
-<!-- formulas-queries-charts SESSION-06 r2 -->
-### F04 delta — SESSION-06 lease r2 (CP4a 3b7ecfa)
-
-
-- **M02** `schema-impact.ts`: `SchemaChangeV1` `change-field-type` gains optional `enumOptions` (the field's complete option list after the change; the named choices active). `analyzeSchemaChange` converts against `change.enumOptions` when present, else the field's own options; the exact-label comparison (`convertValueForType`) is unchanged. Nothing is derived from the column's values.
-- **M34** `schema-commands.ts`: `SchemaChangeRequestV1` `change-field-type` gains optional `optionLabels`. When a non-enum field becomes `enum`, the command allocates one active option per named label (new ids, ordinals as given); options from an earlier choice-list life stay, inactive, after them. With no label, the after-schema has no active option and the transition is refused `schema.enum-field-without-options`, as before. Events in one commit: `field.changed` → `enum.changed` (prior digest when earlier options exist) → `record.patched` for each rewritten value.
-- **M32** `messages.ts`: `SchemaChangeWireV1` `change-field-type` gains optional `optionLabels: readonly string[]`. **M33** `structure-handlers.ts` `toRequest` forwards it.
-- **M37** `records.ts`: `toIssueVm(issue, fields = [])`. `rule-compare` / `rule-between` record-rule issues are said from their own parameters: `"{left} must be on or after {right}."` (the words follow the compared fields' kind, from `fields`; neutral words without them), `"{left} must be at least the number set in the rule “{ruleLabel}”."` for a literal (its kind, never its value), `"{field} is outside what the rule “{ruleLabel}” allows."` for a range (between and not-between share the key). Unknown keys or missing parameters keep the generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010 pass the table's fields.
-- **M37** `schema.ts`: `describeChange` for `change-field-type` with `optionLabels`: `Change {field} to Choice list with the choices A, B`. **M46** `field-editor.tsx`: when the chosen kind is Choice list and the field is not one, a `[data-editor="new-choices"]` list asks the person to name the choices; Change type is disabled until at least one choice is named.
+- 2026-09-23 — F04: rule IR v2, `ruleHolds`, computed-field validation and the
+  new `schema-impact.ts` (the F04 exports the F02 test used to assert were
+  absent) landed by SESSION-01 (`50d1c51`..`488f49e`); `set-table-key` added by
+  SESSION-03 lease r1 (`5b9fd27`); `change-field-type.enumOptions` added by
+  SESSION-06 lease r2 (`3b7ecfa`).
+- 2026-09-23 — reconciled by Archivist (F04 final pass): three SESSION deltas
+  folded into "Landed surface"; the head's `Depends on`/`Dependency must-nots`
+  sections rewritten to state the M02→M03 type-only edge as the module's
+  current, permanent contract rather than a delta note.
