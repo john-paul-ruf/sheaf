@@ -651,12 +651,17 @@ export interface ImportPromotionConfirmVm {
 
 /**
  * A refused promotion's issues, one group per field (F02 S07 obligation).
- * The field is the promotion's own id: the stage minted it and wrote nothing,
- * so no name reaches the page for it (reported as a seam) — the group
- * says how many values in one field broke which rule.
+ * The worker names each field by the reviewed column it was allocated for
+ * (the promotion wrote nothing, so its field id names nothing durable); the
+ * group carries that column's reviewed name and table, and says how many
+ * values in it broke which rule.
  */
 export interface PromotionIssueGroupVm {
   readonly fieldId: string | null;
+  readonly columnKey: string | null;
+  /** The reviewed field name; `null` for a record-level issue or a column the review no longer has. */
+  readonly fieldName: string | null;
+  readonly tableName: string | null;
   readonly token: RecordIssueTokenV1;
   readonly sentence: string;
   readonly severity: "warning" | "blocking";
@@ -1375,17 +1380,34 @@ function reviewOf(proposal: ProposedWorkbookWireV1) {
   };
 }
 
-/** A refused promotion's issues, grouped by field and reason (F02 S07). */
-function issueGroupsOf(rejection: ImportSnapshot["context"]["promotionRejection"]): readonly PromotionIssueGroupVm[] {
+/** A refused promotion's issues, grouped by field and reason, each field by its reviewed name (F02 S07). */
+function issueGroupsOf(
+  rejection: ImportSnapshot["context"]["promotionRejection"],
+  tables: readonly ReviewTableVm[],
+): readonly PromotionIssueGroupVm[] {
+  const reviewed = new Map(
+    tables.flatMap((table) => table.fields.map((field) => [field.columnKey, { field, table }] as const)),
+  );
   const groups = new Map<string, PromotionIssueGroupVm>();
   for (const issue of rejection?.issues ?? []) {
     const vm = toIssueVm({ ...issue, messageParameters: {} });
+    const columnKey = issue.columnKey ?? null;
+    const named = columnKey === null ? undefined : reviewed.get(columnKey);
     const key = `${issue.fieldId ?? "record"}|${vm.token}`;
     const group = groups.get(key);
     groups.set(
       key,
       group === undefined
-        ? { fieldId: issue.fieldId, token: vm.token, sentence: vm.sentence, severity: vm.severity, count: 1 }
+        ? {
+            fieldId: issue.fieldId,
+            columnKey,
+            fieldName: named?.field.fieldName ?? null,
+            tableName: named?.table.tableName ?? null,
+            token: vm.token,
+            sentence: vm.sentence,
+            severity: vm.severity,
+            count: 1,
+          }
         : { ...group, count: group.count + 1, severity: group.severity === "blocking" ? "blocking" : vm.severity },
     );
   }
@@ -1459,7 +1481,7 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
         : toReviewEditRejectionVm(context.editRejection),
     promotionRejection:
       context.promotionRejection === undefined ? null : toPromotionRejectionVm(context.promotionRejection.reason),
-    promotionIssues: issueGroupsOf(context.promotionRejection),
+    promotionIssues: issueGroupsOf(context.promotionRejection, tables),
     confirm: {
       kind: destination.kind === "existing-app" ? "add-table" : "create-app",
       appName: destination.kind === "existing-app" ? (targetApp?.displayName ?? "") : appName,

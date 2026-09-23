@@ -170,13 +170,34 @@ export interface PromotionReceiptV1 {
   readonly flaggedRecordCount: number;
 }
 
-export type PromotionResultV1 =
-  | { readonly kind: "promoted"; readonly receipt: PromotionReceiptV1 }
-  | {
-      readonly kind: "rejected";
-      readonly reason: PromotionRejectionV1;
-      readonly report: ValidationReport | null;
-    };
+/** A refused promotion or append: nothing was written. */
+export interface PromotionRejectedV1 {
+  readonly kind: "rejected";
+  readonly reason: PromotionRejectionV1;
+  readonly report: ValidationReport | null;
+  /**
+   * The reviewed column each field the report names was allocated for, keyed
+   * by `encodeDomainId(fieldId)`. The refused promotion minted those field ids
+   * and wrote nothing, so the column key is the only name the review knows.
+   */
+  readonly columnKeys: ReadonlyMap<string, string>;
+}
+
+export type PromotionResultV1 = { readonly kind: "promoted"; readonly receipt: PromotionReceiptV1 } | PromotionRejectedV1;
+
+/** A rejection; with the allocated schema when the report names its fields. */
+export function rejectedPromotion(
+  reason: PromotionRejectionV1,
+  report: ValidationReport | null = null,
+  schema: Pick<AllocatedSchemaV2, "tables"> | null = null,
+): PromotionRejectedV1 {
+  const columnKeys = new Map(
+    (schema?.tables ?? []).flatMap((plan) =>
+      plan.fields.map((entry) => [encodeDomainId(entry.definition.fieldId), entry.proposed.columnKey] as const),
+    ),
+  );
+  return { kind: "rejected", reason, report, columnKeys };
+}
 
 export interface PromoteInputV1 {
   readonly loaded: LoadedImportStageV1;
@@ -928,25 +949,25 @@ export async function promoteImport(
 
   // --- step 1: validate, then allocate -------------------------------------
   if (proposal === null) {
-    return { kind: "rejected", reason: "no-proposal", report: null };
+    return rejectedPromotion("no-proposal");
   }
   const heads = proposal.tables.filter((table) => table.joinedToTableKey === null);
   if (heads.length === 0 || heads.some((table) => table.fields.length === 0)) {
-    return { kind: "rejected", reason: "empty-table", report: null };
+    return rejectedPromotion("empty-table");
   }
 
   const schema = allocateSchema(entropy, proposal);
   const tables = schema.tables.map((plan) => plan.table);
   const schemaReport = validateSchema(tables, schema.enumOptions, schema.relationships);
   if (!schemaReport.isValid) {
-    return { kind: "rejected", reason: "schema-invalid", report: schemaReport };
+    return rejectedPromotion("schema-invalid", schemaReport, schema);
   }
 
   const built = await buildRecords(entropy, proposal, schema, facts);
   if (built.firstBlockingReport !== null) {
     // A blocking issue is not an imported-invalid value (those are warnings
     // and are kept, FR-4): it is a schema the rows cannot satisfy at all.
-    return { kind: "rejected", reason: "record-invalid", report: built.firstBlockingReport };
+    return rejectedPromotion("record-invalid", built.firstBlockingReport, schema);
   }
 
   // --- step 2: build every root, outside the write transaction -------------

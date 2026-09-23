@@ -47,7 +47,6 @@ import type { AuthoredRecordV1 } from "../../domain/model/events.js";
 import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
 import type { EnumOptionDefV1, RelationshipDefV1, TableDefV1 } from "../../domain/model/schema.js";
 import { validateSchema } from "../../domain/validation/schema-checks.js";
-import type { ValidationReport } from "../../domain/validation/rules.js";
 import type { ReferenceResolver } from "../../domain/validation/validate-record.js";
 import type { DomainEventV1 } from "../../migrations/004_event_format_v1.js";
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
@@ -65,10 +64,11 @@ import {
   decisionEvent,
   decisionsOf,
   inertItemsOf,
+  rejectedPromotion,
   rootSealer,
   tableEvents,
   writeSnapshots,
-  type PromotionRejectionV1,
+  type PromotionRejectedV1,
 } from "./promotion.js";
 import { encodeAppHead, encodeAppHeadBody, type AppHeadV1, type StorageRefV1 } from "./roots.js";
 
@@ -111,7 +111,7 @@ export interface AppendReceiptV1 {
 
 export type AppendResultV1 =
   | { readonly kind: "appended"; readonly receipt: AppendReceiptV1 }
-  | { readonly kind: "rejected"; readonly reason: PromotionRejectionV1; readonly report: ValidationReport | null };
+  | PromotionRejectedV1;
 
 export interface AppendDependenciesV1 {
   readonly ports: StagingPortsV1;
@@ -147,7 +147,7 @@ export interface AppendInputV1 {
   readonly deviceId: DeviceId;
 }
 
-const tooLarge: AppendResultV1 = { kind: "rejected", reason: "append-too-large", report: null };
+const tooLarge: AppendResultV1 = rejectedPromotion("append-too-large");
 
 /** Whether an encoded segment would fit the last padding bucket, sealed. */
 const fitsOneSegment = (segmentPayload: Uint8Array): boolean => {
@@ -167,11 +167,11 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
 
   // --- step 1: validate, then allocate -------------------------------------
   if (proposal === null) {
-    return { kind: "rejected", reason: "no-proposal", report: null };
+    return rejectedPromotion("no-proposal");
   }
   const [table] = proposal.tables;
   if (!proposal.isDelimited || table === undefined || proposal.tables.length !== 1 || table.fields.length === 0) {
-    return { kind: "rejected", reason: "empty-table", report: null };
+    return rejectedPromotion("empty-table");
   }
   const decisionCount = proposal.statements.filter((statement) => statement.disposition !== "accepted").length;
   const enumCount = table.fields.filter((entry) => entry.type.kind === "enum").length;
@@ -192,7 +192,7 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
   };
   const plan = schema.tables[0];
   if (plan === undefined) {
-    return { kind: "rejected", reason: "empty-table", report: null };
+    return rejectedPromotion("empty-table");
   }
   const schemaReport = validateSchema(
     [...target.tables, plan.table],
@@ -200,12 +200,12 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
     target.relationships,
   );
   if (!schemaReport.isValid) {
-    return { kind: "rejected", reason: "schema-invalid", report: schemaReport };
+    return rejectedPromotion("schema-invalid", schemaReport, schema);
   }
 
   const built = await buildRecords(entropy, proposal, schema, input.facts, { referenceExists: target.referenceExists });
   if (built.firstBlockingReport !== null) {
-    return { kind: "rejected", reason: "record-invalid", report: built.firstBlockingReport };
+    return rejectedPromotion("record-invalid", built.firstBlockingReport, schema);
   }
 
   // --- step 2: build every root, outside the write transaction -------------

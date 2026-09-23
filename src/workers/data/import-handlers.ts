@@ -61,7 +61,10 @@ import {
   sweepStaleImports,
   type CleanupReceiptV1,
 } from "../../import/staging/cleanup.js";
-import { promoteImport as promoteStagedImport } from "../../import/staging/promotion.js";
+import {
+  promoteImport as promoteStagedImport,
+  type PromotionRejectedV1,
+} from "../../import/staging/promotion.js";
 import {
   decodeDomainId,
   encodeDomainId,
@@ -117,6 +120,7 @@ import type {
   ApplyReviewEditRequestV1,
   BeginImportStageRequestV1,
   PromoteImportRequestV1,
+  PromoteImportResponseV1,
   CancelImportStageRequestV1,
   DataWorkerResponseV1,
   DetectedDelimitedV1,
@@ -559,6 +563,28 @@ export function proposalWire(proposal: ProposedWorkbookV1): ProposedWorkbookWire
   return {
     ...proposal,
     recordRules: proposal.recordRules.map((rule) => ({ ...rule, condition: condition(rule.condition) })),
+  };
+}
+
+/**
+ * A refused promotion or append, as the page receives it: every issue of the
+ * report, each naming the reviewed column its field was allocated for.
+ */
+export function rejectedPromotionResponse(result: PromotionRejectedV1): PromoteImportResponseV1 {
+  return {
+    kind: "promoteImport",
+    outcome: "rejected",
+    reason: result.reason,
+    issues: (result.report?.issues ?? []).map((issue) => {
+      const fieldId = issue.fieldId === null ? null : encodeDomainId(issue.fieldId);
+      return {
+        fieldId,
+        columnKey: fieldId === null ? null : (result.columnKeys.get(fieldId) ?? null),
+        kind: issue.kind,
+        severity: issue.severity,
+        messageKey: issue.messageKey,
+      };
+    }),
   };
 }
 
@@ -1114,17 +1140,7 @@ export function createImportHandlers(
     if (result.kind === "rejected") {
       // Nothing was written: the app and the stage are exactly as they were.
       crypto.destroyKey(loaded.provisionalKey);
-      return {
-        kind: "promoteImport",
-        outcome: "rejected",
-        reason: result.reason,
-        issues: (result.report?.issues ?? []).map((issue) => ({
-          fieldId: issue.fieldId === null ? null : encodeDomainId(issue.fieldId),
-          kind: issue.kind,
-          severity: issue.severity,
-          messageKey: issue.messageKey,
-        })),
-      };
+      return rejectedPromotionResponse(result);
     }
 
     crypto.destroyKey(loaded.provisionalKey);
@@ -1424,17 +1440,7 @@ export function createImportHandlers(
         // Nothing was written, so the stage is exactly as it was and the user
         // can fix the review and try again (D23).
         crypto.destroyKey(loaded.provisionalKey);
-        return {
-          kind: "promoteImport",
-          outcome: "rejected",
-          reason: result.reason,
-          issues: (result.report?.issues ?? []).map((issue) => ({
-            fieldId: issue.fieldId === null ? null : encodeDomainId(issue.fieldId),
-            kind: issue.kind,
-            severity: issue.severity,
-            messageKey: issue.messageKey,
-          })),
-        };
+        return rejectedPromotionResponse(result);
       }
 
       // The provisional key *became* the app key; the handle is released here

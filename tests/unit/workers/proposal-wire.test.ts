@@ -37,7 +37,9 @@ import type {
   WorkbookReviewEditV1,
 } from "../../../src/import/inference/review-edits.js";
 import { inferWorkbook } from "../../../src/import/inference/workbook.js";
-import { proposalWire } from "../../../src/workers/data/import-handlers.js";
+import { proposalWire, rejectedPromotionResponse } from "../../../src/workers/data/import-handlers.js";
+import { rejectedPromotion } from "../../../src/import/staging/promotion.js";
+import { encodeDomainId, type FieldId } from "../../../src/domain/model/ids.js";
 import { streamWorkbookFixture } from "../staging/workbook-streams.js";
 import type { ProposedAppV1 } from "../../../src/import/inference/infer.js";
 import type {
@@ -178,5 +180,42 @@ describe("the wire proposal", () => {
     expect(relayed.outcome === "rejected" && relayed.reason).toBe(
       "unknown-column",
     );
+  });
+});
+
+describe("a refused promotion on the wire", () => {
+  it("names each field issue's reviewed column, and a record-level issue none", () => {
+    const named = new Uint8Array(16).fill(1) as FieldId;
+    const unknown = new Uint8Array(16).fill(2) as FieldId;
+    const issue = { ruleId: null, kind: "type", severity: "blocking", messageKey: "validation.type", messageParameters: {} } as const;
+    const response = rejectedPromotionResponse({
+      ...rejectedPromotion("record-invalid", {
+        isValid: false,
+        issues: [
+          { ...issue, fieldId: named },
+          { ...issue, fieldId: unknown },
+          { ...issue, fieldId: null },
+        ],
+      }),
+      columnKeys: new Map([[encodeDomainId(named), "s0.t0.c2"]]),
+    });
+
+    expect(response).toEqual({
+      kind: "promoteImport",
+      outcome: "rejected",
+      reason: "record-invalid",
+      issues: [
+        { fieldId: encodeDomainId(named), columnKey: "s0.t0.c2", kind: "type", severity: "blocking", messageKey: "validation.type" },
+        { fieldId: encodeDomainId(unknown), columnKey: null, kind: "type", severity: "blocking", messageKey: "validation.type" },
+        { fieldId: null, columnKey: null, kind: "type", severity: "blocking", messageKey: "validation.type" },
+      ],
+    });
+    // No report, no issues: an append too large for one segment names nothing.
+    expect(rejectedPromotionResponse(rejectedPromotion("append-too-large"))).toEqual({
+      kind: "promoteImport",
+      outcome: "rejected",
+      reason: "append-too-large",
+      issues: [],
+    });
   });
 });

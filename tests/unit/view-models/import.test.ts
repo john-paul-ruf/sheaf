@@ -773,6 +773,53 @@ describe("the promotion rejection list (D42)", () => {
     expect(vm.promotionRejection).toBe("append-too-large");
     expect(vm.promotionIssues).toEqual([]);
   });
+
+  it("names each refused field by its reviewed column: the reviewed name and its table", async () => {
+    const issue = { kind: "type", severity: "blocking" as const, messageKey: "validation.wrong-type" };
+    const proposal = wireProposal({
+      table: { tableName: "Visits", fields: [field(), field({ columnIndex: 1, fieldName: "Crew lead" })] },
+    });
+    const fake = services({
+      runInference: resolves({ kind: "runInference" as const, proposal }),
+      // The target-name edits land against this same proposal (see `toReview`).
+      applyReviewEdit: resolves({ kind: "applyReviewEdit" as const, outcome: "applied" as const, proposal }),
+      promoteImport: resolves({
+        kind: "promoteImport" as const,
+        outcome: "rejected" as const,
+        reason: "record-invalid",
+        issues: [
+          { ...issue, fieldId: "minted-b", columnKey: "s0.r0.c1" },
+          { ...issue, fieldId: "minted-b", columnKey: "s0.r0.c1" },
+          // A column the review does not have, and an F02-era issue with no column.
+          { ...issue, fieldId: "minted-x", columnKey: "s9.r0.c9" },
+          { ...issue, fieldId: "minted-y" },
+          { ...issue, fieldId: null, columnKey: null },
+        ],
+      }),
+    });
+    const actor = start(fake);
+    actor.send({ type: "CHOOSE_FILE", file: FILE, fileName: FILE_NAME });
+    fake.emit(preflightEvent());
+    actor.send({ type: "CONTINUE" });
+    actor.send({ type: "START" });
+    await settled();
+    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+    expect(reviewVm(vmOf(actor)).tables[0]?.fields.map((entry) => entry.columnKey)).toEqual(["s0.r0.c0", "s0.r0.c1"]);
+    actor.send({ type: "CREATE_APP" });
+    await settled();
+    await settled();
+
+    const groups = reviewVm(vmOf(actor)).promotionIssues;
+    expect(groups.map(({ columnKey, fieldName, tableName, count }) => ({ columnKey, fieldName, tableName, count }))).toEqual([
+      { columnKey: "s0.r0.c1", fieldName: "Crew lead", tableName: "Visits", count: 2 },
+      { columnKey: "s9.r0.c9", fieldName: null, tableName: null, count: 1 },
+      { columnKey: null, fieldName: null, tableName: null, count: 1 },
+      { columnKey: null, fieldName: null, tableName: null, count: 1 },
+    ]);
+  });
 });
 
 // --- F03: the workbook branch and the append destination (S07 CP1) --------

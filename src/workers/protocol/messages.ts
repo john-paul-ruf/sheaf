@@ -1219,6 +1219,13 @@ export type PromoteImportResponseV1 =
       /** The whole report, so the surface can name every field at fault. */
       readonly issues: readonly {
         readonly fieldId: string | null;
+        /**
+         * The reviewed column (`ProposedWorkbookFieldWireV1.columnKey`) the
+         * field was allocated for, so the review can name it: the refused
+         * promotion wrote nothing, and its `fieldId` names no durable field.
+         * `null` for a record-level issue; absent from an F02-era producer.
+         */
+        readonly columnKey?: string | null;
         readonly kind: string;
         readonly severity: "warning" | "blocking";
         readonly messageKey: string;

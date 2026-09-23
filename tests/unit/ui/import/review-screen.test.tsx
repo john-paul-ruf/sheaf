@@ -530,6 +530,38 @@ describe("SCR-023 workbook — Needs attention and the accept", () => {
     ]);
   });
 
+  it("names each refused field as reviewed, by its table, when the worker names its column", async () => {
+    const proposal = await demoProposal();
+    const columnOf = (tableName: string, fieldName: string): string => {
+      const found = proposal.tables
+        .find((table) => table.tableName === tableName)
+        ?.fields.find((field) => field.fieldName === fieldName);
+      if (found === undefined) throw new Error(`the demo has no ${tableName}.${fieldName}`);
+      return found.columnKey;
+    };
+    const issue = { kind: "type", severity: "blocking" as const, messageKey: "validation.wrong-type" };
+    const vm = await demoReviewVm(proposal, ALL_SHEETS, {
+      promoteImport: resolves({
+        kind: "promoteImport" as const,
+        outcome: "rejected" as const,
+        reason: "record-invalid",
+        issues: [
+          { ...issue, fieldId: "field-a", columnKey: columnOf("Jobs", "Customer ID") },
+          { ...issue, fieldId: "field-a", columnKey: columnOf("Jobs", "Customer ID") },
+          { ...issue, fieldId: "field-b", columnKey: columnOf("Customers", "Customer ID") },
+          { ...issue, fieldId: null, columnKey: null },
+        ],
+      }),
+    });
+    await render(screen(vm));
+    const issues = queryAll("[data-promotion-issues] li").map((item) => item.textContent);
+    expect(issues).toEqual([
+      "“Customer ID” in “Jobs”, 2 values: This value is not the kind this field holds.",
+      "“Customer ID” in “Customers”, 1 value: This value is not the kind this field holds.",
+      "A whole record: This value is not the kind this field holds.",
+    ]);
+  });
+
   it("D43 watchpoint — append-too-large reason: says nothing was written and the way that works", async () => {
     const vm = await demoReviewVm(await demoProposal());
     await render(screen({ ...vm, promotionRejection: "append-too-large" }));

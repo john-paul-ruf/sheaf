@@ -531,9 +531,11 @@ export function ReviewScreen({
                   <li key={`${group.fieldId ?? "record"}-${group.token}`}>
                     {group.fieldId === null
                       ? `A whole record: ${group.sentence}`
-                      : `One field, ${
-                          group.count === 1 ? "1 value" : `${formatCount(group.count)} values`
-                        }: ${group.sentence}`}
+                      : `${
+                          group.fieldName === null
+                            ? "One field"
+                            : `“${group.fieldName}” in “${group.tableName ?? vm.appName}”`
+                        }, ${group.count === 1 ? "1 value" : `${formatCount(group.count)} values`}: ${group.sentence}`}
                   </li>
                 ))}
               </ul>

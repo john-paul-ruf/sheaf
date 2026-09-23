@@ -389,6 +389,54 @@ describe("promoting the demo workbook (CA-19/20/22)", () => {
   });
 });
 
+describe("a refused promotion names its fields by reviewed column", () => {
+  it("maps every field the schema report names to the column it was allocated for, and writes nothing", async () => {
+    const harness = stagingHarness();
+    const { loaded, facts, proposal } = await stageDemo(harness);
+    const [jobs] = proposal.tables;
+    const nameless = jobs?.fields[1];
+    if (jobs === undefined || nameless === undefined) throw new Error("the demo has no Jobs fields");
+    const unnamed: ProposedWorkbookV1 = {
+      ...proposal,
+      tables: proposal.tables.map((table) =>
+        table === jobs
+          ? { ...table, fields: table.fields.map((field) => (field === nameless ? { ...field, fieldName: "" } : field)) }
+          : table,
+      ),
+    };
+    const before = harness.store.rows.size;
+    const result = await promoteImport(
+      {
+        ports: harness.ports,
+        clock: { nowEpochMs: () => 0 },
+        localRoot: harness.localRoot,
+        commitCatalog: () => Promise.reject(new Error("must not commit")),
+        sealCleanupTicket: () => Promise.reject(new Error("must not seal")),
+      },
+      {
+        loaded: { ...loaded, stage: { ...loaded.stage, proposal: unnamed } },
+        facts,
+        sourceChunks: [],
+        acceptedName: "X",
+        deviceId: new Uint8Array(16) as never,
+      },
+    );
+
+    if (result.kind !== "rejected") throw new Error("an unnamed field promoted");
+    expect(result.reason).toBe("schema-invalid");
+    const named = (result.report?.issues ?? []).filter((issue) => issue.messageKey === "schema.missing-field-label");
+    expect(named).toHaveLength(1);
+    const fieldId = named[0]?.fieldId;
+    if (fieldId === null || fieldId === undefined) throw new Error("the issue names no field");
+    expect(result.columnKeys.get(encodeDomainId(fieldId))).toBe(nameless.columnKey);
+    // Every field the promotion allocated is named, and no other.
+    expect(result.columnKeys.size).toBe(
+      proposal.tables.filter((table) => table.joinedToTableKey === null).reduce((sum, table) => sum + table.fields.length, 0),
+    );
+    expect(harness.store.rows.size).toBe(before);
+  });
+});
+
 describe("the row plan (CA-19)", () => {
   it("places every readable fixture's rows exactly as inference counted them, in all five corpora", async () => {
     let planned = 0;

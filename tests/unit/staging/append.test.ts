@@ -278,7 +278,7 @@ describe("appending a delimited file into an existing app (D38, CA-23)", () => {
 
     const result = await appendTable(appendDeps(harness) as never, { loaded, facts, target, deviceId: DEVICE });
 
-    expect(result).toEqual({ kind: "rejected", reason: "append-too-large", report: null });
+    expect(result).toEqual({ kind: "rejected", reason: "append-too-large", report: null, columnKeys: new Map() });
     expect(harness.store.rows.size).toBe(rows);
     expect(harness.catalog.expectation().transactionRevision).toBe(revision);
     expect(harness.store.has(target.headStorageId)).toBe(true);
