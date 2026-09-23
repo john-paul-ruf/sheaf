@@ -163,7 +163,11 @@ describe("XLSB inventory — exact outcome per fixture", () => {
 
 describe("XLSB pre-flight reads no cell (CA-18)", () => {
   const all = async (): Promise<[string, Uint8Array][]> => [
-    ["plain.xlsb", await fixtureBytes("xlsb/plain.xlsb")],
+    ...(await Promise.all(
+      [...XLSB_CORPUS.keys()]
+        .filter((path) => !/macro/.test(path))
+        .map(async (path): Promise<[string, Uint8Array]> => [path, await fixtureBytes(path)]),
+    )),
     ...WORKBOOKS.map(([name, spec]): [string, Uint8Array] => [`${name}.xlsb`, buildXlsb(spec)]),
   ];
 
@@ -175,6 +179,7 @@ describe("XLSB pre-flight reads no cell (CA-18)", () => {
       expect(reads.has("xl/sharedstrings.bin"), `${name} read sharedStrings.bin`).toBe(false);
       const sheets = zip.entries.filter((entry) => /^xl\/worksheets\/[^/]+\.bin$/.test(entry.name));
       expect(sheets.length, name).toBeGreaterThan(0);
+      expect([...reads.keys()].filter((part) => /^xl\/chartsheets\/[^/]+\.bin$/.test(part)), `${name} read a chart sheet`).toEqual([]);
       for (const sheet of sheets) {
         const part = await (await openZipContainer(bytesSource(bytes))).readEntry(sheet.name, { maxBytes: 1 << 26 });
         const records = recordEnds(part);

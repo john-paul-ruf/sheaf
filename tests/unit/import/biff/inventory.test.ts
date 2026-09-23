@@ -6,6 +6,7 @@ import { preflightWorkbook, type WorkbookPreflightOutcomeV1 } from "../../../../
 import { unreadable } from "../../../../src/import/preflight/refusal.js";
 import { sniffContent } from "../../../../src/import/source/sniff.js";
 import { buildBiffWorkbook } from "../../../fixtures/workbooks/biff/build-biff.js";
+import { BIFF_FIDELITY } from "../../../fixtures/workbooks/biff/build-fidelity.js";
 import { BIFF_CORPUS, PLAIN } from "../../../fixtures/workbooks/biff/corpus.js";
 import { ptg } from "../../../fixtures/workbooks/biff/ptg-writer.js";
 import { bytesSource, fixtureBytes } from "../fixtures.js";
@@ -191,7 +192,8 @@ describe("BIFF inventory — exact outcome per fixture", () => {
 });
 
 describe("BIFF pre-flight reads no cell record (CA-18)", () => {
-  const specs = new Map([
+  const specs = new Map<string, Parameters<typeof buildBiffWorkbook>[0]>([
+    ...BIFF_FIDELITY,
     ["plain.xls", PLAIN],
     [
       "wide.xls",
@@ -207,8 +209,9 @@ describe("BIFF pre-flight reads no cell record (CA-18)", () => {
 
   it("the poisoned twins really have no readable cell record (negative control)", async () => {
     for (const [name, spec] of specs) {
-      const clean = listRecords(await workbookStream(buildBiffWorkbook(spec)));
-      const poisoned = listRecords(await workbookStream(buildBiffWorkbook(spec, { poisonCells: true })));
+      const path = spec.version === "biff5" ? "Book" : "Workbook";
+      const clean = listRecords(await workbookStream(buildBiffWorkbook(spec), path));
+      const poisoned = listRecords(await workbookStream(buildBiffWorkbook(spec, { poisonCells: true }), path));
       expect(clean.some((each) => CELL_RECORD_TYPES.has(each.type)), name).toBe(true);
       expect(poisoned.some((each) => CELL_RECORD_TYPES.has(each.type)), name).toBe(false);
     }
@@ -225,20 +228,42 @@ describe("BIFF pre-flight reads no cell record (CA-18)", () => {
     }
   });
 
-  it("pulls no stream byte past the last sheet's DIMENSIONS", async () => {
+  /**
+   * Where the reader may stop: the last sheet's `DIMENSIONS` (or, for a sheet
+   * without one, the header of its first cell record; for a chart sheet, its
+   * `BOF`). Found test-side from `BOUNDSHEET8` offsets, independently of M17.
+   */
+  const prefixEndOf = (stream: Uint8Array): { readonly end: number; readonly isChart: boolean } => {
+    const records = listRecords(stream);
+    const offsets = records
+      .filter((each) => each.type === 0x0085)
+      .map((each) => (stream[each.offset + 4] as number) | ((stream[each.offset + 5] as number) << 8) | ((stream[each.offset + 6] as number) << 16));
+    const last = Math.max(...offsets);
+    const start = records.findIndex((each) => each.offset === last);
+    const bof = records[start];
+    if (bof === undefined) throw new Error("no BOF at the last sheet offset");
+    if (((stream[bof.offset + 6] as number) | ((stream[bof.offset + 7] as number) << 8)) === 0x0020) return { end: bof.end, isChart: true };
+    for (const each of records.slice(start + 1)) {
+      if (each.type === RT.DIMENSIONS) return { end: each.end, isChart: false };
+      if (CELL_RECORD_TYPES.has(each.type) || each.type === 0x0208 || each.type === RT.EOF) return { end: each.offset + 4, isChart: false };
+    }
+    throw new Error("sheet without an end");
+  };
+
+  it("pulls no stream byte past the last sheet's DIMENSIONS — every BIFF workbook", async () => {
     for (const [name, spec] of specs) {
       const bytes = buildBiffWorkbook(spec);
-      const stream = await workbookStream(bytes);
-      const lastDimensions = listRecords(stream).filter((each) => each.type === RT.DIMENSIONS).at(-1);
-      if (lastDimensions === undefined) throw new Error(name);
-      // A reader that read the whole stream could not pass this bound.
-      expect(lastDimensions.end + SLICE - 1, name).toBeLessThan(stream.length - 20);
+      const path = spec.version === "biff5" ? "Book" : "Workbook";
+      const stream = await workbookStream(bytes, path);
+      const { end: prefixEnd, isChart } = prefixEndOf(stream);
+      // A reader that read the last sheet's cells could not pass this bound.
+      if (!isChart) expect(prefixEnd + SLICE - 1, name).toBeLessThan(stream.length - 20);
       const { handle, reads } = spyCfbHandle(await openCfb(bytes), SLICE);
       expect((await readBiffInventory.readInventory({ kind: "cfb", cfb: handle })).kind, name).toBe("inventory");
-      const workbook = reads.get("WORKBOOK");
+      const workbook = reads.get(path.toUpperCase());
       expect(workbook?.read ?? 0, name).toBe(0);
       expect(workbook?.streamed ?? 0, name).toBeGreaterThan(0);
-      expect(workbook?.streamed ?? 0, name).toBeLessThanOrEqual(lastDimensions.end + SLICE - 1);
+      expect(workbook?.streamed ?? 0, name).toBeLessThanOrEqual(prefixEnd + SLICE - 1);
     }
   });
 

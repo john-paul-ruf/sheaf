@@ -1,7 +1,20 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import type { WorkbookFactStreamItemV2 } from "../../../src/import/facts/index.js";
+import { readBiffInventory } from "../../../src/import/formats/biff/inventory.js";
+import { biffAdapter } from "../../../src/import/formats/biff/parse.js";
 import { decodePtgFormula, PTG_UNDECODABLE_REASONS, type PtgFormatV1 } from "../../../src/import/formats/biff/ptg.js";
+import { isBoundExceeded } from "../../../src/import/source/bounds.js";
+import { openCfbContainer } from "../../../src/import/source/cfb.js";
+import { buildBiffWorkbook } from "../../fixtures/workbooks/biff/build-biff.js";
+import { BIFF_FIDELITY } from "../../fixtures/workbooks/biff/build-fidelity.js";
 import { CASES, contextFor } from "../../unit/import/biff/ptg-cases.js";
+import { assertConformingStream } from "../../unit/import/facts/conformance.js";
+import { bytesSource } from "../../unit/import/fixtures.js";
+
+const FIDELITY_FORMULAS = BIFF_FIDELITY.get("formulas.xls") ?? (() => {
+  throw new Error("formulas.xls");
+})();
 
 const FORMATS = fc.constantFrom<PtgFormatV1>("biff8", "biff12");
 const CELL = fc.option(fc.record({ row: fc.nat({ max: 70_000 }), column: fc.nat({ max: 300 }) }), { nil: null });
@@ -65,4 +78,37 @@ describe("Ptg decoder bounds (property)", () => {
       }),
     );
   });
+});
+
+describe("BIFF reader bounds (property)", () => {
+  const VALID = buildBiffWorkbook(FIDELITY_FORMULAS);
+
+  it("inventory and adapter end in a bound refusal or a conforming stream when the file is corrupted", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.tuple(fc.nat({ max: VALID.length - 1 }), fc.integer({ min: 0, max: 255 })), { minLength: 1, maxLength: 6 }),
+        async (flips) => {
+          const bytes = Uint8Array.from(VALID);
+          for (const [at, value] of flips) bytes[at] = value;
+          try {
+            const cfb = await openCfbContainer(bytesSource(bytes));
+            const inventory = await readBiffInventory.readInventory({ kind: "cfb", cfb });
+            if (inventory.kind !== "inventory") return;
+            const items: WorkbookFactStreamItemV2[] = [];
+            for await (const item of biffAdapter.parseSheets(
+              { kind: "cfb", cfb },
+              inventory.inventory.sheets.map((sheet) => sheet.sheetIndex),
+              { cancellation: { aborted: false } },
+            )) {
+              items.push(item);
+            }
+            assertConformingStream(items);
+          } catch (cause) {
+            if (!isBoundExceeded(cause)) throw cause;
+          }
+        },
+      ),
+      { numRuns: 400 },
+    );
+  }, 120_000);
 });

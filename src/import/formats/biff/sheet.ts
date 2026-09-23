@@ -111,6 +111,8 @@ interface PendingCell {
   readonly value: CellValueV1 | null;
   readonly formula: WorkbookFactV2 | null;
   readonly isUndecodable: boolean;
+  /** Diagnostics met reading the value; noted when the row is emitted, as the OOXML adapter notes them. */
+  readonly notes: readonly ImportDiagnosticCodeV2[];
 }
 
 /** A `FORMULA` record's cached result (MS-XLS §2.5.133 `FormulaValue`). */
@@ -204,28 +206,34 @@ export async function* streamBiffSheet(
   const at = (range: RangeV1 | null): string => locationOf(sheet.name, range);
   const key = (row: number, column: number): string => `${row},${column}`;
 
-  const textCell = (raw: string, row: number, column: number): CellValueV1 | null => {
+  let notes: ImportDiagnosticCodeV2[] = [];
+  const takeNotes = (): ImportDiagnosticCodeV2[] => {
+    const taken = notes;
+    notes = [];
+    return taken;
+  };
+  const textCell = (raw: string): CellValueV1 | null => {
     if (raw === "") return null;
     const text = raw.normalize("NFC");
-    if (text !== raw) sink.note("text-normalized-nfc", row, column);
+    if (text !== raw) notes.push("text-normalized-nfc");
     return textValue(text);
   };
-  const kept = (raw: string, code: ImportDiagnosticCodeV2, row: number, column: number): CellValueV1 => {
-    sink.note(code, row, column);
+  const kept = (raw: string, code: ImportDiagnosticCodeV2): CellValueV1 => {
+    notes.push(code);
     return invalidPreservedValue(raw.normalize("NFC"));
   };
-  const numberCell = (value: number, row: number, column: number): CellValueV1 =>
-    decimalCellOfDouble(value) ?? kept(String(value), "malformed-value", row, column);
-  const errorCell = (code: number, row: number, column: number): CellValueV1 =>
-    kept(ERROR_TEXT.get(code) ?? "#N/A", "error-value", row, column);
+  const numberCell = (value: number): CellValueV1 =>
+    decimalCellOfDouble(value) ?? kept(String(value), "malformed-value");
+  const errorCell = (code: number): CellValueV1 =>
+    kept(ERROR_TEXT.get(code) ?? "#N/A", "error-value");
   /** BIFF5 text through the code page; BIFF8 text is UTF-16 already. */
-  const byteText = (bytes: Uint8Array, row: number, column: number): string => {
+  const byteText = (bytes: Uint8Array): string => {
     const decoded = globals.codePage.decode(bytes);
-    if (decoded.isLossy) sink.note("replacement-character", row, column);
+    if (decoded.isLossy) notes.push("replacement-character");
     return decoded.text;
   };
   /** `XLUnicodeString` (BIFF8) or a 16-bit-counted byte string (BIFF5), maybe continued. */
-  const recordString = (fragments: readonly Uint8Array[], start: number, row: number, column: number): string => {
+  const recordString = (fragments: readonly Uint8Array[], start: number): string => {
     if (isBiff8) {
       const cursor = new ContinuedCursorV1(fragments, start);
       const cch = cursor.u16();
@@ -234,7 +242,7 @@ export async function* streamBiffSheet(
     const body = fragments[0] ?? malformed();
     const cch = u16(body, start);
     if (start + 2 + cch > body.byteLength) malformed();
-    return byteText(body.subarray(start + 2, start + 2 + cch), row, column);
+    return byteText(body.subarray(start + 2, start + 2 + cch));
   };
 
   const flushRow = (): void => {
@@ -248,6 +256,7 @@ export async function* streamBiffSheet(
     for (const cell of cells) {
       if (cell.column === previousColumn) malformed();
       previousColumn = cell.column;
+      for (const code of cell.notes) sink.note(code, row, cell.column);
       const style = styles[cell.xf] ?? GENERAL;
       isStyled ||= style.isVisuallyStyled;
       if (cell.value !== null && style.numberFormat !== (columnFormats.get(cell.column) ?? "General")) {
@@ -294,6 +303,7 @@ export async function* streamBiffSheet(
     value,
     formula: null,
     isUndecodable: false,
+    notes: takeNotes(),
   });
 
   const formulaCell = async (record: BiffRecordV1): Promise<{ row: number; cell: PendingCell }> => {
@@ -348,13 +358,13 @@ export async function* streamBiffSheet(
     let value: CellValueV1 | null;
     switch (cached.kind) {
       case "number":
-        value = numberCell(cached.value, row, column);
+        value = numberCell(cached.value);
         break;
       case "boolean":
         value = booleanValue(cached.value);
         break;
       case "error":
-        value = errorCell(cached.code, row, column);
+        value = errorCell(cached.code);
         break;
       case "empty":
         value = null;
@@ -363,7 +373,7 @@ export async function* streamBiffSheet(
         value = null;
         if ((await stream.peekType()) === RT.STRING) {
           const string = ((await stream.next()) ?? malformed()).body;
-          value = textCell(recordString(await fragmentsOf(stream, string), 0, row, column), row, column);
+          value = textCell(recordString(await fragmentsOf(stream, string), 0));
         }
         break;
       }
@@ -378,6 +388,7 @@ export async function* streamBiffSheet(
         xf,
         value,
         isUndecodable,
+        notes: takeNotes(),
         formula: {
           kind: "formula",
           rowIndex: row,
@@ -466,7 +477,7 @@ export async function* streamBiffSheet(
         const text = globals.strings[index];
         flushed = addCell(
           row,
-          plainCell(column, u16(body, 4), text === undefined ? kept(String(index), "malformed-value", row, column) : textCell(text, row, column)),
+          plainCell(column, u16(body, 4), text === undefined ? kept(String(index), "malformed-value") : textCell(text)),
         );
         break;
       }
@@ -474,19 +485,19 @@ export async function* streamBiffSheet(
       case RT.RSTRING: {
         const row = u16(body, 0);
         const column = u16(body, 2);
-        flushed = addCell(row, plainCell(column, u16(body, 4), textCell(recordString([body], 6, row, column), row, column)));
+        flushed = addCell(row, plainCell(column, u16(body, 4), textCell(recordString([body], 6))));
         break;
       }
       case RT.NUMBER: {
         const row = u16(body, 0);
         const column = u16(body, 2);
-        flushed = addCell(row, plainCell(column, u16(body, 4), numberCell(f64(body, 6), row, column)));
+        flushed = addCell(row, plainCell(column, u16(body, 4), numberCell(f64(body, 6))));
         break;
       }
       case RT.RK: {
         const row = u16(body, 0);
         const column = u16(body, 2);
-        flushed = addCell(row, plainCell(column, u16(body, 4), numberCell(rkNumber(u32(body, 6)), row, column)));
+        flushed = addCell(row, plainCell(column, u16(body, 4), numberCell(rkNumber(u32(body, 6)))));
         break;
       }
       case RT.MULRK: {
@@ -496,14 +507,14 @@ export async function* streamBiffSheet(
         if (last < first || 4 + (last - first + 1) * 6 + 2 !== body.byteLength) malformed();
         for (let column = first; column <= last; column += 1) {
           const at6 = 4 + (column - first) * 6;
-          flushed = addCell(row, plainCell(column, u16(body, at6), numberCell(rkNumber(u32(body, at6 + 2)), row, column))) || flushed;
+          flushed = addCell(row, plainCell(column, u16(body, at6), numberCell(rkNumber(u32(body, at6 + 2))))) || flushed;
         }
         break;
       }
       case RT.BOOLERR: {
         const row = u16(body, 0);
         const column = u16(body, 2);
-        const value = u8(body, 7) === 0 ? booleanValue(u8(body, 6) !== 0) : errorCell(u8(body, 6), row, column);
+        const value = u8(body, 7) === 0 ? booleanValue(u8(body, 6) !== 0) : errorCell(u8(body, 6));
         flushed = addCell(row, plainCell(column, u16(body, 4), value));
         break;
       }

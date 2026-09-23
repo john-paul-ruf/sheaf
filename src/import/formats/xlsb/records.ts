@@ -39,6 +39,7 @@ export const BRT = Object.freeze({
   CELL_RSTRING: 62,
   DVAL: 64,
   BEGIN_SHEET_DATA: 145,
+  END_SHEET_DATA: 146,
   WS_DIM: 148,
   WB_PROP: 153,
   BUNDLE_SH: 156,
@@ -175,6 +176,22 @@ export class BodyReaderV1 {
 }
 
 const UTF16 = new TextDecoder("utf-16le");
+
+/**
+ * An `RkNumber` (MS-XLSB §2.5.122, as MS-XLS §2.5.217) as the double Excel
+ * means: a 30-bit integer or the high 30 bits of a double, optionally / 100.
+ */
+export function rkNumber(rk: number): number {
+  let value: number;
+  if ((rk & 2) !== 0) {
+    value = (rk | 0) >> 2;
+  } else {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setUint32(4, (rk & 0xfffffffc) >>> 0, true);
+    value = view.getFloat64(0, true);
+  }
+  return (rk & 1) !== 0 ? value / 100 : value;
+}
 
 /** A range inside Excel's grid, or `impossible-dimension`; inverted is malformed. */
 export function gridRange(rfx: {

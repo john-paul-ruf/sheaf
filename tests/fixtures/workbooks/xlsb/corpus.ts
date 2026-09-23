@@ -4,6 +4,7 @@
  * exactly what its generator writes (`SHEAF_WRITE_FIXTURES=1` rewrites them).
  */
 
+import { XLSB_FIDELITY } from "./build-fidelity.js";
 import { buildXlsb, type XlsbWorkbookSpec } from "./build-xlsb.js";
 
 /** A plain two-sheet workbook: text, whole and fractional numbers, a boolean, an error, a declared table. */
@@ -45,4 +46,5 @@ export const XLSB_CORPUS: ReadonlyMap<string, () => Uint8Array> = new Map<string
     "xlsb/xlm-macrosheet.xlsb",
     () => buildXlsb({ ...PLAIN_XLSB, sheets: [...PLAIN_XLSB.sheets, { name: "Macro1", kind: "macrosheet", rows: [["=HALT()"]] }] }),
   ],
+  ...[...XLSB_FIDELITY].map(([name, spec]): [string, () => Uint8Array] => [`xlsb/${name}`, () => buildXlsb(spec)]),
 ]);

@@ -3,13 +3,20 @@
  * (binary), drawing parts (DrawingML XML, as in XLSX) and comment parts
  * (binary). The inventory reader counts them and the adapter turns them into
  * facts through the same functions, so the two cannot disagree. Nothing here
- * is rendered, run or fetched (FR-9, invariant 8).
+ * is rendered, run or fetched (FR-9, invariant 8). The workbook-level
+ * `styles.bin` and `sharedStrings.bin` are read here too, for the adapter
+ * only: pre-flight never opens either.
  */
 
 import { CONTAINER_BOUNDS_V1, isBoundExceeded } from "../../source/bounds.js";
 import { partEvents, readRelationships } from "../../source/opc.js";
 import type { ZipContainerHandleV1 } from "../../source/zip.js";
-import type { RangeV1 } from "../../facts/index.js";
+import {
+  BUILTIN_NUMBER_FORMATS,
+  classifyNumberFormat,
+  type FormatClassV1,
+  type RangeV1,
+} from "../../facts/index.js";
 import { BodyReaderV1, BRT, gridRange, openXlsbRecords } from "./records.js";
 
 export interface XlsbTableV1 {
@@ -170,3 +177,68 @@ export async function readCommentAnchors(zip: ZipContainerHandleV1, commentsPart
   return anchors;
 }
 
+
+export interface CellStyleV1 {
+  readonly numberFormat: string;
+  readonly formatClass: FormatClassV1;
+  readonly currencySymbol: string | null;
+  readonly isVisuallyStyled: boolean;
+}
+
+export const DEFAULT_CELL_STYLE: CellStyleV1 = Object.freeze({
+  numberFormat: "General",
+  formatClass: "general",
+  currencySymbol: null,
+  isVisuallyStyled: false,
+});
+
+/**
+ * Every cell XF of `styles.bin` in order (index = a cell's style), reduced to
+ * its number format and whether it is visually styled (a non-default font,
+ * fill or border), exactly as the OOXML adapter reduces `cellXfs`.
+ */
+export async function readCellStyles(zip: ZipContainerHandleV1, partName: string | null): Promise<readonly CellStyleV1[]> {
+  if (partName === null || !zip.has(partName)) return [];
+  const custom = new Map<number, string>();
+  const xfs: { formatId: number; isVisuallyStyled: boolean }[] = [];
+  let inCellXfs = false;
+  for await (const record of partRecords(zip, partName)) {
+    const reader = new BodyReaderV1(record.body);
+    if (record.type === BRT.FMT) {
+      const id = reader.u16();
+      custom.set(id, reader.wide().normalize("NFC"));
+    } else if (record.type === BRT.BEGIN_CELL_XFS) {
+      inCellXfs = true;
+    } else if (record.type === BRT.END_CELL_XFS) {
+      inCellXfs = false;
+    } else if (record.type === BRT.XF && inCellXfs) {
+      reader.u16();
+      const formatId = reader.u16();
+      const font = reader.u16();
+      const fill = reader.u16();
+      const border = reader.u16();
+      xfs.push({ formatId, isVisuallyStyled: font !== 0 || fill !== 0 || border !== 0 });
+    }
+  }
+  return xfs.map(({ formatId, isVisuallyStyled }) => {
+    const code = custom.get(formatId);
+    if (code !== undefined) return { numberFormat: code, ...classifyNumberFormat(code), isVisuallyStyled };
+    const builtin = BUILTIN_NUMBER_FORMATS.get(formatId);
+    return builtin === undefined
+      ? { ...DEFAULT_CELL_STYLE, isVisuallyStyled }
+      : { numberFormat: builtin.code, formatClass: builtin.formatClass, currencySymbol: builtin.currencySymbol, isVisuallyStyled };
+  });
+}
+
+/** `sharedStrings.bin`: each `BrtSSTItem`'s text, in order; rich runs and phonetics ignored. */
+export async function readSharedStrings(zip: ZipContainerHandleV1, partName: string | null): Promise<readonly string[]> {
+  if (partName === null || !zip.has(partName)) return [];
+  const strings: string[] = [];
+  for await (const record of partRecords(zip, partName)) {
+    if (record.type !== BRT.SST_ITEM) continue;
+    const reader = new BodyReaderV1(record.body);
+    reader.u8();
+    strings.push(reader.wide());
+  }
+  return strings;
+}

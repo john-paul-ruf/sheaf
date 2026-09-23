@@ -13,11 +13,41 @@
 import { writeZip, type ZipEntrySpec } from "../build/zip-writer.js";
 import { Bytes, rkOf } from "../biff/build-biff.js";
 
-export type XlsbCellInput = number | string | boolean | null | { readonly error: number };
+export type XlsbCellInput =
+  | number
+  | string
+  | boolean
+  | null
+  | { readonly error: number }
+  /** Text stored in the cell itself (`BrtCellSt`), not the shared-string table. */
+  | { readonly inline: string };
+
+/** Range as `[firstRow, lastRow, firstColumn, lastColumn]`. */
+export type XlsbRange = readonly [number, number, number, number];
+
+export type XlsbFormulaSpec =
+  | { readonly tokens: Uint8Array; readonly extra?: Uint8Array }
+  /** A shared formula's master; `tokens` use `PtgRefN`/`PtgAreaN` relative to each member. */
+  | { readonly shared: { readonly range: XlsbRange; readonly tokens: Uint8Array } }
+  /** A shared- or array-formula member: `PtgExp` naming its master's row. */
+  | { readonly member: number }
+  | { readonly array: { readonly range: XlsbRange; readonly tokens: Uint8Array; readonly extra?: Uint8Array } };
 
 export interface XlsbCellSpec {
+  /** For a formula cell: the cached result. */
   readonly value?: XlsbCellInput;
   readonly style?: number;
+  readonly formula?: XlsbFormulaSpec;
+}
+
+export interface XlsbValidationSpec {
+  /** `valType`: 1 whole, 2 decimal, 3 list, 4 date, 5 time, 6 text length, 7 custom. */
+  readonly type: number;
+  readonly operator?: number;
+  readonly isStringList?: boolean;
+  readonly formula1: Uint8Array;
+  readonly formula2?: Uint8Array;
+  readonly ranges: readonly XlsbRange[];
 }
 
 export type XlsbRowSpec = readonly (XlsbCellSpec | XlsbCellInput | undefined)[];
@@ -39,6 +69,17 @@ export interface XlsbSheetSpec {
   /** Rows (by index) written with `BrtShort*` records. */
   readonly shortRows?: readonly number[];
   readonly tables?: readonly XlsbTableSpec[];
+  readonly merges?: readonly XlsbRange[];
+  readonly validations?: readonly XlsbValidationSpec[];
+  /** External hyperlinks (`BrtHLink` + a `TargetMode="External"` relationship). */
+  readonly hyperlinks?: readonly { readonly range: XlsbRange; readonly target: string }[];
+  readonly conditionalFormats?: number;
+  /** Anchored drawing objects, written to a DrawingML part as XLSB keeps them. */
+  readonly charts?: readonly XlsbRange[];
+  readonly pictures?: readonly XlsbRange[];
+  readonly shapes?: readonly XlsbRange[];
+  /** Cells carrying a comment (`comments.bin`). */
+  readonly comments?: readonly (readonly [number, number])[];
 }
 
 export interface XlsbWorkbookSpec {
@@ -99,13 +140,32 @@ export const B = Object.freeze({
   CELL_ERROR: 3,
   CELL_BOOL: 4,
   CELL_REAL: 5,
+  CELL_ST: 6,
   CELL_ISST: 7,
+  FMLA_STRING: 8,
+  FMLA_NUM: 9,
+  FMLA_BOOL: 10,
+  FMLA_ERROR: 11,
   SHORT_BLANK: 12,
   SHORT_RK: 13,
   SHORT_ERROR: 14,
   SHORT_BOOL: 15,
   SHORT_REAL: 16,
+  SHORT_ST: 17,
   SHORT_ISST: 18,
+  DVAL: 64,
+  MERGE_CELL: 176,
+  BEGIN_MERGE_CELLS: 177,
+  END_MERGE_CELLS: 178,
+  ARR_FMLA: 425,
+  SHR_FMLA: 426,
+  BEGIN_COND_FORMATTING: 461,
+  END_COND_FORMATTING: 462,
+  HLINK: 494,
+  BEGIN_DVALS: 573,
+  END_DVALS: 574,
+  BEGIN_COMMENT: 635,
+  END_COMMENT: 636,
   SST_ITEM: 19,
   FMT: 44,
   XF: 47,
@@ -148,13 +208,35 @@ const BINARY_MAIN = "application/vnd.ms-excel.sheet.binary.macroEnabled.main";
 const REL = (type: string): string => `http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}`;
 const MS_REL = (type: string): string => `http://schemas.microsoft.com/office/2006/relationships/${type}`;
 
-const relsXml = (relationships: readonly { id: string; type: string; target: string }[]): string =>
+interface RelationshipSpec {
+  readonly id: string;
+  readonly type: string;
+  readonly target: string;
+  readonly isExternal?: boolean;
+}
+
+const relsXml = (relationships: readonly RelationshipSpec[]): string =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships
-    .map(({ id, type, target }) => `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`)
+    .map(
+      ({ id, type, target, isExternal }) =>
+        `<Relationship Id="${id}" Type="${type}" Target="${target}"${isExternal === true ? ' TargetMode="External"' : ""}/>`,
+    )
     .join("")}</Relationships>`;
 
 const cellOf = (input: XlsbCellSpec | XlsbCellInput | undefined): XlsbCellSpec | undefined =>
-  input === undefined ? undefined : input !== null && typeof input === "object" && !("error" in input) ? input : { value: input };
+  input === undefined
+    ? undefined
+    : input !== null && typeof input === "object" && !("error" in input) && !("inline" in input)
+      ? input
+      : { value: input };
+
+const DRAWING_NS =
+  'xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"';
+
+const anchorXml = ([r1, r2, c1, c2]: XlsbRange, body: string): string =>
+  `<xdr:twoCellAnchor><xdr:from><xdr:col>${c1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${r1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${c2}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${r2}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>${body}<xdr:clientData/></xdr:twoCellAnchor>`;
+
+const PNG = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0);
 
 /** Every entry of the package before zipping, so a fixture can add or tamper with parts. */
 export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
@@ -170,30 +252,115 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
     return index;
   };
 
-  const cellRecords = (row: XlsbRowSpec, isShort: boolean): number[] => {
+  const u32 = (value: number): number[] => [...new Bytes().u32(value).finish()];
+
+  /** `BrtFmla*` with its cached result, then `BrtShrFmla`/`BrtArrFmla` for a group master. */
+  const formulaRecords = (row: number, column: number, style: number, cached: XlsbCellInput, formula: XlsbFormulaSpec): number[] => {
+    const head = [...new Bytes().u32(column).u32(style).finish()];
+    let type: number;
+    let result: number[];
+    if (typeof cached === "number") [type, result] = [B.FMLA_NUM, [...new Bytes().f64(cached).finish()]];
+    else if (typeof cached === "boolean") [type, result] = [B.FMLA_BOOL, [cached ? 1 : 0]];
+    else if (cached !== null && typeof cached === "object" && "error" in cached) [type, result] = [B.FMLA_ERROR, [cached.error]];
+    else [type, result] = [B.FMLA_STRING, wide(cached === null ? "" : typeof cached === "string" ? cached : cached.inline)];
+    const exp = (masterRow: number): number[] => [0x01, ...u32(masterRow)];
+    let tokens: number[];
+    let extra: number[] = [];
+    const following: number[] = [];
+    if ("tokens" in formula) {
+      tokens = [...formula.tokens];
+      extra = [...(formula.extra ?? [])];
+    } else if ("shared" in formula) {
+      tokens = exp(row);
+      const [r1, r2, c1, c2] = formula.shared.range;
+      following.push(...brt(B.SHR_FMLA, [...rfx(r1, r2, c1, c2), ...u32(formula.shared.tokens.length), ...formula.shared.tokens, ...u32(0)]));
+    } else if ("member" in formula) {
+      tokens = exp(formula.member);
+    } else {
+      tokens = exp(row);
+      const [r1, r2, c1, c2] = formula.array.range;
+      const arrayExtra = [...(formula.array.extra ?? [])];
+      following.push(
+        ...brt(B.ARR_FMLA, [...rfx(r1, r2, c1, c2), 0, ...u32(formula.array.tokens.length), ...formula.array.tokens, ...u32(arrayExtra.length), ...arrayExtra]),
+      );
+    }
+    return [...brt(type, [...head, ...result, 0, 0, ...u32(tokens.length), ...tokens, ...u32(extra.length), ...extra]), ...following];
+  };
+
+  const cellRecords = (rowIndex: number, row: XlsbRowSpec, isShort: boolean): number[] => {
     const out: number[] = [];
     row.forEach((input, column) => {
       const cell = cellOf(input);
       if (cell === undefined) return;
+      const value = cell.value ?? null;
+      if (cell.formula !== undefined) {
+        out.push(...formulaRecords(rowIndex, column, cell.style ?? 0, value, cell.formula));
+        return;
+      }
       const head = isShort
         ? [...new Bytes().u16(cell.style ?? 0).u8(0).u8(0).finish()]
         : [...new Bytes().u32(column).u32(cell.style ?? 0).finish()];
-      const value = cell.value ?? null;
       if (value === null) out.push(...brt(isShort ? B.SHORT_BLANK : B.CELL_BLANK, head));
       else if (typeof value === "number") {
         const rk = rkOf(value);
         out.push(
           ...(rk === null
             ? brt(isShort ? B.SHORT_REAL : B.CELL_REAL, [...head, ...new Bytes().f64(value).finish()])
-            : brt(isShort ? B.SHORT_RK : B.CELL_RK, [...head, ...new Bytes().u32(rk).finish()])),
+            : brt(isShort ? B.SHORT_RK : B.CELL_RK, [...head, ...u32(rk)])),
         );
       } else if (typeof value === "string") {
-        out.push(...brt(isShort ? B.SHORT_ISST : B.CELL_ISST, [...head, ...new Bytes().u32(sstIndexOf(value)).finish()]));
+        out.push(...brt(isShort ? B.SHORT_ISST : B.CELL_ISST, [...head, ...u32(sstIndexOf(value))]));
       } else if (typeof value === "boolean") {
         out.push(...brt(isShort ? B.SHORT_BOOL : B.CELL_BOOL, [...head, value ? 1 : 0]));
+      } else if ("inline" in value) {
+        out.push(...brt(isShort ? B.SHORT_ST : B.CELL_ST, [...head, ...wide(value.inline)]));
       } else {
         out.push(...brt(isShort ? B.SHORT_ERROR : B.CELL_ERROR, [...head, value.error]));
       }
+    });
+    return out;
+  };
+
+  /** Merges, conditional formats, validations and hyperlinks, after the sheet data. */
+  const structureRecords = (sheet: XlsbSheetSpec, hyperlinkIds: readonly string[]): number[] => {
+    const out: number[] = [];
+    const merges = sheet.merges ?? [];
+    if (merges.length > 0) {
+      out.push(...brt(B.BEGIN_MERGE_CELLS, u32(merges.length)));
+      for (const [r1, r2, c1, c2] of merges) out.push(...brt(B.MERGE_CELL, rfx(r1, r2, c1, c2)));
+      out.push(...brt(B.END_MERGE_CELLS));
+    }
+    for (let index = 0; index < (sheet.conditionalFormats ?? 0); index += 1) {
+      out.push(...brt(B.BEGIN_COND_FORMATTING, [...u32(1), ...u32(1), ...rfx(0, 0, 0, 0)]), ...brt(B.END_COND_FORMATTING));
+    }
+    const validations = sheet.validations ?? [];
+    if (validations.length > 0) {
+      out.push(...brt(B.BEGIN_DVALS, [0, 0, ...u32(0), ...u32(0), ...u32(validations.length)]));
+      for (const validation of validations) {
+        const flags = validation.type | (validation.isStringList === true ? 0x80 : 0) | 0x100 | ((validation.operator ?? 0) << 20);
+        const formula2 = [...(validation.formula2 ?? [])];
+        out.push(
+          ...brt(B.DVAL, [
+            ...u32(flags),
+            ...u32(validation.ranges.length),
+            ...validation.ranges.flatMap(([r1, r2, c1, c2]) => rfx(r1, r2, c1, c2)),
+            ...NULL_WIDE,
+            ...NULL_WIDE,
+            ...NULL_WIDE,
+            ...NULL_WIDE,
+            ...u32(validation.formula1.length),
+            ...validation.formula1,
+            ...u32(0),
+            ...u32(formula2.length),
+            ...formula2,
+            ...u32(0),
+          ]),
+        );
+      }
+      out.push(...brt(B.END_DVALS));
+    }
+    (sheet.hyperlinks ?? []).forEach(({ range: [r1, r2, c1, c2] }, index) => {
+      out.push(...brt(B.HLINK, [...rfx(r1, r2, c1, c2), ...wide(hyperlinkIds[index] ?? ""), ...wide(""), ...wide(""), ...wide("")]));
     });
     return out;
   };
@@ -211,8 +378,12 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
 
   const entries: ZipEntrySpec[] = [];
   const overrides: [string, string][] = [];
-  const workbookRels: { id: string; type: string; target: string }[] = [];
+  const workbookRels: RelationshipSpec[] = [];
   let tableCount = 0;
+  let drawingCount = 0;
+  let chartCount = 0;
+  let imageCount = 0;
+  let commentsCount = 0;
 
   spec.sheets.forEach((sheet, index) => {
     const kind = sheet.kind ?? "worksheet";
@@ -224,26 +395,13 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
       target: `${folder}/sheet${index + 1}.bin`,
     });
     overrides.push([`/${part}`, `application/vnd.ms-excel.${kind === "macrosheet" ? "macrosheet" : kind}`]);
-    const out: number[] = [...brt(B.BEGIN_SHEET), ...brt(B.WS_PROP, new Array<number>(27).fill(0))];
-    if (kind !== "chartsheet") {
-      const dimension = sheet.dimension === undefined ? extentOf(sheet) : sheet.dimension;
-      if (dimension !== null) out.push(...brt(B.WS_DIM, rfx(dimension[0], dimension[1], dimension[2], dimension[3])));
-      out.push(...brt(B.BEGIN_SHEET_DATA));
-      (sheet.rows ?? []).forEach((row, rowIndex) => {
-        if (row === undefined) return;
-        out.push(...brt(B.ROW_HDR, new Bytes().u32(rowIndex).u32(0).u16(300).u16(0).u8(0).u32(0).finish()));
-        out.push(...cellRecords(row, (sheet.shortRows ?? []).includes(rowIndex)));
-      });
-      out.push(...brt(B.END_SHEET_DATA));
-    }
-    out.push(...brt(B.END_SHEET));
-    entries.push({ name: part, data: Uint8Array.from(out) });
 
-    const sheetRels: { id: string; type: string; target: string }[] = [];
+    const sheetRels: RelationshipSpec[] = [];
+    const nextId = (): string => `rId${sheetRels.length + 1}`;
     for (const table of sheet.tables ?? []) {
       tableCount += 1;
       const tablePart = `xl/tables/table${tableCount}.bin`;
-      sheetRels.push({ id: `rId${sheetRels.length + 1}`, type: REL("table"), target: `../tables/table${tableCount}.bin` });
+      sheetRels.push({ id: nextId(), type: REL("table"), target: `../tables/table${tableCount}.bin` });
       overrides.push([`/${tablePart}`, "application/vnd.ms-excel.table"]);
       const [firstRow, lastRow, firstColumn, lastColumn] = table.range;
       const list = [
@@ -258,17 +416,82 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
           ...NULL_WIDE,
           ...NULL_WIDE,
         ]),
-        ...brt(B.BEGIN_LIST_COLS, new Bytes().u32(table.columns.length).finish()),
+        ...brt(B.BEGIN_LIST_COLS, u32(table.columns.length)),
       ];
       table.columns.forEach((column, columnIndex) => {
         list.push(
-          ...brt(B.BEGIN_LIST_COL, [...new Bytes().u32(columnIndex + 1).finish(), ...new Array<number>(5 * 4).fill(0), ...wide(column), ...NULL_WIDE, ...NULL_WIDE]),
+          ...brt(B.BEGIN_LIST_COL, [...u32(columnIndex + 1), ...new Array<number>(5 * 4).fill(0), ...wide(column), ...NULL_WIDE, ...NULL_WIDE]),
           ...brt(B.END_LIST_COL),
         );
       });
       list.push(...brt(B.END_LIST_COLS), ...brt(B.END_LIST));
       entries.push({ name: tablePart, data: Uint8Array.from(list) });
     }
+
+    const charts = sheet.charts ?? [];
+    const pictures = sheet.pictures ?? [];
+    const shapes = sheet.shapes ?? [];
+    if (charts.length + pictures.length + shapes.length > 0) {
+      drawingCount += 1;
+      const drawingRels: RelationshipSpec[] = [];
+      const anchors: string[] = [];
+      for (const range of charts) {
+        chartCount += 1;
+        const id = `rId${drawingRels.length + 1}`;
+        drawingRels.push({ id, type: REL("chart"), target: `../charts/chart${chartCount}.xml` });
+        entries.push({ name: `xl/charts/chart${chartCount}.xml`, data: '<?xml version="1.0" encoding="UTF-8"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"/>' });
+        overrides.push([`/xl/charts/chart${chartCount}.xml`, "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"]);
+        anchors.push(anchorXml(range, `<xdr:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="${id}"/></a:graphicData></a:graphic></xdr:graphicFrame>`));
+      }
+      for (const range of pictures) {
+        imageCount += 1;
+        const id = `rId${drawingRels.length + 1}`;
+        drawingRels.push({ id, type: REL("image"), target: `../media/image${imageCount}.png` });
+        entries.push({ name: `xl/media/image${imageCount}.png`, data: PNG, method: "stored" });
+        anchors.push(anchorXml(range, `<xdr:pic><xdr:blipFill><a:blip r:embed="${id}"/></xdr:blipFill></xdr:pic>`));
+      }
+      for (const range of shapes) anchors.push(anchorXml(range, "<xdr:sp/>"));
+      const drawingPart = `xl/drawings/drawing${drawingCount}.xml`;
+      entries.push({ name: drawingPart, data: `<?xml version="1.0" encoding="UTF-8"?>\n<xdr:wsDr ${DRAWING_NS}>${anchors.join("")}</xdr:wsDr>` });
+      entries.push({ name: `xl/drawings/_rels/drawing${drawingCount}.xml.rels`, data: relsXml(drawingRels) });
+      overrides.push([`/${drawingPart}`, "application/vnd.openxmlformats-officedocument.drawing+xml"]);
+      sheetRels.push({ id: nextId(), type: REL("drawing"), target: `../drawings/drawing${drawingCount}.xml` });
+    }
+
+    const comments = sheet.comments ?? [];
+    if (comments.length > 0) {
+      commentsCount += 1;
+      const commentsPart = `xl/comments${commentsCount}.bin`;
+      entries.push({
+        name: commentsPart,
+        data: Uint8Array.from(
+          comments.flatMap(([row, column]) => [...brt(B.BEGIN_COMMENT, [...rfx(row, row, column, column), ...u32(0), ...new Array<number>(16).fill(0)]), ...brt(B.END_COMMENT)]),
+        ),
+      });
+      overrides.push([`/${commentsPart}`, "application/vnd.ms-excel.comments"]);
+      sheetRels.push({ id: nextId(), type: REL("comments"), target: `../comments${commentsCount}.bin` });
+    }
+
+    const hyperlinkIds = (sheet.hyperlinks ?? []).map(({ target }) => {
+      const id = nextId();
+      sheetRels.push({ id, type: REL("hyperlink"), target, isExternal: true });
+      return id;
+    });
+
+    const out: number[] = [...brt(B.BEGIN_SHEET), ...brt(B.WS_PROP, new Array<number>(27).fill(0))];
+    if (kind !== "chartsheet") {
+      const dimension = sheet.dimension === undefined ? extentOf(sheet) : sheet.dimension;
+      if (dimension !== null) out.push(...brt(B.WS_DIM, rfx(dimension[0], dimension[1], dimension[2], dimension[3])));
+      out.push(...brt(B.BEGIN_SHEET_DATA));
+      (sheet.rows ?? []).forEach((row, rowIndex) => {
+        if (row === undefined) return;
+        out.push(...brt(B.ROW_HDR, new Bytes().u32(rowIndex).u32(0).u16(300).u16(0).u8(0).u32(0).finish()));
+        out.push(...cellRecords(rowIndex, row, (sheet.shortRows ?? []).includes(rowIndex)));
+      });
+      out.push(...brt(B.END_SHEET_DATA), ...structureRecords(sheet, hyperlinkIds));
+    }
+    out.push(...brt(B.END_SHEET));
+    entries.push({ name: part, data: Uint8Array.from(out) });
     if (sheetRels.length > 0) {
       entries.push({ name: `xl/${folder}/_rels/sheet${index + 1}.bin.rels`, data: relsXml(sheetRels) });
     }
@@ -334,7 +557,7 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
     overrides.push(["/xl/vbaProject.bin", "application/vnd.ms-office.vbaProject"]);
   }
 
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="bin" ContentType="${BINARY_MAIN}"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${overrides
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="bin" ContentType="${BINARY_MAIN}"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>${overrides
     .map(([part, type]) => `<Override PartName="${part}" ContentType="${type}"/>`)
     .join("")}</Types>`;
 
