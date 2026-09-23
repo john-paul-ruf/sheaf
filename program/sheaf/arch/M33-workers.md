@@ -166,3 +166,13 @@ a single `local.catalog` scope.
 **Tests (M56/M57/M60)**
 - `tests/browser/projection/workbook.spec.ts` (CA-20 hydration, restart row-identity, CA-23 tail build, two dispose controls).
 - `tests/browser/worker/workbook-app-fixture.ts` seals a synthetic multi-table app through production crypto/store (page-side, runtime is disposed while it runs); `relationships.spec.ts` (CAP-24 journey + restart; CA-22 V2 pages/find/inert); `app.spec.ts` += F02 delimited snapshot read.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M33 — Workers (`src/workers/`)**
+- NEW `import/adapters.ts`: `WORKBOOK_REGISTRY {readers, adapters}` — xlsx (OOXML), xlsb, xls (BIFF), ods, html-table (D35).
+- `import/parse-session.ts`: `preflightFile(file, name, emit, acceptedFlows = ["delimited"], registry)` → `proceed | workbook | refused`; `acceptedSelection(report, selection)`; `streamFacts` (delimited, opened with its sheet fact), `streamWorkbookFacts` (selected sheets via the registry adapter), `openContainer`, one ack-gated `sendItems` loop; progress names every sheet a batch opens; failures carry `detail`.
+- `import.worker.ts`: reads `acceptedFlows`, emits `workbook-preflight`, validates `proceed.selectedSheets` (malformed-request otherwise), refuses `selectedSheets` for delimited.
+- `data/import-handlers.ts`: workbook stages (inventory + selection validated, D31 budget), existing-app destination for delimited; `runInference` → `inferWorkbook` (delimited via `delimitedStream`, append gets `existingApp.tableNames` + rejection memory); staged facts re-read from the fact chunks (digest-checked) when the channel's copy is incomplete; `applyReviewEdit` → workbook edits; promotion → `promoteImport`, append → `appendTable` then the app session is closed; exports `proposalWire`, `rejectionMemoryOf`, `tailDecisionsOf`, `ImportAppAccessV1`, `RecordedDecisionV1`. `SessionCatalogPort.sealWithAppendedApp`.
+- `data/record-handlers.ts`: `appSession(appId)`, `closeAppSession(appId)`; `data/handlers.ts` hands them to the import handlers.

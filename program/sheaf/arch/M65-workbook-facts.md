@@ -64,3 +64,9 @@ the two, the re-export is the only sanctioned duplicate path.
 - `numbers.ts` (**new, Custom Rule 7** — S04's XLSB/BIFF share the same doubles and Excel format model): `decimalTextOfDouble`, `decimalCellOfDouble`, `BUILTIN_NUMBER_FORMATS` (0–22, 37–49), `classifyNumberFormat`, `NumberFormatClassV1`.
 - `adapter.ts`: `WORKBOOK_FORMATS`/`WorkbookFormatV1`, `ContainerHandleV1`, `MACRO_SIGNAL_KINDS`/`MacroSignalV1 {kind, partPath}`, `PreservedPartCountsV1` (full record; counts only separately-stored parts), `DeclaredTableSummaryV1`, `SheetInventoryItemV1`, `DefinedNameSummaryV1`, `WorkbookInventoryV1`, `InventoryOutcomeV1`, `InventoryReaderV1`, `ParseSheetsOptionsV1`, `WorkbookAdapterV1`.
 - `index.ts` barrel. Edges: value import `domain/model/values` only; **type-only** imports of M13 (`bounds`, `cfb`, `source`, `zip`) — enforced by the sweep.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M65 — Workbook facts (`src/import/facts/`)**
+- Every consumer now imports the vocabulary from M65 (the seven F02 importers migrated at 4287569). `formats/delimited/facts.ts` is no longer imported by any `src/` file; it survives only because S01's `tests/unit/import/facts/workbook-facts.test.ts` still pins the re-export (owner correction requested: delete the file and that assertion together). No M65 export changed.

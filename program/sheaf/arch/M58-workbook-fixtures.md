@@ -68,3 +68,9 @@ refusal subjects in F02; their fidelity corpora arrive with F03's adapters.
 **M56/M57 — tests — grown**
 
 - `tests/unit/import/ods/{corpus,inventory,parse}.test.ts`, `tests/unit/import/html-table/{corpus,inventory,parse}.test.ts`, `tests/property/import/{ods,html-table}.test.ts`.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**Tests (M56/M58/M60)**
+- Unit: `tests/unit/staging/{fact-codec,promotion,append}.test.ts`, `workbook-streams.ts` (real adapter streams via the registry); `tests/unit/workers/parse-session.test.ts`; `fakes.ts` FakeCrypto now pads to real v1 buckets (payload length in its authenticated header). Browser: `tests/browser/worker/{workbook-staging,workbook-journey}.spec.ts`, `workbook-runtime.ts` (`runWorkbookImport`, `installBytes`, `zipEntryLayout`, `corruptZipEntryCrc`), `workbook-roots.ts` (`readWorkbookRoots`: every root from raw IndexedDB, every digest recomputed, every segment). `runtime.ts` checkpoint digest now via `checkpointSemanticBody`. Fixture generator `tests/fixtures/workbooks/append/over-segment.ts`.

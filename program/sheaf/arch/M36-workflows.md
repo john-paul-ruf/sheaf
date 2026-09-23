@@ -170,3 +170,12 @@ was verified to fail 5 of 6 against the pre-correction machine.
   correction note; the test-suite paragraphs that described M56/M61 work
   compressed into the evidence sentence above, since they are proof of M36's
   contract and not a second module's description.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M36 / M37 / M43 — mechanical adaptation (S07 replaces)**
+- `import-services.ts`: `applyReviewEdit` takes `WorkbookReviewEditWireV1`; new pure `singleTableProposal(wire) → ProposedAppWireV1 | null` (fails closed on >1 table or any workbook-only member; statement ids pass through) and `workbookEditOf(wire, f02Edit)` (addresses the one table by `tableKey`/`columnKey`).
+- `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
+- `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
+- `src/ui/import/**`: unchanged.

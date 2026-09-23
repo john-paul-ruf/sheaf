@@ -142,3 +142,11 @@ unrecognised becomes `internal`.
 **M32 — Protocol (`messages.ts`, additive; still imports nothing, no byte type)**
 - `AuthoredCellWireValueV1` now admits `reference` (still excludes `invalid`).
 - New requests/responses: `getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`, `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`, `findInSnapshot`, `listInertItems` (shapes in the SESSION-03 handoff). `RecordDetailViewV1.references?`, `ChangeHistoryEntryViewV1.tableId?` (optional on the type only for F02-era fixtures; always sent). No `DATA_WORKER_ERROR_KINDS_V1` change (D42).
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M32 — Protocol (`src/workers/protocol/`)**
+- `import-messages.ts` (CA-24, additive, `IMPORT_PROTOCOL_VERSION` still 1): `IMPORT_FLOWS_V1`/`ImportFlowV1`; `StartImportRequestV1.acceptedFlows?`; `ProceedImportRequestV1.selectedSheets?`; `ImportProgressEventV1.sheetOrdinal?/sheetCount?/sheetName?`; `ImportWorkbookPreflightEventV1`; `ImportFailedEventV1.detail?: ImportFailureDetailV1 {stage: container|sheet-stream|stage, sheetOrdinal|null, diagnostic: UnreadableDetailV1|"parse-failed"}`, `IMPORT_FAILURE_STAGES_V1`.
+- `stage-channel.ts`: batches are `WorkbookFactStreamItemV2`.
+- `messages.ts` (still import-free, byte-free): `BeginImportStageRequestV1.detected: DetectedDelimitedV1 | DetectedWorkbookV1`, `.preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1`, `.destination?: ImportDestinationWireV1`; `WorkbookFormatWireV1`, `WorkbookSheetSummaryWireV1`; the CA-19 wire `ProposedWorkbookWireV1` (+ `ProposedSheetWireV1`, `ProposedTableWireV2`, `ProposedWorkbookFieldWireV1`, `ProposedRelationshipWireV1`, `ProposedRecordRuleWireV1`, `RuleValueWireV1`, `ProposedInertItemWireV1`, `WorkbookStatementWireV1`, `WorkbookEvidenceWireV1`, `WorkbookSourceValueFormatWireV1`, `ImportDiagnosticWireV2`, `RangeWireV1`, `PreservedPartKindWireV1`, `PreservedReasonKeyWireV1`, subject/edit-kind supersets) and `WorkbookReviewEditWireV1`; `RunInferenceResponseV1.proposal` and `ApplyReviewEditResponseV1.proposal` are the workbook wire; `ApplyReviewEditRequestV1.edit` is `WorkbookReviewEditWireV1`. F02's `ProposedAppWireV1`/`ReviewEditWireV1` remain (the page's one-table view).

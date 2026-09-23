@@ -88,3 +88,9 @@ that stops iterating leaves no read outstanding.
 
 **M19 — Delimited — `facts.ts` now a V1 re-export**
 - Re-exports the V1 names from M65; `IMPORT_DIAGNOSTIC_CODES` here is `IMPORT_DIAGNOSTIC_CODES_V1` so F02's exhaustive `SEVERITY` map stays exhaustive. S06 migrates consumers and deletes it.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M19 — Delimited (`src/import/formats/delimited/`)**
+- `parseDelimited` emits V2 items (`WorkbookFactStreamItemV2`). New option `sheetName?: string`: when given, the stream opens with one `sheet` fact (`sheetIndex 0`, the name, `worksheet`, `visible`, `declaredRange null`, `dateSystem "1900"`); every other fact is byte-identical. The import worker passes the file stem; pre-flight's sample parse passes nothing.

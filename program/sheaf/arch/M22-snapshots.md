@@ -70,3 +70,9 @@ adapters land.
 
 **M22 — Snapshots**
 - NEW `sheet-snapshot.ts` (format v2, CA-22): `SheetSnapshotManifestV2 {manifestVersion: 2, sheetId, sheetOrdinal, displayName, classification, rowCount, columnCount, chunks: SheetSnapshotChunkRefV2[], merges, inertAnchors, discardedRows}`; **`SheetSnapshotChunkRefV2 = ManifestChunkRefV1 & {firstRow, lastRow}`** (encoded `{ref, firstRow, lastRow}`) so a page opens only the chunks it needs; `SheetSnapshotChunkV2 {chunkVersion: 2, firstRow, rows[{rowIndex, cells[{columnIndex, text, kind}]}]}` sorted, sparse, ≤ 1 MiB (`SNAPSHOT_CHUNK_MAX_DECODED_BYTES`). `SNAPSHOT_CELL_KINDS`, `SNAPSHOT_DISCARD_REASONS` (= M21 `DISCARD_REASONS`). `readSnapshotPage(manifestBytes, loadChunk, {firstRow, rowCount≤1000})` and `findInSnapshot(manifestBytes, loadChunk, {text, afterRow})` accept v2 **and** F02 delimited v1 (first consumer of `decodeSnapshotManifest/Chunk`, CL-04; v1 carries no discard markers). `formatForSnapshot(value, numberFormat, dateSystem="1900")` — D41 subset; anything else renders canonical text.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M22 — Snapshots (`src/import/snapshots/`)**
+- NEW `sheet-writer.ts` (CR7): `SheetSnapshotWriter(plan, seal)` → `row(rowIndex, cellCount, cells)`, `merge(range)`, `discard(rowIndex, reason)`, `finish() → SheetSnapshotManifestV2`; renders through `formatForSnapshot`, marks formula cells `formula-result`, NFC-normalises text, cuts chunks at `SNAPSHOT_CHUNK_TARGET_BYTES` (¼ of the 1 MiB cap), chunk refs carry `firstRow`/`lastRow`. Delimited imports now write **v2** sheet snapshots too (v1 still read by S03's reader; no live producer of v1 remains). Totals rows carry no discard marker (`SNAPSHOT_DISCARD_REASONS` has no `totals-row`).

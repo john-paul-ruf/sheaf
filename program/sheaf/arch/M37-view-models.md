@@ -150,3 +150,12 @@ exactly one consumer and depends on the fact beside it, so it lives on its VM
   separate "Contracts worth recording" sections folded into one; the exhaustive
   `REFUSAL_ANNOUNCEMENT` map recorded beside the export it constrains; the four
   open gaps named with owners instead of living only in the run record.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M36 / M37 / M43 — mechanical adaptation (S07 replaces)**
+- `import-services.ts`: `applyReviewEdit` takes `WorkbookReviewEditWireV1`; new pure `singleTableProposal(wire) → ProposedAppWireV1 | null` (fails closed on >1 table or any workbook-only member; statement ids pass through) and `workbookEditOf(wire, f02Edit)` (addresses the one table by `tableKey`/`columnKey`).
+- `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
+- `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
+- `src/ui/import/**`: unchanged.

@@ -56,3 +56,9 @@ Reconciled against the tree at `5ab3b07` (F02 final).
   recorded in the export list and the injection rule stated here, where the
   literal lives. F02 wrote no delta into this fragment; the facts come from the
   sessions' returns and the tree.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M07 / M53**
+- No change (`src/application/ports/**`, `src/bootstrap/import-worker.ts` untouched).

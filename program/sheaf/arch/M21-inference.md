@@ -151,3 +151,10 @@ New files (Custom Rule 7 where not in the plan's Files table): `workbook.ts` (`i
 - `applyWorkbookReviewEdit(proposal, edit) → ReviewEditResultV2` over `WorkbookReviewEditV1` (13 kinds); total/pure/idempotent, marks at most the named statement (`edited`; `rejected` for rejections).
 - Thresholds: `KEY_SKETCH_LIMIT = 10_000`, `KEY_MATCH_CONTAINMENT = 0.98`, `KEY_MATCH_MINIMUM_VALUES = 8`, `LABEL_DISTINCT_SHARE = 0.8`, `IDENTIFIER_WORDS = id, code, no, key, #`, `DECLARED_FORMAT_SHARE = 0.5`, `VALIDATION_ENUM_OPTION_LIMIT = 64`, `SUMMARY_MAX_USED_CELLS = 500`, `SHEET_REGION_LIMIT = 32`, `SHEET_VALIDATION_LIMIT = 256`, `SHEET_PRESERVED_PART_LIMIT = 4096`, `COLUMN_LOOKUP_LIMIT = 8`.
 - Edges as landed: M21 → M65 (`facts`), M21 → M03 (`domain/formulas`), M21 → M01 (`values`, `schema`, `events`). The F02 `review-edits.ts` → `infer.ts` runtime import was redirected to `regions.ts`/`types.ts` (types-only from `infer.ts`) so `infer → workbook → rejection-memory → review-edits` has no runtime cycle.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M21 — Inference (`src/import/inference/`)**
+- `workbook.ts`: the fact loop is `readStream` and pass 1 is `candidatesOf` (extracted, behaviour pinned by S02's suites); new export **`tableRowExtents(items) → Map<tableKey, {firstRowIndex, lastRowIndex}>`** — the one thing a proposal leaves out, read by the same pass, for promotion's row plan. `TableRowExtentV1` exported.
+- `infer.ts`: new export **`delimitedStream(items)`** — a delimited stream without its one `sheet` fact, which is how S02's delimited path (F02 statements and fingerprints, CA-19) recognises it. `inferProposal` takes V2 items and uses it; it is kept only because S02's tests still call it (no `src/` caller remains).

@@ -91,3 +91,9 @@ that were written.
 **M07 — Ports (`projection.ts`)**
 - Restates every new M12 shape/query (pinned both ways + exhaustive kind `Record` in `tests/unit/workers/projection-port.test.ts`; 21 query kinds).
 - `ProjectionChangeSummaryV1.tableId: TableId | null`.
+
+<!-- workbook-fidelity SESSION-06 -->
+### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
+
+**M07 / M53**
+- No change (`src/application/ports/**`, `src/bootstrap/import-worker.ts` untouched).
