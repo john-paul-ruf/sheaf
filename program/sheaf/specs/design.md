@@ -96,6 +96,64 @@ system semantics and cannot be made ambiguous by a theme. The mocks use
 `#17231E`, moss `#315C49`, citrus `#D7F28A`, cream `#F5F1E7`, and clay
 `#C66948`. Other library tiles deliberately use different identities.
 
+#### Built-in app palettes
+
+*Design-fill DF-1 (FR-17; STATE.md D56, CA-32).* These are the four built-in
+palettes named in `./program/sheaf/mocks/theme.html` (CTL-115), each as the six
+app tokens for light and dark mode. A theme sets only these six tokens.
+Danger, warning, success, the focus ring and the hit-target floor stay
+system-owned, and nothing in this subsection changes that.
+
+- **Cedar light is the Cedar & Finch set specified above:** charcoal ink,
+  cream canvas, moss primary, clay accent. `app-surface` and `app-muted` are
+  the card and divider values the app mocks already render. Citrus `#D7F28A`
+  stays part of the Cedar identity as specified, but it is not one of the six
+  themeable tokens, so these sets do not carry it.
+- **Identity:** a palette's swatch (CTL-049/CTL-115) shows its light
+  `app-primary`. Indigo `#3D4E69`, Clay `#7A4030` and Graphite `#3D3C3A` are
+  the swatch colours the theme mock already showed.
+- **Primary label pair:** text and icons on `app-primary` use `app-surface` in
+  light mode and `app-canvas` in dark mode.
+- **Dark chrome:** in light mode, the app hero, rail and phone app head paint
+  `app-ink` as their background. In dark mode they paint `app-surface` with
+  `app-ink` text, and the ink/surface ratio below covers them.
+- **Focus (fixed, system-owned):** Leaf 700 `#2D5A4B` on light canvas and
+  surface, and Sprout 300 `#CBEA80` on `app-ink` chrome. In dark mode, Sprout
+  300 is used on every background.
+- **Custom accent:** it replaces `app-accent` in every mode the theme renders
+  (`system` means both modes), and it must pass the same accent checks against
+  that mode's canvas and surface. A failing accent is refused (D56).
+
+| Palette · mode | `app-ink` | `app-canvas` | `app-surface` | `app-primary` | `app-accent` | `app-muted` |
+|---|---|---|---|---|---|---|
+| Cedar · light | `#17231E` | `#F5F1E7` | `#FFFDF6` | `#315C49` | `#C66948` | `#D9D0BF` |
+| Cedar · dark | `#F2EEE3` | `#121B17` | `#1B2822` | `#9CC7AE` | `#E08A6A` | `#2E3D35` |
+| Indigo · light | `#1A2233` | `#F2F3F6` | `#FCFCFD` | `#3D4E69` | `#B5642A` | `#D5D9E2` |
+| Indigo · dark | `#E9ECF3` | `#121620` | `#1B2130` | `#A9B8D6` | `#E39A5E` | `#2C3446` |
+| Clay · light | `#2A1A14` | `#F6EFE9` | `#FFFBF7` | `#7A4030` | `#2F7A6E` | `#E0D2C6` |
+| Clay · dark | `#F4E9E1` | `#1B1411` | `#261C18` | `#E3A58E` | `#6CC2B3` | `#3A2C26` |
+| Graphite · light | `#1C1C1B` | `#F4F3F1` | `#FDFCFA` | `#3D3C3A` | `#3A6EA5` | `#DAD8D4` |
+| Graphite · dark | `#EDECE9` | `#151514` | `#201F1E` | `#D6D4CF` | `#7FA9D6` | `#353432` |
+
+These are WCAG 2.x relative-luminance contrast ratios, rounded down to two
+decimals. Required minimums: text pairs 4.5:1; accent (a non-text indicator)
+3:1; focus 3:1. Every cell passes.
+
+| Palette · mode | Ink / canvas | Ink / surface | Primary label | Accent / canvas | Accent / surface | Focus / canvas | Focus / surface | Sprout / `app-ink` chrome |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Cedar · light | 14.37 | 15.92 | 7.48 (`app-surface`) | 3.37 | 3.74 | 6.95 | 7.71 | 12.05 |
+| Cedar · dark | 15.16 | 13.19 | 9.36 (`app-canvas`) | 6.70 | 5.83 | 13.07 | 11.37 | — |
+| Indigo · light | 14.33 | 15.51 | 8.21 (`app-surface`) | 3.92 | 4.24 | 7.07 | 7.65 | 11.82 |
+| Indigo · dark | 15.29 | 13.58 | 9.05 (`app-canvas`) | 7.79 | 6.92 | 13.45 | 11.95 | — |
+| Clay · light | 14.67 | 16.23 | 7.83 (`app-surface`) | 4.46 | 4.93 | 6.89 | 7.62 | 12.43 |
+| Clay · dark | 15.23 | 13.94 | 8.69 (`app-canvas`) | 8.66 | 7.92 | 13.52 | 12.38 | — |
+| Graphite · light | 15.37 | 16.63 | 10.74 (`app-surface`) | 4.78 | 5.18 | 7.07 | 7.65 | 12.68 |
+| Graphite · dark | 15.46 | 13.92 | 12.33 (`app-canvas`) | 7.43 | 6.69 | 13.59 | 12.23 | — |
+
+The focus colour is Leaf 700 in light mode and Sprout 300 in dark mode. Dark
+mode has no `app-ink` chrome background, so its dark chrome is covered by the
+Focus / surface column.
+
 ### Typography
 
 - **Display / app identity:** `Charter`, `Iowan Old Style`, `Georgia`, serif.
@@ -299,6 +357,10 @@ under the Genesis re-entry rules.
 | CTL-119 | Plaintext acknowledgement | unchecked, checked, required action wording | Theme & export | `./program/sheaf/mocks/control-atlas.html#ctl-119` |
 | CTL-120 | Install education card | eligible, installed, prompt unavailable, dismissed | Install | `./program/sheaf/mocks/control-atlas.html#ctl-120` |
 
+> **Inventory note (DF-1):** the palette values that CTL-049, CTL-115 and
+> CTL-116 select, in light and dark mode, are listed in § Per-app theming
+> contract → Built-in app palettes, together with their contrast ratios.
+
 ## Exhaustive Surface Inventory
 
 **Exhaustive means exhaustive:** every product-owned full screen, modal,
@@ -364,6 +426,7 @@ without pretending Sheaf controls those pixels.
 | SCR-050 | Export | `./program/sheaf/mocks/export.html` | XLSX/CSV/PNG/PDF scope and plaintext acknowledgement | FR-18, FR-34 |
 | SCR-051 | Remove from device | `./program/sheaf/mocks/remove.html` | Routine versus destructive removal with recomputed freshness | FR-18, FR-26, FR-33 |
 | SCR-052 | Deletion marker on reconnect | `./program/sheaf/mocks/deletion-marker.html` | Zero-change notice and device-only rescue path; no resurrection | FR-18, FR-33 |
+| SCR-053 | Charts index | `./program/sheaf/mocks/charts.html` | The app's **Charts** destination (`#/app/{id}/charts`, D63): every imported and user-made chart with its name, type, source table and an origin marker (from workbook / made here); pinned state with a pin-to-app-home toggle; **New chart** → SCR-034; open a chart → SCR-033; "No charts yet" empty state with **New chart** | FR-5, FR-16 |
 
 ### Modal and alert-dialog inventory
 
@@ -510,7 +573,7 @@ return states.
 | FR-13 | SCR-025–026, SHT-004–009, STA-014/026 |
 | FR-14 | SCR-023, SCR-029, SCR-035, MOD-015, STA-013 |
 | FR-15 | SCR-035, MOD-014, SHT-014 |
-| FR-16 | SCR-024, SCR-033–034, SHT-012/017, STA-015 |
+| FR-16 | SCR-024, SCR-033–034, SCR-053, SHT-012/017, STA-015 |
 | FR-17 | SCR-024, SCR-036 |
 | FR-18 | SCR-049–050, MOD-027, EXT-009 |
 | FR-19 | SCR-010–012, CTL-060–065 |
