@@ -22,6 +22,7 @@
  * will preserve and flag.
  */
 
+import type { LookupV1 } from "../../domain/formulas/index.js";
 import type { DateSystemV1, FormatClassV1, ValidationListSourceV1, WorkbookStructureFactV1 } from "../facts/index.js";
 import {
   EVIDENCE_EXAMPLE_LIMIT,
@@ -61,6 +62,9 @@ export const DECLARED_FORMAT_SHARE = 0.5;
 
 /** Distinct number formats counted per column; more are not tallied. */
 export const COLUMN_FORMAT_LIMIT = 8;
+
+/** Lookups remembered per formula column (one per master formula, first seen). */
+export const COLUMN_LOOKUP_LIMIT = 8;
 
 export interface ProposedEnumOptionV1 {
   readonly label: string;
@@ -103,6 +107,8 @@ export interface ColumnStats {
   readonly dateSystem: DateSystemV1 | null;
   formulaCount: number;
   firstFormula: { readonly text: string; readonly isArray: boolean; readonly isExternal: boolean } | null;
+  /** Lookups in this column's master formulas, with the formula that carried each. */
+  readonly lookups: { readonly lookup: LookupV1; readonly formulaText: string }[];
 }
 
 export const newStats = (distinctLimit: number, dateSystem: DateSystemV1 | null): ColumnStats => ({
@@ -118,6 +124,7 @@ export const newStats = (distinctLimit: number, dateSystem: DateSystemV1 | null)
   dateSystem,
   formulaCount: 0,
   firstFormula: null,
+  lookups: [],
 });
 
 const bump = <K>(tally: Map<K, number>, key: K, by = 1): void => {
@@ -221,6 +228,7 @@ export const mergeStats = (into: ColumnStats, from: ColumnStats): ColumnStats =>
     }
     merged.formulaCount += source.formulaCount;
     merged.firstFormula ??= source.firstFormula;
+    merged.lookups.push(...source.lookups.slice(0, COLUMN_LOOKUP_LIMIT - merged.lookups.length));
   }
   return merged;
 };

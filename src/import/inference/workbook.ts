@@ -22,6 +22,10 @@
  *    gets a `formula` statement — preserved, not live (D33).
  * 5. A validation M02's rule IR can state becomes a proposed record rule; any
  *    other is an inert `unsupported-validation` item — never a guessed rule.
+ * 6. Keys and labels (`keys.ts`), relationships — lookup formulas first, key
+ *    matches second (`relationships.ts`) — and sheet roles (`classify.ts`);
+ *    every preserved part and formula column is an inert item (FR-9).
+ * 7. Stored rejections are proposed rejected, with their effect (D44).
  *
  * A stream with no `sheet` fact is a delimited file: one sheet, one table,
  * measured exactly as F02 did (`inferProposal` is now this path's adapter).
@@ -30,18 +34,23 @@
  * discards and column stats (`regions.ts`, `types.ts`); each open region keeps
  * at most {@link PROPOSAL_LEADING_ROWS} undecided rows; each sheet keeps its
  * current number format per column, at most {@link SHEET_VALIDATION_LIMIT}
- * validations and {@link SHEET_REGION_LIMIT} regions; the row being assembled
- * holds at most one row's cells. Nothing holds a whole sheet.
+ * validations, {@link SHEET_PRESERVED_PART_LIMIT} preserved parts and
+ * {@link SHEET_REGION_LIMIT} regions; the row being assembled holds at most one
+ * row's cells. Nothing holds a whole sheet.
  */
 
-import { parseFormula, type FormulaReferenceV1 } from "../../domain/formulas/index.js";
+import { extractReferences, findLookups, parseFormula, type FormulaReferenceV1 } from "../../domain/formulas/index.js";
 import { dateValue, decimalValue, type CellValueV1 } from "../../domain/model/values.js";
-import type {
-  DateSystemV1,
-  ImportDiagnosticV2,
-  WorkbookFactStreamItemV2,
-  WorkbookStructureFactV1,
+import {
+  PRESERVED_PART_KINDS,
+  type DateSystemV1,
+  type ImportDiagnosticV2,
+  type PreservedPartKindV1,
+  type WorkbookFactStreamItemV2,
+  type WorkbookStructureFactV1,
 } from "../facts/index.js";
+import { classifySheet } from "./classify.js";
+import { chooseKey, chooseLabel, type KeyedColumnV1 } from "./keys.js";
 import {
   PROPOSAL_LEADING_ROWS,
   TableBuilder,
@@ -52,6 +61,8 @@ import {
   type MeasuredTableV1,
   type ProposedRowV1,
 } from "./regions.js";
+import { applyRejectionMemory, type RejectionMemoryV1 } from "./rejection-memory.js";
+import { detectRelationships, type RelatableTableV1 } from "./relationships.js";
 import {
   EVIDENCE_EXAMPLE_LIMIT,
   evidenceFingerprintInput,
@@ -74,21 +85,26 @@ import {
   type ColumnStats,
 } from "./types.js";
 import { readDecimal, serialToEpochDay, sourceTextOfCellValue } from "./values.js";
-import type {
-  ProposedInertItemV1,
-  ProposedRecordRuleV1,
-  ProposedSheetClassificationV1,
-  ProposedSheetV1,
-  ProposedTableV2,
-  ProposedWorkbookFieldV1,
-  ProposedWorkbookV1,
+import {
+  type ProposedInertItemV1,
+  type ProposedRecordRuleV1,
+  type ProposedSheetV1,
+  type ProposedTableV2,
+  type ProposedWorkbookFieldV1,
+  type ProposedWorkbookV1,
+  type SheetRoleV1,
 } from "./workbook-proposal.js";
+
+export type { RejectionMemoryV1 } from "./rejection-memory.js";
 
 /** Validations kept per sheet; more are left to the snapshot. */
 export const SHEET_VALIDATION_LIMIT = 256;
 
 /** Regions tabled per sheet; later ones stay in the snapshot, counted. */
 export const SHEET_REGION_LIMIT = 32;
+
+/** Preserved parts listed per sheet; the adapters already aggregate per-cell kinds. */
+export const SHEET_PRESERVED_PART_LIMIT = 4096;
 
 /** One sheet of the workbook and whether the user selected it (D39, D47). */
 export interface WorkbookSheetChoiceV1 {
@@ -98,9 +114,6 @@ export interface WorkbookSheetChoiceV1 {
   readonly visibility: ProposedSheetV1["visibility"];
   readonly isSelected: boolean;
 }
-
-/** `${decisionKind}:${fingerprintHex}` of every stored rejection (D44). */
-export type RejectionMemoryV1 = ReadonlySet<string>;
 
 export interface WorkbookInferenceContextV1 {
   readonly fileName: string;
@@ -123,6 +136,24 @@ export interface WorkbookInferenceContextV1 {
 type DeclaredTableFact = Extract<WorkbookStructureFactV1, { kind: "declared-table" }>;
 type ValidationFact = Extract<WorkbookStructureFactV1, { kind: "validation" }>;
 type DefinedNameFact = Extract<WorkbookStructureFactV1, { kind: "defined-name" }>;
+type PreservedPartFact = Extract<WorkbookStructureFactV1, { kind: "preserved-part" }>;
+
+interface BoxV1 {
+  firstRow: number;
+  firstColumn: number;
+  lastRow: number;
+  lastColumn: number;
+}
+
+const grow = (box: BoxV1 | null, row: number, column: number): BoxV1 =>
+  box === null
+    ? { firstRow: row, firstColumn: column, lastRow: row, lastColumn: column }
+    : {
+        firstRow: Math.min(box.firstRow, row),
+        firstColumn: Math.min(box.firstColumn, column),
+        lastRow: Math.max(box.lastRow, row),
+        lastColumn: Math.max(box.lastColumn, column),
+      };
 
 interface SheetInfo {
   readonly sheetIndex: number;
@@ -140,6 +171,8 @@ interface RegionState {
   /** Undecided rows (≤ {@link PROPOSAL_LEADING_ROWS}); empty once the groups are fixed. */
   readonly window: { readonly rowIndex: number; readonly cells: readonly CellInputV1[] }[];
   groups: { firstColumn: number; lastColumn: number; readonly builder: TableBuilder }[] | null;
+  /** Where its formulas are, for the inert item of a region that yields no table. */
+  formulaBox: BoxV1 | null;
 }
 
 interface SheetState {
@@ -152,14 +185,19 @@ interface SheetState {
   omittedRegionCount: number;
   readonly formats: Map<number, CellFormatV1>;
   readonly validations: ValidationFact[];
+  readonly preserved: PreservedPartFact[];
   rowCount: number;
   usedCellCount: number;
   formulaCellCount: number;
+  numericCellCount: number;
+  formulaNumericCount: number;
+  crossSheetFormulaCount: number;
   row: { readonly rowIndex: number; readonly cellCount: number; readonly cells: Map<number, MutableCell> } | null;
 }
 
 interface MutableCell {
   text: string;
+  isNumeric: boolean;
   format: CellFormatV1 | null;
   formula: CellInputV1["formula"];
 }
@@ -179,6 +217,26 @@ interface Candidate {
   mergeEvidence: WorkbookEvidenceV1 | null;
 }
 
+/** One field as typed, with what its statements will say. */
+interface FieldDraft {
+  field: ProposedWorkbookFieldV1;
+  readonly stats: ColumnStats;
+  readonly typeEvidence: WorkbookEvidenceV1[];
+  readonly optionsEvidence: readonly WorkbookEvidenceV1[];
+  readonly nameEvidence: WorkbookEvidenceV1;
+}
+
+interface TableDraft {
+  readonly candidate: Candidate;
+  readonly tableName: string;
+  readonly declaredEvidence: WorkbookEvidenceV1 | null;
+  readonly fields: FieldDraft[];
+  /** Its own data rows plus those of every table joined to it. */
+  readonly rowCount: number;
+  keyColumnKey: string | null;
+  labelColumnKey: string | null;
+}
+
 const newSheet = (info: SheetInfo): SheetState => ({
   info,
   declared: [],
@@ -188,9 +246,13 @@ const newSheet = (info: SheetInfo): SheetState => ({
   omittedRegionCount: 0,
   formats: new Map(),
   validations: [],
+  preserved: [],
   rowCount: 0,
   usedCellCount: 0,
   formulaCellCount: 0,
+  numericCellCount: 0,
+  formulaNumericCount: 0,
+  crossSheetFormulaCount: 0,
   row: null,
 });
 
@@ -241,6 +303,9 @@ const decideRegion = (region: RegionState, dateSystem: DateSystemV1 | null): voi
 /** After the groups are fixed, a cell in no group widens the group to its left. */
 const addRegionRow = (region: RegionState, rowIndex: number, cells: readonly CellInputV1[], dateSystem: DateSystemV1 | null): void => {
   region.lastRow = rowIndex;
+  for (const cell of cells) {
+    if (cell.formula !== null) region.formulaBox = grow(region.formulaBox, rowIndex, cell.column);
+  }
   if (region.groups === null) {
     region.window.push({ rowIndex, cells });
     if (region.window.length >= PROPOSAL_LEADING_ROWS) decideRegion(region, dateSystem);
@@ -263,7 +328,13 @@ const flushRow = (sheet: SheetState): void => {
   const cells: CellInputV1[] = [...row.cells.entries()]
     .filter(([, cell]) => cell.text !== "" || cell.formula !== null)
     .sort(([left], [right]) => left - right)
-    .map(([column, cell]) => ({ column, text: cell.text, format: cell.format, formula: cell.formula }));
+    .map(([column, cell]) => {
+      if (cell.isNumeric) {
+        sheet.numericCellCount += 1;
+        if (cell.formula !== null) sheet.formulaNumericCount += 1;
+      }
+      return { column, text: cell.text, format: cell.format, formula: cell.formula };
+    });
 
   const loose: CellInputV1[] = [];
   for (const cell of cells) {
@@ -301,7 +372,14 @@ const flushRow = (sheet: SheetState): void => {
     sheet.skippedThrough = row.rowIndex;
     return;
   }
-  const region: RegionState = { ordinal: sheet.regions.length, firstRow: row.rowIndex, lastRow: row.rowIndex, window: [], groups: null };
+  const region: RegionState = {
+    ordinal: sheet.regions.length,
+    firstRow: row.rowIndex,
+    lastRow: row.rowIndex,
+    window: [],
+    groups: null,
+    formulaBox: null,
+  };
   sheet.regions.push(region);
   sheet.open = region;
   addRegionRow(region, row.rowIndex, loose, sheet.info.dateSystem);
@@ -382,49 +460,69 @@ const sameHeading = (left: MeasuredTableV1, right: MeasuredTableV1): boolean =>
 
 const headOf = (candidate: Candidate): Candidate => (candidate.joinedTo === null ? candidate : headOf(candidate.joinedTo));
 
-/** Resolves a list validation's range source to the options inference kept. */
+const sameName = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+
+/** The cell or area a list source names, following one defined name, and the sheet it is on. */
+const listRangeOf = (
+  ref: string,
+  sheet: SheetState,
+  sheets: readonly SheetState[],
+  definedNames: readonly DefinedNameFact[],
+  depth = 0,
+): { readonly sheet: SheetState; readonly reference: Extract<FormulaReferenceV1, { kind: "cell" | "area" | "columns" }> } | null => {
+  const parsed = parseFormula(ref);
+  if (parsed.kind !== "parsed" || parsed.ast.kind !== "reference") return null;
+  const reference = parsed.ast.reference;
+  if (reference.kind === "name") {
+    const named =
+      definedNames.find((name) => sameName(name.name, reference.name) && name.sheetIndex === sheet.info.sheetIndex) ??
+      definedNames.find((name) => sameName(name.name, reference.name) && name.sheetIndex === null);
+    return named === undefined || depth > 0 ? null : listRangeOf(named.ref, sheet, sheets, definedNames, depth + 1);
+  }
+  if (reference.kind !== "cell" && reference.kind !== "area" && reference.kind !== "columns") return null;
+  const scope = reference.scope;
+  if (scope !== null && (scope.workbook !== null || scope.lastSheet !== null)) return null;
+  const target = scope === null ? sheet : sheets.find((candidate) => sameName(candidate.info.name, scope.firstSheet));
+  return target === undefined ? null : { sheet: target, reference };
+};
+
+const referencedSheetOf = (
+  ref: string,
+  sheet: SheetState,
+  sheets: readonly SheetState[],
+  definedNames: readonly DefinedNameFact[],
+): SheetState | null => listRangeOf(ref, sheet, sheets, definedNames)?.sheet ?? null;
+
+/**
+ * A list validation's options read from its source range, out of the rows
+ * inference kept (each table's leading rows). `null` when the range is not a
+ * bounded area, or any of its rows was not kept — the options then come from
+ * the column's own values.
+ */
 const resolveListOptions = (
   ref: string,
   sheet: SheetState,
   sheets: readonly SheetState[],
   candidates: readonly Candidate[],
   definedNames: readonly DefinedNameFact[],
-  depth = 0,
 ): readonly string[] | null => {
-  const parsed = parseFormula(ref);
-  if (parsed.kind !== "parsed" || parsed.ast.kind !== "reference") return null;
-  const reference: FormulaReferenceV1 = parsed.ast.reference;
-  if (reference.kind === "name") {
-    const named =
-      definedNames.find((name) => name.name.toLowerCase() === reference.name.toLowerCase() && name.sheetIndex === sheet.info.sheetIndex) ??
-      definedNames.find((name) => name.name.toLowerCase() === reference.name.toLowerCase() && name.sheetIndex === null);
-    return named === undefined || depth > 0 ? null : resolveListOptions(named.ref, sheet, sheets, candidates, definedNames, depth + 1);
-  }
-  if (reference.kind !== "cell" && reference.kind !== "area") return null;
-  if (reference.scope?.workbook !== undefined && reference.scope?.workbook !== null) return null;
-  const target =
-    reference.scope === null
-      ? sheet
-      : sheets.find((candidate) => candidate.info.name.toLowerCase() === reference.scope?.firstSheet.toLowerCase());
-  if (target === undefined) return null;
+  const found = listRangeOf(ref, sheet, sheets, definedNames);
+  if (found === null || found.reference.kind === "columns") return null;
+  const { reference } = found;
   const [first, last] = reference.kind === "cell" ? [reference.cell, reference.cell] : [reference.first, reference.last];
   const rows = [Math.min(first.row, last.row), Math.max(first.row, last.row)] as const;
   const columns = [Math.min(first.column, last.column), Math.max(first.column, last.column)] as const;
   if ((rows[1] - rows[0] + 1) * (columns[1] - columns[0] + 1) > 1_000) return null;
-  const kept = candidates.filter((candidate) => candidate.sheet === target).flatMap((candidate) =>
-    candidate.measured.leadingRows.map((row) => ({ row, firstColumn: candidate.measured.firstColumn })),
-  );
+  const kept = candidates
+    .filter((candidate) => candidate.sheet === found.sheet)
+    .flatMap((candidate) => candidate.measured.leadingRows.map((row) => ({ row, firstColumn: candidate.measured.firstColumn })));
   const options: string[] = [];
   for (let rowIndex = rows[0]; rowIndex <= rows[1]; rowIndex += 1) {
+    const held = kept.filter(({ row }) => row.rowIndex === rowIndex);
+    if (held.length === 0) return null;
     for (let column = columns[0]; column <= columns[1]; column += 1) {
-      const holder = kept.find(
-        ({ row, firstColumn }) => row.rowIndex === rowIndex && column >= firstColumn && column - firstColumn < Math.max(row.cells.length, 1),
-      );
-      if (holder === undefined) {
-        if (kept.some(({ row }) => row.rowIndex === rowIndex)) continue;
-        return null;
-      }
-      options.push(holder.row.cells[column - holder.firstColumn] ?? "");
+      const holder = held.find(({ row, firstColumn }) => column >= firstColumn && column - firstColumn < row.cells.length);
+      options.push(holder === undefined ? "" : (holder.row.cells[column - holder.firstColumn] ?? ""));
     }
   }
   return options;
@@ -521,13 +619,24 @@ export function inferWorkbook(
         case "value": {
           const row = sheet.row;
           if (row === null || row.rowIndex !== fact.rowIndex) break;
-          const cell = row.cells.get(fact.columnIndex) ?? { text: "", format: null, formula: null };
+          const cell = row.cells.get(fact.columnIndex) ?? { text: "", isNumeric: false, format: null, formula: null };
           if (fact.kind === "formula") {
             sheet.formulaCellCount += 1;
-            cell.formula = { text: fact.text, isArray: fact.isArray, isExternal: fact.isExternal };
+            const parsed = fact.text === null ? null : parseFormula(fact.text);
+            const ast = parsed?.kind === "parsed" ? parsed.ast : null;
+            if (
+              ast !== null &&
+              extractReferences(ast).some(
+                (reference) => "scope" in reference && reference.scope !== null && reference.scope.firstSheet !== sheet.info.name,
+              )
+            ) {
+              sheet.crossSheetFormulaCount += 1;
+            }
+            cell.formula = { text: fact.text, isArray: fact.isArray, isExternal: fact.isExternal, lookups: ast === null ? [] : findLookups(ast) };
           } else {
             sheet.usedCellCount += 1;
             cell.text = sourceTextOfCellValue(fact.value);
+            cell.isNumeric = fact.value.kind === "decimal";
             cell.format = sheet.formats.get(fact.columnIndex) ?? null;
           }
           row.cells.set(fact.columnIndex, cell);
@@ -553,9 +662,11 @@ export function inferWorkbook(
         case "defined-name":
           definedNames.push(fact);
           break;
+        case "preserved-part":
+          if (sheet.preserved.length < SHEET_PRESERVED_PART_LIMIT) sheet.preserved.push(fact);
+          break;
         case "diagnostic":
         case "merge":
-        case "preserved-part":
           break;
         default: {
           const unreachable: never = fact;
@@ -680,13 +791,21 @@ function proposeDelimited(
         labelColumnKey: null,
       },
     ],
+    relationships: [],
     recordRules: [],
     inertItems: [],
+    inertCounts: countInert([]),
     statements,
     diagnostics,
     isRowCountExact: true,
   };
 }
+
+const countInert = (items: readonly ProposedInertItemV1[]): Readonly<Record<PreservedPartKindV1, number>> => {
+  const counts = Object.fromEntries(PRESERVED_PART_KINDS.map((kind) => [kind, 0])) as Record<PreservedPartKindV1, number>;
+  for (const item of items) counts[item.kind] += 1;
+  return counts;
+};
 
 function proposeWorkbook(
   sheets: readonly SheetState[],
@@ -760,61 +879,21 @@ function proposeWorkbook(
     }
   }
 
-  // Pass 2 — names, types, statements.
+  // Pass 2 — every table typed and named.
   const takenNames = new Set((context.existingApp?.tableNames ?? []).map((name) => name.toLowerCase()));
-  const tables: ProposedTableV2[] = [];
-  const recordRules: ProposedRecordRuleV1[] = [];
-  const inertItems: ProposedInertItemV1[] = [];
-  const statements: WorkbookStatementV1[] = [
-    statement("app-name", null, null, "rename-app", [{ kind: "file-name", fileName: context.fileName }], workbookFingerprintInput("app-name", [], [{ kind: "file-name", fileName: context.fileName }])),
-  ];
-
+  const drafts: TableDraft[] = [];
   for (const sheet of sheets) {
-    const sheetName = sheet.info.name;
-    const sheetKey = `s${sheet.info.sheetIndex}`;
     const onSheet = candidates.filter((candidate) => candidate.sheet === sheet);
     const standalone = onSheet.filter((candidate) => candidate.joinedTo === null);
-    const shape: WorkbookEvidenceV1 = {
-      kind: "sheet-shape",
-      sheetName,
-      sheetKind: sheet.info.sheetKind,
-      usedCellCount: sheet.usedCellCount,
-      formulaCellCount: sheet.formulaCellCount,
-      tableCount: standalone.length,
-    };
-
     for (const [position, candidate] of onSheet.entries()) {
       const { measured, tableKey, declared } = candidate;
-      const scope = [sheetName, candidate.identity];
-      const say = (
-        subject: WorkbookInferenceSubjectV1,
-        targetKey: string | null,
-        columnIndex: number | null,
-        editKind: WorkbookReviewEditKindV1 | null,
-        evidence: readonly WorkbookEvidenceV1[],
-      ): void => {
-        statements.push(
-          statement(subject, targetKey, columnIndex, editKind, evidence, workbookFingerprintInput(subject, columnIndex === null ? scope : [...scope, columnIndex], evidence)),
-        );
-      };
-
-      const baseName = standalone.length === 1 && candidate === standalone[0] ? sheetName : (declared?.name ?? `${sheetName} ${position + 1}`);
-      const tableName = uniqueName(baseName, takenNames);
+      const joined = onSheet.filter((other) => other.joinedTo === candidate);
       const declaredEvidence: WorkbookEvidenceV1 | null =
         declared === null
           ? null
           : { kind: "declared-table", name: declared.name, range: declared.range, headerRowCount: declared.headerRowCount, totalsRowCount: declared.totalsRowCount };
-
-      say("table-name", tableKey, null, "rename-table", [declaredEvidence ?? shape]);
-      say("header-row", tableKey, null, "set-header-row", declaredEvidence === null ? headerEvidence(measured) : [declaredEvidence]);
-      if (measured.discardedRowCount > 0) say("discarded-rows", tableKey, null, "set-header-row", discardEvidence(measured));
-      if (candidate.mergeEvidence !== null) say("table-merge", tableKey, null, "reject-statement", [candidate.mergeEvidence]);
-      if (candidate.splitEvidence !== null) say("table-split", tableKey, null, "reject-statement", [candidate.splitEvidence]);
-
-      const joined = onSheet.filter((other) => other.joinedTo === candidate);
-      const fields = candidate.names.map(({ name: fieldName, isGenerated }, relative): ProposedWorkbookFieldV1 => {
+      const fields = candidate.names.map(({ name: fieldName, isGenerated }, relative): FieldDraft => {
         const columnIndex = measured.firstColumn + relative;
-        const columnKey = `${tableKey}.c${columnIndex}`;
         const stats = joined.reduce(
           (merged, other) => mergeStats(merged, other.measured.columns[relative] as ColumnStats),
           measured.columns[relative] as ColumnStats,
@@ -828,16 +907,182 @@ function proposeWorkbook(
                 ? resolveListOptions(validation.listSource.ref, sheet, sheets, candidates, definedNames)
                 : null));
         const choice = chooseDeclaredType(stats, validation, listOptions) ?? chooseValueType(stats);
+        return {
+          field: {
+            columnKey: `${tableKey}.c${columnIndex}`,
+            columnIndex,
+            fieldName,
+            isNameGenerated: isGenerated,
+            type: choice.type,
+            valueType: choice.type,
+            sourceFormat: choice.sourceFormat,
+            enumOptions: choice.enumOptions,
+            violations: choice.violations,
+            formulaText: stats.formulaCount > 0 ? (stats.firstFormula?.text ?? null) : null,
+          },
+          stats,
+          typeEvidence: [...choice.evidence],
+          optionsEvidence: choice.optionsEvidence,
+          nameEvidence:
+            measured.headerRowIndex === null || isGenerated
+              ? (declaredEvidence ?? { kind: "file-name", fileName: context.fileName })
+              : { kind: "header-text", rowIndex: measured.headerRowIndex, text: fieldName },
+        };
+      });
+      drafts.push({
+        candidate,
+        tableName: uniqueName(
+          standalone.length === 1 && candidate === standalone[0] ? sheet.info.name : (declared?.name ?? `${sheet.info.name} ${position + 1}`),
+          takenNames,
+        ),
+        declaredEvidence,
+        fields,
+        rowCount: measured.dataRowCount + joined.reduce((sum, other) => sum + other.measured.dataRowCount, 0),
+        keyColumnKey: null,
+        labelColumnKey: null,
+      });
+    }
+  }
 
-        say("field-name", columnKey, columnIndex, "rename-field", [
-          measured.headerRowIndex === null || isGenerated
-            ? declaredEvidence ?? { kind: "file-name", fileName: context.fileName }
-            : { kind: "header-text", rowIndex: measured.headerRowIndex, text: fieldName },
-        ]);
-        say("field-type", columnKey, columnIndex, "override-type", choice.evidence);
-        if (choice.type.kind === "enum") say("enum-options", columnKey, columnIndex, "edit-enum-options", choice.optionsEvidence);
+  // Pass 3 — keys, relationships (which may settle a parent's key), labels.
+  const keyedColumns = (draft: TableDraft): KeyedColumnV1[] =>
+    draft.fields.map(({ field, stats }) => ({ columnKey: field.columnKey, fieldName: field.fieldName, type: field.type, stats }));
+  const keys = new Map<string, string | null>(
+    drafts.map((draft) => [draft.candidate.tableKey, chooseKey(keyedColumns(draft), draft.rowCount)?.columnKey ?? null]),
+  );
+  const standaloneDrafts = drafts.filter((draft) => draft.candidate.joinedTo === null);
+  const relatable = standaloneDrafts.map(
+    (draft): RelatableTableV1 => ({
+      tableKey: draft.candidate.tableKey,
+      sheetIndex: draft.candidate.sheet.info.sheetIndex,
+      sheetName: draft.candidate.sheet.info.name,
+      tableName: draft.tableName,
+      declaredName: draft.candidate.declared?.name ?? null,
+      firstColumn: draft.candidate.measured.firstColumn,
+      lastColumn: draft.candidate.measured.firstColumn + draft.candidate.measured.columnCount - 1,
+      rowCount: draft.rowCount,
+      columns: draft.fields.map(({ field, stats }) => ({
+        columnKey: field.columnKey,
+        columnIndex: field.columnIndex,
+        fieldName: field.fieldName,
+        type: field.type,
+        stats,
+      })),
+    }),
+  );
+  const detected = detectRelationships(relatable, keys, definedNames);
+  for (const draft of drafts) {
+    draft.keyColumnKey = keys.get(draft.candidate.tableKey) ?? null;
+    for (const entry of draft.fields) {
+      if (detected.relationships.some((relationship) => relationship.fromColumnKey === entry.field.columnKey)) {
+        entry.field = { ...entry.field, type: { kind: "reference" } };
+      }
+      const note = detected.notes.get(entry.field.columnKey);
+      if (note !== undefined) entry.typeEvidence.push(note);
+    }
+    const columns = keyedColumns(draft);
+    draft.labelColumnKey = chooseLabel(columns, columns.find((column) => column.columnKey === draft.keyColumnKey) ?? null)?.columnKey ?? null;
+  }
+
+  // Sheets whose cells a validation list elsewhere draws its options from.
+  const listSources = new Map<SheetState, ValidationFact>();
+  for (const sheet of sheets) {
+    for (const validation of sheet.validations) {
+      if (validation.rule !== "list" || validation.listSource?.kind !== "range") continue;
+      const target = referencedSheetOf(validation.listSource.ref, sheet, sheets, definedNames);
+      if (target !== null && !listSources.has(target)) listSources.set(target, validation);
+    }
+  }
+
+  // Pass 4 — per sheet: roles, inert inventory, record rules, statements.
+  const statements: WorkbookStatementV1[] = [
+    statement("app-name", null, null, "rename-app", [{ kind: "file-name", fileName: context.fileName }], workbookFingerprintInput("app-name", [], [{ kind: "file-name", fileName: context.fileName }])),
+  ];
+  const tables: ProposedTableV2[] = [];
+  const recordRules: ProposedRecordRuleV1[] = [];
+  const inertItems: ProposedInertItemV1[] = [];
+  const roles = new Map<SheetState, readonly SheetRoleV1[]>();
+
+  for (const sheet of sheets) {
+    const sheetName = sheet.info.name;
+    const sheetKey = `s${sheet.info.sheetIndex}`;
+    const onSheet = drafts.filter((draft) => draft.candidate.sheet === sheet);
+    const standalone = onSheet.filter((draft) => draft.candidate.joinedTo === null);
+    const say = (
+      scope: readonly (string | number)[],
+      subject: WorkbookInferenceSubjectV1,
+      targetKey: string | null,
+      columnIndex: number | null,
+      editKind: WorkbookReviewEditKindV1 | null,
+      evidence: readonly WorkbookEvidenceV1[],
+    ): void => {
+      statements.push(statement(subject, targetKey, columnIndex, editKind, evidence, workbookFingerprintInput(subject, scope, evidence)));
+    };
+    const shape: WorkbookEvidenceV1 = {
+      kind: "sheet-shape",
+      sheetName,
+      sheetKind: sheet.info.sheetKind,
+      usedCellCount: sheet.usedCellCount,
+      formulaCellCount: sheet.formulaCellCount,
+      tableCount: standalone.length,
+    };
+    const chartParts = (kind: PreservedPartKindV1): number => sheet.preserved.filter((part) => part.partKind === kind).length;
+
+    const sheetRoles = classifySheet({
+      sheetKind: sheet.info.sheetKind,
+      tableWidths: standalone.map((draft) => draft.fields.length),
+      isListSource: listSources.has(sheet),
+      chartPartCount: chartParts("chart") + chartParts("pivot-table"),
+      usedCellCount: sheet.usedCellCount,
+      numericCellCount: sheet.numericCellCount,
+      formulaNumericCount: sheet.formulaNumericCount,
+      crossSheetFormulaCount: sheet.crossSheetFormulaCount,
+    });
+    roles.set(sheet, sheetRoles);
+    for (const role of sheetRoles) {
+      if (role === "table" || role === "snapshot") continue;
+      const listSource = listSources.get(sheet);
+      const evidence: readonly WorkbookEvidenceV1[] =
+        role === "lookup" && listSource !== undefined
+          ? [validationEvidence(listSource, null)]
+          : role === "chart" && sheet.info.sheetKind !== "chartsheet"
+            ? (["chart", "pivot-table"] as const)
+                .filter((kind) => chartParts(kind) > 0)
+                .map((kind) => ({ kind: "preserved-part", partKind: kind, count: chartParts(kind) }))
+            : [shape];
+      say([sheetName, role], "sheet-classification", `${sheetKey}.${role}`, null, "reject-statement", evidence);
+    }
+
+    for (const part of sheet.preserved) {
+      inertItems.push({ kind: part.partKind, sheetKey, location: part.location, reasonKey: part.reasonKey, anchor: part.anchor });
+    }
+
+    for (const draft of onSheet) {
+      const { candidate } = draft;
+      const { measured, tableKey } = candidate;
+      const scope = [sheetName, candidate.identity];
+      say(scope, "table-name", tableKey, null, "rename-table", [draft.declaredEvidence ?? shape]);
+      say(scope, "header-row", tableKey, null, "set-header-row", draft.declaredEvidence === null ? headerEvidence(measured) : [draft.declaredEvidence]);
+      if (measured.discardedRowCount > 0) say(scope, "discarded-rows", tableKey, null, "set-header-row", discardEvidence(measured));
+      if (candidate.mergeEvidence !== null) say(scope, "table-merge", tableKey, null, "reject-statement", [candidate.mergeEvidence]);
+      if (candidate.splitEvidence !== null) say(scope, "table-split", tableKey, null, "reject-statement", [candidate.splitEvidence]);
+      const columnEvidence = (columnKey: string | null): readonly WorkbookEvidenceV1[] => {
+        const entry = draft.fields.find(({ field }) => field.columnKey === columnKey);
+        return entry === undefined
+          ? []
+          : [entry.nameEvidence, { kind: "distinct-values", distinct: entry.stats.distinct.size, sampled: entry.stats.nonEmpty, options: [] }];
+      };
+      say(scope, "table-key", tableKey, null, "set-key", columnEvidence(draft.keyColumnKey));
+      say(scope, "table-label", tableKey, null, "set-label", columnEvidence(draft.labelColumnKey));
+
+      const firstDataRow = (measured.headerRowIndex ?? measured.firstRowIndex - 1) + 1;
+      for (const { field, stats, typeEvidence, optionsEvidence, nameEvidence } of draft.fields) {
+        const columnScope = [...scope, field.columnIndex];
+        say(columnScope, "field-name", field.columnKey, field.columnIndex, "rename-field", [nameEvidence]);
+        say(columnScope, "field-type", field.columnKey, field.columnIndex, "override-type", typeEvidence);
+        if (field.valueType.kind === "enum") say(columnScope, "enum-options", field.columnKey, field.columnIndex, "edit-enum-options", optionsEvidence);
         if (stats.formulaCount > 0) {
-          say("formula", columnKey, columnIndex, null, [
+          say(columnScope, "formula", field.columnKey, field.columnIndex, null, [
             {
               kind: "formula-text",
               text: stats.firstFormula?.text ?? null,
@@ -846,29 +1091,31 @@ function proposeWorkbook(
               formulaCount: stats.formulaCount,
             },
           ]);
+          const anchor = { firstRow: firstDataRow, firstColumn: field.columnIndex, lastRow: measured.lastRowIndex, lastColumn: field.columnIndex };
+          inertItems.push({
+            kind: "formula",
+            sheetKey,
+            location: locationText(sheetName, anchor.firstRow, anchor.firstColumn, anchor.lastRow, anchor.lastColumn),
+            reasonKey: "formula-not-live-yet",
+            anchor,
+          });
         }
-        return {
-          columnKey,
-          columnIndex,
-          fieldName,
-          isNameGenerated: isGenerated,
-          type: choice.type,
-          valueType: choice.type,
-          sourceFormat: choice.sourceFormat,
-          enumOptions: choice.enumOptions,
-          violations: choice.violations,
-          formulaText: stats.formulaCount > 0 ? (stats.firstFormula?.text ?? null) : null,
-        };
-      });
+      }
 
       tables.push({
         tableKey,
         sheetKey,
-        tableName,
+        tableName: draft.tableName,
         source:
-          declared === null
+          candidate.declared === null
             ? { kind: "region" }
-            : { kind: "declared-table", name: declared.name, range: declared.range, headerRowCount: declared.headerRowCount, totalsRowCount: declared.totalsRowCount },
+            : {
+                kind: "declared-table",
+                name: candidate.declared.name,
+                range: candidate.declared.range,
+                headerRowCount: candidate.declared.headerRowCount,
+                totalsRowCount: candidate.declared.totalsRowCount,
+              },
         firstColumn: measured.firstColumn,
         lastColumn: measured.firstColumn + Math.max(0, measured.columnCount - 1),
         headerRowIndex: measured.headerRowIndex,
@@ -877,9 +1124,27 @@ function proposeWorkbook(
         discardedRowCount: measured.discardedRowCount,
         rowCount: measured.dataRowCount,
         joinedToTableKey: candidate.joinedTo?.tableKey ?? null,
-        fields,
-        keyColumnKey: null,
-        labelColumnKey: null,
+        fields: draft.fields.map(({ field }) => field),
+        keyColumnKey: draft.keyColumnKey,
+        labelColumnKey: draft.labelColumnKey,
+      });
+    }
+
+    // Formulas in regions that became no table: one item for the sheet (D33).
+    const tabled = new Set(onSheet.map((draft) => draft.candidate.regionOrdinal));
+    const loose = sheet.regions
+      .filter((region) => !tabled.has(region.ordinal) && region.formulaBox !== null)
+      .reduce<BoxV1 | null>((box, region) => {
+        const found = region.formulaBox as BoxV1;
+        return grow(grow(box, found.firstRow, found.firstColumn), found.lastRow, found.lastColumn);
+      }, null);
+    if (loose !== null) {
+      inertItems.push({
+        kind: "formula",
+        sheetKey,
+        location: locationText(sheetName, loose.firstRow, loose.firstColumn, loose.lastRow, loose.lastColumn),
+        reasonKey: "formula-not-live-yet",
+        anchor: { ...loose },
       });
     }
 
@@ -888,51 +1153,64 @@ function proposeWorkbook(
         (validation.rule === "whole" || validation.rule === "decimal" || validation.rule === "date") &&
         (validation.operator === "equal" || validation.operator === "not-equal");
       const value = isExpressible ? ruleValueOf(validation, sheet.info.dateSystem) : null;
-      const covered = onSheet.flatMap((candidate) =>
-        candidate.names.flatMap((_name, relative) => {
-          const column = candidate.measured.firstColumn + relative;
-          return coversColumn(validation, column, candidate.measured) ? [{ candidate, column }] : [];
-        }),
+      const covered = onSheet.flatMap((draft) =>
+        draft.fields.flatMap(({ field }) =>
+          coversColumn(validation, field.columnIndex, draft.candidate.measured) ? [{ draft, field }] : [],
+        ),
       );
-      if (validation.rule !== "list" && value !== null && covered.length > 0) {
-        for (const { candidate, column } of covered) {
-          const columnKey = `${candidate.tableKey}.c${column}`;
-          const equals = { kind: "field-equals", columnKey, value } as const;
-          const ruleKey = `rule:${columnKey}`;
-          if (recordRules.some((rule) => rule.ruleKey === ruleKey)) continue;
-          recordRules.push({
-            ruleKey,
-            tableKey: candidate.tableKey,
-            columnKey,
-            condition: validation.operator === "equal" ? equals : { kind: "not", condition: equals },
-            isActive: true,
-          });
-          const evidence = [validationEvidence(validation, null)];
-          statements.push(
-            statement("record-rule", ruleKey, column, "reject-statement", evidence, workbookFingerprintInput("record-rule", [sheetName, candidate.identity, column], evidence)),
-          );
-        }
+      if (validation.rule === "list" && covered.length > 0) continue;
+      if (value === null || covered.length === 0) {
+        const range = validation.range;
+        inertItems.push({
+          kind: "unsupported-validation",
+          sheetKey,
+          location: locationText(sheetName, range.firstRow, range.firstColumn, range.lastRow, range.lastColumn),
+          reasonKey: "validation-not-expressible",
+          anchor: range,
+        });
         continue;
       }
-      if (validation.rule === "list" && covered.length > 0) continue;
-      const range = validation.range;
-      inertItems.push({
-        kind: "unsupported-validation",
-        sheetKey,
-        location: locationText(sheetName, range.firstRow, range.firstColumn, range.lastRow, range.lastColumn),
-        reasonKey: "validation-not-expressible",
-        anchor: range,
-      });
+      for (const { draft, field } of covered) {
+        const ruleKey = `rule:${field.columnKey}`;
+        if (recordRules.some((rule) => rule.ruleKey === ruleKey)) continue;
+        const equals = { kind: "field-equals", columnKey: field.columnKey, value } as const;
+        recordRules.push({
+          ruleKey,
+          tableKey: draft.candidate.tableKey,
+          columnKey: field.columnKey,
+          condition: validation.operator === "equal" ? equals : { kind: "not", condition: equals },
+          isActive: true,
+        });
+        say([sheetName, draft.candidate.identity, field.columnIndex], "record-rule", ruleKey, field.columnIndex, "reject-statement", [
+          validationEvidence(validation, null),
+        ]);
+      }
     }
   }
 
+  for (const relationship of detected.relationships) {
+    const draft = drafts.find((candidate) => candidate.candidate.tableKey === relationship.fromTableKey) as TableDraft;
+    const column = draft.fields.find(({ field }) => field.columnKey === relationship.fromColumnKey)?.field.columnIndex ?? null;
+    const evidence = [detected.evidence.get(relationship.relationshipKey) as WorkbookEvidenceV1];
+    statements.push(
+      statement(
+        "relationship",
+        relationship.relationshipKey,
+        column,
+        "reject-relationship",
+        evidence,
+        workbookFingerprintInput("relationship", [draft.candidate.sheet.info.name, draft.candidate.identity, column ?? -1], evidence),
+      ),
+    );
+  }
+
   const streamed = new Map(sheets.map((sheet) => [sheet.info.sheetIndex, sheet]));
-  const choices: readonly WorkbookSheetChoiceV1[] =
-    context.sheetSelection ??
-    sheets.map((sheet) => ({ ...sheet.info, isSelected: true }));
+  const choices: readonly WorkbookSheetChoiceV1[] = context.sheetSelection ?? sheets.map((sheet) => ({ ...sheet.info, isSelected: true }));
   const listed = [
     ...choices,
-    ...sheets.filter((sheet) => !choices.some((choice) => choice.sheetIndex === sheet.info.sheetIndex)).map((sheet) => ({ ...sheet.info, isSelected: true })),
+    ...sheets
+      .filter((sheet) => !choices.some((choice) => choice.sheetIndex === sheet.info.sheetIndex))
+      .map((sheet) => ({ ...sheet.info, isSelected: true })),
   ].sort((left, right) => left.sheetIndex - right.sheetIndex);
 
   const proposedSheets = listed.map((choice): ProposedSheetV1 => {
@@ -955,7 +1233,6 @@ function proposeWorkbook(
         omittedRegionCount: 0,
       };
     }
-    const classification: ProposedSheetClassificationV1[] = tables.some((table) => table.sheetKey === sheetKey) ? ["table"] : ["snapshot"];
     return {
       sheetKey,
       sheetIndex: choice.sheetIndex,
@@ -963,7 +1240,7 @@ function proposeWorkbook(
       sheetKind: sheet.info.sheetKind,
       visibility: sheet.info.visibility,
       isSelected: true,
-      classification,
+      classification: roles.get(sheet) ?? ["snapshot"],
       declaredRange: sheet.info.declaredRange,
       dateSystem: sheet.info.dateSystem,
       rowCount: sheet.rowCount,
@@ -973,15 +1250,21 @@ function proposeWorkbook(
     };
   });
 
-  return {
-    fileName: context.fileName,
-    appName: titleize(context.fileName),
-    sheets: proposedSheets,
-    tables,
-    recordRules,
-    inertItems,
-    statements,
-    diagnostics,
-    isRowCountExact: true,
-  };
+  return applyRejectionMemory(
+    {
+      fileName: context.fileName,
+      appName: titleize(context.fileName),
+      sheets: proposedSheets,
+      tables,
+      relationships: detected.relationships,
+      recordRules,
+      inertItems,
+      inertCounts: countInert(inertItems),
+      statements,
+      diagnostics,
+      isRowCountExact: true,
+    },
+    context.rejectionMemory,
+    context.fingerprintOf,
+  );
 }

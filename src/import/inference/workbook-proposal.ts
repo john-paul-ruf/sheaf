@@ -24,6 +24,7 @@ import type {
   SheetKindV1,
   SheetVisibilityV1,
 } from "../facts/index.js";
+import type { RelationshipDetectionSourceV1 } from "../../domain/model/schema.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type { ProposedRowV1, WorkbookDiscardedRowV1 } from "./regions.js";
 import type { WorkbookStatementV1 } from "./statements.js";
@@ -120,6 +121,40 @@ export interface ProposedTableV2 {
   readonly labelColumnKey: string | null;
 }
 
+/** A table a relationship could point at instead, and what the proposal measured of it. */
+export interface RelationshipCandidateV1 {
+  readonly toTableKey: string;
+  readonly toColumnKey: string;
+  /** Why it is a candidate: the lookup itself, a heading match, containment, or both. */
+  readonly basis: "lookup-formula" | "heading" | "containment" | "heading-and-containment";
+  readonly brokenReferenceCount: number;
+}
+
+/**
+ * A child column referring to a parent table's key (FR-7). While applied, the
+ * child field's type is `reference`; rejected, it is its value type again.
+ */
+export interface ProposedRelationshipV1 {
+  readonly relationshipKey: string;
+  readonly fromTableKey: string;
+  readonly fromColumnKey: string;
+  readonly toTableKey: string;
+  /** The parent's key column. */
+  readonly toColumnKey: string;
+  /** `user` once a review edit retargets it. */
+  readonly detectionSource: Exclude<RelationshipDetectionSourceV1, "declared">;
+  readonly isApplied: boolean;
+  /**
+   * Distinct child values with no parent key: at promotion each row holding
+   * one keeps its original key as a broken reference (D36).
+   */
+  readonly brokenReferenceCount: number;
+  /** True when the child column outgrew its sketch and was measured on a sample. */
+  readonly isSampled: boolean;
+  /** Every table the review may retarget it to, the current parent included. */
+  readonly candidates: readonly RelationshipCandidateV1[];
+}
+
 /** A record rule M02's IR can state (field presence and equality only). */
 export type ProposedRuleConditionV1 =
   | { readonly kind: "field-equals"; readonly columnKey: string; readonly value: CellValueV1 }
@@ -148,8 +183,11 @@ export interface ProposedWorkbookV1 {
   /** Every sheet of the workbook in workbook order, selected or not (D39). */
   readonly sheets: readonly ProposedSheetV1[];
   readonly tables: readonly ProposedTableV2[];
+  readonly relationships: readonly ProposedRelationshipV1[];
   readonly recordRules: readonly ProposedRecordRuleV1[];
   readonly inertItems: readonly ProposedInertItemV1[];
+  /** Inert items per kind, over every selected sheet (FR-9). */
+  readonly inertCounts: Readonly<Record<PreservedPartKindV1, number>>;
   readonly statements: readonly WorkbookStatementV1[];
   readonly diagnostics: readonly ImportDiagnosticV2[];
   /** Always `true`: a proposal is built from a completed stream, never a sample. */

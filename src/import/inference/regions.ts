@@ -17,9 +17,10 @@
  * the declaration's, never inferred (declared structure wins).
  */
 
-import { columnLettersOf } from "../../domain/formulas/index.js";
+import { columnLettersOf, type LookupV1 } from "../../domain/formulas/index.js";
 import type { DateSystemV1 } from "../facts/index.js";
 import {
+  COLUMN_LOOKUP_LIMIT,
   KEY_SKETCH_LIMIT,
   ENUM_OPTION_LIMIT,
   looksLikeHeading,
@@ -153,7 +154,13 @@ export interface CellInputV1 {
   readonly column: number;
   readonly text: string;
   readonly format: CellFormatV1 | null;
-  readonly formula: { readonly text: string | null; readonly isArray: boolean; readonly isExternal: boolean } | null;
+  readonly formula: {
+    readonly text: string | null;
+    readonly isArray: boolean;
+    readonly isExternal: boolean;
+    /** The lookups its text names (M03); empty for a shared child or an unparsed text. */
+    readonly lookups: readonly LookupV1[];
+  } | null;
 }
 
 export type TableBuilderMode =
@@ -239,6 +246,11 @@ export class TableBuilder {
         stats.formulaCount += 1;
         if (stats.firstFormula === null && cell.formula.text !== null) {
           stats.firstFormula = { text: cell.formula.text, isArray: cell.formula.isArray, isExternal: cell.formula.isExternal };
+        }
+        for (const lookup of cell.formula.lookups) {
+          if (stats.lookups.length < COLUMN_LOOKUP_LIMIT && cell.formula.text !== null) {
+            stats.lookups.push({ lookup, formulaText: cell.formula.text });
+          }
         }
       }
     }

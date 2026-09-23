@@ -25,19 +25,15 @@
  */
 
 import { isNfcText } from "../../domain/model/values.js";
-import {
-  ENUM_OPTION_LIMIT,
-  fieldNamesFrom,
-  type ProposedAppV1,
-  type ProposedFieldV1,
-  type ProposedRowV1,
-} from "./infer.js";
+import type { ProposedAppV1, ProposedFieldV1, ProposedRowV1 } from "./infer.js";
+import { fieldNamesFrom } from "./regions.js";
 import {
   EVIDENCE_EXAMPLE_LIMIT,
   inferenceStatement,
   statementIdOf,
   type InferenceStatementV1,
 } from "./statements.js";
+import { ENUM_OPTION_LIMIT } from "./types.js";
 import type { ProposedFieldTypeV1 } from "./values.js";
 
 export type ReviewEditV1 =
