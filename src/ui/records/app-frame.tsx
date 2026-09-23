@@ -8,8 +8,8 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  * The frame every generated-app surface sits in (M44 over M39).
  *
  * It is a sibling of M41's `UnlockedFrame`, not a variant of it: the shell
- * destinations inside an app are the app's own (home, its tables, its change
- * history) plus the way back out, and design.md § Shell and generated-app
+ * destinations inside an app are the app's own (home, a table, its sheet
+ * snapshots, its change history) plus the way back out, and design.md § Shell and generated-app
  * boundary is explicit that the two levels are different places. Exactly one
  * navigation is exposed at any width — M39's rail and bottom bar are the same
  * destinations, and only one of them is displayed — so the app area adds no
@@ -47,11 +47,13 @@ export interface AppNavigation {
   readonly library: string;
   readonly appHome: string;
   readonly appHistory: string;
+  /** SCR-030, every imported sheet (CA-07 amendment 3). */
+  readonly appSnapshots: string;
   readonly tables: readonly AppTableLink[];
 }
 
 /** Which destination the current surface belongs to. */
-export type AppArea = "home" | "records" | "history";
+export type AppArea = "home" | "records" | "snapshots" | "history";
 
 /**
  * Who the app is. Every app-area surface renders inside one identity, and
@@ -128,6 +130,13 @@ export function AppFrame({
               : {}),
           },
         ]),
+    {
+      id: "app-snapshots",
+      label: "Sheet snapshots",
+      href: nav.appSnapshots,
+      glyph: "◇",
+      ...(area === "snapshots" ? { isCurrent: true } : {}),
+    },
     {
       id: "app-history",
       label: "Change history",

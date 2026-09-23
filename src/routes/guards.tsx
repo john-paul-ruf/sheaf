@@ -31,6 +31,13 @@
  * an app id is data — {@link isAppAreaPath} is the whole addition to the guard,
  * and `guardRoute` stays a pure function of the phase and the path.
  *
+ * CA-07 amendment 3 (workbook-fidelity S08) adds the two snapshot shapes,
+ * `#/app/{appId}/snapshots` (SCR-030) and `#/app/{appId}/snapshots/{sheetId}`
+ * (SCR-031), matched by the same expression and unlocked-only like every other
+ * app path: first-run and locked phases never reach them. A sheet id the app
+ * does not hold is answered at the path with the truthful absent notice, for
+ * the reason below.
+ *
  * **An unknown app id is not an unknown route.** The guard cannot tell one
  * from the other — it reads no catalog, by agreement — so a well-formed path
  * whose app does not exist renders, and the app area answers with the truthful
@@ -121,6 +128,16 @@ export function appHistoryPath(appId: string): string {
   return `${appPath(appId)}/history`;
 }
 
+/** SCR-030 (CA-07 amendment 3). */
+export function appSnapshotsPath(appId: string): string {
+  return `${appPath(appId)}/snapshots`;
+}
+
+/** SCR-031 (CA-07 amendment 3). */
+export function snapshotPath(appId: string, sheetId: string): string {
+  return `${appSnapshotsPath(appId)}/${encodeURIComponent(sheetId)}`;
+}
+
 export function tablePath(appId: string, tableId: string): string {
   return `${appPath(appId)}/t/${encodeURIComponent(tableId)}`;
 }
@@ -155,12 +172,12 @@ export function appHref(appId: string): string {
 }
 
 /**
- * The six app-area shapes, as one expression. An id may be any non-empty run
+ * The eight app-area shapes, as one expression. An id may be any non-empty run
  * of characters that is not a separator, so a path with an extra segment is
  * *not* an app path and falls to the phase's fallback exactly as before.
  */
 const APP_AREA_PATH =
-  /^\/app\/[^/]+(?:\/history|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
+  /^\/app\/[^/]+(?:\/history|\/snapshots(?:\/[^/]+)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
 
 export function isAppAreaPath(path: string): boolean {
   return APP_AREA_PATH.test(path);

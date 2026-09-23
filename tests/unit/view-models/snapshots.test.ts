@@ -189,6 +189,26 @@ describe("the snapshot viewer (SCR-031)", () => {
     ]);
   });
 
+  it("extends the grid to an inert item anchored below the last data row", () => {
+    const drawing: InertItemViewV1 = {
+      ...CHART,
+      inertItemId: "i-drawing",
+      kind: "drawing",
+      location: "Overview!D20:F24",
+      reasonKey: "object-not-rendered",
+      anchor: { firstRow: 19, firstColumn: 3, lastRow: 23, lastColumn: 5 },
+    };
+    const vm = selectSnapshotViewerVm({
+      page: page({ inertAnchors: [{ inertItemId: "i-drawing", range: drawing.anchor! }] }),
+      inertItems: [drawing],
+    });
+    expect(vm.rowCount).toBe(20);
+    const row = vm.rows.find((candidate) => candidate.rowNumber === 20);
+    expect(row?.slots.find((slot) => slot.columnIndex === 3)?.markers.map((marker) => marker.location)).toEqual([
+      "Overview!D20:F24",
+    ]);
+  });
+
   it("pages at 50 rows and says where the page is", () => {
     const vm = selectSnapshotViewerVm({ page: page({ rowCount: 61, firstRow: 50, rows: [] }), inertItems: [] });
     expect(vm).toMatchObject({ firstRow: 50, endRow: 61, hasPrevious: true, hasNext: false });

@@ -72,6 +72,7 @@ const nav: AppNavigation = {
   library: "#/library",
   appHome: `#/app/${APP_ID}`,
   appHistory: `#/app/${APP_ID}/history`,
+  appSnapshots: `#/app/${APP_ID}/snapshots`,
   tables: [JOBS, CUSTOMERS].map((table) => ({
     tableId: table.tableId,
     displayName: table.displayName,

@@ -589,6 +589,147 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- SCR-030 / SCR-031 sheet snapshots (CTL-067/078/079) ---------------- */
+
+.useTag {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.useTag[data-use="interactive-table"] {
+  background: var(--color-success-tint);
+  color: var(--color-text);
+}
+
+/* STA-012: preserved, inert — information, not a warning. */
+.inertNote {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-start;
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+}
+
+.inertNote .lede {
+  color: var(--color-info-ink);
+}
+
+.inertGlyph {
+  flex: none;
+  font-weight: var(--weight-status);
+}
+
+.inertTitle {
+  font-weight: var(--weight-status);
+}
+
+.findRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: flex-end;
+}
+
+/* CTL-067: the grid scrolls inside its own region, never the page. */
+.sheetScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.sheetScroll:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.sheetGrid {
+  border-collapse: collapse;
+  font-size: var(--text-supporting);
+}
+
+.sheetCaption {
+  padding: var(--space-8) var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  text-align: left;
+}
+
+.sheetGrid th,
+.sheetGrid td {
+  border: 1px solid var(--color-border);
+  padding: var(--space-4) var(--space-8);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sheetGrid thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-control);
+}
+
+.sheetGrid tbody th {
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-control);
+}
+
+.sheetGrid td {
+  min-width: 6rem;
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+}
+
+.sheetGrid td[data-merged="true"] {
+  background: var(--color-panel);
+}
+
+.sheetGrid td[data-kind="number"],
+.sheetGrid td[data-kind="formula-result"] {
+  font-family: var(--font-mono);
+}
+
+/* FR-4: a row set aside at import, still here, and said to be. */
+.sheetGrid tr[data-discarded="true"] td {
+  background: var(--color-warning-tint);
+}
+
+.discardTag {
+  display: block;
+  max-width: 9rem;
+  color: var(--color-warning-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.cellMatch {
+  outline: 2px solid var(--color-action);
+  outline-offset: -2px;
+  background: var(--color-success-tint);
+}
+
+.inertMarker {
+  display: block;
+  margin-top: var(--space-4);
+  border-radius: var(--radius-control);
+  padding: var(--space-4) var(--space-8);
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
 /* ---- SCR-032 change history ---------------------------------------------- */
 
 .entryList {

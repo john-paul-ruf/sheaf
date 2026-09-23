@@ -26,6 +26,10 @@ import styles from "./records.module.css";
  * log becomes once compaction and merges exist; what F02 holds is what F02
  * says.
  *
+ * **Each entry names its table** (CA-21's `tableId`): in a workbook app a
+ * record id alone does not say where the record lives, so the line says it
+ * and the record's link goes to the right table.
+ *
  * **A delete stays here, and can be undone from here.** That is what makes
  * MOD-009's "recoverable" true (D22): every entry that still carries its
  * payload offers MOD-010.
@@ -62,8 +66,8 @@ export interface ChangeHistoryScreenProps {
   readonly nav: AppNavigation;
   /** Field ids to their names, so a log line can say which fields moved. */
   readonly fieldNames: ReadonlyMap<string, string>;
-  /** Where a record lives, when this app's shape makes that knowable. */
-  readonly recordHref?: (recordId: string) => string | null;
+  /** Where a record lives, when the entry's table makes that knowable. */
+  readonly recordHref?: (recordId: string, tableId: string | null) => string | null;
   readonly onRestore: (entry: ChangeHistoryEntryVm) => void;
   /** Present only while `vm.hasMore`. */
   readonly onShowMore?: () => void;
@@ -174,7 +178,7 @@ function HistoryEntry({
 }: {
   readonly entry: ChangeHistoryEntryVm;
   readonly fieldNames: ReadonlyMap<string, string>;
-  readonly recordHref?: (recordId: string) => string | null;
+  readonly recordHref?: (recordId: string, tableId: string | null) => string | null;
   readonly onRestore: () => void;
   readonly busy: boolean;
 }): ReactNode {
@@ -182,7 +186,7 @@ function HistoryEntry({
   // restore beside this line, not a link to a record that is not there.
   const href =
     entry.subjectKind === "record" && entry.eventKind !== "record.deleted"
-      ? (recordHref?.(entry.subjectId) ?? null)
+      ? (recordHref?.(entry.subjectId, entry.tableId) ?? null)
       : null;
   // The names of the fields that moved. The values stay out of a log listing.
   const changed = entry.changedFieldIds
@@ -199,6 +203,7 @@ function HistoryEntry({
           {formatInstant(entry.wallTimeMs)}
         </time>
         {" · this device"}
+        {entry.tableName === null ? "" : ` · ${entry.tableName}`}
         {changed === "" ? "" : ` · ${changed}`}
       </p>
       <div className={cx(styles["actions"])}>

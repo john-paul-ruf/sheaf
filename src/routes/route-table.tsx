@@ -75,6 +75,7 @@ import type {
   RecordDetailViewV1,
   RecordIssueViewV1,
   RecordPageViewV1,
+  DeletedRecordViewV1,
   RelatedChildrenPageViewV1,
   RelatedRecordsViewV1,
   UnlockedSessionViewV1,
@@ -118,7 +119,9 @@ import {
   referenceSearchFor,
   useListReferences,
   useTableSwitcher,
+  type AppAreaWiring,
 } from "./app-area-hooks.js";
+import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -146,6 +149,7 @@ import {
   appHistoryPath,
   appHref,
   appPath,
+  appSnapshotsPath,
   editRecordPath,
   fallbackRoute,
   guardRoute,
@@ -1000,6 +1004,7 @@ function OpenedApp({
     library: ROUTE_HREFS.library,
     appHome: appHref(appId),
     appHistory: hashHref(appHistoryPath(appId)),
+    appSnapshots: hashHref(appSnapshotsPath(appId)),
     tables: session.tables.map((table) => ({
       tableId: table.tableId,
       displayName: table.displayName,
@@ -1049,6 +1054,11 @@ function OpenedApp({
         }
         path="/app/:appId/history"
       />
+      <Route element={<SnapshotsRoute area={area} />} path="/app/:appId/snapshots" />
+      <Route
+        element={<SnapshotViewerRoute area={area} />}
+        path="/app/:appId/snapshots/:sheetId"
+      />
       <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
     </Routes>
   );
@@ -1079,20 +1089,6 @@ function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   );
 }
 
-/**
- * What every app-area route is given: the open app, where its surfaces live,
- * the worker edge, and the two things a write needs — a way to say what
- * happened once it is durable, and a way to have the app re-read.
- */
-interface AppAreaWiring {
-  readonly identity: AppIdentity;
-  readonly nav: AppNavigation;
-  readonly records: RecordsServices;
-  readonly session: AppSessionViewV1;
-  readonly topBarActions: ReactNode;
-  readonly announce: (sentence: string) => void;
-  readonly refresh: () => void;
-}
 
 /**
  * CA-07 amendment 2's truthful notice: the library destination, saying what
@@ -1674,8 +1670,31 @@ function ChangeHistoryRoute({
     readonly ChangeHistoryPageViewV1[] | null
   >(null);
   const [restoring, setRestoring] = useState<ChangeHistoryEntryVm | null>(null);
+  const [deleted, setDeleted] = useState<DeletedRecordViewV1 | null | undefined>(undefined);
+  const [rejection, setRejection] = useState<readonly RecordIssueViewV1[] | undefined>(
+    undefined,
+  );
   const [busy, setBusy] = useState(false);
   const [generation, setGeneration] = useState(0);
+
+  // MOD-010 reads what the delete preserved before anything is confirmed.
+  useEffect(() => {
+    if (restoring === null) return undefined;
+    let live = true;
+    setDeleted(undefined);
+    setRejection(undefined);
+    void records.getDeletedRecord({ appId, recordId: restoring.subjectId }).then(
+      ({ deleted: read }) => {
+        if (live) setDeleted(read);
+      },
+      () => {
+        if (live) setDeleted(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, restoring]);
 
   useEffect(() => {
     let live = true;
@@ -1722,16 +1741,20 @@ function ChangeHistoryRoute({
   }
 
   const merged = mergeHistory(pages);
-  const vm = selectChangeHistoryVm(merged);
+  const vm = selectChangeHistoryVm(merged, session.tables);
 
-  // An app with one table is the F02 shape, and then a record's address is
-  // knowable from its id alone. With two, the log does not say which table the
-  // record is in, so it does not pretend to.
-  const onlyTable = session.tables.length === 1 ? session.tables[0] : undefined;
-  const recordHref = (recordId: string): string | null =>
-    onlyTable === undefined
-      ? null
-      : hashHref(recordPath(appId, onlyTable.tableId, recordId));
+  // Each entry names its table (CA-21), so a record's address is knowable in
+  // a workbook app too; a table this app no longer has gets no link.
+  const recordHref = (recordId: string, tableId: string | null): string | null =>
+    tableId !== null && session.tables.some((table) => table.tableId === tableId)
+      ? hashHref(recordPath(appId, tableId, recordId))
+      : null;
+  const restoringTable =
+    restoring === null
+      ? undefined
+      : session.tables.find(
+          (table) => table.tableId === (deleted?.tableId ?? restoring.tableId),
+        );
 
   const confirmRestore = (): void => {
     if (restoring === null) return;
@@ -1739,11 +1762,15 @@ function ChangeHistoryRoute({
     void records.restoreRecord({ appId, recordId: restoring.subjectId }).then(
       (response) => {
         setBusy(false);
-        setRestoring(null);
         area.announce(
           announceRecordCommand(toCommandOutcomeVm(response), "restored"),
         );
-        if (response.outcome === "rejected") return;
+        if (response.outcome === "rejected") {
+          // MOD-010's validation, stated where the decision is being made.
+          setRejection(response.report.issues);
+          return;
+        }
+        setRestoring(null);
         area.refresh();
         setGeneration((current) => current + 1);
       },
@@ -1770,7 +1797,12 @@ function ChangeHistoryRoute({
               setRestoring(null);
             }}
             onConfirm={confirmRestore}
-            vm={selectRestoreRecordDialogVm(restoring, { busy })}
+            vm={selectRestoreRecordDialogVm(restoring, {
+              busy,
+              ...(deleted === undefined ? {} : { deleted }),
+              ...(restoringTable === undefined ? {} : { table: restoringTable }),
+              ...(rejection === undefined ? {} : { rejection }),
+            })}
           />
         )
       }

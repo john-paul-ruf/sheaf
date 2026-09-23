@@ -31,6 +31,8 @@ export interface TextFieldProps {
   readonly autoComplete?: string;
   readonly autoFocus?: boolean;
   readonly inputClassName?: string;
+  /** The input's own id, for a caller that must move focus to it. */
+  readonly inputId?: string;
   readonly className?: string;
   /** Rendered beside the input — CTL-027's show/hide control, for example. */
   readonly trailing?: ReactNode;
@@ -53,6 +55,7 @@ export function TextField({
   autoComplete,
   autoFocus = false,
   inputClassName,
+  inputId,
   className,
   trailing,
   children,
@@ -74,6 +77,7 @@ export function TextField({
         <Input
           className={cx(styles["input"], inputClassName)}
           autoFocus={autoFocus}
+          {...(inputId === undefined ? {} : { id: inputId })}
           {...(autoComplete === undefined ? {} : { autoComplete })}
         />
         {trailing}

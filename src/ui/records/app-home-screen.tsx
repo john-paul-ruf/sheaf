@@ -145,6 +145,9 @@ export function AppHomeScreen({
               {tableSwitcher !== undefined && onOpenTableSwitcher !== undefined && (
                 <TableSwitcherTrigger onOpen={onOpenTableSwitcher} vm={tableSwitcher} />
               )}
+              <InlineLink target={{ kind: "internal", href: nav.appSnapshots }}>
+                Sheet snapshots
+              </InlineLink>
               <InlineLink target={{ kind: "internal", href: nav.appHistory }}>
                 Change history
               </InlineLink>

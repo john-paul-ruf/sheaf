@@ -1,7 +1,7 @@
 /**
- * The app area's relationship plumbing (M54, CAP-24): the reads that turn
- * S03's relationship RPCs into the view models SHT-002, SHT-003 and the
- * records list render. Kept beside the route table rather than inside it so
+ * The app area's shared plumbing (M54): the wiring every app route receives,
+ * and the reads that turn S03's relationship RPCs into the view models
+ * SHT-002, SHT-003 and the records list render (CAP-24). Kept beside the route table rather than inside it so
  * each piece is one hook with one job.
  */
 
@@ -14,13 +14,30 @@ import {
   type TableSwitcherVm,
 } from "../application/view-models/records.js";
 import type { RecordsServices } from "../application/workflows/records-services.js";
+import type { AppIdentity, AppNavigation } from "../ui/records/app-frame.js";
 import type {
+  AppSessionViewV1,
   AppTableViewV1,
   RecordPageViewV1,
   RecordReferenceViewV1,
 } from "../workers/protocol/messages.js";
 import { TableSwitcherSheet } from "../ui/records/table-switcher-sheet.js";
 import { hashHref, tablePath } from "./guards.js";
+
+/**
+ * What every app-area route is given: the open app, where its surfaces live,
+ * the worker edge, and the two things a write needs — a way to say what
+ * happened once it is durable, and a way to have the app re-read.
+ */
+export interface AppAreaWiring {
+  readonly identity: AppIdentity;
+  readonly nav: AppNavigation;
+  readonly records: RecordsServices;
+  readonly session: AppSessionViewV1;
+  readonly topBarActions: ReactNode;
+  readonly announce: (sentence: string) => void;
+  readonly refresh: () => void;
+}
 
 /**
  * CTL-059 + SHT-003. The trigger reads the session's counts; opening the

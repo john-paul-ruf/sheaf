@@ -1632,6 +1632,10 @@ export interface SnapshotViewerVm {
   readonly displayName: string;
   /** `delimited-v1`: an F02 snapshot, whose discarded rows are here unmarked. */
   readonly format: SnapshotPageViewV1["format"];
+  /**
+   * Rows the sheet spans: its data rows, or further where an inert item is
+   * anchored below the last of them (a drawing under a summary, say).
+   */
   readonly rowCount: number;
   readonly columns: readonly { readonly columnIndex: number; readonly letters: string }[];
   readonly rows: readonly SnapshotRowVm[];
@@ -1665,7 +1669,12 @@ export function selectSnapshotViewerVm(input: {
 }): SnapshotViewerVm {
   const { page } = input;
   const pageRows = input.pageRows ?? SNAPSHOT_PAGE_ROWS;
-  const endRow = Math.min(page.rowCount, page.firstRow + pageRows);
+  const rowCount = Math.max(
+    page.rowCount,
+    ...page.inertAnchors.map((anchor) => anchor.range.firstRow + 1),
+    ...input.inertItems.flatMap((item) => (item.anchor === null ? [] : [item.anchor.firstRow + 1])),
+  );
+  const endRow = Math.min(rowCount, page.firstRow + pageRows);
   const find = input.find ?? { state: "idle" };
   const items = input.inertItems.map(toInertItemVm);
   const itemById = new Map(items.map((item) => [item.inertItemId, item]));
@@ -1766,7 +1775,7 @@ export function selectSnapshotViewerVm(input: {
     sheetId: page.sheetId,
     displayName: page.displayName,
     format: page.format,
-    rowCount: page.rowCount,
+    rowCount,
     columns: Array.from({ length: columnCount }, (_, columnIndex) => ({
       columnIndex,
       letters: columnLetters(columnIndex),
@@ -1775,7 +1784,7 @@ export function selectSnapshotViewerVm(input: {
     firstRow: page.firstRow,
     endRow,
     hasPrevious: page.firstRow > 0,
-    hasNext: endRow < page.rowCount,
+    hasNext: endRow < rowCount,
     inertItems: items,
     inertHeadline:
       items.length === 0
@@ -1785,7 +1794,7 @@ export function selectSnapshotViewerVm(input: {
     announcement:
       find.state === "idle"
         ? `${page.displayName}, rows ${String(page.firstRow + 1)} to ${String(endRow)} of ${String(
-            page.rowCount,
+            rowCount,
           )}. Read only.`
         : find.sentence,
   };

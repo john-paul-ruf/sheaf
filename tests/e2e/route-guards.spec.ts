@@ -12,6 +12,10 @@
  *   reachable; every unlocked route and every unknown path lands on unlock.
  * - **unlocked**: those five redirect to the library, as does anything unknown.
  *
+ * CA-07 amendment 3 (workbook-fidelity S08) adds the two snapshot shapes,
+ * `#/app/{id}/snapshots` and `#/app/{id}/snapshots/{sheetId}`: rows below in
+ * every phase, and the unknown-sheet notice in `snapshots.spec.ts`.
+ *
  * SESSION-07's amendment adds three unlocked-only paths — `#/library/search`,
  * `#/upload` and `#/import` — and reserves `#/app/…` without serving it. The
  * reservation is the interesting row: a post-create navigation goes there, and
@@ -61,6 +65,9 @@ const FIRST_RUN: Matrix = [
   ["#/upload", "SCR-001", "#/welcome"],
   ["#/import", "SCR-001", "#/welcome"],
   ["#/app/anything", "SCR-001", "#/welcome"],
+  // CA-07 amendment 3: the snapshot shapes never render before a device is protected.
+  ["#/app/anything/snapshots", "SCR-001", "#/welcome"],
+  ["#/app/anything/snapshots/sheet", "SCR-001", "#/welcome"],
   ["#/nowhere", "SCR-001", "#/welcome"],
   ["", "SCR-001", "#/welcome"],
 ];
@@ -80,6 +87,9 @@ const LOCKED: Matrix = [
   ["#/upload", "SCR-003", "#/unlock"],
   ["#/import", "SCR-003", "#/unlock"],
   ["#/app/anything", "SCR-003", "#/unlock"],
+  // CA-07 amendment 3: nor while it is locked.
+  ["#/app/anything/snapshots", "SCR-003", "#/unlock"],
+  ["#/app/anything/snapshots/sheet", "SCR-003", "#/unlock"],
   ["#/nowhere", "SCR-003", "#/unlock"],
   ["", "SCR-003", "#/unlock"],
 ];
@@ -166,6 +176,8 @@ test("unlocked: an app path whose app is not on this device says so", async ({
     "#/app/anything",
     "#/app/anything/t/nothing",
     "#/app/anything/history",
+    "#/app/anything/snapshots",
+    "#/app/anything/snapshots/sheet",
   ]) {
     await followHash(page, entry);
     await expect(
