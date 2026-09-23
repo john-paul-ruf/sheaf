@@ -246,10 +246,11 @@ describe("inferWorkbook — record rules and inert validations", () => {
     );
   const validation = (
     column: number,
-    rule: "whole" | "text-length" | "custom" | "list",
-    operator: "equal" | "not-equal" | "between" | null,
+    rule: "whole" | "decimal" | "text-length" | "custom" | "list",
+    operator: "equal" | "not-equal" | "between" | "not-between" | "greater-than-or-equal" | "less-than" | null,
     formula1: string,
     range = { firstRow: 1, firstColumn: column, lastRow: 2, lastColumn: column },
+    formula2: string | null = null,
   ): WorkbookFactV2 => ({
     kind: "validation",
     range,
@@ -257,37 +258,64 @@ describe("inferWorkbook — record rules and inert validations", () => {
     operator,
     listSource: rule === "list" ? { kind: "inline", values: formula1.split(",") } : null,
     formula1,
-    formula2: null,
+    formula2,
+  });
+  const column = (index: number) => ({ firstRow: 1, firstColumn: index, lastRow: 2, lastColumn: index });
+  const decimal = (value: string) => ({ kind: "decimal", decimal: value });
+
+  it("states each comparison validation as a rule IR v2 condition (CA-27, D52)", () => {
+    const proposal = withValidations([
+      validation(1, "whole", "greater-than-or-equal", "0"),
+      validation(2, "decimal", "not-between", "10", column(2), "20"),
+      validation(0, "text-length", "less-than", "12"),
+    ]);
+    expect(proposal.recordRules.map((rule) => [rule.ruleKey, rule.condition])).toEqual([
+      ["rule:s0.r0.c1", { kind: "compare", columnKey: "s0.r0.c1", op: "ge", value: decimal("0"), measure: null }],
+      ["rule:s0.r0.c2", { kind: "not-between", columnKey: "s0.r0.c2", low: decimal("10"), high: decimal("20"), measure: null }],
+      ["rule:s0.r0.c0", { kind: "compare", columnKey: "s0.r0.c0", op: "lt", value: decimal("12"), measure: "text-length" }],
+    ]);
+    expect(proposal.inertItems).toEqual([]);
   });
 
-  it("states what M02's rule IR can express as a proposed rule", () => {
-    const proposal = withValidations([validation(1, "whole", "equal", "5"), validation(2, "whole", "not-equal", "4")]);
+  it("states equality as a comparison too, and a validation with no operator as Excel's between", () => {
+    const proposal = withValidations([
+      validation(1, "whole", "equal", "5"),
+      validation(2, "whole", null, "1", column(2), "9"),
+    ]);
     expect(proposal.recordRules).toEqual([
-      { ruleKey: "rule:s0.r0.c1", tableKey: "s0.r0", columnKey: "s0.r0.c1", condition: { kind: "field-equals", columnKey: "s0.r0.c1", value: { kind: "decimal", decimal: "5" } }, isActive: true },
+      {
+        ruleKey: "rule:s0.r0.c1",
+        tableKey: "s0.r0",
+        columnKey: "s0.r0.c1",
+        condition: { kind: "compare", columnKey: "s0.r0.c1", op: "eq", value: decimal("5"), measure: null },
+        isActive: true,
+      },
       {
         ruleKey: "rule:s0.r0.c2",
         tableKey: "s0.r0",
         columnKey: "s0.r0.c2",
-        condition: { kind: "not", condition: { kind: "field-equals", columnKey: "s0.r0.c2", value: { kind: "decimal", decimal: "4" } } },
+        condition: { kind: "between", columnKey: "s0.r0.c2", low: decimal("1"), high: decimal("9"), measure: null },
         isActive: true,
       },
     ]);
     expect(statement(proposal, "record-rule:rule:s0.r0.c1")).toMatchObject({ editKind: "reject-statement", evidence: [{ kind: "validation-rule", rule: "whole" }] });
     // The rule also types the column; it is still a number, not a guess.
     expect(proposal.tables[0]?.fields[1]?.type).toEqual({ kind: "number" });
-    expect(proposal.inertItems).toEqual([]);
   });
 
   it("keeps anything else as an inert unsupported-validation item, never a guessed rule", () => {
     const proposal = withValidations([
+      // A between with no upper bound, a fractional whole, a formula bound, a custom rule, a list outside every table.
       validation(1, "whole", "between", "1"),
-      validation(0, "text-length", "equal", "3"),
+      validation(2, "whole", "equal", "2.5"),
+      validation(0, "text-length", "equal", "B1"),
       validation(0, "custom", null, "LEN(A2)>1"),
       validation(5, "list", null, "a,b", { firstRow: 10, firstColumn: 5, lastRow: 12, lastColumn: 5 }),
     ]);
     expect(proposal.recordRules).toEqual([]);
     expect(proposal.inertItems.map((item) => [item.kind, item.location, item.reasonKey])).toEqual([
       ["unsupported-validation", "Stock!B2:B3", "validation-not-expressible"],
+      ["unsupported-validation", "Stock!C2:C3", "validation-not-expressible"],
       ["unsupported-validation", "Stock!A2:A3", "validation-not-expressible"],
       ["unsupported-validation", "Stock!A2:A3", "validation-not-expressible"],
       ["unsupported-validation", "Stock!F11:F13", "validation-not-expressible"],

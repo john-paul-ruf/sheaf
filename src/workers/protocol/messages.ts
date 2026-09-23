@@ -1488,7 +1488,21 @@ export type RuleValueWireV1 =
 
 export type ProposedRuleConditionWireV1 =
   | { readonly kind: "field-equals"; readonly columnKey: string; readonly value: RuleValueWireV1 }
-  | { readonly kind: "not"; readonly condition: ProposedRuleConditionWireV1 };
+  | { readonly kind: "not"; readonly condition: ProposedRuleConditionWireV1 }
+  | {
+      readonly kind: "compare";
+      readonly columnKey: string;
+      readonly op: "lt" | "le" | "gt" | "ge" | "eq" | "ne";
+      readonly value: RuleValueWireV1;
+      readonly measure: "text-length" | null;
+    }
+  | {
+      readonly kind: "between" | "not-between";
+      readonly columnKey: string;
+      readonly low: RuleValueWireV1;
+      readonly high: RuleValueWireV1;
+      readonly measure: "text-length" | null;
+    };
 
 export interface ProposedRecordRuleWireV1 {
   readonly ruleKey: string;

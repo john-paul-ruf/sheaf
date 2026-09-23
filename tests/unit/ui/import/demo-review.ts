@@ -23,6 +23,7 @@ import {
 import type { WorkbookPreflightReportV1 } from "../../../../src/import/preflight/workbook.js";
 import { proposalWire } from "../../../../src/workers/data/import-handlers.js";
 import type { ProposedWorkbookWireV1 } from "../../../../src/workers/protocol/messages.js";
+import { testFormulaIdentities } from "../../import/delimited-proposal.js";
 import { DEMO, proposeFixture } from "../../import/inference/demo-harness.js";
 import {
   cleanupReceipt,
@@ -37,24 +38,27 @@ import {
 export const ALL_SHEETS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 export const WITHOUT_ARCHIVE: readonly number[] = [0, 1, 2, 3, 4, 5];
 
-/** The demo proposal after the given edits, as the wire carries it (CA-19). */
+/** The demo proposal (or another fixture's) after the given edits, as the wire carries it (CA-19). */
 export async function demoProposal(
   selection: readonly number[] = ALL_SHEETS,
   edits: readonly WorkbookReviewEditV1[] = [],
+  fixture: string = DEMO,
 ): Promise<ProposedWorkbookWireV1> {
-  let proposal = await proposeFixture(DEMO, selection);
+  let proposal = await proposeFixture(fixture, selection);
   for (const edit of edits) {
-    const result = applyWorkbookReviewEdit(proposal, edit);
+    // As the stage applies it: every formula's outcome re-derived after the edit.
+    const result = applyWorkbookReviewEdit(proposal, edit, testFormulaIdentities());
     if (result.kind !== "applied") throw new Error(`demo edit ${edit.kind} was refused: ${result.reason}`);
     proposal = result.proposal;
   }
   return proposalWire(proposal);
 }
 
-let report: WorkbookPreflightReportV1 | undefined;
+const reports = new Map<string, WorkbookPreflightReportV1>();
 
-async function demoReport(): Promise<WorkbookPreflightReportV1> {
-  report ??= await fixtureReport(DEMO);
+async function reportOf(fixture: string): Promise<WorkbookPreflightReportV1> {
+  const report = reports.get(fixture) ?? (await fixtureReport(fixture));
+  reports.set(fixture, report);
   return report;
 }
 
@@ -71,7 +75,9 @@ export async function demoReviewVm(
   proposal: ProposedWorkbookWireV1,
   selection: readonly number[] = ALL_SHEETS,
   overrides: Partial<ImportServices> = {},
+  fixture: string = DEMO,
 ): Promise<ImportReviewVm> {
+  const report = await reportOf(fixture);
   const fake = fakeImportServices({
     beginStage: resolves({ kind: "beginImportStage" as const, stageId: STAGE_ID }),
     getStage: stagePresent(),
@@ -81,10 +87,10 @@ export async function demoReviewVm(
   });
   const actor = createActor(importMachine, { input: { services: fake.services } });
   actor.start();
-  actor.send({ type: "CHOOSE_FILE", file: new Blob(["PK"]), fileName: "fieldwork-q3.xlsx" });
-  fake.emit(workbookPreflightEvent(await demoReport()));
-  for (const sheet of ALL_SHEETS) {
-    if (!selection.includes(sheet)) actor.send({ type: "TOGGLE_SHEET", sheetIndex: sheet });
+  actor.send({ type: "CHOOSE_FILE", file: new Blob(["PK"]), fileName: fixture.slice(fixture.lastIndexOf("/") + 1) });
+  fake.emit(workbookPreflightEvent(report));
+  for (const { sheetIndex } of report.sheets) {
+    if (!selection.includes(sheetIndex)) actor.send({ type: "TOGGLE_SHEET", sheetIndex });
   }
   actor.send({ type: "START" });
   await settled();

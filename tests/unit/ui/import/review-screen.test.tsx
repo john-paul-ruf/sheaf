@@ -453,40 +453,139 @@ describe("SCR-023 workbook — Connections", () => {
   });
 });
 
-describe("SCR-023 workbook — Live calculations", () => {
-  it("D43 watchpoint — review Live calculations section: formulas preserved, results kept, not live yet", async () => {
+describe("SCR-023 workbook — Live calculations (CAP-38, D51, D62)", () => {
+  const LIVE = "ooxml/formulas-live.xlsx";
+  const liveVm = async (edits: Parameters<typeof demoProposal>[1] = []) =>
+    demoReviewVm(await demoProposal([0, 1, 2], edits, LIVE), [0, 1, 2], {}, LIVE);
+  const article = (formulaKey: string): string => query(`[data-calculation="${formulaKey}"]`).textContent;
+
+  it("F04: formulas now live — the demo's six, each with its evidence and a reject", async () => {
     const vm = await demoReviewVm(await demoProposal());
-    // F04: formulas now live — none of the demo's formulas is left inert (the
-    // section itself is rebuilt around the proposal's formulas at S07 CP3).
-    expect(vm.formulaRegionCount).toBe(0);
     expect(vm.sections.find((section) => section.id === "live-calculations")?.count).toBe(6);
+    expect(vm.formulaRegionCount).toBe(0);
     await render(screen(vm));
     const section = query('[data-section="live-calculations"]').textContent;
     expect(section).toContain("Live calculations");
-    expect(section).toContain("Formulas are preserved, not live yet");
-    expect(section).toContain("“Balance” in “Jobs” came from a formula.");
-    expect(section).toContain("E2-F2");
-    expect(section).toContain("Original formula preserved");
-    expect(section).toContain("Sheaf does not recalculate it yet.");
-    // D33: nothing may promise a live formula in F03.
-    expect(section).not.toMatch(/keep(s)? working|recalculate immediately|Live computed value/u);
+    expect(section).toContain("6 formulas keep working");
+    expect(article("s0.t0.c6")).toContain("“Balance” is a live calculation.");
+    expect(article("s0.t0.c6")).toContain(
+      "All 60 rows hold the same formula, so every row will recalculate immediately when its inputs change, including rows you add later.",
+    );
+    expect(article("s0.t0.c6")).toContain("From Jobs!G2:G61: =E2-F2");
+    expect(article("s0.t0.c6")).toContain("Filled-down formula");
+    expect(article("s0.t0.c6")).toContain("Live computed value");
+    expect(article("s0.t0.c2")).toContain("It reads “Customers” through its connection.");
+    expect(article("s5.R3C2")).toContain("“Open jobs” is a live summary value.");
+    expect(article("s5.R3C2")).toContain("Summary formula");
+    expect(section).not.toContain("Needs attention");
+    for (const calculation of queryAll("[data-calculation]")) {
+      const labels = [...calculation.querySelectorAll("button")].map((button) => button.textContent);
+      expect(labels).toEqual(["Reject…", "Why?"]);
+    }
+  });
+
+  it("states every disposition truthfully: live, clock-live, frozen, unsupported, not filled down, a total", async () => {
+    await render(screen(await liveVm()));
+    const section = query('[data-section="live-calculations"]').textContent;
+    // Two of the ten are kept as imported values.
+    expect(section).toContain("8 formulas keep working");
+    expect(article("s0.t0.c4")).toContain("It reads today's date, so it is recalculated rather than stored.");
+    expect(article("s0.t0.c5")).toContain("“Lucky” is frozen at import.");
+    expect(article("s0.t0.c5")).toContain("each imported row keeps the value the workbook calculated, frozen");
+    expect(article("s0.t0.c6")).toContain("OFFSET is not supported yet.");
+    expect(article("s0.t0.c6")).toContain(
+      "Existing imported results stay visible. New rows will leave this value empty and flagged—not silently set it to zero.",
+    );
+    expect(article("s0.t0.c6")).toContain("Original formula preserved");
+    expect(article("s0.t0.c6")).toContain("Needs attention");
+    expect(article("s0.t0.c7")).toContain("“Mixed” cannot be calculated.");
+    expect(article("s0.t0.c7")).toContain("Only 4 of 5 rows hold the same formula; row 6 differs.");
+    expect(article("s0.t0.c1.R7")).toContain("“Total Quoted” is a live total of “Jobs”.");
+    expect(article("s0.t0.c1.R7")).toContain("Totals row formula");
+    expect(section).toContain("2 formula regions keep the workbook's values");
+  });
+
+  it("rejects a live formula through SHT-013's edit", async () => {
+    const onApplyEdit = vi.fn<(edit: ReviewEditIntentV1) => void>();
+    await render(screen(await demoReviewVm(await demoProposal()), { onApplyEdit }));
+    await interact(() => {
+      [...query('[data-calculation="s0.t0.c6"]').querySelectorAll("button")].find((button) => button.textContent === "Reject…")?.click();
+    });
+    expect(query('[role="dialog"]').textContent).toContain("“Balance” is a live calculation. Reject it and Sheaf will not use it");
+    await interact(() => {
+      buttonNamed("Reject this")?.click();
+    });
+    expect(onApplyEdit).toHaveBeenCalledWith({ kind: "reject-statement", statementId: "formula:s0.t0.c6" });
+  });
+
+  it("keeps a declined formula's values as a stored choice, and restores it", async () => {
+    const onApplyEdit = vi.fn<(edit: ReviewEditIntentV1) => void>();
+    const declined = await demoReviewVm(await demoProposal(ALL_SHEETS, [{ kind: "reject-statement", statementId: "formula:s0.t0.c6" }]));
+    expect(declined.formulaRegionCount).toBe(1);
+    await render(screen(declined, { onApplyEdit }));
+    expect(article("s0.t0.c6")).toContain("“Balance” keeps its imported values.");
+    expect(article("s0.t0.c6")).toContain("You rejected this");
+    expect(query('[data-section="live-calculations"]').textContent).toContain("5 formulas keep working");
+    await interact(() => {
+      [...query('[data-calculation="s0.t0.c6"]').querySelectorAll("button")].find((button) => button.textContent === "Restore…")?.click();
+    });
+    await interact(() => {
+      buttonNamed("Restore this")?.click();
+    });
+    expect(onApplyEdit).toHaveBeenCalledWith({ kind: "restore-statement", statementId: "formula:s0.t0.c6" });
+  });
+
+  it("turns a lookup unsupported when its connection is rejected (D49)", async () => {
+    await render(
+      screen(await demoReviewVm(await demoProposal(ALL_SHEETS, [{ kind: "reject-relationship", relationshipKey: "rel:s0.t0.c1" }]))),
+    );
+    expect(article("s0.t0.c2")).toContain("“Customer” cannot be calculated.");
+    expect(article("s0.t0.c2")).toContain("Its lookup does not go through a connection Sheaf is creating.");
+  });
+
+  it("states a workbook comparison validation as a rule, with the other statements (CA-27)", async () => {
+    await render(screen(await liveVm()));
+    expect(query('[data-section="fields-and-choices"]').textContent).toContain(
+      "“Quoted” must be at least 0 (the workbook declared this).",
+    );
   });
 });
 
 describe("SCR-023 workbook — Sheets & snapshots", () => {
-  it("D43 watchpoint — sheet-classification statements: a chart/summary sheet is kept as a snapshot, rebuilt later", async () => {
+  it("F04: Overview becomes the app dashboard — its chart rebuilt and pinned, its values live (D55, D65)", async () => {
     await render(screen(await demoReviewVm(await demoProposal())));
     const sheets = query('[data-section="sheets-and-snapshots"]').textContent;
     expect(sheets).toContain("Nothing was silently dropped");
     expect(sheets).toContain("7 of 7 preserved");
-    expect(sheets).toContain("“Overview” is kept as a snapshot");
-    expect(sheets).toContain("rebuilt as a live chart in a later release");
+    expect(sheets).toContain("“Overview” becomes your app dashboard");
+    expect(sheets).toContain("1 chart and 4 summary values rebuilt");
+    expect(sheets).toContain("“Quoted by status” is rebuilt as a live chart from “Jobs”, pinned to the app's home.");
+    expect(sheets).toContain("Workbook chart");
     expect(sheets).toContain("“Materials” supplies choice values");
     expect(sheets).toContain("“Jobs” becomes a working table");
     // STA-012: type, location, reason.
     expect(sheets).toContain("2 drawing objects kept in “Overview” (Overview!D20:F24, Overview!H20:J24).");
     expect(sheets).toContain("Preserved in the snapshot; Sheaf cannot make it interactive.");
-    expect(sheets).not.toMatch(/becomes your app dashboard|rebuilt\b(?! as a live chart in a later release)/u);
+    expect(sheets).not.toContain("later release");
+  });
+
+  it("shows the chart's grouping as its evidence (D62)", async () => {
+    await render(screen(await demoReviewVm(await demoProposal())));
+    await interact(() => {
+      [...query('[data-statement="chart:s5.chart0"]').querySelectorAll("button")].find((button) => button.textContent === "Why?")?.click();
+    });
+    expect(query('[role="dialog"]').textContent).toContain(
+      "Excel plotted each row; Sheaf groups rows with the same “Status” and adds “Quoted amount”.",
+    );
+  });
+
+  it("keeps a declined chart as a snapshot, saying why", async () => {
+    await render(screen(await demoReviewVm(await demoProposal(ALL_SHEETS, [{ kind: "reject-statement", statementId: "chart:s5.chart0" }]))));
+    const sheets = query('[data-section="sheets-and-snapshots"]').textContent;
+    expect(sheets).toContain("“Quoted by status” stays a snapshot of the workbook's chart.");
+    expect(sheets).toContain("1 chart kept in “Overview” (Overview!D2:K18). Kept as a snapshot. Sheaf could not rebuild it as a live chart.");
+    // Its four summary values still reach the home screen.
+    expect(sheets).toContain("4 summary values rebuilt");
   });
 
   it("D43 watchpoint — excluded-sheet rows: an unselected sheet is excluded by the user's choice (D39)", async () => {

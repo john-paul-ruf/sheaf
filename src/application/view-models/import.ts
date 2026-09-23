@@ -34,6 +34,8 @@ import type {
   PreservedPartKindWireV1,
   PreservedReasonKeyWireV1,
   ProposedFieldTypeWireV1,
+  ProposedFormulaWireV1,
+  ProposedRecordRuleWireV1,
   ProposedTableWireV2,
   ProposedWorkbookWireV1,
   WorkbookEvidenceWireV1,
@@ -590,11 +592,48 @@ export interface ReviewConnectionVm {
   readonly statement: ReviewStatementVm | null;
 }
 
-/** A column that came from a formula: results kept as values, formula preserved (D33). */
+/**
+ * One workbook formula and what it becomes (CAP-38; D49, D51): a computed
+ * column, a table metric or a dashboard value — live, frozen, or kept as the
+ * imported values with the reason — or declined in review (`isActive: false`).
+ */
 export interface ReviewCalculationVm {
+  readonly formulaKey: string;
+  readonly target: ProposedFormulaWireV1["target"]["kind"];
+  /** The field a computed column fills, or the metric's or dashboard value's label. */
+  readonly name: string;
+  /** The table a column or metric belongs to; `null` for a dashboard value. */
+  readonly tableName: string | null;
+  readonly sheetName: string;
+  readonly location: string;
+  readonly originalText: string;
+  readonly disposition: ProposedFormulaWireV1["disposition"];
+  readonly determinism: ProposedFormulaWireV1["determinism"];
+  readonly reason: ProposedFormulaWireV1["reason"];
+  readonly detail: string | null;
+  readonly isActive: boolean;
+  /** Its statement: the evidence (SHT-013) and the reject/restore it offers. */
+  readonly statement: ReviewStatementVm | null;
+}
+
+/** An imported chart rebuilt live (D55), or declined in review. */
+export interface ReviewChartVm {
+  readonly chartKey: string;
+  readonly sheetKey: string;
+  readonly name: string;
+  readonly isActive: boolean;
+  /** D65: the first sheet with a rebuilt chart is the app's home view; its charts are pinned. */
+  readonly isPinned: boolean;
+  readonly statement: ReviewStatementVm | null;
+}
+
+/** A workbook validation stated as a record rule (CA-27), by the field it checks. */
+export interface ReviewRuleVm {
+  readonly ruleKey: string;
   readonly tableName: string;
   readonly fieldName: string;
-  readonly formulaText: string;
+  readonly condition: ProposedRecordRuleWireV1["condition"];
+  readonly isActive: boolean;
 }
 
 export interface ReviewInertItemVm {
@@ -680,7 +719,9 @@ export interface ImportReviewVm {
   readonly tables: readonly ReviewTableVm[];
   readonly connections: readonly ReviewConnectionVm[];
   readonly calculations: readonly ReviewCalculationVm[];
-  /** Every preserved formula region, in a table column or not (D33). */
+  readonly charts: readonly ReviewChartVm[];
+  readonly rules: readonly ReviewRuleVm[];
+  /** Every formula region kept inert, in a table column or not (D33, D51). */
   readonly formulaRegionCount: number;
   readonly sheets: readonly ReviewSheetVm[];
   readonly sections: readonly ReviewSectionVm[];
@@ -1317,7 +1358,14 @@ function reviewOf(proposal: ProposedWorkbookWireV1) {
         keyFieldName: fieldNameIn(head, head.keyColumnKey),
         labelFieldName: fieldNameIn(head, head.labelColumnKey),
         statements: statementsFor(head.tableKey),
-        fields: head.fields.map((field) => toField(field, head.tableKey, statementsFor)),
+        // A field's record rule targets `rule:<columnKey>` and is read with the field.
+        fields: head.fields.map((field) =>
+          toField(field, head.tableKey, (columnKey) => [
+            // A formula's statement is read with its calculation, under Live calculations.
+            ...statementsFor(columnKey).filter((statement) => statement.subject !== "formula"),
+            ...statementsFor(`rule:${columnKey}`),
+          ]),
+        ),
       };
     });
 
@@ -1345,13 +1393,47 @@ function reviewOf(proposal: ProposedWorkbookWireV1) {
     };
   });
 
-  const calculations: ReviewCalculationVm[] = tables.flatMap((table) =>
-    table.fields.flatMap((field) =>
-      field.formulaText === null
-        ? []
-        : [{ tableName: table.tableName, fieldName: field.fieldName, formulaText: field.formulaText }],
-    ),
-  );
+  const calculations: ReviewCalculationVm[] = proposal.formulas.map((formula) => {
+    const table = formula.target.kind === "dashboard-value" ? undefined : headOf(formula.target.tableKey);
+    const fieldName = formula.target.kind === "dashboard-value" ? null : fieldNameIn(table, formula.target.columnKey);
+    return {
+      formulaKey: formula.formulaKey,
+      target: formula.target.kind,
+      name: (formula.target.kind === "computed-column" ? fieldName : formula.displayName) ?? formula.location,
+      tableName: table?.tableName ?? null,
+      sheetName: sheetNameOf(formula.sheetKey),
+      location: formula.location,
+      originalText: formula.originalText,
+      disposition: formula.disposition,
+      determinism: formula.determinism,
+      reason: formula.reason,
+      detail: formula.detail,
+      isActive: formula.isActive,
+      statement: statementsFor(formula.formulaKey).find((statement) => statement.subject === "formula") ?? null,
+    };
+  });
+
+  const pinnedSheet =
+    proposal.sheets.find((sheet) => proposal.charts.some((chart) => chart.isActive && chart.sheetKey === sheet.sheetKey))?.sheetKey ?? null;
+  const charts: ReviewChartVm[] = proposal.charts.map((chart) => ({
+    chartKey: chart.chartKey,
+    sheetKey: chart.sheetKey,
+    name: chart.name,
+    isActive: chart.isActive,
+    isPinned: chart.isActive && chart.sheetKey === pinnedSheet,
+    statement: statementsFor(chart.chartKey)[0] ?? null,
+  }));
+
+  const rules: ReviewRuleVm[] = proposal.recordRules.map((rule) => {
+    const table = headOf(rule.tableKey);
+    return {
+      ruleKey: rule.ruleKey,
+      tableName: table?.tableName ?? "",
+      fieldName: fieldNameIn(table, rule.columnKey) ?? "",
+      condition: rule.condition,
+      isActive: rule.isActive,
+    };
+  });
 
   const sheets: ReviewSheetVm[] = proposal.sheets.map((sheet) => ({
     sheetKey: sheet.sheetKey,
@@ -1360,10 +1442,10 @@ function reviewOf(proposal: ProposedWorkbookWireV1) {
     classification: sheet.classification.filter(
       (entry): entry is ReviewSheetClassificationV1 => entry !== "excluded",
     ),
-    // A classification statement targets `<sheetKey>.<classification>`.
+    // A classification statement targets `<sheetKey>.<classification>`, a chart `<sheetKey>.chart<n>`.
     statements: statements.filter(
       (statement) =>
-        statement.subject === "sheet-classification" &&
+        (statement.subject === "sheet-classification" || statement.subject === "chart") &&
         statement.targetKey?.startsWith(`${sheet.sheetKey}.`) === true,
     ),
     inertItems: proposal.inertItems
@@ -1376,6 +1458,8 @@ function reviewOf(proposal: ProposedWorkbookWireV1) {
     tables,
     connections,
     calculations,
+    charts,
+    rules,
     sheets,
   };
 }
@@ -1462,6 +1546,8 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
     tables,
     connections,
     calculations: review?.calculations ?? [],
+    charts: review?.charts ?? [],
+    rules: review?.rules ?? [],
     formulaRegionCount,
     sheets,
     sections: [

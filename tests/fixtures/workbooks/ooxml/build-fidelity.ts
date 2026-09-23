@@ -255,7 +255,7 @@ export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<str
      * Jobs is a declared table with a totals row: Balance fills down live, Checked
      * reads TODAY (live, never stored), Lucky draws RAND (frozen), Rate calls
      * OFFSET (not in the catalog), Mixed breaks its shape on the last row, and
-     * the totals row sums Quoted. Summary is a summary tab whose first two
+     * the totals row sums Quoted, and Quoted must be at least 0. Summary is a summary tab whose first two
      * values read each other (a cycle) and whose third sums Jobs. Stock is a
      * region whose footer row sums the column above it (a table metric).
      */
@@ -291,6 +291,7 @@ export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<str
               totalsRowCount: 1,
             },
           ],
+          validations: [{ sqref: "B2:B6", type: "whole", operator: "greaterThanOrEqual", formula1: "0" }],
         },
         {
           name: "Summary",

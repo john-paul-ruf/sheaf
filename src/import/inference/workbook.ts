@@ -46,7 +46,6 @@ import {
   relativeShapeKey,
   type FormulaReferenceV1,
 } from "../../domain/formulas/index.js";
-import { dateValue, decimalValue, type CellValueV1 } from "../../domain/model/values.js";
 import {
   type DateSystemV1,
   type ImportDiagnosticV2,
@@ -69,6 +68,7 @@ import {
   type ProposedRowV1,
 } from "./regions.js";
 import { applyRejectionMemory, type RejectionMemoryV1 } from "./rejection-memory.js";
+import { ruleConditionOf } from "./rules.js";
 import { detectRelationships, type RelatableTableV1 } from "./relationships.js";
 import {
   EVIDENCE_EXAMPLE_LIMIT,
@@ -91,7 +91,7 @@ import {
   type CellFormatV1,
   type ColumnStats,
 } from "./types.js";
-import { readDecimal, serialToEpochDay, sourceTextOfCellValue } from "./values.js";
+import { readDecimal, sourceTextOfCellValue } from "./values.js";
 import {
   type ProposedChartV1,
   type ProposedFormulaV1,
@@ -602,17 +602,6 @@ const coversColumn = (validation: ValidationFact, column: number, measured: Meas
   column <= validation.range.lastColumn &&
   validation.range.lastRow > (measured.headerRowIndex ?? measured.firstRowIndex - 1) &&
   validation.range.firstRow <= measured.lastRowIndex;
-
-/** A record rule's comparison value, when the rule's first formula is a literal. */
-const ruleValueOf = (validation: ValidationFact, dateSystem: DateSystemV1 | null): CellValueV1 | null => {
-  const text = validation.formula1?.trim() ?? "";
-  if (validation.rule === "date") {
-    const epochDay = dateSystem === null ? null : serialToEpochDay(text, dateSystem);
-    return epochDay === null ? null : dateValue(epochDay);
-  }
-  const decimal = readDecimal(text);
-  return decimal === null || (validation.rule === "whole" && decimal.includes(".")) ? null : decimalValue(decimal);
-};
 
 /** What one pass over a fact stream leaves: every sheet's measured state, or the delimited table. */
 interface ReadStreamV1 {
@@ -1389,17 +1378,14 @@ function proposeWorkbook(
     }
 
     for (const validation of sheet.validations) {
-      const isExpressible =
-        (validation.rule === "whole" || validation.rule === "decimal" || validation.rule === "date") &&
-        (validation.operator === "equal" || validation.operator === "not-equal");
-      const value = isExpressible ? ruleValueOf(validation, sheet.info.dateSystem) : null;
       const covered = onSheet.flatMap((draft) =>
         draft.fields.flatMap(({ field }) =>
           coversColumn(validation, field.columnIndex, draft.candidate.measured) ? [{ draft, field }] : [],
         ),
       );
       if (validation.rule === "list" && covered.length > 0) continue;
-      if (value === null || covered.length === 0) {
+      const conditions = covered.map(({ field }) => ruleConditionOf(validation, field.columnKey, sheet.info.dateSystem));
+      if (covered.length === 0 || conditions.some((condition) => condition === null)) {
         const range = validation.range;
         inertItems.push({
           kind: "unsupported-validation",
@@ -1410,17 +1396,11 @@ function proposeWorkbook(
         });
         continue;
       }
-      for (const { draft, field } of covered) {
+      for (const [index, { draft, field }] of covered.entries()) {
         const ruleKey = `rule:${field.columnKey}`;
-        if (recordRules.some((rule) => rule.ruleKey === ruleKey)) continue;
-        const equals = { kind: "field-equals", columnKey: field.columnKey, value } as const;
-        recordRules.push({
-          ruleKey,
-          tableKey: draft.candidate.tableKey,
-          columnKey: field.columnKey,
-          condition: validation.operator === "equal" ? equals : { kind: "not", condition: equals },
-          isActive: true,
-        });
+        const condition = conditions[index];
+        if (condition == null || recordRules.some((rule) => rule.ruleKey === ruleKey)) continue;
+        recordRules.push({ ruleKey, tableKey: draft.candidate.tableKey, columnKey: field.columnKey, condition, isActive: true });
         say([sheetName, draft.candidate.identity, field.columnIndex], "record-rule", ruleKey, field.columnIndex, "reject-statement", [
           validationEvidence(validation, null),
         ]);

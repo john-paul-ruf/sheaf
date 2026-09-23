@@ -107,6 +107,7 @@ import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { AppSessionV1 } from "./app-session.js";
 import type { LoadedAppV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
+import type { CellValueV1 } from "../../domain/model/values.js";
 import { inferWorkbook } from "../../import/inference/workbook.js";
 import { refreshFormulas } from "../../import/inference/formulas.js";
 import { reviewFormulaIdentities } from "../../import/staging/formula-identities.js";
@@ -128,6 +129,7 @@ import type {
   DetectedDelimitedV1,
   ImportPreflightFactsV1,
   ProposedRuleConditionWireV1,
+  RuleValueWireV1,
   ProposedWorkbookWireV1,
   WorkbookSheetSummaryWireV1,
   WorkbookStageFactsV1,
@@ -555,12 +557,26 @@ export interface ImportAppAccessV1 {
  * the id-bearing members no rule can hold. A rule holding one is a defect.
  */
 export function proposalWire(proposal: ProposedWorkbookV1): ProposedWorkbookWireV1 {
+  const literal = (value: CellValueV1): RuleValueWireV1 => {
+    if (value.kind === "enum" || value.kind === "reference") throw new DataWorkerCommandError("internal");
+    return value;
+  };
   const condition = (value: ProposedRuleConditionV1): ProposedRuleConditionWireV1 => {
-    if (value.kind === "not") return { kind: "not", condition: condition(value.condition) };
-    if (value.value.kind === "enum" || value.value.kind === "reference") {
-      throw new DataWorkerCommandError("internal");
+    switch (value.kind) {
+      case "not":
+        return { kind: "not", condition: condition(value.condition) };
+      case "field-equals":
+        return { kind: "field-equals", columnKey: value.columnKey, value: literal(value.value) };
+      case "compare":
+        return { ...value, value: literal(value.value) };
+      case "between":
+      case "not-between":
+        return { ...value, low: literal(value.low), high: literal(value.high) };
+      default: {
+        const unreachable: never = value;
+        return unreachable;
+      }
     }
-    return { kind: "field-equals", columnKey: value.columnKey, value: value.value };
   };
   return {
     ...proposal,

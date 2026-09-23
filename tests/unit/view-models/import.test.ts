@@ -1124,3 +1124,47 @@ describe("the landing (CAP-23, CAP-26)", () => {
     expect(vm.landing).toEqual({ kind: "appended-table", appId: "app-1", tableId: "table-b" });
   });
 });
+
+describe("the review's live structure (CAP-38, CA-27, CA-31; S07)", () => {
+  it("names each formula, chart and rule by the reviewed names, with the statement behind it", async () => {
+    const { demoProposal, demoReviewVm } = await import("../ui/import/demo-review.js");
+    const vm = await demoReviewVm(await demoProposal());
+    expect(vm.calculations.map((calculation) => [calculation.formulaKey, calculation.target, calculation.name, calculation.tableName, calculation.disposition])).toEqual([
+      ["s0.t0.c2", "computed-column", "Customer", "Jobs", "live"],
+      ["s0.t0.c6", "computed-column", "Balance", "Jobs", "live"],
+      ["s5.R3C2", "dashboard-value", "Open jobs", null, "live"],
+      ["s5.R4C2", "dashboard-value", "Quoted total", null, "live"],
+      ["s5.R5C2", "dashboard-value", "Paid total", null, "live"],
+      ["s5.R6C2", "dashboard-value", "Balance", null, "live"],
+    ]);
+    expect(vm.calculations.every((calculation) => calculation.statement?.editKind === "reject-statement")).toBe(true);
+    expect(vm.charts).toEqual([
+      expect.objectContaining({ chartKey: "s5.chart0", name: "Quoted by status", isActive: true, isPinned: true }),
+    ]);
+    // A formula's statement is read under Live calculations, not with its field.
+    const balance = vm.tables[0]?.fields.find((field) => field.fieldName === "Balance");
+    expect(balance?.statements.map((statement) => statement.subject)).toEqual(["field-name", "field-type"]);
+    expect(vm.sheets.find((sheet) => sheet.name === "Overview")?.statements.map((statement) => statement.subject)).toEqual([
+      "sheet-classification",
+      "sheet-classification",
+      "chart",
+    ]);
+  });
+
+  it("lists a workbook comparison validation as a rule on its field (CA-27)", async () => {
+    const { demoProposal, demoReviewVm } = await import("../ui/import/demo-review.js");
+    const live = "ooxml/formulas-live.xlsx";
+    const vm = await demoReviewVm(await demoProposal([0, 1, 2], [], live), [0, 1, 2], {}, live);
+    expect(vm.rules).toEqual([
+      {
+        ruleKey: "rule:s0.t0.c1",
+        tableName: "Jobs",
+        fieldName: "Quoted",
+        condition: { kind: "compare", columnKey: "s0.t0.c1", op: "ge", value: { kind: "decimal", decimal: "0" }, measure: null },
+        isActive: true,
+      },
+    ]);
+    const quoted = vm.tables[0]?.fields.find((field) => field.fieldName === "Quoted");
+    expect(quoted?.statements.map((statement) => statement.subject)).toContain("record-rule");
+  });
+});

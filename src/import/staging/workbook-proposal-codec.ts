@@ -51,6 +51,7 @@ import type { WorkbookSourceValueFormatV1 } from "../inference/values.js";
 import {
   FORMULA_KEEP_REASONS,
   PROPOSED_CHART_TYPES,
+  RULE_COMPARE_OPERATORS,
   SHEET_ROLES,
   type ProposedChartV1,
   type ProposedFormulaV1,
@@ -1001,26 +1002,84 @@ const decodeRuleValue = (value: DecodedValue): CellValueV1 => {
   }
 };
 
-const encodeCondition = (condition: ProposedRuleConditionV1): CborValue =>
-  condition.kind === "field-equals"
-    ? cborMap([
+const encodeCondition = (condition: ProposedRuleConditionV1): CborValue => {
+  switch (condition.kind) {
+    case "field-equals":
+      return cborMap([
         ["kind", "field-equals"],
         ["columnKey", condition.columnKey],
         ["value", encodeRuleValue(condition.value)],
-      ])
-    : cborMap([
+      ]);
+    case "not":
+      return cborMap([
         ["kind", "not"],
         ["condition", encodeCondition(condition.condition)],
       ]);
+    case "compare":
+      return cborMap([
+        ["kind", "compare"],
+        ["columnKey", condition.columnKey],
+        ["op", condition.op],
+        ["value", encodeRuleValue(condition.value)],
+        ["measure", condition.measure],
+      ]);
+    case "between":
+    case "not-between":
+      return cborMap([
+        ["kind", condition.kind],
+        ["columnKey", condition.columnKey],
+        ["low", encodeRuleValue(condition.low)],
+        ["high", encodeRuleValue(condition.high)],
+        ["measure", condition.measure],
+      ]);
+    default: {
+      const unreachable: never = condition;
+      return unreachable;
+    }
+  }
+};
+
+const CONDITION_KINDS = Object.freeze(["field-equals", "not", "compare", "between", "not-between"] as const);
+
+const decodeMeasure = (value: DecodedValue): "text-length" | null =>
+  value === null ? null : oneOf(value, ["text-length"] as const, "a rule measure");
 
 const decodeCondition = (value: DecodedValue): ProposedRuleConditionV1 => {
   const map = asMap(value, "a rule condition");
-  const kind = oneOf(field(map, "kind"), ["field-equals", "not"] as const, "a condition kind");
-  if (kind === "field-equals") {
-    const m = keyed(map, ["kind", "columnKey", "value"], "an equals condition");
-    return { kind, columnKey: text(field(m, "columnKey"), "a column key"), value: decodeRuleValue(field(m, "value")) };
+  const kind = oneOf(field(map, "kind"), CONDITION_KINDS, "a condition kind");
+  switch (kind) {
+    case "field-equals": {
+      const m = keyed(map, ["kind", "columnKey", "value"], "an equals condition");
+      return { kind, columnKey: text(field(m, "columnKey"), "a column key"), value: decodeRuleValue(field(m, "value")) };
+    }
+    case "not":
+      return { kind, condition: decodeCondition(field(keyed(map, ["kind", "condition"], "a not condition"), "condition")) };
+    case "compare": {
+      const m = keyed(map, ["kind", "columnKey", "op", "value", "measure"], "a compare condition");
+      return {
+        kind,
+        columnKey: text(field(m, "columnKey"), "a column key"),
+        op: oneOf(field(m, "op"), RULE_COMPARE_OPERATORS, "a compare operator"),
+        value: decodeRuleValue(field(m, "value")),
+        measure: decodeMeasure(field(m, "measure")),
+      };
+    }
+    case "between":
+    case "not-between": {
+      const m = keyed(map, ["kind", "columnKey", "low", "high", "measure"], "a between condition");
+      return {
+        kind,
+        columnKey: text(field(m, "columnKey"), "a column key"),
+        low: decodeRuleValue(field(m, "low")),
+        high: decodeRuleValue(field(m, "high")),
+        measure: decodeMeasure(field(m, "measure")),
+      };
+    }
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
   }
-  return { kind, condition: decodeCondition(field(keyed(map, ["kind", "condition"], "a not condition"), "condition")) };
 };
 
 const encodeRule = (rule: ProposedRecordRuleV1): CborValue =>

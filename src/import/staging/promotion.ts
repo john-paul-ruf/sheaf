@@ -82,7 +82,7 @@ import {
   type ReferenceResolver,
   type ValidationContext,
 } from "../../domain/validation/validate-record.js";
-import type { RuleConditionV1, ValidationReport } from "../../domain/validation/rules.js";
+import { RULE_V2_MESSAGE_KEYS, type RuleConditionV1, type ValidationReport } from "../../domain/validation/rules.js";
 import {
   BLANK_VALUE,
   MISSING_VALUE,
@@ -419,28 +419,61 @@ export function allocateSchema(
     const plan = planOf(rule.tableKey);
     const target = fieldIn(plan, rule.columnKey);
     if (plan === undefined || target === undefined) return [];
-    const condition = (proposed: ProposedRuleConditionV1): RuleConditionV1 =>
+    const fieldIdOf = (columnKey: string): FieldId => (fieldIn(plan, columnKey) ?? target).definition.fieldId;
+    const conditionV1 = (proposed: ProposedRuleConditionV1): RuleConditionV1 | null =>
       proposed.kind === "field-equals"
-        ? { kind: "field-equals", fieldId: (fieldIn(plan, proposed.columnKey) ?? target).definition.fieldId, value: proposed.value }
-        : { kind: "not", condition: condition(proposed.condition) };
-    return [
-      {
-        tableId: plan.table.tableId,
-        displayName: target.definition.displayName,
-        rule: {
-          irVersion: 1,
-          ruleId: createDomainId("rule", entropy),
-          condition: condition(rule.condition),
-          // An imported validation flags the rows that break it; it never
-          // refuses a row the file already holds (FR-4).
-          severity: "warning",
-          messageKey: "validation.record-rule",
-          messageParameters: { fieldLabel: target.definition.displayName },
+        ? { kind: "field-equals", fieldId: fieldIdOf(proposed.columnKey), value: proposed.value }
+        : proposed.kind === "not"
+          ? (() => {
+              const inner = conditionV1(proposed.condition);
+              return inner === null ? null : { kind: "not", condition: inner };
+            })()
+          : null;
+    const label = target.definition.displayName;
+    const ruleId = createDomainId("rule", entropy);
+    const proposed = rule.condition;
+    // An imported validation flags the rows that break it; it never refuses a
+    // row the file already holds (FR-4).
+    const severity = "warning" as const;
+    const v1 = conditionV1(proposed);
+    let ir: CheckpointValidationRuleV1["rule"];
+    if (v1 !== null) {
+      ir = { irVersion: 1, ruleId, condition: v1, severity, messageKey: "validation.record-rule", messageParameters: { fieldLabel: label } };
+    } else if (proposed.kind === "compare") {
+      // CA-27: rule IR v2, labels and the literal's type only, never its value (CA-12).
+      ir = {
+        irVersion: 2,
+        ruleId,
+        condition: {
+          kind: "compare",
+          left: fieldIdOf(proposed.columnKey),
+          op: proposed.op,
+          right: { value: proposed.value },
+          ...(proposed.measure === null ? {} : { measure: proposed.measure }),
         },
-        isActive: rule.isActive,
-        schemaRevision,
-      },
-    ];
+        severity,
+        messageKey: RULE_V2_MESSAGE_KEYS[0],
+        messageParameters: { ruleLabel: label, leftLabel: label, operator: proposed.op, valueType: proposed.value.kind },
+      };
+    } else if (proposed.kind === "between" || proposed.kind === "not-between") {
+      ir = {
+        irVersion: 2,
+        ruleId,
+        condition: {
+          kind: proposed.kind,
+          fieldId: fieldIdOf(proposed.columnKey),
+          low: proposed.low,
+          high: proposed.high,
+          ...(proposed.measure === null ? {} : { measure: proposed.measure }),
+        },
+        severity,
+        messageKey: RULE_V2_MESSAGE_KEYS[1],
+        messageParameters: { ruleLabel: label, fieldLabel: label, valueType: proposed.low.kind },
+      };
+    } else {
+      return [];
+    }
+    return [{ tableId: plan.table.tableId, displayName: label, rule: ir, isActive: rule.isActive, schemaRevision }];
   });
 
   // Every table and column key, a joined table's included: its rows and columns are its head's.

@@ -2,10 +2,13 @@ import { useState, type ReactNode } from "react";
 import type {
   ImportReviewVm,
   PromotionRejectionVm,
+  ReviewCalculationVm,
+  ReviewChartVm,
   ReviewConnectionVm,
   ReviewEmptinessV1,
   ReviewEditRejectionVm,
   ReviewFieldVm,
+  ReviewRuleVm,
   ReviewSectionVm,
   ReviewSheetVm,
   ReviewStatementVm,
@@ -30,6 +33,7 @@ import {
   EvidenceSheet,
   INERT_REASON,
   describeDiagnostic,
+  describeEvidence,
   describeParts,
   evidenceTag,
 } from "./review-evidence.js";
@@ -56,11 +60,13 @@ import styles from "./import.module.css";
  * rejection is represented as a stored choice in the copy, not a transient
  * close icon" — a rejected connection stays on the page, saying so.
  *
- * **Formulas are preserved, not live (D33, D43).** The "Live calculations"
- * section keeps review.html's label and its "Original formula preserved" tag,
- * and says what is true in F03: imported results are kept as values and the
- * formula is not recalculated yet. No sentence here says a formula keeps
- * working.
+ * **Formulas become live, or say why not (D49, D51, D62).** "Live
+ * calculations" lists every workbook formula as review.html draws it: a live
+ * one with its "Live computed value" badge, one Sheaf cannot calculate as
+ * "not supported yet" with its imported results kept and "Needs attention",
+ * a frozen one as frozen at import — each with its evidence (SHT-013) and a
+ * reject/restore. A declined formula keeps its imported values, and says so.
+ * Rebuilt charts are read with their sheet ("becomes your app dashboard").
  */
 
 const EMPTINESS: Readonly<Record<ReviewEmptinessV1, string>> = Object.freeze({
@@ -144,6 +150,9 @@ interface ReviewIndexV1 {
   readonly joinedHead: ReadonlyMap<string, ReviewTableVm>;
   readonly fields: ReadonlyMap<string, ReviewFieldVm>;
   readonly connections: ReadonlyMap<string, ReviewConnectionVm>;
+  readonly calculations: ReadonlyMap<string, ReviewCalculationVm>;
+  readonly charts: ReadonlyMap<string, ReviewChartVm>;
+  readonly rules: ReadonlyMap<string, ReviewRuleVm>;
   readonly sheets: readonly ReviewSheetVm[];
 }
 
@@ -155,8 +164,83 @@ function indexOf(vm: ImportReviewVm): ReviewIndexV1 {
     ),
     fields: new Map(vm.tables.flatMap((table) => table.fields.map((field) => [field.columnKey, field] as const))),
     connections: new Map(vm.connections.map((connection) => [connection.relationshipKey, connection])),
+    calculations: new Map(vm.calculations.map((calculation) => [calculation.formulaKey, calculation])),
+    charts: new Map(vm.charts.map((chart) => [chart.chartKey, chart])),
+    rules: new Map(vm.rules.map((rule) => [rule.ruleKey, rule])),
     sheets: vm.sheets,
   };
+}
+
+/** A calculation's headline, in review.html's voice (D62). */
+export function describeCalculation(calculation: ReviewCalculationVm): string {
+  const name = `“${calculation.name}”`;
+  if (!calculation.isActive) return `${name} keeps its imported values.`;
+  switch (calculation.disposition) {
+    case "live":
+      return calculation.target === "computed-column"
+        ? `${name} is a live calculation.`
+        : calculation.target === "table-metric"
+          ? `${name} is a live total of “${calculation.tableName ?? ""}”.`
+          : `${name} is a live summary value.`;
+    case "frozen":
+      return `${name} is frozen at import.`;
+    case "unsupported":
+      return calculation.reason === "unsupported-function" && calculation.detail !== null
+        ? `${calculation.detail} is not supported yet.`
+        : `${name} cannot be calculated.`;
+  }
+}
+
+/** Why, and what it means for the rows: the statement's own outcome evidence. */
+function describeCalculationDetail(calculation: ReviewCalculationVm): string {
+  if (!calculation.isActive) {
+    return "You chose not to make it live. Its values stay as the workbook calculated them.";
+  }
+  const outcome = calculation.statement?.evidence.find((evidence) => evidence.kind === "formula-outcome");
+  return outcome === undefined ? "" : describeEvidence(outcome);
+}
+
+/** "Quoted must be at least 0": a rule's condition in words, its values as written (CA-27). */
+export function describeRule(rule: ReviewRuleVm): string {
+  const valueText = (value: Extract<ReviewRuleVm["condition"], { kind: "compare" }>["value"]): string => {
+    switch (value.kind) {
+      case "decimal":
+        return value.decimal;
+      case "date":
+        return new Date(value.epochDay * 86_400_000).toISOString().slice(0, 10);
+      case "text":
+        return `“${value.text}”`;
+      case "boolean":
+        return value.boolean ? "yes" : "no";
+      case "invalid-preserved":
+        return `“${value.sourceText}”`;
+      case "missing":
+      case "blank":
+        return "empty";
+    }
+  };
+  const field = `“${rule.fieldName}”`;
+  const condition = rule.condition;
+  const length = (measure: "text-length" | null): string => (measure === null ? "" : " characters long");
+  switch (condition.kind) {
+    case "compare": {
+      const value = valueText(condition.value);
+      const phrase = { ge: `at least ${value}`, gt: `more than ${value}`, le: `at most ${value}`, lt: `less than ${value}`, eq: value, ne: `anything but ${value}` }[
+        condition.op
+      ];
+      return `${field} must be ${phrase}${length(condition.measure)}`;
+    }
+    case "between":
+      return `${field} must be between ${valueText(condition.low)} and ${valueText(condition.high)}${length(condition.measure)}`;
+    case "not-between":
+      return `${field} must not be between ${valueText(condition.low)} and ${valueText(condition.high)}${length(condition.measure)}`;
+    case "field-equals":
+      return `${field} must be ${valueText(condition.value)}`;
+    case "not":
+      return condition.condition.kind === "field-equals"
+        ? `${field} must not be ${valueText(condition.condition.value)}`
+        : `${field} is checked by a workbook rule`;
+  }
 }
 
 /** review.html's plain connection sentence, composed from the table names (CA-19). */
@@ -212,10 +296,10 @@ export function describeStatement(
       return field === undefined
         ? "A choice list was inferred."
         : `“${field.fieldName}” looks like a choice with ${formatCount(field.enumOptions.length)} options.`;
-    case "formula":
-      return field === undefined
-        ? "A column came from a formula. Its imported results are kept as values."
-        : `“${field.fieldName}” came from a formula. Its imported results are kept as values.`;
+    case "formula": {
+      const calculation = index.calculations.get(key);
+      return calculation === undefined ? "A workbook formula was found." : describeCalculation(calculation);
+    }
     case "table-merge":
       return table === undefined
         ? "Two parts of a sheet look like one list."
@@ -240,13 +324,22 @@ export function describeStatement(
     }
     case "sheet-classification":
       return describeClassification(key, index.sheets);
-    case "record-rule":
-      return "A validation rule from the workbook will check every record.";
+    case "record-rule": {
+      // review.html: "Quoted must be at least 0 (the workbook declared this)."
+      const rule = index.rules.get(key);
+      return rule === undefined
+        ? "A validation rule from the workbook will check every record."
+        : `${describeRule(rule)} (the workbook declared this).`;
+    }
     case "chart": {
+      const chart = index.charts.get(key);
       const mapping = statement.evidence.find((evidence) => evidence.kind === "chart-mapping");
-      return mapping?.kind === "chart-mapping"
-        ? `“${mapping.chartName}” is rebuilt as a live chart from “${mapping.tableName}”.`
-        : "A workbook chart is rebuilt as a live chart.";
+      const name = `“${chart?.name ?? ""}”`;
+      if (chart !== undefined && !chart.isActive) return `${name} stays a snapshot of the workbook's chart.`;
+      const from = mapping?.kind === "chart-mapping" ? ` from “${mapping.tableName}”` : "";
+      return chart?.isPinned === true
+        ? `${name} is rebuilt as a live chart${from}, pinned to the app's home.`
+        : `${name} is rebuilt as a live chart${from}.`;
     }
   }
 }
@@ -260,9 +353,9 @@ function describeClassification(targetKey: string, sheets: readonly ReviewSheetV
     case "lookup":
       return `${name} supplies choice values.`;
     case "summary":
-      return `${name} holds summary values. They are kept as a snapshot.`;
+      return `${name} holds summary values. Each is listed under Live calculations.`;
     case "chart":
-      return `${name} holds a chart. It is kept as a snapshot; rebuilt as a live chart in a later release.`;
+      return `${name} holds charts. Each is rebuilt as a live chart where Sheaf can, or kept as a snapshot.`;
     case "snapshot":
       return `${name} is kept as a read-only snapshot.`;
     default:
@@ -615,30 +708,28 @@ export function ReviewScreen({
           </ul>
         </ReviewSection>
 
-        <ReviewSection
-          heading="Formulas are preserved, not live yet"
-          section={sectionById(vm.sections, "live-calculations")}
-        >
+        <ReviewSection heading={describeWorkingCount(vm.calculations)} section={sectionById(vm.sections, "live-calculations")}>
           <ul className={cx(styles["fields"])}>
             {vm.calculations.map((calculation) => (
-              <li className={cx(styles["field"])} key={`${calculation.tableName}-${calculation.fieldName}`}>
-                <h3 className={cx(styles["cardTitle"])}>
-                  {`“${calculation.fieldName}” in “${calculation.tableName}” came from a formula.`}
-                </h3>
-                <p className={cx(styles["lede"])}>
-                  Its imported results are kept as values, and the original formula{" "}
-                  <code className={cx(styles["code"])}>{calculation.formulaText}</code> is preserved. Sheaf does not
-                  recalculate it yet.
-                </p>
-                <div className={cx(styles["statementMeta"])}>
-                  <span className={cx(styles["badge"])}>Original formula preserved</span>
-                </div>
-              </li>
+              <CalculationArticle
+                actionButton={
+                  calculation.statement === null
+                    ? null
+                    : editButton(draftFor(calculation.statement, vm, index), calculation.isActive ? "Reject…" : "Restore…")
+                }
+                calculation={calculation}
+                key={calculation.formulaKey}
+                onWhy={setEvidenceFor}
+              />
             ))}
           </ul>
-          <p className={cx(styles["note"])}>
-            {`${describeParts("formula", vm.formulaRegionCount)} are preserved in all; each is listed with its sheet under Sheets & snapshots.`}
-          </p>
+          {vm.formulaRegionCount > 0 && (
+            <p className={cx(styles["note"])}>
+              {`${describeParts("formula", vm.formulaRegionCount)} ${
+                vm.formulaRegionCount === 1 ? "keeps" : "keep"
+              } the workbook's values; each is listed with its sheet under Sheets & snapshots.`}
+            </p>
+          )}
         </ReviewSection>
 
         <ReviewSection
@@ -652,7 +743,13 @@ export function ReviewScreen({
         >
           <ul className={cx(styles["fields"])}>
             {vm.sheets.map((sheet) => (
-              <SheetItem key={sheet.sheetKey} sheet={sheet} statementRow={statementRow} />
+              <SheetItem
+                calculations={vm.calculations}
+                charts={vm.charts}
+                key={sheet.sheetKey}
+                sheet={sheet}
+                statementRow={statementRow}
+              />
             ))}
           </ul>
         </ReviewSection>
@@ -882,6 +979,69 @@ function FieldRow({
   );
 }
 
+/** review.html: "Seven formulas keep working" — the live and frozen ones the review kept. */
+function describeWorkingCount(calculations: readonly ReviewCalculationVm[]): string {
+  const working = calculations.filter((calculation) => calculation.isActive && calculation.disposition !== "unsupported").length;
+  return working === 0
+    ? "No formula is calculated live"
+    : working === 1
+      ? "1 formula keeps working"
+      : `${formatCount(working)} formulas keep working`;
+}
+
+/** One workbook formula, as review.html's Live calculations draws it. */
+function CalculationArticle({
+  actionButton,
+  calculation,
+  onWhy,
+}: {
+  readonly actionButton: ReactNode;
+  readonly calculation: ReviewCalculationVm;
+  readonly onWhy: (statement: ReviewStatementVm) => void;
+}): ReactNode {
+  const { statement } = calculation;
+  const isLive = calculation.isActive && calculation.disposition !== "unsupported";
+  const origin =
+    calculation.target === "computed-column" ? "Filled-down formula" : calculation.target === "table-metric" ? "Totals row formula" : "Summary formula";
+  const state = !calculation.isActive
+    ? "You rejected this"
+    : calculation.disposition === "live"
+      ? "Live computed value"
+      : calculation.disposition === "frozen"
+        ? "Frozen at import"
+        : "Needs attention";
+  return (
+    <li
+      className={cx(styles["field"])}
+      data-calculation={calculation.formulaKey}
+      data-disposition={calculation.isActive ? calculation.disposition : "declined"}
+    >
+      <h3 className={cx(styles["cardTitle"])}>{describeCalculation(calculation)}</h3>
+      <p className={cx(styles["lede"])}>{describeCalculationDetail(calculation)}</p>
+      <p className={cx(styles["note"])}>
+        {`From ${calculation.location}: `}
+        <code className={cx(styles["code"])}>{`=${calculation.originalText}`}</code>
+      </p>
+      <div className={cx(styles["statementMeta"])}>
+        <span className={cx(styles["badge"])}>{isLive ? origin : "Original formula preserved"}</span>
+        <span className={cx(styles["badge"])}>{state}</span>
+      </div>
+      <div className={cx(styles["actions"])}>
+        {actionButton}
+        {statement !== null && (
+          <Button
+            onPress={() => {
+              onWhy(statement);
+            }}
+          >
+            Why?
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 const SIGNAL: Readonly<Record<ReviewConnectionVm["detectionSource"], string>> = Object.freeze({
   "lookup-formula": "Your lookup formula",
   "key-match": "Matching IDs",
@@ -949,13 +1109,23 @@ function ConnectionArticle({
  * item names the snapshot it will be kept in instead of offering a link.
  */
 function SheetItem({
+  calculations,
+  charts,
   sheet,
   statementRow,
 }: {
+  readonly calculations: readonly ReviewCalculationVm[];
+  readonly charts: readonly ReviewChartVm[];
   readonly sheet: ReviewSheetVm;
   readonly statementRow: (statement: ReviewStatementVm) => ReactNode;
 }): ReactNode {
-  const { title, detail, tag } = describeSheet(sheet);
+  const { title, detail, tag } = describeSheet(sheet, {
+    charts: charts.filter((chart) => chart.sheetKey === sheet.sheetKey && chart.isActive),
+    values: calculations.filter(
+      (calculation) =>
+        calculation.target === "dashboard-value" && calculation.sheetName === sheet.name && calculation.isActive && calculation.disposition === "live",
+    ).length,
+  });
   const groups = new Map<string, { kind: ReviewSheetVm["inertItems"][number]["kind"]; reasonKey: ReviewSheetVm["inertItems"][number]["reasonKey"]; locations: string[] }>();
   for (const item of sheet.inertItems) {
     const key = `${item.kind}|${item.reasonKey}`;
@@ -987,11 +1157,16 @@ function SheetItem({
 }
 
 /**
- * review.html's sheet lines, composed for what F03 actually does (D39, D43,
- * D45): a chart or summary sheet is kept as a snapshot and is not rebuilt yet,
- * and an unselected sheet is excluded by the user's choice.
+ * review.html's sheet lines, composed from what the import does (D39, D55,
+ * D65): a chart or summary sheet whose charts or values are rebuilt live
+ * "becomes your app dashboard" when they reach the app's home (its values, or
+ * its charts pinned there); one that keeps only snapshots says so; and an
+ * unselected sheet is excluded by the user's choice.
  */
-function describeSheet(sheet: ReviewSheetVm): { title: string; detail: string; tag: string } {
+function describeSheet(
+  sheet: ReviewSheetVm,
+  rebuilt: { readonly charts: readonly ReviewChartVm[]; readonly values: number },
+): { title: string; detail: string; tag: string } {
   if (!sheet.isSelected) {
     return {
       title: `“${sheet.name}” is excluded by your choice`,
@@ -1000,10 +1175,23 @@ function describeSheet(sheet: ReviewSheetVm): { title: string; detail: string; t
     };
   }
   if (sheet.classification.includes("chart") || sheet.classification.includes("summary")) {
+    const count = (value: number, one: string, many: string): string | null =>
+      value === 0 ? null : value === 1 ? `1 ${one}` : `${formatCount(value)} ${many}`;
+    const parts = [count(rebuilt.charts.length, "chart", "charts"), count(rebuilt.values, "summary value", "summary values")].filter(
+      (part): part is string => part !== null,
+    );
+    if (parts.length === 0) {
+      return {
+        title: `“${sheet.name}” is kept as a snapshot`,
+        detail: "Its charts and summary values are preserved as they were.",
+        tag: "Read-only",
+      };
+    }
+    const reachesHome = rebuilt.values > 0 || rebuilt.charts.some((chart) => chart.isPinned);
     return {
-      title: `“${sheet.name}” is kept as a snapshot`,
-      detail: "Its charts and summary values are preserved as they were; rebuilt as a live chart in a later release.",
-      tag: "Read-only",
+      title: reachesHome ? `“${sheet.name}” becomes your app dashboard` : `“${sheet.name}” is rebuilt as live charts`,
+      detail: `${parts.join(" and ")} rebuilt`,
+      tag: "Interactive",
     };
   }
   if (sheet.classification.includes("lookup")) {

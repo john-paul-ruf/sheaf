@@ -677,6 +677,24 @@ describe("live structure at import (CA-25, CA-30, CA-31; D51, D55, D65)", () => 
     expect(records.filter((record) => compareDomainIds(record.tableId, fieldsOf(checkpoint, "Stock").get("Qty")?.tableId as never) === 0)).toHaveLength(3);
   });
 
+  it("writes a comparison validation as a rule IR v2 warning with labels, never a value (CA-27)", async () => {
+    const { checkpoint } = await roots(await promotedLive());
+    const quoted = fieldsOf(checkpoint, "Jobs").get("Quoted");
+    expect(checkpoint.validationRules).toHaveLength(1);
+    expect(checkpoint.validationRules[0]).toMatchObject({
+      displayName: "Quoted",
+      isActive: true,
+      rule: {
+        irVersion: 2,
+        condition: { kind: "compare", left: quoted?.fieldId, op: "ge", right: { value: { kind: "decimal", decimal: "0" } } },
+        severity: "warning",
+        messageKey: "rule-compare",
+        messageParameters: { ruleLabel: "Quoted", leftLabel: "Quoted", operator: "ge", valueType: "decimal" },
+      },
+    });
+    expect("measure" in (checkpoint.validationRules[0]?.rule.condition ?? {})).toBe(false);
+  });
+
   it("writes the demo's rebuilt chart into the charts root, imported and pinned (CA-30, D65)", async () => {
     const { checkpoint } = await roots(await promoted());
     const jobs = fieldsOf(checkpoint, "Jobs");

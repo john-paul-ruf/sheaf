@@ -165,10 +165,34 @@ export interface ProposedRelationshipV1 {
   readonly candidates: readonly RelationshipCandidateV1[];
 }
 
-/** A record rule M02's IR can state (field presence and equality only). */
+/** M02's `COMPARE_OPERATORS` (D52), restated: M21 may not import the validator. */
+export const RULE_COMPARE_OPERATORS = Object.freeze(["lt", "le", "gt", "ge", "eq", "ne"] as const);
+
+export type RuleCompareOperatorV1 = (typeof RULE_COMPARE_OPERATORS)[number];
+
+/**
+ * A record rule M02's IR can state, by column key. F04 states a workbook
+ * validation in rule IR v2 terms (`compare`, `between`, `not-between`, with
+ * `text-length` measuring a text's length, CA-27); F03's equality members
+ * stay for a proposal staged before F04.
+ */
 export type ProposedRuleConditionV1 =
   | { readonly kind: "field-equals"; readonly columnKey: string; readonly value: CellValueV1 }
-  | { readonly kind: "not"; readonly condition: ProposedRuleConditionV1 };
+  | { readonly kind: "not"; readonly condition: ProposedRuleConditionV1 }
+  | {
+      readonly kind: "compare";
+      readonly columnKey: string;
+      readonly op: RuleCompareOperatorV1;
+      readonly value: CellValueV1;
+      readonly measure: "text-length" | null;
+    }
+  | {
+      readonly kind: "between" | "not-between";
+      readonly columnKey: string;
+      readonly low: CellValueV1;
+      readonly high: CellValueV1;
+      readonly measure: "text-length" | null;
+    };
 
 export interface ProposedRecordRuleV1 {
   readonly ruleKey: string;
