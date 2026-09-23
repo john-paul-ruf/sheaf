@@ -345,15 +345,65 @@ export interface NoteAppOpenedRequestV1 {
   readonly appId: string;
 }
 
+/**
+ * A records filter on the wire (CA-29): M01's `FilterV1` with its ids as
+ * text. The data worker validates it against the table before it compiles
+ * it, and binds every value as a parameter — a filter never carries SQL.
+ */
+export type FilterOperandWireV1 =
+  /** SHT-004: any of these options. */
+  | { readonly kind: "enum-in"; readonly optionIds: readonly string[] }
+  /** SHT-005: inclusive epoch days; either bound may be open. */
+  | { readonly kind: "date-range"; readonly from: number | null; readonly to: number | null }
+  /** SHT-006: inclusive canonical decimals; either bound may be open. */
+  | { readonly kind: "number-range"; readonly min: string | null; readonly max: string | null }
+  /** SHT-007. */
+  | { readonly kind: "boolean-is"; readonly value: boolean }
+  /** SHT-008: points at any of these records. */
+  | { readonly kind: "reference-in"; readonly recordIds: readonly string[] }
+  /** SHT-008: holds a key or a record that resolves nowhere (D36). */
+  | { readonly kind: "reference-broken" }
+  /** Case-insensitive over NFC, within this field's text. */
+  | { readonly kind: "text-contains"; readonly text: string }
+  | { readonly kind: "text-equals"; readonly text: string }
+  /** Missing or blank. */
+  | { readonly kind: "is-empty" }
+  | { readonly kind: "not-empty" };
+
+export interface FilterWireV1 {
+  readonly fieldId: string;
+  readonly operand: FilterOperandWireV1;
+}
+
+/** SHT-009: one field, one direction. Missing values sort last either way. */
+export interface SortWireV1 {
+  readonly fieldId: string;
+  readonly direction: "asc" | "desc";
+}
+
+/**
+ * The sort value a sorted page stopped at, paired with `nextCursor`. Opaque to
+ * a page: it hands back what it was given. Order keys cross as base64url text.
+ */
+export type SortCursorWireV1 =
+  | { readonly kind: "none" }
+  | { readonly kind: "integer"; readonly value: number }
+  | { readonly kind: "key"; readonly base64Url: string };
+
 export interface QueryRecordsRequestV1 {
   readonly kind: "queryRecords";
   readonly appId: string;
   readonly tableId: string;
   /** The previous page's `nextCursor`; absent starts at the beginning. */
   readonly cursor?: number | null;
+  /** With a sort: the previous page's `nextSortCursor`. */
+  readonly sortCursor?: SortCursorWireV1 | null;
   readonly limit?: number;
   /** Absent or blank browses the table; text searches within it. */
   readonly search?: string | null;
+  /** ANDed with each other and with the search. Absent applies none (F03 callers). */
+  readonly filters?: readonly FilterWireV1[];
+  readonly sort?: SortWireV1 | null;
 }
 
 export interface GetRecordRequestV1 {
@@ -1555,12 +1605,47 @@ export interface RecordPageViewV1 {
   /** Live records in the whole table, exact. A search does not narrow it. */
   readonly totalCount: number;
   readonly isTotalExact: true;
+  /** With a sort: pass back as `sortCursor` beside `nextCursor`. */
+  readonly nextSortCursor?: SortCursorWireV1 | null;
+  /**
+   * Rows matching the query, exactly (CA-29). Null when it was not counted —
+   * a plain search, or a partial page, which never reports a total it did
+   * not count. Absent only from F03-era answers.
+   */
+  readonly total?: number | null;
+  readonly partial?: RecordQueryPartialWireV1 | null;
+}
+
+/**
+ * D53: the query stopped at its candidate budget. It examined exactly
+ * `scanned` of the table's `tableTotal` rows, and says so rather than
+ * counting what it did not look at.
+ */
+export interface RecordQueryPartialWireV1 {
+  readonly scanned: number;
+  readonly tableTotal: number;
+  readonly cause: "query-budget";
+  readonly remedy: "narrow-filters";
+}
+
+/** Why a filter or sort was refused (M01's `FilterRefusalV1`), naming the field. */
+export interface FilterRefusalWireV1 {
+  readonly reason:
+    | "unknown-field"
+    | "operator-type-mismatch"
+    | "unknown-option"
+    | "inverted-range"
+    | "empty-filter"
+    | "invalid-value";
+  readonly fieldId: string;
 }
 
 export interface QueryRecordsResponseV1 {
   readonly kind: "queryRecords";
-  /** Null when the app or the table is not there (CA-12 idempotent read). */
+  /** Null when the app or the table is not there (CA-12 idempotent read), or the query was refused. */
   readonly page: RecordPageViewV1 | null;
+  /** Present when a filter or the sort did not fit the table; nothing ran. */
+  readonly refusal?: FilterRefusalWireV1;
 }
 
 export interface GetRecordResponseV1 {

@@ -10,7 +10,11 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_SUPPORTING_FACTS,
+  announceRecalculated,
   announceRecordCommand,
+  computedFieldsOf,
+  describeEvent,
+  selectMetricsVm,
   handoffFor,
   inputForField,
   selectAppHomeVm,
@@ -34,7 +38,9 @@ import {
 } from "../../../src/application/view-models/records.js";
 import type {
   AppFieldViewV1,
+  AppMetricsViewV1,
   AppSessionViewV1,
+  AppStructureViewV1,
   AppTableViewV1,
   CellWireEntryV1,
   ChangeHistoryPageViewV1,
@@ -141,10 +147,12 @@ describe("the app home (SCR-024)", () => {
     );
   });
 
-  it("has no field a metric or a chart could be invented into (STA-025)", () => {
+  it("has no field a chart could be invented into (STA-025)", () => {
+    // Metrics are real now (CAP-29) and come only from `getAppMetrics`; the
+    // pinned chart is S05's.
     type ForbiddenKey = Extract<
       keyof AppHomeVm,
-      "metrics" | "charts" | "pinnedChart" | "glance" | "route"
+      "charts" | "pinnedChart" | "glance" | "route"
     >;
     const noForbiddenKeys: ForbiddenKey extends never ? true : false = true;
     expect(noForbiddenKeys).toBe(true);
@@ -225,11 +233,10 @@ describe("the record list (SCR-025 / SCR-026)", () => {
     expect(vm.scope).toEqual({ kind: "search", text: "patio" });
     expect(vm.announcement).toContain("The table contains 248 records.");
 
-    // A match count is not answerable, so no field may hold one.
-    type ForbiddenKey = Extract<
-      keyof RecordsListVm,
-      "matchCount" | "resultCount" | "totalMatches"
-    >;
+    // A plain search is not counted (CA-29), so its match count is null, and
+    // no second field may hold a guess at one.
+    expect(vm.matchCount).toBeNull();
+    type ForbiddenKey = Extract<keyof RecordsListVm, "resultCount" | "totalMatches">;
     const noForbiddenKeys: ForbiddenKey extends never ? true : false = true;
     expect(noForbiddenKeys).toBe(true);
   });
@@ -1177,5 +1184,250 @@ describe("the app home announcement (M37 plural fix)", () => {
       tables: [],
     };
     expect(selectAppHomeVm(session).announcement).toBe(expected);
+  });
+});
+
+// --- F04 (S04 CP2): the query, computed values, metrics, history ------------
+
+describe("the records query (CA-29; SHT-004–009; STA-014/026)", () => {
+  const status = fieldView({
+    fieldId: "f-status",
+    displayName: "Status",
+    fieldOrdinal: 1,
+    type: { kind: "enum" },
+    enumOptions: [
+      { optionId: "o-sched", label: "Scheduled", optionOrdinal: 0, isActive: true },
+      { optionId: "o-hold", label: "On hold", optionOrdinal: 1, isActive: true },
+    ],
+  });
+  const due = fieldView({ fieldId: "f-due", displayName: "Due", fieldOrdinal: 2, type: { kind: "date" } });
+  const customer = fieldView({ fieldId: "f-customer", displayName: "Customer", fieldOrdinal: 3, type: { kind: "reference" } });
+  const table = tableView([fieldView(), status, due, customer]);
+  const row = summary([{ fieldId: "f-title", value: { kind: "text", text: "Patio lighting" } }]);
+
+  it("shows every active filter as a clearable chip, typed for the surface to format", () => {
+    const filters = [
+      { fieldId: "f-status", operand: { kind: "enum-in", optionIds: ["o-sched"] } },
+      { fieldId: "f-due", operand: { kind: "date-range", from: 20_000, to: null } },
+      { fieldId: "f-customer", operand: { kind: "reference-in", recordIds: ["r-c1", "r-c2"] } },
+    ] as const;
+    const vm = selectRecordsListVm(table, page({ records: [row], totalCount: 248, total: 7 }), undefined, {
+      filters,
+      sort: { fieldId: "f-due", direction: "asc" },
+      recordLabels: new Map([["r-c1", "Priya Ellis"]]),
+    });
+
+    expect(vm.filters.map((chip) => [chip.fieldName, chip.sheet, chip.value])).toEqual([
+      ["Status", "SHT-004", { kind: "options", labels: ["Scheduled"] }],
+      ["Due", "SHT-005", { kind: "date-range", from: 20_000, to: null }],
+      // A label the picker never showed is not guessed; the count still is exact.
+      ["Customer", "SHT-008", { kind: "records", labels: ["Priya Ellis"], count: 2 }],
+    ]);
+    expect(vm.filters.map((chip) => chip.filter)).toEqual(filters);
+    expect(vm.sort).toEqual({ fieldId: "f-due", fieldName: "Due", direction: "asc" });
+    // Text is found through the search; only the typed sheets get a chip.
+    expect(vm.filterableFields.map((field) => [field.fieldName, field.isFiltered])).toEqual([
+      ["Status", true],
+      ["Due", true],
+      ["Customer", true],
+    ]);
+    // SHT-009 lists every column.
+    expect(vm.sortableFields.map((field) => field.fieldName)).toEqual(["Job title", "Status", "Due", "Customer"]);
+    expect(vm.matchCount).toBe(7);
+    expect(vm.tableRecordCount).toBe(248);
+    expect(vm.partial).toBeNull();
+    expect(vm.announcement).toBe("Showing records in Jobs that match the filters. 7 match. The table contains 248 records.");
+  });
+
+  it("names a partial page's exact scope and never reports a total it did not count (STA-014)", () => {
+    const vm = selectRecordsListVm(
+      table,
+      page({
+        records: [row],
+        totalCount: 60_000,
+        total: null,
+        partial: { scanned: 50_000, tableTotal: 60_000, cause: "query-budget", remedy: "narrow-filters" },
+      }),
+      undefined,
+      { filters: [{ fieldId: "f-status", operand: { kind: "enum-in", optionIds: ["o-hold"] } }], sort: null },
+    );
+    expect(vm.partial).toEqual({ scanned: 50_000, tableTotal: 60_000, remedy: "narrow-filters" });
+    expect(vm.matchCount).toBeNull();
+    expect(vm.announcement).toContain("Searched the first 50000 of 60000 rows.");
+  });
+
+  it("keeps a filtered no-result state apart from an empty table (SCR-026, STA-026)", () => {
+    const filters = [
+      { fieldId: "f-status", operand: { kind: "enum-in", optionIds: ["o-hold"] } },
+      { fieldId: "f-due", operand: { kind: "date-range", from: 20_000, to: 20_006 } },
+    ] as const;
+    const filtered = selectRecordsListVm(table, page({ totalCount: 12_482, total: 0 }), undefined, { filters, sort: null });
+    expect(filtered.emptiness).toBe("no-results");
+    expect(filtered.filters).toHaveLength(2);
+    expect(filtered.announcement).toBe(
+      "No record in Jobs matches these filters. The table contains 12482 records. 2 active filters exclude all of them.",
+    );
+
+    const empty = selectRecordsListVm(table, page({ totalCount: 0, total: 0 }), undefined, { filters, sort: null });
+    expect(empty.emptiness).toBe("empty-table");
+  });
+
+  it("still names, and still clears, a filter on a field the table no longer shows", () => {
+    const vm = selectRecordsListVm(table, page({ records: [row], totalCount: 3, total: 1 }), undefined, {
+      filters: [{ fieldId: "f-gone", operand: { kind: "text-contains", text: "pat" } }],
+      sort: null,
+    });
+    expect(vm.filters[0]).toMatchObject({
+      fieldName: "A field that is no longer in this table",
+      sheet: null,
+      value: { kind: "text", match: "contains", text: "pat" },
+    });
+  });
+});
+
+describe("computed values (CA-26 last column)", () => {
+  const balance = fieldView({ fieldId: "f-balance", displayName: "Balance", fieldOrdinal: 1, type: { kind: "currency", currencyCode: "USD" } });
+  const table = tableView([fieldView(), balance]);
+  const structure: AppStructureViewV1 = {
+    appId: "app-1",
+    displayName: "Field Log",
+    schemaRevision: 3,
+    tables: [],
+    relationships: [],
+    formulas: [
+      {
+        formulaId: "fx-1",
+        target: { kind: "computed-column", tableId: "t-jobs", fieldId: "f-balance" },
+        displayName: null,
+        text: "[Quoted] - [Paid]",
+        disposition: "live",
+        determinism: "deterministic",
+        isActive: true,
+      },
+    ],
+  };
+  const computedFields = computedFieldsOf(structure);
+
+  function detail(entry: CellWireEntryV1): RecordDetailVm {
+    const record: RecordDetailViewV1 = {
+      ...summary([{ fieldId: "f-title", value: { kind: "text", text: "Patio" } }, entry]),
+      createdCommitId: "c-1",
+      updatedCommitId: "c-1",
+      issues: [],
+      indexedFieldIds: [],
+    };
+    return selectRecordDetailVm(table, record, { computedFields });
+  }
+
+  const computedOf = (vm: RecordDetailVm) => vm.fields.find((field) => field.fieldId === "f-balance")?.computed;
+
+  it("marks a result Live, read-only, with the expression in the app's names", () => {
+    const vm = detail({ fieldId: "f-balance", value: { kind: "number", decimal: "925.00" }, computed: { state: "ok" } });
+    expect(computedOf(vm)).toEqual({ state: "ok", badge: "Live", note: null, expression: "[Quoted] - [Paid]" });
+    expect(vm.fields.find((field) => field.fieldId === "f-title")?.computed).toBeNull();
+  });
+
+  it("says each state without a result in its own words", () => {
+    const cases: readonly [CellWireEntryV1["computed"], string, string | null][] = [
+      [{ state: "type" }, "Live", "Calculation result is not a currency amount"],
+      [{ state: "empty" }, "Live", null],
+      [{ state: "error", code: "#DIV/0!" }, "Live", "#DIV/0!: it divides by zero"],
+      [{ state: "cycle" }, "Live", "This calculation depends on itself"],
+      [{ state: "frozen" }, "Frozen at import", null],
+      [{ state: "unsupported" }, "Unsupported formula", "Imported value kept · Sheaf cannot recalculate this formula"],
+    ];
+    for (const [computed, badge, note] of cases) {
+      const vm = detail({ fieldId: "f-balance", value: { kind: "missing" }, ...(computed === undefined ? {} : { computed }) });
+      expect(computedOf(vm)).toMatchObject({ badge, note });
+    }
+  });
+
+  it("leaves an unsupported formula's new row empty and flagged, never zero (STA-013)", () => {
+    const vm = detail({ fieldId: "f-balance", value: { kind: "missing" }, computed: { state: "unsupported-new-row" } });
+    expect(computedOf(vm)?.badge).toBe("Unsupported formula");
+    expect(computedOf(vm)?.note).toContain("Left empty and flagged");
+    expect(vm.fields.find((field) => field.fieldId === "f-balance")?.value).toEqual({ kind: "missing" });
+  });
+
+  it("shows a computed column read-only on a create form, where it has no value yet", () => {
+    const form = selectRecordFormVm({ table, computedFields });
+    expect(form.fields.find((field) => field.fieldId === "f-balance")?.computed).toEqual({
+      state: null,
+      badge: "Live",
+      note: null,
+      expression: "[Quoted] - [Paid]",
+    });
+    expect(form.fields.find((field) => field.fieldId === "f-title")?.computed).toBeNull();
+  });
+
+  it("announces which columns recalculated, by name, never their values (D60)", () => {
+    expect(announceRecalculated(["f-balance"], table.fields)).toBe("Balance recalculated.");
+    expect(announceRecalculated(["f-title", "f-balance"], table.fields)).toBe("Job title and Balance recalculated.");
+    expect(announceRecalculated([], table.fields)).toBe("");
+    expect(announceRecalculated(["f-unknown"], table.fields)).toBe("1 calculated value recalculated.");
+  });
+});
+
+describe("At a glance (SCR-024; CAP-29)", () => {
+  const metrics: AppMetricsViewV1 = {
+    dashboard: [
+      { formulaId: "fx-open", displayName: "Open jobs", status: "ok", value: { kind: "number", decimal: "18" }, code: null, evaluatedAtEpochMs: 1 },
+    ],
+    tables: [
+      {
+        tableId: "t-jobs",
+        metrics: [
+          { formulaId: "fx-quoted", displayName: "Quoted", status: "ok", value: { kind: "number", decimal: "42800" }, code: null, evaluatedAtEpochMs: 1 },
+          { formulaId: "fx-ratio", displayName: "Ratio", status: "error", value: null, code: "#DIV/0!", evaluatedAtEpochMs: 1 },
+          { formulaId: "fx-loop", displayName: "Loop", status: "cycle", value: null, code: null, evaluatedAtEpochMs: null },
+          { formulaId: "fx-odd", displayName: "Odd", status: "unsupported", value: null, code: null, evaluatedAtEpochMs: null },
+        ],
+      },
+    ],
+  };
+
+  it("shows dashboard values, then each table's metrics, each with its truthful status", () => {
+    const vms = selectMetricsVm(metrics, [tableView([fieldView()])]);
+    expect(vms.map((metric) => [metric.label, metric.tableName, metric.value, metric.note])).toEqual([
+      ["Open jobs", null, { kind: "number", decimal: "18" }, "Live"],
+      ["Quoted", "Jobs", { kind: "number", decimal: "42800" }, "Live"],
+      ["Ratio", "Jobs", null, "#DIV/0!: it divides by zero"],
+      ["Loop", "Jobs", null, "This calculation depends on itself"],
+      ["Odd", "Jobs", null, "Unsupported formula"],
+    ]);
+  });
+
+  it("has none to show when the app has none, or before they are read", () => {
+    expect(selectMetricsVm(null, [])).toEqual([]);
+    expect(selectMetricsVm({ dashboard: [], tables: [] }, [])).toEqual([]);
+  });
+});
+
+describe("change history for F04's structure events (CA-28)", () => {
+  it("names every event kind S03 writes, and says an unnamed one truthfully", () => {
+    expect(
+      [
+        "app.renamed",
+        "table.changed",
+        "field.changed",
+        "relationship.changed",
+        "relationship.removed",
+        "rule.changed",
+        "rule.removed",
+        "formula.changed",
+        "formula.removed",
+      ].map(describeEvent),
+    ).toEqual([
+      "App renamed",
+      "Table changed",
+      "Field changed",
+      "Relationship changed",
+      "Relationship removed",
+      "Rule changed",
+      "Rule removed",
+      "Calculation changed",
+      "Calculation removed",
+    ]);
+    expect(describeEvent("chart.saved")).toBe("A change was recorded");
   });
 });

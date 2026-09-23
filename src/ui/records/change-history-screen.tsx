@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import type {
-  ChangeHistoryEntryVm,
-  ChangeHistoryVm,
+import {
+  describeEvent,
+  type ChangeHistoryEntryVm,
+  type ChangeHistoryVm,
 } from "../../application/view-models/records.js";
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
@@ -40,25 +41,7 @@ import styles from "./records.module.css";
  * over data that does not exist.
  */
 
-/** The F02 event kinds, in the words a person uses for them. */
-const EVENT_SENTENCE: Readonly<Record<string, string>> = Object.freeze({
-  "record.created": "Record created",
-  "record.patched": "Record changed",
-  "record.deleted": "Record deleted",
-  "record.restored": "Record restored",
-  "app.created": "App created",
-  "table.created": "Table created",
-  "field.created": "Field created",
-  "enum.changed": "Choices changed",
-  "theme.changed": "Appearance changed",
-  "inference-decision.recorded": "Import decision recorded",
-  "import.accepted": "Import accepted",
-});
-
-export function describeEvent(eventKind: string): string {
-  // A kind this release does not know is still a change that happened.
-  return EVENT_SENTENCE[eventKind] ?? "A change was recorded";
-}
+export { describeEvent };
 
 export interface ChangeHistoryScreenProps {
   readonly vm: ChangeHistoryVm;

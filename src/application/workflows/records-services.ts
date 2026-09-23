@@ -8,7 +8,9 @@
  * (`import.machine.ts`), and that is the only one.
  *
  * F03 adds the relationship, reference, deleted-record, table and snapshot
- * reads S03 landed (CA-21, CA-22), bound to their wire names verbatim.
+ * reads S03 landed (CA-21, CA-22), bound to their wire names verbatim. F04
+ * adds the records query's filters and sort (CA-29), the app's structure, and
+ * its metrics.
  *
  * The adapters add no logic — they name a request, send it, and return the
  * typed response. Every refusal that is a *result* (a validation rejection, an
@@ -23,7 +25,10 @@ import type {
   CreateRecordResponseV1,
   DataWorkerRequestV1,
   DeleteRecordResponseV1,
+  FilterWireV1,
   FindInSnapshotResponseV1,
+  GetAppMetricsResponseV1,
+  GetAppStructureResponseV1,
   GetChangeHistoryResponseV1,
   GetDeletedRecordResponseV1,
   GetRecordResponseV1,
@@ -41,6 +46,8 @@ import type {
   ResponseForV1,
   RestoreRecordResponseV1,
   SearchReferenceCandidatesResponseV1,
+  SortCursorWireV1,
+  SortWireV1,
 } from "../../workers/protocol/messages.js";
 
 /** Structural, so a test double is a two-line object (the F01 pattern). */
@@ -63,16 +70,21 @@ export interface RecordsServices {
     readonly appId: string;
   }) => Promise<NoteAppOpenedResponseV1>;
   /**
-   * `cursor` is the previous page's `nextCursor` — a row key, never an offset.
-   * A blank `search` browses the table; text searches within it, and the
-   * answer says which scope it used.
+   * `cursor` is the previous page's `nextCursor` — a row key, never an offset
+   * — and, with a sort, `sortCursor` its `nextSortCursor`. A blank `search`
+   * browses the table; text searches within it, and the answer says which
+   * scope it used. Filters AND with the search (CA-29); a filter that does not
+   * fit the table comes back as a `refusal`, not an exception.
    */
   readonly queryRecords: (input: {
     readonly appId: string;
     readonly tableId: string;
     readonly cursor?: number | null;
+    readonly sortCursor?: SortCursorWireV1 | null;
     readonly limit?: number;
     readonly search?: string | null;
+    readonly filters?: readonly FilterWireV1[];
+    readonly sort?: SortWireV1 | null;
   }) => Promise<QueryRecordsResponseV1>;
   readonly getRecord: (input: {
     readonly appId: string;
@@ -153,6 +165,14 @@ export interface RecordsServices {
     readonly appId: string;
     readonly sheetId: string | null;
   }) => Promise<ListInertItemsResponseV1>;
+  /** The app's structure, including each formula in its current names (D58). */
+  readonly getAppStructure: (input: {
+    readonly appId: string;
+  }) => Promise<GetAppStructureResponseV1>;
+  /** SCR-024 "At a glance": table metrics and dashboard values (CA-26). */
+  readonly getAppMetrics: (input: {
+    readonly appId: string;
+  }) => Promise<GetAppMetricsResponseV1>;
 }
 
 export function createRecordsServices(
@@ -192,5 +212,7 @@ export function createRecordsServices(
     findInSnapshot: (input) => port.send({ kind: "findInSnapshot", ...input }),
     listInertItems: ({ appId, sheetId }) =>
       port.send({ kind: "listInertItems", appId, sheetId }),
+    getAppStructure: ({ appId }) => port.send({ kind: "getAppStructure", appId }),
+    getAppMetrics: ({ appId }) => port.send({ kind: "getAppMetrics", appId }),
   };
 }

@@ -11,9 +11,9 @@
  *
  * 1. **A page is not a count.** `RecordPageViewV1.totalCount` is the count of
  *    live records in the *table*, exact, and a search does not narrow it. How
- *    many records matched a search is not a question the projection answers, so
- *    {@link RecordsListVm} has no field for one — `records.length` would be
- *    false the moment `hasMore` is true, and a field invites exactly that.
+ *    many records matched is `matchCount`, and it is present only when the
+ *    worker counted it (CA-29): a plain search and a partial page answer none,
+ *    and `records.length` is never offered in its place.
  * 2. **The change log begins at the last checkpoint.** It is not "the app's
  *    history": a freshly imported app's log is truthfully empty because its
  *    rows arrived in the checkpoint, not as authored events. {@link ChangeHistoryVm}
@@ -46,19 +46,24 @@
 
 import type {
   AppFieldViewV1,
+  AppMetricsViewV1,
   AppSessionViewV1,
+  AppStructureViewV1,
   AppTableViewV1,
   AppThemeWireV1,
   CellRangeWireV1,
   CellWireEntryV1,
   CellWireValueV1,
   ChangeHistoryCursorWireV1,
+  ComputedCellWireV1,
   ChangeHistoryPageViewV1,
   DeletedRecordViewV1,
   FieldTypeWireV1,
+  FilterWireV1,
   InertItemKindWireV1,
   InertItemViewV1,
   InertReasonKeyWireV1,
+  MetricViewV1,
   RecordCommandOutcomeV1,
   RecordDetailViewV1,
   RecordIssueViewV1,
@@ -75,6 +80,7 @@ import type {
   SnapshotCellKindWireV1,
   SnapshotFindResultV1,
   SnapshotPageViewV1,
+  SortWireV1,
 } from "../../workers/protocol/messages.js";
 
 // --- labels and references -------------------------------------------------
@@ -301,6 +307,164 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
 }
 
+// --- computed values (CA-26; D51) -------------------------------------------
+
+const CYCLE_SENTENCE = "This calculation depends on itself";
+
+/** Each error code's plain reason, beside the code itself. */
+const ERROR_REASON: Readonly<Record<string, string>> = Object.freeze({
+  "#NULL!": "two ranges do not meet",
+  "#DIV/0!": "it divides by zero",
+  "#VALUE!": "a value is the wrong kind for the calculation",
+  "#REF!": "it refers to something that is not there",
+  "#NAME?": "it uses a name Sheaf does not know",
+  "#NUM!": "a number is out of range",
+  "#N/A": "a value it looks for is not available",
+  "#BUDGET": "it needed more work than one calculation may do",
+});
+
+function errorSentence(code: string | null | undefined): string {
+  if (code === null || code === undefined) return "The calculation could not produce a value";
+  const reason = ERROR_REASON[code];
+  return reason === undefined
+    ? `${code}: the calculation could not produce a value`
+    : `${code}: ${reason}`;
+}
+
+/** "Calculation result is not a {type}" — the type as a person names it. */
+const TYPE_NOUN: Readonly<Record<FieldTypeWireV1["kind"], string>> = Object.freeze({
+  text: "text value",
+  number: "number",
+  currency: "currency amount",
+  date: "date",
+  boolean: "yes-or-no value",
+  enum: "choice",
+  phone: "phone number",
+  email: "email address",
+  url: "web address",
+  address: "address",
+  reference: "related record",
+});
+
+/** What the app's structure says about one computed column. */
+export interface ComputedFieldVm {
+  readonly fieldId: string;
+  /** The expression in the app's current names (D58); null when unknown. */
+  readonly expression: string | null;
+  readonly disposition: "live" | "frozen" | "unsupported";
+}
+
+/** The app's computed columns, by field id. Absent structure knows none. */
+export function computedFieldsOf(
+  structure: AppStructureViewV1 | null | undefined,
+): ReadonlyMap<string, ComputedFieldVm> {
+  const computed = new Map<string, ComputedFieldVm>();
+  for (const formula of structure?.formulas ?? []) {
+    if (formula.isActive && formula.target.kind === "computed-column") {
+      computed.set(formula.target.fieldId, {
+        fieldId: formula.target.fieldId,
+        expression: formula.text,
+        disposition: formula.disposition,
+      });
+    }
+  }
+  return computed;
+}
+
+/**
+ * A computed cell as a surface shows it (CA-26's last column). It is never an
+ * input: `badge` says what kind of value it is, `note` the plain reason when
+ * there is no result. `state` is null only where no value exists yet — a
+ * record being created.
+ */
+export interface ComputedCellVm {
+  readonly state: ComputedCellWireV1["state"] | null;
+  readonly badge: "Live" | "Frozen at import" | "Unsupported formula";
+  readonly note: string | null;
+  readonly expression: string | null;
+}
+
+function badgeFor(
+  state: ComputedCellWireV1["state"] | null,
+  disposition: ComputedFieldVm["disposition"] | undefined,
+): ComputedCellVm["badge"] {
+  if (state === "frozen" || (state === null && disposition === "frozen")) return "Frozen at import";
+  if (state === "unsupported" || state === "unsupported-new-row" || (state === null && disposition === "unsupported")) {
+    return "Unsupported formula";
+  }
+  return "Live";
+}
+
+function computedNote(
+  computed: ComputedCellWireV1 | undefined,
+  type: FieldTypeWireV1,
+): string | null {
+  if (computed === undefined) return null;
+  switch (computed.state) {
+    case "ok":
+    case "empty":
+    case "frozen":
+      return null;
+    case "type":
+      return `Calculation result is not a ${TYPE_NOUN[type.kind]}`;
+    case "error":
+      return errorSentence(computed.code);
+    case "cycle":
+      return CYCLE_SENTENCE;
+    case "unsupported":
+      // STA-013: the value shown is the one the workbook held.
+      return "Imported value kept · Sheaf cannot recalculate this formula";
+    case "unsupported-new-row":
+      // STA-013: never zero — a row the workbook never calculated stays empty.
+      return "Left empty and flagged · Sheaf cannot calculate this formula for a new row";
+    default: {
+      const unreachable: never = computed.state;
+      return unreachable;
+    }
+  }
+}
+
+/** Null for an authored field: no wire marker and no computed column known. */
+function toComputedCell(
+  field: AppFieldViewV1,
+  entry: CellWireEntryV1 | undefined,
+  computedFields: ReadonlyMap<string, ComputedFieldVm>,
+): ComputedCellVm | null {
+  const known = computedFields.get(field.fieldId);
+  const marker = entry?.computed;
+  if (known === undefined && marker === undefined) return null;
+  const state = marker?.state ?? null;
+  return {
+    state,
+    badge: badgeFor(state, known?.disposition),
+    note: computedNote(marker, field.type),
+    expression: known?.expression ?? null,
+  };
+}
+
+/**
+ * D60's announcement: which computed columns moved, by name, never their
+ * values — "Balance recalculated." Empty when nothing moved, so a live region
+ * says nothing rather than something vague.
+ */
+export function announceRecalculated(
+  fieldIds: readonly string[],
+  fields: readonly AppFieldViewV1[],
+): string {
+  const names = new Map(fields.map((field) => [field.fieldId, field.displayName]));
+  const named = fieldIds.flatMap((fieldId) => {
+    const name = names.get(fieldId);
+    return name === undefined ? [] : [name];
+  });
+  if (named.length === 0) {
+    return fieldIds.length === 0 ? "" : `${plural(fieldIds.length, "calculated value", "calculated values")} recalculated.`;
+  }
+  const last = named.at(-1) as string;
+  return named.length === 1
+    ? `${last} recalculated.`
+    : `${named.slice(0, -1).join(", ")} and ${last} recalculated.`;
+}
+
 // --- SCR-024 app home (app-home.html) ---------------------------------------
 
 export interface AppHomeTableVm {
@@ -313,9 +477,28 @@ export interface AppHomeTableVm {
 }
 
 /**
- * SCR-024. There is no metrics field and no chart field on this type: "At a
- * glance" and the pinned chart in app-home.html are computed surfaces F04
- * builds, and a field here could only ever be filled with a fiction (STA-025).
+ * One "At a glance" value (SCR-024; CA-26): a table metric or a dashboard
+ * value, with its status in words. `value` is present for `ok` only; every
+ * other status says what happened instead of showing a number.
+ */
+export interface MetricVm {
+  readonly formulaId: string;
+  readonly label: string;
+  /** The table a metric summarises; null for a dashboard value. */
+  readonly tableName: string | null;
+  readonly status: MetricViewV1["status"];
+  readonly value: RecordValueVm | null;
+  /** "Live" for a result; otherwise the plain reason there is none. */
+  readonly note: string;
+  /** The expression in the app's current names, when the structure is known. */
+  readonly expression: string | null;
+}
+
+/**
+ * SCR-024. `metrics` holds only the metrics and dashboard values this app
+ * actually has — none is an empty list, and the surface draws no "At a
+ * glance" section for it. There is no chart field: the pinned chart is
+ * S05's, and a field here could only ever be filled with a fiction (STA-025).
  */
 export interface AppHomeVm {
   readonly screen: "SCR-024";
@@ -328,10 +511,62 @@ export interface AppHomeVm {
   readonly tables: readonly AppHomeTableVm[];
   readonly createdAtEpochMs: number;
   readonly lastOpenedAtEpochMs: number | null;
+  readonly metrics: readonly MetricVm[];
   readonly announcement: string;
 }
 
-export function selectAppHomeVm(session: AppSessionViewV1): AppHomeVm {
+/** A metric with no result, in words (CA-26's last column). */
+function metricNote(metric: MetricViewV1): string {
+  switch (metric.status) {
+    case "ok":
+    case "empty":
+      return "Live";
+    case "unsupported":
+      return "Unsupported formula";
+    case "cycle":
+      return CYCLE_SENTENCE;
+    case "error":
+      return errorSentence(metric.code);
+    default: {
+      const unreachable: never = metric.status;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * Dashboard values first, then each table's metrics in table order — the
+ * app-home.html tiles. `structure` names each expression; absent, none is shown.
+ */
+export function selectMetricsVm(
+  metrics: AppMetricsViewV1 | null,
+  tables: readonly AppTableViewV1[],
+  structure: AppStructureViewV1 | null = null,
+): readonly MetricVm[] {
+  if (metrics === null) return [];
+  const tableNames = new Map(tables.map((table) => [table.tableId, table.displayName]));
+  const expressions = new Map((structure?.formulas ?? []).map((formula) => [formula.formulaId, formula.text]));
+  const toMetric = (metric: MetricViewV1, tableName: string | null): MetricVm => ({
+    formulaId: metric.formulaId,
+    label: metric.displayName,
+    tableName,
+    status: metric.status,
+    value: metric.status === "ok" && metric.value !== null ? toValue(metric.value, undefined) : null,
+    note: metricNote(metric),
+    expression: expressions.get(metric.formulaId) ?? null,
+  });
+  return [
+    ...metrics.dashboard.map((metric) => toMetric(metric, null)),
+    ...metrics.tables.flatMap((group) =>
+      group.metrics.map((metric) => toMetric(metric, tableNames.get(group.tableId) ?? null)),
+    ),
+  ];
+}
+
+export function selectAppHomeVm(
+  session: AppSessionViewV1,
+  metrics: readonly MetricVm[] = [],
+): AppHomeVm {
   return {
     screen: "SCR-024",
     appId: session.appId,
@@ -348,6 +583,7 @@ export function selectAppHomeVm(session: AppSessionViewV1): AppHomeVm {
     })),
     createdAtEpochMs: session.createdAtEpochMs,
     lastOpenedAtEpochMs: session.lastOpenedAtEpochMs,
+    metrics,
     // app-home.html's status line, composed from the two facts F02 holds.
     announcement: session.isScratch
       ? `${session.displayName} is on this device only. ${
@@ -384,10 +620,90 @@ export interface RecordCardVm {
 
 /**
  * Why the list is showing nothing. records-empty.html states the rule: an
- * empty table and a search that matched nothing stay visibly different,
- * because clearing the search fixes one and does nothing for the other.
+ * empty table and a query that matched nothing stay visibly different,
+ * because clearing the search or the filters fixes one and does nothing for
+ * the other. `no-results` is SCR-026's filtered no-result state (STA-026).
  */
 export type RecordsEmptinessV1 = "empty-table" | "no-results";
+
+/** The sheet a field's filter chip opens (sheet-atlas.html). */
+export type FilterSheetIdV1 = "SHT-004" | "SHT-005" | "SHT-006" | "SHT-007" | "SHT-008";
+
+/**
+ * Only the types the design gives a filter sheet get a chip. Text fields are
+ * found through the search; a text filter that arrives as an intent (S05) is
+ * still shown, and still clearable, as a chip without a sheet.
+ */
+export function filterSheetFor(type: FieldTypeWireV1): FilterSheetIdV1 | null {
+  switch (type.kind) {
+    case "enum":
+      return "SHT-004";
+    case "date":
+      return "SHT-005";
+    case "number":
+    case "currency":
+      return "SHT-006";
+    case "boolean":
+      return "SHT-007";
+    case "reference":
+      return "SHT-008";
+    default:
+      return null;
+  }
+}
+
+/**
+ * What an active filter says, typed so the surface formats dates and amounts
+ * in the reader's locale (a view model holds none).
+ */
+export type FilterChipValueVm =
+  | { readonly kind: "options"; readonly labels: readonly string[] }
+  | { readonly kind: "date-range"; readonly from: number | null; readonly to: number | null }
+  | { readonly kind: "number-range"; readonly min: string | null; readonly max: string | null }
+  | { readonly kind: "boolean"; readonly value: boolean }
+  /** `labels` are those known; `count` is how many records the filter names. */
+  | { readonly kind: "records"; readonly labels: readonly RecordLabelV1[]; readonly count: number }
+  | { readonly kind: "broken-reference" }
+  | { readonly kind: "text"; readonly match: "contains" | "equals"; readonly text: string }
+  | { readonly kind: "empty" }
+  | { readonly kind: "not-empty" };
+
+/** One active filter: visible, and clearable on its own (STA-026). */
+export interface FilterChipVm {
+  readonly fieldId: string;
+  readonly fieldName: string;
+  readonly sheet: FilterSheetIdV1 | null;
+  readonly value: FilterChipValueVm;
+  /** What the route sends; clearing the chip removes exactly this. */
+  readonly filter: FilterWireV1;
+}
+
+/** A field a filter can be added on (records.html's inactive chips). */
+export interface FilterableFieldVm {
+  readonly fieldId: string;
+  readonly fieldName: string;
+  readonly sheet: FilterSheetIdV1;
+  readonly type: FieldTypeWireV1;
+  readonly isFiltered: boolean;
+}
+
+/** SHT-009: one column and one direction; missing values sort last either way. */
+export interface SortVm {
+  readonly fieldId: string;
+  readonly fieldName: string;
+  readonly direction: "asc" | "desc";
+}
+
+/**
+ * STA-014 (D53, D62): the query examined exactly `scanned` of the table's
+ * `tableTotal` rows and stopped. The surface composes "Searched the first
+ * {n} of {total} rows" from these two facts and offers the remedy.
+ */
+export interface RecordsPartialVm {
+  readonly scanned: number;
+  readonly tableTotal: number;
+  readonly remedy: "narrow-filters";
+}
 
 export interface RecordsListVm {
   readonly screen: "SCR-025" | "SCR-026";
@@ -399,14 +715,33 @@ export interface RecordsListVm {
   readonly hasMore: boolean;
   readonly nextCursor: number | null;
   /**
-   * Live records in the whole table, exact. A search does not narrow it, and
-   * there is deliberately no "how many matched": the projection does not
-   * answer that, so nothing here may imply it does (CA-14).
+   * Live records in the whole table, exact. A search or a filter does not
+   * narrow it (CA-14).
    */
   readonly tableRecordCount: number;
   readonly isTableRecordCountExact: true;
+  /**
+   * How many records match the search and filters, exactly — or null when
+   * nothing counted them: a plain search, or a partial page, which never
+   * reports a total it did not count (CA-29).
+   */
+  readonly matchCount: number | null;
+  readonly partial: RecordsPartialVm | null;
+  readonly filters: readonly FilterChipVm[];
+  readonly filterableFields: readonly FilterableFieldVm[];
+  readonly sort: SortVm | null;
+  /** SHT-009 lists every column. */
+  readonly sortableFields: readonly { readonly fieldId: string; readonly fieldName: string }[];
   readonly emptiness: RecordsEmptinessV1 | null;
   readonly announcement: string;
+}
+
+/** The records query a list shows: the search, every filter, one sort. */
+export interface RecordsQueryVmInput {
+  readonly filters: readonly FilterWireV1[];
+  readonly sort: SortWireV1 | null;
+  /** Labels of records a reference filter names, as the picker showed them. */
+  readonly recordLabels?: ReadonlyMap<string, string>;
 }
 
 function fieldsInOrder(table: AppTableViewV1): readonly AppFieldViewV1[] {
@@ -462,6 +797,57 @@ function toCard(
   };
 }
 
+function chipValue(
+  filter: FilterWireV1,
+  field: AppFieldViewV1 | undefined,
+  recordLabels: ReadonlyMap<string, string>,
+): FilterChipValueVm {
+  const operand = filter.operand;
+  switch (operand.kind) {
+    case "enum-in":
+      return {
+        kind: "options",
+        labels: operand.optionIds.map(
+          (optionId) =>
+            field?.enumOptions.find((option) => option.optionId === optionId)?.label ??
+            "A choice that is no longer in this field's list",
+        ),
+      };
+    case "date-range":
+      return { kind: "date-range", from: operand.from, to: operand.to };
+    case "number-range":
+      return { kind: "number-range", min: operand.min, max: operand.max };
+    case "boolean-is":
+      return { kind: "boolean", value: operand.value };
+    case "reference-in":
+      return {
+        kind: "records",
+        count: operand.recordIds.length,
+        labels: operand.recordIds.flatMap((recordId) => {
+          const label = recordLabels.get(recordId);
+          return label === undefined ? [] : [toRecordLabel(label)];
+        }),
+      };
+    case "reference-broken":
+      return { kind: "broken-reference" };
+    case "text-contains":
+      return { kind: "text", match: "contains", text: operand.text };
+    case "text-equals":
+      return { kind: "text", match: "equals", text: operand.text };
+    case "is-empty":
+      return { kind: "empty" };
+    case "not-empty":
+      return { kind: "not-empty" };
+    default: {
+      const unreachable: never = operand;
+      return unreachable;
+    }
+  }
+}
+
+/** A filter on a field this table no longer shows is still named, and clearable. */
+const UNKNOWN_FIELD_NAME = "A field that is no longer in this table";
+
 /**
  * `references` are each record's reference fields as `getRelatedRecords`
  * answered them, by record id; a record absent from the map shows its
@@ -471,12 +857,26 @@ export function selectRecordsListVm(
   table: AppTableViewV1,
   page: RecordPageViewV1,
   references?: ReadonlyMap<string, readonly RecordReferenceViewV1[]>,
+  query: RecordsQueryVmInput = { filters: [], sort: null },
 ): RecordsListVm {
   const fields = fieldsInOrder(table);
+  const fieldById = new Map(table.fields.map((field) => [field.fieldId, field]));
   const cards = page.records.map((record) =>
     toCard(record, fields, references?.get(record.recordId)),
   );
-  const searching = page.scope.kind === "search";
+  const recordLabels = query.recordLabels ?? new Map<string, string>();
+  const filters = query.filters.map<FilterChipVm>((filter) => {
+    const field = fieldById.get(filter.fieldId);
+    return {
+      fieldId: filter.fieldId,
+      fieldName: field?.displayName ?? UNKNOWN_FIELD_NAME,
+      sheet: field === undefined ? null : filterSheetFor(field.type),
+      value: chipValue(filter, field, recordLabels),
+      filter,
+    };
+  });
+  const filtered = new Set(query.filters.map((filter) => filter.fieldId));
+  const sortField = query.sort === null ? undefined : fieldById.get(query.sort.fieldId);
 
   const emptiness: RecordsEmptinessV1 | null =
     cards.length > 0
@@ -484,6 +884,11 @@ export function selectRecordsListVm(
       : page.totalCount === 0
         ? "empty-table"
         : "no-results";
+  const partial: RecordsPartialVm | null =
+    page.partial === undefined || page.partial === null
+      ? null
+      : { scanned: page.partial.scanned, tableTotal: page.partial.tableTotal, remedy: page.partial.remedy };
+  const matchCount = partial === null ? (page.total ?? null) : null;
 
   return {
     screen: emptiness === null ? "SCR-025" : "SCR-026",
@@ -495,37 +900,79 @@ export function selectRecordsListVm(
     nextCursor: page.nextCursor,
     tableRecordCount: page.totalCount,
     isTableRecordCountExact: true,
+    matchCount,
+    partial,
+    filters,
+    filterableFields: fields.flatMap((field) => {
+      const sheet = filterSheetFor(field.type);
+      return sheet === null
+        ? []
+        : [{ fieldId: field.fieldId, fieldName: field.displayName, sheet, type: field.type, isFiltered: filtered.has(field.fieldId) }];
+    }),
+    sort:
+      query.sort === null
+        ? null
+        : {
+            fieldId: query.sort.fieldId,
+            fieldName: sortField?.displayName ?? UNKNOWN_FIELD_NAME,
+            direction: query.sort.direction,
+          },
+    sortableFields: fields.map((field) => ({ fieldId: field.fieldId, fieldName: field.displayName })),
     emptiness,
-    announcement: announceList(
-      table.displayName,
-      page.totalCount,
+    announcement: announceList({
+      tableName: table.displayName,
+      tableRecordCount: page.totalCount,
       emptiness,
-      searching ? page.scope : null,
-    ),
+      search: page.scope.kind === "search" ? page.scope : null,
+      filterCount: filters.length,
+      matchCount,
+      partial,
+    }),
   };
 }
 
-function announceList(
-  tableName: string,
-  tableRecordCount: number,
-  emptiness: RecordsEmptinessV1 | null,
-  search: Extract<RecordScopeWireV1, { kind: "search" }> | null,
-): string {
+/** "1 active filter excludes" / "2 active filters exclude" (records-empty.html). */
+export function describeActiveFilters(count: number): string {
+  return count === 1 ? "1 active filter excludes" : `${String(count)} active filters exclude`;
+}
+
+function announceList(input: {
+  readonly tableName: string;
+  readonly tableRecordCount: number;
+  readonly emptiness: RecordsEmptinessV1 | null;
+  readonly search: Extract<RecordScopeWireV1, { kind: "search" }> | null;
+  readonly filterCount: number;
+  readonly matchCount: number | null;
+  readonly partial: RecordsPartialVm | null;
+}): string {
+  const { tableName, tableRecordCount, emptiness, search, filterCount, matchCount, partial } = input;
+  const table = `The table contains ${String(tableRecordCount)} records.`;
   if (emptiness === "empty-table") {
     // records-empty.html: "This table contains zero records."
     return `${tableName} contains no records yet.`;
   }
+  const partialLine =
+    partial === null
+      ? ""
+      : ` Searched the first ${String(partial.scanned)} of ${String(partial.tableTotal)} rows.`;
   if (emptiness === "no-results") {
-    // records-empty.html keeps the count of the table, not of the search.
-    return `No record in ${tableName} matches “${search?.text ?? ""}”. The table contains ${String(
-      tableRecordCount,
-    )} records.`;
+    if (filterCount === 0) {
+      // records-empty.html keeps the count of the table, not of the search.
+      return `No record in ${tableName} matches “${search?.text ?? ""}”. ${table}${partialLine}`;
+    }
+    return `No record in ${tableName} matches ${search === null ? "these filters" : `“${search.text}” with these filters`}. ${table} ${describeActiveFilters(
+      filterCount,
+    )} all of them.${partialLine}`;
   }
-  return search === null
-    ? `${tableName} contains ${String(tableRecordCount)} records.`
-    : `Showing records in ${tableName} matching “${search.text}”. The table contains ${String(
-        tableRecordCount,
-      )} records.`;
+  if (search === null && filterCount === 0) {
+    return `${tableName} contains ${String(tableRecordCount)} records.`;
+  }
+  const matched = matchCount === null ? "" : ` ${String(matchCount)} match.`;
+  const what =
+    search === null
+      ? `Showing records in ${tableName} that match the filters.`
+      : `Showing records in ${tableName} matching “${search.text}”${filterCount === 0 ? "" : " and the filters"}.`;
+  return `${what}${matched} ${table}${partialLine}`;
 }
 
 // --- SHT-003 the table switcher (CTL-059) ----------------------------------
@@ -574,6 +1021,8 @@ export interface RecordDetailFieldVm extends RecordFactVm {
   /** False when the projection could not index it; it is authored-only. */
   readonly isIndexed: boolean;
   readonly issues: readonly RecordIssueVm[];
+  /** Present for a computed column: read-only, with its state (CA-26). */
+  readonly computed: ComputedCellVm | null;
 }
 
 /** "Belongs to" (record-detail.html): one resolved parent, by human label. */
@@ -679,6 +1128,8 @@ export interface RecordDetailContext {
   readonly childPages?: ReadonlyMap<string, readonly RelatedChildrenPageViewV1[]>;
   /** Every table of the app, so a parent's table can be named. */
   readonly tables?: readonly AppTableViewV1[];
+  /** `computedFieldsOf(structure)`: each computed column's expression. */
+  readonly computedFields?: ReadonlyMap<string, ComputedFieldVm>;
 }
 
 export function selectRecordDetailVm(
@@ -712,6 +1163,7 @@ export function selectRecordDetailVm(
         handoff: handoffFor(field.type, value),
         isIndexed: indexed.has(field.fieldId),
         issues: issues.filter((issue) => issue.fieldId === field.fieldId),
+        computed: toComputedCell(field, entry, context.computedFields ?? new Map()),
       },
     ];
   });
@@ -890,6 +1342,11 @@ export interface RecordFormFieldVm {
   /** Absent on a create form; the current value on an edit form. */
   readonly value: RecordValueVm | null;
   readonly issues: readonly RecordIssueVm[];
+  /**
+   * Present for a computed column, which is never an input (CA-26): the form
+   * shows it read-only and sends no value for it.
+   */
+  readonly computed: ComputedCellVm | null;
 }
 
 export interface RecordFormVm {
@@ -911,6 +1368,8 @@ export function selectRecordFormVm(input: {
   readonly record?: RecordDetailViewV1;
   readonly issues?: readonly RecordIssueViewV1[];
   readonly busy?: boolean;
+  /** `computedFieldsOf(structure)`; without it a create form knows none. */
+  readonly computedFields?: ReadonlyMap<string, ComputedFieldVm>;
 }): RecordFormVm {
   const { table, record } = input;
   const mode = record === undefined ? "create" : "edit";
@@ -929,6 +1388,7 @@ export function selectRecordFormVm(input: {
       input: inputForField(field),
       value: entry === undefined ? null : toValue(entry.value, field, byReference),
       issues: issues.filter((issue) => issue.fieldId === field.fieldId),
+      computed: toComputedCell(field, entry, input.computedFields ?? new Map()),
     };
   });
 
@@ -1176,6 +1636,39 @@ export function announceRecordCommand(
 }
 
 // --- SCR-032 change history (change-history.html) ---------------------------
+
+/** Every event kind, in the words a person uses for it. */
+const EVENT_SENTENCE: Readonly<Record<string, string>> = Object.freeze({
+  "record.created": "Record created",
+  "record.patched": "Record changed",
+  "record.deleted": "Record deleted",
+  "record.restored": "Record restored",
+  "app.created": "App created",
+  "table.created": "Table created",
+  "field.created": "Field created",
+  "enum.changed": "Choices changed",
+  "theme.changed": "Appearance changed",
+  "inference-decision.recorded": "Import decision recorded",
+  "import.accepted": "Import accepted",
+  // F04's structure changes (CA-28).
+  "app.renamed": "App renamed",
+  "table.changed": "Table changed",
+  "field.changed": "Field changed",
+  "relationship.changed": "Relationship changed",
+  "relationship.removed": "Relationship removed",
+  "rule.changed": "Rule changed",
+  "rule.removed": "Rule removed",
+  "formula.changed": "Calculation changed",
+  "formula.removed": "Calculation removed",
+});
+
+/**
+ * A kind this release does not name yet (S05's and S08's arrive before their
+ * owners refine them) is still a change that happened, and is said truthfully.
+ */
+export function describeEvent(eventKind: string): string {
+  return EVENT_SENTENCE[eventKind] ?? "A change was recorded";
+}
 
 export interface ChangeHistoryEntryVm {
   readonly eventId: string;

@@ -1,6 +1,8 @@
 /**
  * CA-21 / CA-22 consumer binding (M36): every F03 read is sent under S03's
  * wire name with S03's fields, and nothing else is added on the way past.
+ * F04 adds the records query's filters and sort (CA-29), the structure and
+ * the metrics, bound the same way.
  */
 
 import { describe, expect, it } from "vitest";
@@ -63,6 +65,55 @@ describe("the F03 reads (CA-21, CA-22)", () => {
         tableId: "t",
         values: [{ fieldId: "f", value: { kind: "reference", recordId: "r-c8" } }],
       },
+    ]);
+  });
+});
+
+describe("the F04 reads (CA-29, CAP-29)", () => {
+  it("passes filters, the sort and both cursors through verbatim", async () => {
+    const { port, sent } = recordingPort();
+    const services = createRecordsServices(port);
+    const filters = [
+      { fieldId: "f-status", operand: { kind: "enum-in", optionIds: ["o-1"] } },
+      { fieldId: "f-due", operand: { kind: "date-range", from: 20_000, to: null } },
+    ] as const;
+    await services.queryRecords({
+      appId: "a",
+      tableId: "t",
+      search: "patio",
+      filters,
+      sort: { fieldId: "f-due", direction: "desc" },
+      cursor: 12,
+      sortCursor: { kind: "integer", value: 20_001 },
+      limit: 50,
+    });
+    // An F03 caller sends neither, and nothing is added for it.
+    await services.queryRecords({ appId: "a", tableId: "t" });
+
+    expect(sent).toEqual([
+      {
+        kind: "queryRecords",
+        appId: "a",
+        tableId: "t",
+        search: "patio",
+        filters,
+        sort: { fieldId: "f-due", direction: "desc" },
+        cursor: 12,
+        sortCursor: { kind: "integer", value: 20_001 },
+        limit: 50,
+      },
+      { kind: "queryRecords", appId: "a", tableId: "t" },
+    ]);
+  });
+
+  it("reads the structure and the metrics by app", async () => {
+    const { port, sent } = recordingPort();
+    const services = createRecordsServices(port);
+    await services.getAppStructure({ appId: "a" });
+    await services.getAppMetrics({ appId: "a" });
+    expect(sent).toEqual([
+      { kind: "getAppStructure", appId: "a" },
+      { kind: "getAppMetrics", appId: "a" },
     ]);
   });
 });

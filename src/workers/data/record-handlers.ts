@@ -24,7 +24,8 @@
  * added for them, and none is needed.
  */
 
-import { encodeBase64Url } from "../../domain/model/bytes.js";
+import { decodeBase64Url, encodeBase64Url } from "../../domain/model/bytes.js";
+import type { FilterV1 } from "../../domain/model/filters.js";
 import { CodecError } from "../../domain/model/errors.js";
 import {
   decodeDomainId,
@@ -55,6 +56,7 @@ import {
   planRecordPage,
   recordQuery,
 } from "../../application/queries/records.js";
+import { compileRecordQuery, readTableDefinition } from "../../application/queries/filters.js";
 import { isRestorable, planHistoryPage } from "../../application/queries/history.js";
 import {
   planInertItems,
@@ -75,6 +77,9 @@ import {
 } from "../../application/queries/relationships.js";
 import type {
   ProjectionComputedCellV1,
+  ProjectionFilterTermV1,
+  ProjectionRecordSortV1,
+  ProjectionSortValueV1,
   ProjectionIssueRowV1,
   ProjectionLabeledRecordV1,
   ProjectionRecordSummaryV1,
@@ -97,6 +102,7 @@ import type {
   CreateRecordRequestV1,
   DataWorkerResponseV1,
   DeleteRecordRequestV1,
+  FilterWireV1,
   FindInSnapshotRequestV1,
   GetChangeHistoryRequestV1,
   GetSnapshotPageRequestV1,
@@ -119,6 +125,7 @@ import type {
   RelatedRecordViewV1,
   RestoreRecordRequestV1,
   SearchReferenceCandidatesRequestV1,
+  SortCursorWireV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
 import {
@@ -364,13 +371,40 @@ export function createRecordHandlers(
       }
       await session.projection.refreshVolatile(VOLATILE_MAX_AGE_MS);
 
+      // CA-29: filters and the sort are checked against the table as it
+      // stands, and a refusal names the field rather than matching nothing.
+      const filters = (request.filters ?? []).map(toDomainFilter);
+      const sort = request.sort == null ? null : { fieldId: fieldIdOf(request.sort.fieldId), direction: request.sort.direction };
+      let compiled: { readonly filters: readonly ProjectionFilterTermV1[]; readonly sort: ProjectionRecordSortV1 | null } = {
+        filters: [],
+        sort: null,
+      };
+      if (filters.length > 0 || sort !== null) {
+        const definition = readTableDefinition(session.projection, tableId);
+        if (definition === null) {
+          return { kind: "queryRecords", page: null };
+        }
+        const outcome = compileRecordQuery(definition.table, definition.enumOptions, filters, sort);
+        if (outcome.outcome === "refused") {
+          return {
+            kind: "queryRecords",
+            page: null,
+            refusal: { reason: outcome.refusal.reason, fieldId: encodeDomainId(outcome.refusal.fieldId) },
+          };
+        }
+        compiled = outcome;
+      }
+
       const page = planRecordPage(
         session.projection,
         recordQuery({
           tableId,
           cursor: request.cursor ?? null,
+          cursorSortValue: toSortValue(request.sortCursor ?? null),
           ...(request.limit === undefined ? {} : { limit: request.limit }),
           search: request.search ?? null,
+          filters: compiled.filters,
+          sort: compiled.sort,
         }),
       );
 
@@ -384,6 +418,9 @@ export function createRecordHandlers(
           nextCursor: page.nextCursor,
           totalCount: page.totalCount,
           isTotalExact: true,
+          nextSortCursor: page.nextCursor === null ? null : toSortCursor(page.nextSortValue),
+          total: page.total,
+          partial: page.partial,
         },
       };
     },
@@ -1031,6 +1068,65 @@ const relationshipIdOf = (text: string): RelationshipId =>
 
 const sheetIdOf = (text: string): SheetId =>
   idOrRefuse(() => decodeDomainId("sheet", text));
+
+/**
+ * A wire filter as M01's `FilterV1`. Ids that do not decode are a malformed
+ * request; filter text is NFC-normalized here, as all authored text is (D28).
+ * Whether the filter fits the field is `compileRecordQuery`'s to say.
+ */
+function toDomainFilter(filter: FilterWireV1): FilterV1 {
+  const fieldId = fieldIdOf(filter.fieldId);
+  const operand = filter.operand;
+  switch (operand.kind) {
+    case "enum-in":
+      return {
+        fieldId,
+        operand: { kind: "enum-in", optionIds: operand.optionIds.map((id) => idOrRefuse(() => decodeDomainId("option", id))) },
+      };
+    case "reference-in":
+      return { fieldId, operand: { kind: "reference-in", recordIds: operand.recordIds.map(recordIdOf) } };
+    case "text-contains":
+    case "text-equals":
+      return { fieldId, operand: { kind: operand.kind, text: operand.text.normalize("NFC") } };
+    case "date-range":
+      return { fieldId, operand: { kind: "date-range", from: operand.from, to: operand.to } };
+    case "number-range":
+      return { fieldId, operand: { kind: "number-range", min: operand.min, max: operand.max } };
+    case "boolean-is":
+      return { fieldId, operand: { kind: "boolean-is", value: operand.value } };
+    case "reference-broken":
+    case "is-empty":
+    case "not-empty":
+      return { fieldId, operand: { kind: operand.kind } };
+    default: {
+      const unreachable: never = operand;
+      return unreachable;
+    }
+  }
+}
+
+const toSortValue = (cursor: SortCursorWireV1 | null): ProjectionSortValueV1 => {
+  if (cursor === null) return null;
+  switch (cursor.kind) {
+    case "none":
+      return null;
+    case "integer":
+      return cursor.value;
+    case "key":
+      return idOrRefuse(() => decodeBase64Url(cursor.base64Url));
+    default: {
+      const unreachable: never = cursor;
+      return unreachable;
+    }
+  }
+};
+
+const toSortCursor = (value: ProjectionSortValueV1): SortCursorWireV1 =>
+  value === null
+    ? { kind: "none" }
+    : typeof value === "number"
+      ? { kind: "integer", value }
+      : { kind: "key", base64Url: encodeBase64Url(value) };
 
 /** The table id, if the open app actually holds it; `undefined` otherwise. */
 function knownTableId(
