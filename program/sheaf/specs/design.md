@@ -154,6 +154,56 @@ The focus colour is Leaf 700 in light mode and Sprout 300 in dark mode. Dark
 mode has no `app-ink` chrome background, so its dark chrome is covered by the
 Focus / surface column.
 
+#### System semantics in dark mode
+
+*Design-fill DF-F04 (FR-17; STATE.md D56).* This covers semantic text drawn
+**directly** on a dark app's `app-canvas` or `app-surface`: record issue lines,
+metric notes, and chart or schema failure lines. The light-mode inks (Clay,
+Marigold, River and Leaf ink) score between 1.66:1 and 2.52:1 on these
+backgrounds, so they do not pass. Semantics stay system-owned: each role has
+one dark-mode value, used by every app and every palette, and no theme can set it. Light-mode values
+are unchanged.
+
+| Role | Light-mode text ink | Dark-mode text ink | Source |
+|---|---|---|---|
+| Danger | Clay ink `#833B26` | **Clay 300 `#E08A6E`** | New step, Clay hue (15°) |
+| Warning | Marigold ink `#7B4D08` | **Marigold 500 `#C78316`** | Existing palette value |
+| Info | River ink `#285770` | **River 300 `#6AA3C8`** | New step, River hue (204°) |
+| Success | Leaf ink `#21503F` | **Leaf 300 `#62B397`** | New step, Leaf hue (159°) |
+
+**Three new values.** Marigold 500 is the only existing value that passes and
+still reads as its semantic role. The other existing values that pass are the
+pale tints (Clay/River/Leaf pale `#F4DED5`/`#DCEBF3`/`#E0EEE7`, 11.8:1 or more)
+and Sprout 300. The tints are close to near-white: CIE76 ΔE is only 4–13 against the four dark `app-ink` values
+(for example, Clay pale against Clay-dark ink is ΔE 5.2). They would read as body
+text, which breaks the rule that danger stays recognisably danger. Sprout 300 is
+already the dark-mode focus colour and selection colour, so success text in
+Sprout would look like focus. Clay 300, River 300 and Leaf 300 are lighter steps
+with the same hue as Clay 600, River 600 and Leaf 700. They are text inks for
+dark mode only, and they are system-owned like the rest of this set.
+
+These are WCAG 2.x relative-luminance contrast ratios, rounded down to two
+decimals. The required minimum is 4.5:1 (text). Every cell passes.
+
+| Palette · dark | Danger / canvas | Danger / surface | Warning / canvas | Warning / surface | Info / canvas | Info / surface | Success / canvas | Success / surface |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Cedar | 6.72 | 5.84 | 5.59 | 4.86 | 6.43 | 5.59 | 7.04 | 6.12 |
+| Indigo | 6.91 | 6.14 | 5.75 | 5.11 | 6.61 | 5.88 | 7.24 | 6.43 |
+| Clay | 6.95 | 6.36 | 5.79 | 5.29 | 6.65 | 6.09 | 7.28 | 6.66 |
+| Graphite | 6.98 | 6.29 | 5.81 | 5.23 | 6.68 | 6.02 | 7.32 | 6.59 |
+
+- **Icon and words, always.** Hue never carries the state on its own. This
+  matters most with Cedar. Its dark `app-accent` `#E08A6A` is almost the same
+  colour as Clay 300. The same thing happens in light mode, where the Cedar
+  accent `#C66948` sits next to Clay 600. The danger icon and label tell them apart.
+- **Badges and tints do not change in dark mode.** A semantic badge is a
+  self-contained chip: pale tint fill with the light-mode ink. Its contrast does
+  not depend on the app background. Clay 6.20:1, Marigold 6.05:1, River 6.40:1
+  and Leaf 7.68:1 all pass 4.5:1. The chip edge against every dark `app-canvas`
+  and `app-surface` is at least 11.83:1.
+- **Scope.** These values replace only the four `*-ink` text roles under dark
+  app mode. Tints, badge inks, and the light-mode values are not changed.
+
 ### Typography
 
 - **Display / app identity:** `Charter`, `Iowan Old Style`, `Georgia`, serif.
