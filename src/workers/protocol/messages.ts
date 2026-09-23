@@ -858,7 +858,10 @@ export interface CancelImportStageResponseV1 {
 
 // --- the open app -----------------------------------------------------------
 
-/** The field types a schema may declare; `reference` has no F02 producer (D25). */
+/**
+ * The field types a schema may declare. A delimited import never proposes
+ * `reference` (D25); a workbook import does, with its relationship (F03).
+ */
 export type FieldTypeWireV1 =
   | ProposedFieldTypeWireV1
   | { readonly kind: "reference" };

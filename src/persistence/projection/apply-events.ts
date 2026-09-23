@@ -22,6 +22,13 @@
  * - **It does not interpret an opaque payload.** `EventCommitV1.payload` is
  *   `unknown` by contract, so the caller supplies typed events alongside the raw
  *   commit and the guards prove the two agree index for index.
+ *
+ * A tail may create a table (an appended CSV, CA-23/D38): `table.created` for a
+ * table the checkpoint does not hold builds it — its sheet, the table, its
+ * fields, its key/label references — inside the same transaction, and the
+ * `field.created`/`enum.changed`/`record.created` events after it land on it.
+ * A `field.created` for a table the projection does not hold is still an
+ * integrity failure and disposes the projection.
  */
 
 import { IntegrityError } from "../../domain/model/errors.js";
