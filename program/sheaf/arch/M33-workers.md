@@ -157,3 +157,9 @@ and append both surface `columnKey`.
 - `event-store.ts`: the head's `schemaRevision` now advances with `commit.schemaRevisionAfter` (was never advanced).
 - `record-handlers.ts`: `recalculated` on every accepted command; computed cells mapped to wire (`toComputedEntry`); `refreshVolatile(60 s)` before `queryRecords`/`getRecord` (and `getAppMetrics`).
 - Worker sweep `tests/unit/workers/module-boundaries.test.ts` covers the new files and has a negative control.
+
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (record handlers)
+
+The SESSION-04 delta for the data-worker record handlers (`query-records` wire, validation, typed refusals, redaction in `src/workers/data/record-handlers.ts`) is recorded jointly with M32 in `arch/M32-worker-protocol.md` under the same marker.
