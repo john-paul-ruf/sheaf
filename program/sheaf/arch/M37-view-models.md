@@ -243,3 +243,19 @@ file — additive at the wire, rewritten at the VM):**
   change-history table naming) — all three were still listed as open in the
   fragment Roshi wrote at the F02 final pass, and F03's own sessions closed
   them without a return trip through this file.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M37 View models (`records.ts`))
+
+- **Records list:** `RecordsListVm` gains:
+  - `matchCount` (exact or null) and `partial` (`RecordsPartialVm`);
+  - `filters` (`FilterChipVm[]`), `filterableFields` (`FilterableFieldVm[]`, SHT-004–008, enum options including retired ones);
+  - `sort` (`SortVm`) and `sortableFields`.
+  - `selectRecordsListVm(table, page, references?, {filters, sort, recordLabels?})`.
+- **Query exports:** `RecordsFilterV1` and `RecordsSortV1` (wire aliases for the UI), `filterSheetFor`, `describeActiveFilters`, `describeFilterRefusal`.
+- **Computed values (CA-26):**
+  - `computedFieldsOf(structure)` and `ComputedFieldVm`;
+  - `ComputedCellVm {state, badge: "Live" | "Frozen at import" | "Unsupported formula", note, expression}` on `RecordDetailFieldVm.computed` and `RecordFormFieldVm.computed`;
+  - `announceRecalculated(fieldIds, fields)` (D60).
+- **Metrics:** `selectMetricsVm(metrics, tables, structure)` returns `MetricVm[]`; `AppHomeVm.metrics` via `selectAppHomeVm(session, metrics = [])`.
+- **Change history:** `describeEvent` moved here from the UI and names F04's structure kinds, with a truthful generic sentence for unnamed kinds.

@@ -150,3 +150,15 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
   recorded as open (MOD-010's missing deleted-record read, single-table change
   history, unit-only paging) are moved to "Closed in F03" with their closing
   evidence, rather than left standing beside the surfaces that closed them.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M44 Records UI (`src/ui/records/`))
+
+- New:
+  - `filter-chips.tsx`: a sticky chip row that scrolls sideways below 900px and wraps at the desktop class;
+  - `filter-sheets.tsx`: SHT-004–008 on `Dialog`;
+  - `sort-sheet.tsx`: SHT-009;
+  - `computed-value.tsx`: read-only computed value with badge, note and expression, and a recalculation underline that respects reduced motion through the duration tokens.
+- `records-screen.tsx`: chips, match count, "Clear all filters", the STA-014 banner, the STA-026 filtered-empty state, and a refusal banner.
+- Detail and form render computed columns read-only. App home shows "At a glance" only when metrics exist.
+- `ReferenceSearchBody` takes an optional `selectedIds` for multi-select.

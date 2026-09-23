@@ -169,3 +169,11 @@ carries a port.**
 - `ComputedCellWireV1 { state, code? }`; `CellWireEntryV1.computed?` (additive; `CellWireValueV1` **not** widened).
 - `RecalculatedNoticeV1 { fieldIds }` as optional `recalculated` on the accepted `RecordCommandOutcomeV1` (always sent by the worker).
 - Requests `getAppStructure`, `previewSchemaChange`, `applySchemaChange`, `getAppMetrics`; wire types `SchemaChangeWireV1`, `RuleConditionWireV1`, `FormulaTargetWireV1`, `AppStructureViewV1` (+ table/field/rule/relationship/formula views), `ImpactReportWireV1`, `SchemaRefusalWireV1`, `SchemaPreviewViewV1`, `SchemaApplyOutcomeV1`, `MetricViewV1`, `AppMetricsViewV1`. Still no byte type and no import in the file.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M32/M33 Worker protocol and record handlers)
+
+- `QueryRecordsRequestV1` gains optional `filters?: FilterWireV1[]`, `sort?: SortWireV1 | null` and `sortCursor?: SortCursorWireV1 | null`. `SortCursorWireV1` is `{kind: "none" | "integer" | "key"}`, where `key` carries base64url text; no bytes cross the wire.
+- `RecordPageViewV1` gains optional `nextSortCursor`, `total` and `partial` (`RecordQueryPartialWireV1`).
+- `QueryRecordsResponseV1` gains optional `refusal?: FilterRefusalWireV1`, returned with `page: null`.
+- The handler NFC-normalizes filter text (D28). A malformed id yields `malformed-request` and is redacted to its kind.

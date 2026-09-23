@@ -120,3 +120,10 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 - 2026-09-23 — reconciled by Archivist (F03 final pass): two staples folded
   into the Route table, CA-07 amendment list, Exports and Structural-facts
   sections.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M54 Routes (`src/routes/`))
+
+- `filter-intent.ts` (D63): `RECORDS_FILTER_INTENT_KEY = "sheaf.records.filterIntent"`, `filterIntentState(filters)` and `readFilterIntent(state)`. `RecordsRoute` keys its query state by `location.key` and starts from the intent.
+- `AppAreaWiring` gains `structure` (loaded per opened app), `recalculated`, and `announce(sentence, recalculatedFieldIds?)`.
+- `AppHomeRoute` loads `getAppMetrics`.

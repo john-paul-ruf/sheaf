@@ -67,3 +67,12 @@ count. Typed filter/sort compilation is F04 (FR-13).
 ### F04 delta — SESSION-03 (M35 — Queries (`src/application/queries/structure.ts`))
 
 - `readAppStructure` (tables, fields incl. computed + `formulaId`, options, rules as IR, relationships, formulas with text rendered from IR via `renderFormula`); `readAppMetrics` (table metrics + dashboard values, status per CA-26, `empty` when never evaluated).
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M35 Queries (`src/application/queries/`))
+
+- `budgets.ts`: `QUERY_CANDIDATE_ROW_BUDGET = 50_000`, `CHART_SOURCE_ROW_BUDGET = 20_000`, `CHART_MARK_BUDGET = 1_000` (D53). S05 reads the chart constants.
+- `filters.ts`: `compileRecordQuery(table, enumOptions, FilterV1[], RecordSortV1 | null)` validates each filter with `validateFilter` and returns closed terms or the first typed refusal. `readTableDefinition(projection, tableId)` is also exported.
+- `records.ts`: `planRecordPage(projection, query, candidateBudget = QUERY_CANDIDATE_ROW_BUDGET)`.
+  - Adds `total`, `partial {scanned, tableTotal, cause: "query-budget", remedy: "narrow-filters"}` and `nextSortValue`.
+  - Filters or a sort route to `query-records`; a plain browse or search keeps the F03 path. Browse `total` equals the table count; plain search `total` is null.

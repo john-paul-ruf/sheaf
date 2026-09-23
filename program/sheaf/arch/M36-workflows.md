@@ -160,3 +160,9 @@ single-table shape underneath them.
   of the machine as it now stands, per Principle 2 ("the head contract is the
   authoritative statement; a delta that supersedes it is folded in, not left
   below it").
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M36 Records services)
+
+- `queryRecords` passes `filters`, `sort` and `sortCursor` through.
+- New `getAppStructure({appId})` and `getAppMetrics({appId})`.

@@ -97,3 +97,8 @@ that were written.
 
 - `event-repository.ts`: `DomainEventV1` (instantiated union), `RecordRuleIRV1`, `SchemaImpactCountsV1`, `SchemaEventPayloadsV1`, `SchemaEventV1`; `PlannedEventV1.event: DomainEventV1`.
 - `projection.ts`: `ProjectionFormulaV1`; `ProjectionCheckpointV1.formulas`; `ProjectionValidationRuleV1.rule: RecordRuleIRV1`; `ProjectionCommitV1.events: DomainEventV1[]` + optional `revalidate(record) → issues` (the shared validator the projection asks for a re-shaped table, invariant 5); `ProjectionComputedCellV1` (CA-26's eight states, value only where one exists) on `ProjectionRecordSummaryV1.computed`; `ProjectionScalarResultV1`; `ProjectionApplyReceiptV1 { recalculatedFieldIds }`; queries `list-formulas {tableId|null}`, `scalar-results`; `ProjectionEnginePort.applyEvents` resolves with the receipt; new `refreshVolatile(maxAgeMs)`.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M07 Ports (`src/application/ports/projection.ts`))
+
+- Restates the `query-records` kind and its result structurally, with mutual assignability pinned in `tests/unit/workers/projection-port.test.ts` (24 kinds).

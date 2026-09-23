@@ -226,3 +226,15 @@ fact.
 - **Recalculation** (`recalc-plan.ts` pure, `recalc.ts` SQL): hydrate step 6 = full pass after the graph is loaded; a record commit recomputes only `downstreamOf` the moved fields, and only the written rows for a row-local formula (widening to every row for column/related/formula reads); a schema commit is a full pass; `refreshVolatile` re-evaluates clock-volatile formulas when the reading is ≥ 60 s old or on another local day. Writes CA-26 exactly: computed lane (`origin='computed'`), recalculated `formula` issue (ids `computedIssueId`: pk ‖ 0xff ‖ fieldId[0..7], disjoint from validator ordinals), or `scalar_formula_results` (evaluated_at_ms = session clock). Frozen/unsupported columns project the authored literal into the computed lane and are never evaluated; cycles are flagged, never evaluated. Record writes delete only authored cells and validator issues (`DELETE_AUTHORED_CELLS_FOR_RECORD`, `DELETE_VALIDATOR_ISSUES_FOR_RECORD`). Computed fields are excluded from `record_search`.
 - Reads: `readComputedCells` derives each computed cell's state from its lane + issue (+ authored literal); every record summary carries `computed`.
 - Checkpoint load inserts formulas (after fields, all before any dependency).
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M12 Projection (`src/persistence/projection/`))
+
+- New query kind `query-records` on the closed `ProjectionQueryV1` union: `{tableId, search, filters: ProjectionFilterTermV1[], sort: ProjectionRecordSortV1 | null, after: ProjectionQueryCursorV1 | null, limit, candidateBudget}` → `ProjectionRecordQueryResultV1 {records, hasMore, next: {recordPk, sortValue} | null, total: number | null, partial: {scanned, tableTotal} | null}`.
+- `filter-sql.ts` composes the statements from literal fragments only. Every value is bound, and the only request-chosen SQL is `?` counts and the choice among literal fragments. Terms: `id-in`, `integer-range`, `decimal-range` (20-byte order key), `text-equals` / `text-contains`, `reference-broken`, `is-empty`, `not-empty`.
+- Two registered deterministic SQL functions (`authored-functions.ts`):
+  - `sheaf_authored_kind(authored_cbor, field_id)` returns the closed value kind only.
+  - `sheaf_fold_text(text)` returns case-folded NFC (`foldText`); text filters are case-insensitive.
+- Sort: one field, keyset over `(sort value, record_pk)`; missing values last in both directions. Enum sorts by option ordinal, reference by the parent's label (else key) field.
+- Budget: candidates are the table ∧ search. Past the budget, the first N candidates in `record_pk` order are admitted and the result has `total: null` plus `partial {scanned, tableTotal}`. Within the budget, `total` is an exact `count(*)`.
+- `RECORD_SUMMARY_COLUMNS` is exported from `statements.ts`.

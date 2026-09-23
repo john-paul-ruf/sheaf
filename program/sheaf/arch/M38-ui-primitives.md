@@ -94,3 +94,8 @@ this is a test-visibility constraint only.
   that F03 added to this module without closing any of its three items —
   each F03 UI session found a different, real reason to touch
   `src/ui/primitives/` without the backlog's three controls being in its way.
+
+<!-- formulas-queries-charts SESSION-04 -->
+### F04 delta — SESSION-04 (M38 Primitives)
+
+- Unchanged.
