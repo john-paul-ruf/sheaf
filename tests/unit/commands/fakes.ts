@@ -212,6 +212,17 @@ export class FakeProjection implements ProjectionEnginePort {
           nextCursor: null,
         });
       }
+      case "record-is-live":
+        return answer(
+          encodeDomainId(query.tableId) === encodeDomainId(this.table.tableId) &&
+            this.#live().some(
+              (entry) =>
+                encodeDomainId(entry.record.recordId) === encodeDomainId(query.recordId),
+            ),
+        );
+      case "list-relationships":
+        // One table, so nothing to relate it to.
+        return answer([]);
       case "app-state":
         throw new Error("the fake projection holds no app state");
       default: {

@@ -31,9 +31,11 @@ import type {
 import type {
   AppId,
   CommitId,
+  DecisionId,
   DeviceId,
   EventId,
   FieldId,
+  InertItemId,
   RecordId,
   RuleId,
   SheetId,
@@ -42,11 +44,20 @@ import type {
 import type {
   EnumOptionDefV1,
   FieldDefV1,
+  RelationshipDefV1,
   StorageKindV1,
   TableDefV1,
 } from "../../domain/model/schema.js";
 import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
-import type { SheetClassificationV1 } from "../../domain/model/snapshots.js";
+import type {
+  CellRangeV1,
+  DecisionKindV1,
+  ImportLineageV1,
+  InertItemKindV1,
+  InertReasonKeyV1,
+  SheetClassificationV1,
+} from "../../domain/model/snapshots.js";
+import type { InferenceDispositionV1 } from "../../domain/model/events.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type {
   ValidationIssueKindV1,
@@ -125,6 +136,33 @@ export interface ProjectionValidationRuleV1 {
   readonly schemaRevision: bigint;
 }
 
+/** One `inert_content` row: kept, listed, and never executed (D40). */
+export interface ProjectionInertItemV1 {
+  readonly inertItemId: InertItemId;
+  readonly sheetId: SheetId;
+  readonly kind: InertItemKindV1;
+  readonly location: string;
+  readonly reasonKey: InertReasonKeyV1;
+  readonly anchor: CellRangeV1 | null;
+  readonly preservedManifestStorageId: StorageId16 | null;
+}
+
+/**
+ * One projectable `inference_decisions` row. Only a decision with a kind is a
+ * row; `(decisionKind, evidenceFingerprint)` is unique, so a rejected
+ * statement is discoverable before inference can propose it again (D44).
+ */
+export interface ProjectionInferenceDecisionV1 {
+  readonly decisionId: DecisionId;
+  readonly decisionKind: DecisionKindV1;
+  readonly evidenceFingerprint: Sha256V1;
+  readonly disposition: InferenceDispositionV1;
+  /** Canonically encodable; the producer's shape. */
+  readonly statement: unknown;
+  readonly evidence: unknown;
+  readonly recordedEventId: EventId;
+}
+
 /**
  * One live record as the checkpoint holds it: the authored values, the commits
  * that produced them, and the issues **the shared validator** already found.
@@ -174,7 +212,11 @@ export interface ProjectionCheckpointV1 {
   readonly sheetSnapshots: readonly ProjectionSheetSnapshotV1[];
   readonly tables: readonly TableDefV1[];
   readonly enumOptions: readonly EnumOptionDefV1[];
+  readonly relationships: readonly RelationshipDefV1[];
   readonly validationRules: readonly ProjectionValidationRuleV1[];
+  readonly inertItems: readonly ProjectionInertItemV1[];
+  readonly importLineages: readonly ImportLineageV1[];
+  readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
   readonly recordPages: readonly ProjectionRecordPageV1[];
 }
 
@@ -306,6 +348,13 @@ export interface ProjectionChangeHistoryPageV1 {
   readonly nextCursor: ChangeHistoryCursorV1 | null;
 }
 
+/** A relationship with both tables' names, for navigation and switching. */
+export interface ProjectionRelationshipV1 {
+  readonly relationship: RelationshipDefV1;
+  readonly fromTableName: string;
+  readonly toTableName: string;
+}
+
 export type ProjectionQueryV1 =
   | { readonly kind: "app-state" }
   | { readonly kind: "list-tables" }
@@ -336,7 +385,15 @@ export type ProjectionQueryV1 =
       readonly kind: "record-change-history";
       readonly recordId: RecordId;
       readonly limit: number;
-    };
+    }
+  /** The reference resolver's predicate: live, and in exactly this table. */
+  | {
+      readonly kind: "record-is-live";
+      readonly tableId: TableId;
+      readonly recordId: RecordId;
+    }
+  /** Both directions for a table, or every relationship when null. */
+  | { readonly kind: "list-relationships"; readonly tableId: TableId | null };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -351,6 +408,8 @@ export interface ProjectionQueryResultsV1 {
   readonly "record-by-id": ProjectionRecordDetailV1 | null;
   readonly "page-change-history": ProjectionChangeHistoryPageV1;
   readonly "record-change-history": readonly ProjectionChangeEventV1[];
+  readonly "record-is-live": boolean;
+  readonly "list-relationships": readonly ProjectionRelationshipV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];
@@ -368,4 +427,6 @@ export interface ProjectionSchemaCacheV1 {
   readonly fields: Map<string, FieldDefV1>;
   readonly enumOptions: Map<string, EnumOptionDefV1[]>;
   readonly optionLabels: Map<string, string>;
+  /** Every relationship, keyed by its reference (source) field. */
+  readonly relationships: Map<string, RelationshipDefV1>;
 }

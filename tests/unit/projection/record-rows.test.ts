@@ -150,6 +150,7 @@ describe("searchable text", () => {
     fields: new Map(),
     enumOptions: new Map(),
     optionLabels: new Map([[idKey(optionId), "Overdue"]]),
+    relationships: new Map(),
   };
 
   const record = (

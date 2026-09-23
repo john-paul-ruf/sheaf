@@ -16,8 +16,8 @@
  * - **`execute` is synchronous.** The engine holds an in-memory database; a
  *   query returns a value, never a promise, so a query plan cannot interleave
  *   a write between its own reads.
- * - **The query surface is closed.** {@link ProjectionQueryV1} is a union of
- *   eleven members and no member carries SQL, so no caller — and no user text
+ * - **The query surface is closed.** {@link ProjectionQueryV1} is a closed union
+ *   and no member carries SQL, so no caller — and no user text
  *   travelling through one — can reach a statement.
  * - **`applyEvents` takes the raw commit and the caller's typed events
  *   together.** The engine verifies they agree index for index; supplying a
@@ -30,12 +30,23 @@ import type {
   F02DomainEventV1,
   FieldChangeV1,
   AppThemeV1,
+  InferenceDispositionV1,
 } from "../../domain/model/events.js";
 import type {
+  CellRangeV1,
+  DecisionKindV1,
+  ImportLineageV1,
+  InertItemKindV1,
+  InertReasonKeyV1,
+  SheetClassificationV1,
+} from "../../domain/model/snapshots.js";
+import type {
   CommitId,
+  DecisionId,
   DeviceId,
   EventId,
   FieldId,
+  InertItemId,
   RecordId,
   RuleId,
   SheetId,
@@ -46,6 +57,7 @@ import type { StorageId16 } from "../../domain/model/bytes.js";
 import type {
   EnumOptionDefV1,
   FieldDefV1,
+  RelationshipDefV1,
   StorageKindV1,
   TableDefV1,
 } from "../../domain/model/schema.js";
@@ -94,13 +106,7 @@ export interface ProjectionSheetSnapshotV1 {
   readonly sheetId: SheetId;
   readonly displayName: string;
   readonly sheetOrdinal: number;
-  readonly classification: readonly (
-    | "table"
-    | "lookup"
-    | "summary"
-    | "chart"
-    | "snapshot"
-  )[];
+  readonly classification: readonly SheetClassificationV1[];
   readonly snapshotManifestStorageId: StorageId16;
   readonly declaredRowCount: number | null;
   readonly declaredColumnCount: number | null;
@@ -113,6 +119,27 @@ export interface ProjectionValidationRuleV1 {
   readonly rule: ValidationRuleIR;
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
+}
+
+export interface ProjectionInertItemV1 {
+  readonly inertItemId: InertItemId;
+  readonly sheetId: SheetId;
+  readonly kind: InertItemKindV1;
+  readonly location: string;
+  readonly reasonKey: InertReasonKeyV1;
+  readonly anchor: CellRangeV1 | null;
+  readonly preservedManifestStorageId: StorageId16 | null;
+}
+
+/** Only a decision with a kind is projectable (D44's rejection memory). */
+export interface ProjectionInferenceDecisionV1 {
+  readonly decisionId: DecisionId;
+  readonly decisionKind: DecisionKindV1;
+  readonly evidenceFingerprint: Uint8Array;
+  readonly disposition: InferenceDispositionV1;
+  readonly statement: unknown;
+  readonly evidence: unknown;
+  readonly recordedEventId: EventId;
 }
 
 export interface ProjectionRecordV1 {
@@ -137,7 +164,11 @@ export interface ProjectionCheckpointV1 {
   readonly sheetSnapshots: readonly ProjectionSheetSnapshotV1[];
   readonly tables: readonly TableDefV1[];
   readonly enumOptions: readonly EnumOptionDefV1[];
+  readonly relationships: readonly RelationshipDefV1[];
   readonly validationRules: readonly ProjectionValidationRuleV1[];
+  readonly inertItems: readonly ProjectionInertItemV1[];
+  readonly importLineages: readonly ImportLineageV1[];
+  readonly inferenceDecisions: readonly ProjectionInferenceDecisionV1[];
   readonly recordPages: readonly ProjectionRecordPageV1[];
 }
 
@@ -255,6 +286,12 @@ export interface ProjectionChangeHistoryPageV1 {
   readonly nextCursor: ProjectionHistoryCursorV1 | null;
 }
 
+export interface ProjectionRelationshipV1 {
+  readonly relationship: RelationshipDefV1;
+  readonly fromTableName: string;
+  readonly toTableName: string;
+}
+
 export type ProjectionQueryV1 =
   | { readonly kind: "app-state" }
   | { readonly kind: "list-tables" }
@@ -285,7 +322,13 @@ export type ProjectionQueryV1 =
       readonly kind: "record-change-history";
       readonly recordId: RecordId;
       readonly limit: number;
-    };
+    }
+  | {
+      readonly kind: "record-is-live";
+      readonly tableId: TableId;
+      readonly recordId: RecordId;
+    }
+  | { readonly kind: "list-relationships"; readonly tableId: TableId | null };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -300,6 +343,8 @@ export interface ProjectionQueryResultsV1 {
   readonly "record-by-id": ProjectionRecordDetailV1 | null;
   readonly "page-change-history": ProjectionChangeHistoryPageV1;
   readonly "record-change-history": readonly ProjectionChangeEventV1[];
+  readonly "record-is-live": boolean;
+  readonly "list-relationships": readonly ProjectionRelationshipV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

@@ -7,6 +7,12 @@
  * the references resolve. The deferred foreign keys let the cycle close inside
  * one transaction; the triggers refuse it if it does not.
  *
+ * The workbook roots follow the same law: sheets before the tables that name
+ * them; relationships only after fields and the key updates their trigger
+ * checks (a relationship to a field that is not its target's key disposes the
+ * load); inert items after their sheets; lineages, then decisions. A decision
+ * arrives here only if it has a kind — the caller filters the rest.
+ *
  * Records arrive in bounded batches, one page per transaction. A failure in any
  * batch rolls that batch back and disposes the entire projection: there is no
  * state in which a half-loaded app answers a query, because a person cannot
@@ -22,17 +28,26 @@
  * equivalence, held by construction rather than by coincidence.
  */
 
+import { decodeStorageId16 } from "../../domain/model/bytes.js";
 import { CodecError } from "../../domain/model/errors.js";
 import { compareDomainIds } from "../../domain/model/ids.js";
 import { storageKindForFieldType } from "../../domain/model/schema.js";
-import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../../domain/model/schema.js";
+import type {
+  EnumOptionDefV1,
+  FieldDefV1,
+  RelationshipDefV1,
+  TableDefV1,
+} from "../../domain/model/schema.js";
+import type { SheetDescriptorV1 } from "../../domain/model/snapshots.js";
 import { encodeCanonical } from "../codecs/canonical-cbor.js";
 import { applyEvents } from "./apply-events.js";
 import {
   encodeAppTheme,
   encodeFrontier,
   encodeMessageParameters,
+  encodeOpaque,
   encodeRuleIR,
+  encodeSnapshotAnchor,
 } from "./cbor-values.js";
 import {
   assertUsable,
@@ -51,7 +66,11 @@ import {
 import {
   INSERT_APP_STATE,
   INSERT_ENUM_OPTION,
+  INSERT_IMPORT_LINEAGE,
+  INSERT_INERT_CONTENT,
+  INSERT_INFERENCE_DECISION,
   INSERT_PROJECTION_META,
+  INSERT_RELATIONSHIP,
   INSERT_SCHEMA_FIELD,
   INSERT_SCHEMA_TABLE,
   INSERT_SHEET_SNAPSHOT,
@@ -62,6 +81,7 @@ import type {
   ProjectionCheckpointV1,
   ProjectionCommitV1,
   ProjectionSchemaCacheV1,
+  ProjectionSheetSnapshotV1,
 } from "./types.js";
 
 /**
@@ -167,47 +187,17 @@ function loadMetadata(
   ]);
 
   for (const sheet of checkpoint.sheetSnapshots) {
-    run(handle, INSERT_SHEET_SNAPSHOT, [
-      sheet.sheetId,
-      sheet.displayName,
-      sheet.sheetOrdinal,
-      encodeCanonical([...sheet.classification]),
-      sheet.snapshotManifestStorageId,
-      sheet.declaredRowCount,
-      sheet.declaredColumnCount,
-      toSqlInteger(sheet.snapshotRevision),
-    ]);
+    insertSheetSnapshot(handle, sheet);
   }
 
-  for (const table of checkpoint.tables) {
-    run(handle, INSERT_SCHEMA_TABLE, [
-      table.tableId,
-      table.displayName,
-      table.tableOrdinal,
-      table.sourceSheetId,
-      table.isActive ? 1 : 0,
-      toSqlInteger(table.schemaRevision),
-    ]);
-  }
-
-  for (const table of checkpoint.tables) {
-    for (const field of table.fields) {
-      insertField(handle, table, field);
-    }
-  }
-
-  for (const table of checkpoint.tables) {
-    if (table.keyFieldId !== null || table.labelFieldId !== null) {
-      run(handle, UPDATE_SCHEMA_TABLE_FIELD_REFS, [
-        table.keyFieldId,
-        table.labelFieldId,
-        table.tableId,
-      ]);
-    }
-  }
+  insertTables(handle, checkpoint.tables);
 
   for (const option of checkpoint.enumOptions) {
     insertEnumOption(handle, option);
+  }
+
+  for (const relationship of checkpoint.relationships) {
+    insertRelationship(handle, relationship);
   }
 
   for (const rule of checkpoint.validationRules) {
@@ -223,10 +213,121 @@ function loadMetadata(
     ]);
   }
 
+  for (const item of checkpoint.inertItems) {
+    run(handle, INSERT_INERT_CONTENT, [
+      item.inertItemId,
+      item.sheetId,
+      item.kind,
+      item.location,
+      item.reasonKey,
+      item.anchor === null ? null : encodeSnapshotAnchor(item.anchor),
+      item.preservedManifestStorageId,
+    ]);
+  }
+
+  for (const lineage of checkpoint.importLineages) {
+    run(handle, INSERT_IMPORT_LINEAGE, [
+      lineage.lineageId,
+      lineage.importKind,
+      lineage.importOrdinal,
+      lineage.sourceDisplayName,
+      lineage.sourceSha256,
+      toSqlInteger(lineage.acceptedAtMs),
+      encodeOpaque(lineage.identityDecisions),
+      lineage.acceptedCommitId,
+    ]);
+  }
+
+  for (const decision of checkpoint.inferenceDecisions) {
+    run(handle, INSERT_INFERENCE_DECISION, [
+      decision.decisionId,
+      decision.decisionKind,
+      decision.evidenceFingerprint,
+      decision.disposition,
+      encodeOpaque(decision.statement),
+      encodeOpaque(decision.evidence),
+      decision.recordedEventId,
+    ]);
+  }
+
   cacheSchema(handle.schema, checkpoint.tables, checkpoint.enumOptions);
+  for (const relationship of checkpoint.relationships) {
+    handle.schema.relationships.set(idKey(relationship.fromFieldId), relationship);
+  }
 }
 
-function insertField(
+export function insertSheetSnapshot(
+  handle: ProjectionHandleV1,
+  sheet: ProjectionSheetSnapshotV1 | SheetDescriptorV1,
+): void {
+  run(handle, INSERT_SHEET_SNAPSHOT, [
+    sheet.sheetId,
+    sheet.displayName,
+    sheet.sheetOrdinal,
+    encodeCanonical([...sheet.classification]),
+    typeof sheet.snapshotManifestStorageId === "string"
+      ? decodeStorageId16(sheet.snapshotManifestStorageId)
+      : sheet.snapshotManifestStorageId,
+    sheet.declaredRowCount,
+    sheet.declaredColumnCount,
+    toSqlInteger(sheet.snapshotRevision),
+  ]);
+}
+
+/**
+ * Tables with their references null, then their fields, then the references —
+ * the one order the key/label triggers accept. Hydration and a tail
+ * `table.created` both come through here.
+ */
+export function insertTables(
+  handle: ProjectionHandleV1,
+  tables: readonly TableDefV1[],
+): void {
+  for (const table of tables) {
+    run(handle, INSERT_SCHEMA_TABLE, [
+      table.tableId,
+      table.displayName,
+      table.tableOrdinal,
+      table.sourceSheetId,
+      table.isActive ? 1 : 0,
+      toSqlInteger(table.schemaRevision),
+    ]);
+  }
+
+  for (const table of tables) {
+    for (const field of table.fields) {
+      insertField(handle, table, field);
+    }
+  }
+
+  for (const table of tables) {
+    if (table.keyFieldId !== null || table.labelFieldId !== null) {
+      run(handle, UPDATE_SCHEMA_TABLE_FIELD_REFS, [
+        table.keyFieldId,
+        table.labelFieldId,
+        table.tableId,
+      ]);
+    }
+  }
+}
+
+function insertRelationship(
+  handle: ProjectionHandleV1,
+  relationship: RelationshipDefV1,
+): void {
+  run(handle, INSERT_RELATIONSHIP, [
+    relationship.relationshipId,
+    relationship.fromTableId,
+    relationship.fromFieldId,
+    relationship.toTableId,
+    relationship.toKeyFieldId,
+    relationship.detectionSource,
+    relationship.isActive ? 1 : 0,
+    toSqlInteger(relationship.schemaRevision),
+  ]);
+}
+
+export function insertField(
   handle: ProjectionHandleV1,
   table: TableDefV1,
   field: FieldDefV1,

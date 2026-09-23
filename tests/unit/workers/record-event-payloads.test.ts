@@ -13,7 +13,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   RECORD_EVENT_KINDS,
+  TAIL_EVENT_KINDS,
   decodeRecordEventPayload,
+  decodeTailEventPayload,
+  isTailEventKind,
   encodeAuthoredRecordBytes,
   encodeRecordEventPayload,
   isRecordEventKind,
@@ -32,7 +35,14 @@ import type { CellValueV1 } from "../../../src/domain/model/values.js";
 import {
   decodeCanonical,
   encodeCanonical,
+  type CborValue,
+  type DecodedValue,
 } from "../../../src/persistence/codecs/canonical-cbor.js";
+import { CodecError } from "../../../src/domain/model/errors.js";
+import type { TableDefV1 } from "../../../src/domain/model/schema.js";
+import type { SheetDescriptorV1 } from "../../../src/domain/model/snapshots.js";
+import { encodeImportEventPayload } from "../../../src/import/staging/events.js";
+import { encodeSheetDescriptor } from "../../../src/import/staging/roots.js";
 
 const entropy = {
   randomBytes: (byteLength: number): Uint8Array =>
@@ -285,5 +295,153 @@ describe("the record-event payload codec", () => {
       values: new Map([...RECORD.values].reverse()),
     });
     expect([...again]).toEqual([...first]);
+  });
+});
+
+describe("an appended table's schema events, read back from a tail (CA-23)", () => {
+  const sheetId = createDomainId("sheet", entropy);
+  const keyField = createDomainId("field", entropy);
+  const statusField = createDomainId("field", entropy);
+  const option = {
+    optionId: createDomainId("option", entropy),
+    fieldId: statusField,
+    displayLabel: "Open",
+    optionOrdinal: 0,
+    isActive: true,
+    schemaRevision: 2n,
+  };
+  const table: TableDefV1 = {
+    tableId: TABLE_ID,
+    displayName: "Deliveries",
+    tableOrdinal: 1,
+    fields: [
+      {
+        fieldId: keyField,
+        tableId: TABLE_ID,
+        displayName: "Code",
+        fieldOrdinal: 0,
+        type: { kind: "text" },
+        isRequired: false,
+        isActive: true,
+        schemaRevision: 2n,
+      },
+      {
+        fieldId: statusField,
+        tableId: TABLE_ID,
+        displayName: "Status",
+        fieldOrdinal: 1,
+        type: { kind: "enum" },
+        isRequired: false,
+        isActive: true,
+        schemaRevision: 2n,
+      },
+    ],
+    keyFieldId: keyField,
+    labelFieldId: null,
+    sourceSheetId: sheetId,
+    isActive: true,
+    schemaRevision: 2n,
+  };
+  const sheet: SheetDescriptorV1 = {
+    sheetId,
+    displayName: "deliveries.csv",
+    sheetOrdinal: 1,
+    classification: ["table"],
+    snapshotManifestStorageId: "AAAAAAAAAAAAAAAAAAAAAA",
+    declaredRowCount: null,
+    declaredColumnCount: null,
+    snapshotRevision: 2n,
+  };
+  const roundTrip = (payload: CborValue): DecodedValue =>
+    decodeCanonical(encodeCanonical(payload));
+
+  it("accepts exactly the tail kinds and nothing else", () => {
+    expect([...TAIL_EVENT_KINDS]).toEqual([
+      ...RECORD_EVENT_KINDS,
+      "table.created",
+      "field.created",
+      "enum.changed",
+      "inference-decision.recorded",
+    ]);
+    expect(isTailEventKind("app.created")).toBe(false);
+    expect(isTailEventKind("import.accepted")).toBe(false);
+  });
+
+  it("reads promotion's table.created, with and without the sheet descriptor", () => {
+    // The shape promotion writes today (no descriptor): the sheet reads null.
+    const withoutSheet = decodeTailEventPayload(
+      "table.created",
+      roundTrip(encodeImportEventPayload.tableCreated({ table, sourceSheetId: sheetId })),
+    );
+    expect(withoutSheet).toEqual({
+      kind: "table.created",
+      payload: { table, sourceSheetId: sheetId, sourceSheet: null },
+    });
+
+    const withSheet = decodeTailEventPayload(
+      "table.created",
+      roundTrip(
+        new Map<string, CborValue>([
+          ...(encodeImportEventPayload.tableCreated({
+            table,
+            sourceSheetId: sheetId,
+          }) as ReadonlyMap<string, CborValue>),
+          ["sourceSheet", encodeSheetDescriptor(sheet)],
+        ]),
+      ),
+    );
+    expect(withSheet).toEqual({
+      kind: "table.created",
+      payload: { table, sourceSheetId: sheetId, sourceSheet: sheet },
+    });
+  });
+
+  it("reads field.created and enum.changed as promotion encodes them", () => {
+    expect(
+      decodeTailEventPayload(
+        "field.created",
+        roundTrip(
+          encodeImportEventPayload.fieldCreated({
+            field: table.fields[1]!,
+            statementId: "field-type:1",
+          }),
+        ),
+      ),
+    ).toEqual({
+      kind: "field.created",
+      payload: { field: table.fields[1], evidence: "field-type:1" },
+    });
+    expect(
+      decodeTailEventPayload(
+        "enum.changed",
+        roundTrip(
+          encodeImportEventPayload.enumChanged({
+            fieldId: statusField,
+            priorOptionSetSha256: null,
+            options: [option],
+          }),
+        ),
+      ),
+    ).toEqual({
+      kind: "enum.changed",
+      payload: { fieldId: statusField, priorOptionSetSha256: null, options: [option] },
+    });
+  });
+
+  it("refuses a table.created with a stray field", () => {
+    expect(() =>
+      decodeTailEventPayload(
+        "table.created",
+        roundTrip(
+          new Map<string, CborValue>([
+            ...(encodeImportEventPayload.tableCreated({
+              table,
+              sourceSheetId: sheetId,
+            }) as ReadonlyMap<string, CborValue>),
+            ["extra", 1n],
+          ]),
+        ),
+      ),
+    ).toThrow(CodecError);
   });
 });

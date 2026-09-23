@@ -194,7 +194,11 @@ async function runReplay(input: {
       option(optionOpen, "Open", 0),
       option(optionOverdue, "Overdue", 1),
     ],
+    relationships: [],
     validationRules: [],
+    inertItems: [],
+    importLineages: [],
+    inferenceDecisions: [],
     recordPages: [
       {
         records: [

@@ -44,6 +44,11 @@ describe("the projection port and the projection engine", () => {
     mutual<Port.ProjectionRecordV1, Engine.ProjectionRecordV1>(true);
     mutual<Port.ProjectionRecordPageV1, Engine.ProjectionRecordPageV1>(true);
     mutual<Port.ProjectionCheckpointV1, Engine.ProjectionCheckpointV1>(true);
+    mutual<Port.ProjectionInertItemV1, Engine.ProjectionInertItemV1>(true);
+    mutual<
+      Port.ProjectionInferenceDecisionV1,
+      Engine.ProjectionInferenceDecisionV1
+    >(true);
     mutual<Port.ProjectionCommitV1, Engine.ProjectionCommitV1>(true);
     expect(true).toBe(true);
   });
@@ -69,25 +74,29 @@ describe("the projection port and the projection engine", () => {
       Engine.ProjectionChangeHistoryPageV1
     >(true);
     mutual<Port.ProjectionSubjectKindV1, Engine.ChangeSubjectKindV1>(true);
+    mutual<Port.ProjectionRelationshipV1, Engine.ProjectionRelationshipV1>(true);
     expect(true).toBe(true);
   });
 
-  it("keeps the query surface closed at eleven members", () => {
-    // A twelfth kind on either side breaks the mutual assignability above; this
-    // is the human-readable half of the same fact.
-    const kinds: readonly Port.ProjectionQueryKindV1[] = [
-      "app-state",
-      "list-tables",
-      "list-fields",
-      "list-enum-options",
-      "list-validation-rules",
-      "count-records",
-      "page-records",
-      "search-records",
-      "record-by-id",
-      "page-change-history",
-      "record-change-history",
-    ];
-    expect(new Set(kinds).size).toBe(11);
+  it("keeps the query surface closed, member by member", () => {
+    // A `Record` over the kind union is exhaustive both ways: a kind added on
+    // either side without being listed here, or listed here without existing,
+    // is a compile error.
+    const kinds: Readonly<Record<Port.ProjectionQueryKindV1, true>> = {
+      "app-state": true,
+      "list-tables": true,
+      "list-fields": true,
+      "list-enum-options": true,
+      "list-validation-rules": true,
+      "count-records": true,
+      "page-records": true,
+      "search-records": true,
+      "record-by-id": true,
+      "page-change-history": true,
+      "record-change-history": true,
+      "record-is-live": true,
+      "list-relationships": true,
+    };
+    expect(Object.keys(kinds)).toHaveLength(13);
   });
 });

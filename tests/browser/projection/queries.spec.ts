@@ -211,6 +211,10 @@ async function runQueries(): Promise<QueryReport> {
         schemaRevision: 1n,
       },
     ],
+    relationships: [],
+    inertItems: [],
+    importLineages: [],
+    inferenceDecisions: [],
     validationRules: [
       {
         tableId: invoices,

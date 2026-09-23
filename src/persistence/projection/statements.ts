@@ -99,6 +99,31 @@ INSERT INTO validation_rules (
   message_parameters_cbor, is_active, schema_revision
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
 
+/** The endpoint trigger refuses a source that is not a reference, or a key that is not the target's. */
+export const INSERT_RELATIONSHIP = `
+INSERT INTO relationships (
+  relationship_id, from_table_id, from_field_id, to_table_id, to_key_field_id,
+  detection_source, is_active, schema_revision
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
+
+export const INSERT_INERT_CONTENT = `
+INSERT INTO inert_content (
+  inert_item_id, sheet_id, item_kind, source_location, reason_key,
+  snapshot_anchor_cbor, preserved_manifest_storage_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);`;
+
+export const INSERT_IMPORT_LINEAGE = `
+INSERT INTO import_lineages (
+  lineage_id, import_kind, import_ordinal, source_display_name, source_sha256,
+  accepted_at_ms, identity_decisions_cbor, accepted_commit_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
+
+export const INSERT_INFERENCE_DECISION = `
+INSERT INTO inference_decisions (
+  decision_id, decision_kind, evidence_fingerprint_sha256, disposition,
+  statement_cbor, evidence_cbor, recorded_event_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);`;
+
 export const INSERT_RECORD = `
 INSERT INTO records (
   record_id, table_id, record_revision, created_commit_id, updated_commit_id,
@@ -189,6 +214,31 @@ SELECT rule_id, table_id, display_name, rule_ir_cbor, message_key,
        message_parameters_cbor, is_active, schema_revision
   FROM validation_rules
  WHERE table_id = ? AND is_active = 1;`;
+
+const RELATIONSHIP_COLUMNS = `
+       rel.relationship_id, rel.from_table_id, rel.from_field_id, rel.to_table_id,
+       rel.to_key_field_id, rel.detection_source, rel.is_active,
+       rel.schema_revision, from_table.display_name, to_table.display_name`;
+
+export const SELECT_ALL_RELATIONSHIPS = `
+SELECT ${RELATIONSHIP_COLUMNS}
+  FROM relationships AS rel
+  JOIN schema_tables AS from_table ON from_table.table_id = rel.from_table_id
+  JOIN schema_tables AS to_table ON to_table.table_id = rel.to_table_id
+ ORDER BY from_table.table_ordinal, rel.relationship_id;`;
+
+/** Both directions: the table as child (source) and as parent (target). */
+export const SELECT_RELATIONSHIPS_FOR_TABLE = `
+SELECT ${RELATIONSHIP_COLUMNS}
+  FROM relationships AS rel
+  JOIN schema_tables AS from_table ON from_table.table_id = rel.from_table_id
+  JOIN schema_tables AS to_table ON to_table.table_id = rel.to_table_id
+ WHERE rel.from_table_id = ? OR rel.to_table_id = ?
+ ORDER BY from_table.table_ordinal, rel.relationship_id;`;
+
+/** The resolver's predicate: a live record, in exactly the named table. */
+export const SELECT_RECORD_IS_LIVE = `
+SELECT 1 FROM records WHERE record_id = ? AND table_id = ?;`;
 
 /** The only exact count in the engine (CA-14): `count(*)`, never a page total. */
 export const COUNT_RECORDS_FOR_TABLE =

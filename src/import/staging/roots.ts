@@ -262,7 +262,7 @@ const encodeFieldDef = (definition: FieldDefV1): CborValue =>
     ["schemaRevision", definition.schemaRevision],
   ]);
 
-const decodeFieldDef = (value: DecodedValue): FieldDefV1 => {
+export const decodeFieldDef = (value: DecodedValue): FieldDefV1 => {
   const map = exactKeys(
     asMap(value, "a field definition"),
     [
@@ -314,7 +314,7 @@ const encodeTableDef = (table: TableDefV1): CborValue =>
 const optionalId = <T>(value: DecodedValue, what: string): T | null =>
   value === null ? null : (bytesOfLength(value, ID_BYTES, what) as T);
 
-const decodeTableDef = (value: DecodedValue): TableDefV1 => {
+export const decodeTableDef = (value: DecodedValue): TableDefV1 => {
   const map = exactKeys(
     asMap(value, "a table definition"),
     [
@@ -353,7 +353,7 @@ const encodeEnumOption = (option: EnumOptionDefV1): CborValue =>
     ["schemaRevision", option.schemaRevision],
   ]);
 
-const decodeEnumOption = (value: DecodedValue): EnumOptionDefV1 => {
+export const decodeEnumOption = (value: DecodedValue): EnumOptionDefV1 => {
   const map = exactKeys(
     asMap(value, "an enum option"),
     [

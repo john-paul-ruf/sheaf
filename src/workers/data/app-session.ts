@@ -27,14 +27,22 @@
  *   the commits it covers — so the canonically last covered commit is the one
  *   that produced these rows.
  *
- * **`validationRules` is `[]` and that is not a missing producer.** F02 authors
- * no rule events and S04's checkpoint manifest carries no rules by design; the
- * editors arrive in F04. `list-validation-rules` is therefore truthfully empty.
+ * - **The workbook roots map straight through (D37).** Sheet classifications
+ *   and revisions, relationships, rules, inert items, lineages, and decisions
+ *   come from the decoded manifest as written; an F02 manifest decodes to its
+ *   F02-true defaults in `roots.ts`, never here. The one filter: a decision
+ *   with no decision kind is durable evidence but not a projection row.
+ * - **References on a checkpoint page resolve against the checkpoint's own
+ *   records** — the same {@link ReferenceResolver} predicate promotion answers
+ *   from its key map, over the rows promotion actually wrote.
  *
  * **The tail is replayed one commit at a time**, and the validator decides each
  * one against the state the projection actually holds at that moment — the same
- * decision `executeCommand` made when the commit was written. Replaying without
- * it would bring a record back after a restart with its warnings silently gone.
+ * decision `executeCommand` made when the commit was written, through the same
+ * context builder, resolver, and provenance rule. Replaying without it would
+ * bring a record back after a restart with its warnings silently gone. A tail
+ * may create a table (an appended CSV, D38); its records are then validated
+ * against that table, because the context comes from the projection.
  * `hydrateApp(checkpoint, [])` followed by `applyEvents` performs exactly the
  * writes of `hydrateApp(checkpoint, tail)` by S02's construction, so CA-13's
  * equivalence is preserved rather than worked around.
@@ -54,15 +62,20 @@ import {
   type CommitId,
   type DeviceId,
   type FieldId,
-  type TableId,
 } from "../../domain/model/ids.js";
 import type { AuthoredRecordV1, F02DomainEventV1 } from "../../domain/model/events.js";
+import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
 import type { EnumOptionDefV1, TableDefV1 } from "../../domain/model/schema.js";
-import { MISSING_VALUE, type CellValueV1 } from "../../domain/model/values.js";
+import type { CellValueV1 } from "../../domain/model/values.js";
 import {
   validateRecord,
+  type ReferenceResolver,
   type ValidationContext,
 } from "../../domain/validation/validate-record.js";
+import {
+  changeProvenance,
+  validateAgainstProjection,
+} from "../../application/commands/execute-command.js";
 import type { EnvelopeKeyRefV1 } from "../../application/ports/envelope-crypto.js";
 import type {
   ProjectionEnginePort,
@@ -71,7 +84,11 @@ import type {
   ProjectionQueryV1 as PortQueryV1,
 } from "../../application/ports/projection.js";
 import { sha256 } from "../../crypto/hash.js";
-import type { StoredRecordV1 } from "../../import/staging/roots.js";
+import {
+  resolveCheckpointManifest,
+  type ResolvedCheckpointManifestV1,
+  type StoredRecordV1,
+} from "../../import/staging/roots.js";
 import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
 import {
   applyEvents,
@@ -94,10 +111,7 @@ import {
   type LoadedAppV1,
   type WorkerSessionContextV1,
 } from "./event-store.js";
-import {
-  decodeRecordEventPayload,
-  isRecordEventKind,
-} from "./record-event-payloads.js";
+import { decodeTailEventPayload, isTailEventKind } from "./record-event-payloads.js";
 
 /** Everything `validateRecord` needs for one table, on one set of instances. */
 interface TableContextV1 {
@@ -127,12 +141,16 @@ export async function openAppSession(
   input: OpenAppSessionInputV1,
 ): Promise<AppSessionV1> {
   const loaded = await loadApp(input.ports, input.appKey, input.appHeadStorageId);
-  const contexts = tableContexts(loaded.checkpoint.tables, loaded.checkpoint.enumOptions);
+  const checkpoint = resolveCheckpointManifest(loaded.checkpoint);
+  const contexts = tableContexts(checkpoint, checkpointResolver(loaded));
 
   const handle = await openProjection({ sha256 });
   try {
-    await hydrateApp(handle, toProjectionCheckpoint(loaded, contexts, input.hydratedAtMs));
-    await replayTail(handle, loaded, contexts);
+    await hydrateApp(
+      handle,
+      toProjectionCheckpoint(loaded, checkpoint, contexts, input.hydratedAtMs),
+    );
+    await replayTail(handle, loaded);
   } catch (cause) {
     // `openProjection`/`hydrateApp` dispose on their own failure paths; this
     // covers the tail, and disposing twice is safe.
@@ -186,43 +204,76 @@ function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
 // ------------------------------------------------------- checkpoint mapping --
 
 function tableContexts(
-  tables: readonly TableDefV1[],
-  enumOptions: readonly EnumOptionDefV1[],
+  checkpoint: Omit<ResolvedCheckpointManifestV1, "semanticSha256">,
+  referenceExists: ReferenceResolver,
 ): ReadonlyMap<string, TableContextV1> {
   const contexts = new Map<string, TableContextV1>();
-  for (const table of tables) {
+  for (const table of checkpoint.tables) {
     const optionsByField = new Map<FieldId, readonly EnumOptionDefV1[]>();
     for (const field of table.fields) {
       if (field.type.kind === "enum") {
         optionsByField.set(
           field.fieldId,
-          enumOptions.filter(
+          checkpoint.enumOptions.filter(
             (option) =>
               encodeDomainId(option.fieldId) === encodeDomainId(field.fieldId),
           ),
         );
       }
     }
-    contexts.set(encodeDomainId(table.tableId), {
+    const tableKey = encodeDomainId(table.tableId);
+    contexts.set(tableKey, {
       table,
       context: {
         table,
         enumOptions: optionsByField,
-        // Roshi Seam A: the checkpoint manifest carries no rules by design.
-        rules: [],
-        referenceExists: (): boolean => false,
+        rules: checkpoint.validationRules
+          .filter(
+            (rule) => rule.isActive && encodeDomainId(rule.tableId) === tableKey,
+          )
+          .map((rule) => rule.rule),
+        referenceExists,
+        referenceTargets: checkpoint.relationships
+          .filter(
+            (relationship) =>
+              relationship.isActive &&
+              encodeDomainId(relationship.fromTableId) === tableKey,
+          )
+          .map((relationship) => ({
+            fieldId: canonicalField(table, relationship.fromFieldId),
+            tableId: relationship.toTableId,
+            tableLabel:
+              checkpoint.tables.find(
+                (target) =>
+                  encodeDomainId(target.tableId) ===
+                  encodeDomainId(relationship.toTableId),
+              )?.displayName ?? "",
+          })),
       },
     });
   }
   return contexts;
 }
 
+/** Live means present on one of this checkpoint's record pages, in that table. */
+function checkpointResolver(loaded: LoadedAppV1): ReferenceResolver {
+  const live = new Set(
+    loaded.recordPages.flatMap((page) =>
+      page.records.map(
+        (record) => `${encodeDomainId(record.tableId)}:${encodeDomainId(record.recordId)}`,
+      ),
+    ),
+  );
+  return (tableId, recordId) =>
+    live.has(`${encodeDomainId(tableId)}:${encodeDomainId(recordId)}`);
+}
+
 export function toProjectionCheckpoint(
   loaded: LoadedAppV1,
+  checkpoint: Omit<ResolvedCheckpointManifestV1, "semanticSha256">,
   contexts: ReadonlyMap<string, TableContextV1>,
   hydratedAtMs: number,
 ): ProjectionCheckpointV1 {
-  const { checkpoint } = loaded;
   const commitId = checkpointCommitId(loaded);
 
   return {
@@ -233,22 +284,36 @@ export function toProjectionCheckpoint(
     hydratedAtMs,
     appState: checkpoint.appState,
     sheetSnapshots: checkpoint.sheetSnapshots.map((sheet) => ({
-      sheetId: sheet.sheetId,
-      displayName: sheet.displayName,
-      sheetOrdinal: sheet.sheetOrdinal,
-      // A delimited import produces exactly one table sheet; nothing about a
-      // CSV can classify it as a lookup, a summary, or a chart.
-      classification: ["table" as const],
+      ...sheet,
       snapshotManifestStorageId: decodeStorageId16(sheet.snapshotManifestStorageId),
-      declaredRowCount: sheet.declaredRowCount,
-      declaredColumnCount: sheet.declaredColumnCount,
-      // The manifest records no revision of its own; the snapshot was written
-      // with this schema and moves only when the schema does.
-      snapshotRevision: checkpoint.schemaRevision,
     })),
     tables: checkpoint.tables,
     enumOptions: checkpoint.enumOptions,
-    validationRules: [],
+    relationships: checkpoint.relationships,
+    validationRules: checkpoint.validationRules,
+    inertItems: checkpoint.inertItems.map((item) => ({
+      ...item,
+      preservedManifestStorageId:
+        item.preservedManifestStorageId === null
+          ? null
+          : decodeStorageId16(item.preservedManifestStorageId),
+    })),
+    importLineages: checkpoint.importLineages,
+    inferenceDecisions: checkpoint.inferenceDecisions.flatMap((decision) =>
+      decision.decisionKind === null
+        ? []
+        : [
+            {
+              decisionId: decision.decisionId,
+              decisionKind: decision.decisionKind,
+              evidenceFingerprint: decision.evidenceFingerprint,
+              disposition: decision.disposition,
+              statement: decision.statement,
+              evidence: decision.evidence,
+              recordedEventId: decision.recordedEventId,
+            },
+          ],
+    ),
     recordPages: loaded.recordPages.map((page) => ({
       records: page.records.map((record) =>
         toProjectionRecord(record, contexts, commitId),
@@ -385,7 +450,6 @@ function canonicalField(table: TableDefV1, fieldId: FieldId): FieldId {
 async function replayTail(
   handle: ProjectionHandleV1,
   loaded: LoadedAppV1,
-  contexts: ReadonlyMap<string, TableContextV1>,
 ): Promise<void> {
   const covered = new Map(
     loaded.checkpoint.frontier.map((entry) => [
@@ -393,6 +457,7 @@ async function replayTail(
       entry.commitSequence,
     ]),
   );
+  const projection = engineAdapter(handle);
 
   for (const commit of loaded.commits) {
     const seen = covered.get(encodeDomainId(asDomainId("device", commit.deviceId))) ?? 0n;
@@ -401,27 +466,27 @@ async function replayTail(
     }
     // One at a time: each event's issues are decided against the state the
     // projection holds *now*, which is the state the command decided against.
-    await applyEvents(handle, [toProjectionCommit(handle, commit, contexts)]);
+    await applyEvents(handle, [toProjectionCommit(projection, commit)]);
   }
 }
 
 function toProjectionCommit(
-  handle: ProjectionHandleV1,
+  projection: ProjectionEnginePort,
   commit: EventCommitV1,
-  contexts: ReadonlyMap<string, TableContextV1>,
 ): ProjectionCommitV1 {
   const events: F02DomainEventV1[] = [];
   const issuesByEventIndex = new Map<number, readonly ValidationIssueV1Input[]>();
 
   commit.events.forEach((wire, index) => {
-    if (!isRecordEventKind(wire.kind)) {
-      // F02's tail is CRUD only. A kind that is not one of the four is a
-      // commit this build cannot replay, and guessing would be worse.
+    if (!isTailEventKind(wire.kind)) {
+      // A tail is CRUD, or an appended table's one import commit (D38). Any
+      // other kind is a commit this build cannot replay, and guessing would
+      // be worse.
       throw new IntegrityError("a tail commit carries an event this build cannot replay");
     }
-    const typed = decodeRecordEventPayload(wire.kind, wire.payload as never);
+    const typed = decodeTailEventPayload(wire.kind, wire.payload as never);
     events.push(typed);
-    const issues = issuesForEvent(handle, contexts, typed);
+    const issues = issuesForEvent(projection, typed);
     if (issues.length > 0) {
       issuesByEventIndex.set(index, issues);
     }
@@ -434,17 +499,15 @@ function toProjectionCommit(
 
 /** The one shared validator, re-deciding exactly what it decided at write time. */
 function issuesForEvent(
-  handle: ProjectionHandleV1,
-  contexts: ReadonlyMap<string, TableContextV1>,
+  projection: ProjectionEnginePort,
   event: F02DomainEventV1,
 ): readonly ValidationIssueV1Input[] {
   switch (event.kind) {
     case "record.created":
-      return validateAgainst(contexts, event.payload.record);
     case "record.restored":
-      return validateAgainst(contexts, event.payload.record);
+      return validated(projection, event.payload.record, event.payload.record.provenance);
     case "record.patched": {
-      const current = executeQuery(handle, {
+      const current = projection.execute({
         kind: "record-by-id",
         recordId: event.payload.recordId,
       });
@@ -453,62 +516,40 @@ function issuesForEvent(
         // them, with their message, rather than inventing a verdict here.
         return [];
       }
-      const values = new Map(current.authoredValues);
+      const values = new Map<string, readonly [FieldId, CellValueV1]>(
+        [...current.authoredValues].map(([fieldId, value]) => [
+          encodeDomainId(fieldId),
+          [fieldId, value] as const,
+        ]),
+      );
       for (const change of event.payload.changes) {
-        values.set(canonicalOf(contexts, event.payload.tableId, change.fieldId), change.after);
+        values.set(encodeDomainId(change.fieldId), [change.fieldId, change.after]);
       }
-      return validateAgainst(contexts, {
-        recordId: event.payload.recordId,
-        tableId: event.payload.tableId,
-        values,
-        provenance: new Map(),
-      });
+      return validated(
+        projection,
+        {
+          recordId: event.payload.recordId,
+          tableId: event.payload.tableId,
+          values: new Map(values.values()),
+        },
+        changeProvenance(event.payload.changes),
+      );
     }
-    case "record.deleted":
-      return [];
     default:
       return [];
   }
 }
 
-function validateAgainst(
-  contexts: ReadonlyMap<string, TableContextV1>,
-  record: AuthoredRecordV1,
+function validated(
+  projection: ProjectionEnginePort,
+  record: Pick<AuthoredRecordV1, "recordId" | "tableId" | "values">,
+  provenance: ReadonlyMap<FieldId, ValueProvenanceV1>,
 ): readonly ValidationIssueV1Input[] {
-  const entry = contexts.get(encodeDomainId(record.tableId));
-  if (entry === undefined) {
-    return [];
-  }
-  const values = new Map<FieldId, CellValueV1>();
-  for (const field of entry.table.fields) {
-    const value = [...record.values].find(
-      ([fieldId]) => encodeDomainId(fieldId) === encodeDomainId(field.fieldId),
-    )?.[1];
-    values.set(field.fieldId, value ?? MISSING_VALUE);
-  }
-  for (const [fieldId, value] of record.values) {
-    if (
-      !entry.table.fields.some(
-        (field) => encodeDomainId(field.fieldId) === encodeDomainId(fieldId),
-      )
-    ) {
-      values.set(fieldId, value);
-    }
-  }
-  return validateRecord(entry.context, {
-    recordId: record.recordId,
-    tableId: entry.table.tableId,
-    values,
-  }).issues.map(toIssueInput);
-}
-
-function canonicalOf(
-  contexts: ReadonlyMap<string, TableContextV1>,
-  tableId: TableId,
-  fieldId: FieldId,
-): FieldId {
-  const entry = contexts.get(encodeDomainId(tableId));
-  return entry === undefined ? fieldId : canonicalField(entry.table, fieldId);
+  return (
+    validateAgainstProjection(projection, { ...record, provenance })?.issues.map(
+      toIssueInput,
+    ) ?? []
+  );
 }
 
 // ------------------------------------------------------------------ registry --

@@ -25,10 +25,11 @@
 import { CodecError } from "../../domain/model/errors.js";
 import { asDomainId } from "../../domain/model/ids.js";
 import type { FieldId, RecordId } from "../../domain/model/ids.js";
-import type {
-  FieldDefV1,
-  FieldTypeV1,
-  StorageKindV1,
+import {
+  RELATIONSHIP_DETECTION_SOURCES,
+  type FieldDefV1,
+  type FieldTypeV1,
+  type StorageKindV1,
 } from "../../domain/model/schema.js";
 import type { EnumOptionDefV1 } from "../../domain/model/schema.js";
 import type { EventClassV1 } from "../../migrations/004_event_format_v1.js";
@@ -59,6 +60,7 @@ import {
   SEARCH_RECORDS_AFTER,
   SEARCH_RECORDS_FIRST,
   SELECT_ACTIVE_TABLES,
+  SELECT_ALL_RELATIONSHIPS,
   SELECT_APP_STATE,
   SELECT_CELLS_FOR_RECORD,
   SELECT_ENUM_OPTIONS_FOR_FIELD,
@@ -66,6 +68,8 @@ import {
   SELECT_HISTORY_FOR_RECORD,
   SELECT_ISSUES_FOR_RECORD,
   SELECT_RECORD_BY_ID,
+  SELECT_RECORD_IS_LIVE,
+  SELECT_RELATIONSHIPS_FOR_TABLE,
   SELECT_RULES_FOR_TABLE,
   toFtsMatchQuery,
 } from "./statements.js";
@@ -82,6 +86,7 @@ import type {
   ProjectionRecordDetailV1,
   ProjectionRecordPageResultV1,
   ProjectionRecordSummaryV1,
+  ProjectionRelationshipV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,
 } from "./types.js";
@@ -164,6 +169,21 @@ function runQuery(
           query.recordId,
           boundedLimit(query.limit),
         ]).map(toChangeEvent),
+      );
+    case "record-is-live":
+      return answer(
+        selectRow(handle, SELECT_RECORD_IS_LIVE, [query.recordId, query.tableId]) !==
+          null,
+      );
+    case "list-relationships":
+      return answer(
+        (query.tableId === null
+          ? selectRows(handle, SELECT_ALL_RELATIONSHIPS)
+          : selectRows(handle, SELECT_RELATIONSHIPS_FOR_TABLE, [
+              query.tableId,
+              query.tableId,
+            ])
+        ).map(toRelationship),
       );
     default: {
       const unreachable: never = query;
@@ -425,6 +445,30 @@ function fieldTypeOf(
     throw new CodecError("currency field has no currency code in this session");
   }
   return known;
+}
+
+function toRelationship(row: Row): ProjectionRelationshipV1 {
+  const source = textAt(row, 5);
+  const detectionSource = RELATIONSHIP_DETECTION_SOURCES.find(
+    (candidate) => candidate === source,
+  );
+  if (detectionSource === undefined) {
+    throw new CodecError("detection source is not in the closed v1 list");
+  }
+  return {
+    relationship: {
+      relationshipId: asDomainId("relationship", bytesAt(row, 0)),
+      fromTableId: asDomainId("table", bytesAt(row, 1)),
+      fromFieldId: asDomainId("field", bytesAt(row, 2)),
+      toTableId: asDomainId("table", bytesAt(row, 3)),
+      toKeyFieldId: asDomainId("field", bytesAt(row, 4)),
+      detectionSource,
+      isActive: numberAt(row, 6) === 1,
+      schemaRevision: BigInt(numberAt(row, 7)),
+    },
+    fromTableName: textAt(row, 8),
+    toTableName: textAt(row, 9),
+  };
 }
 
 function toEnumOption(row: Row): EnumOptionDefV1 {

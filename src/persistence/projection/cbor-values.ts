@@ -67,6 +67,7 @@ import {
 } from "../codecs/canonical-cbor.js";
 import { sortFrontier } from "../codecs/event-commit.js";
 import type { FrontierEntryV1 } from "../../migrations/004_event_format_v1.js";
+import type { CellRangeV1 } from "../../domain/model/snapshots.js";
 import type { ProjectionChangeSummaryV1 } from "./types.js";
 
 type CborMap = Map<string, CborValue>;
@@ -556,4 +557,42 @@ function readBytes(map: DecodedMap, field: string): Uint8Array {
 
 function readInteger(map: DecodedMap, field: string): bigint {
   return asInteger(required(map, field), field);
+}
+
+// ------------------------------------------------------ workbook roots (F03) --
+
+/** `inert_content.snapshot_anchor_cbor`: a zero-based inclusive cell range. */
+export function encodeSnapshotAnchor(range: CellRangeV1): Uint8Array {
+  return encodeCanonical(
+    new Map<string, CborValue>([
+      ["firstRow", range.firstRow],
+      ["firstColumn", range.firstColumn],
+      ["lastRow", range.lastRow],
+      ["lastColumn", range.lastColumn],
+    ]),
+  );
+}
+
+export function decodeSnapshotAnchor(bytes: Uint8Array): CellRangeV1 {
+  const map = asMap(decodeCanonical(bytes), "snapshot anchor");
+  const at = (name: string): number => Number(readInteger(map, name));
+  return {
+    firstRow: at("firstRow"),
+    firstColumn: at("firstColumn"),
+    lastRow: at("lastRow"),
+    lastColumn: at("lastColumn"),
+  };
+}
+
+/**
+ * A producer-shaped value the projection stores and never interprets — a
+ * decision's statement and evidence, a lineage's identity decisions. It was
+ * decoded from canonical CBOR, so it re-encodes to the same bytes.
+ */
+export function encodeOpaque(value: unknown): Uint8Array {
+  return encodeCanonical(value as CborValue);
+}
+
+export function decodeOpaque(bytes: Uint8Array): unknown {
+  return decodeCanonical(bytes);
 }

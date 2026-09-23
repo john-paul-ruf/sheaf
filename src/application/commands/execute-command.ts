@@ -55,6 +55,7 @@ import type {
 import type { ValidationReport } from "../../domain/validation/rules.js";
 import {
   validateRecord,
+  type ReferenceResolver,
   type ValidationContext,
 } from "../../domain/validation/validate-record.js";
 import type { ClockPort } from "../ports/clock.js";
@@ -171,10 +172,12 @@ async function createRecord(
 
   const recordId = createDomainId("record", deps.entropy);
   const values = completeValues(context.table.fields, command.values);
+  const provenance = provenanceFor(values);
   const report = validateRecord(context, {
     recordId,
     tableId: context.table.tableId,
     values,
+    provenance,
   });
   if (!report.isValid) {
     return { outcome: "rejected", report };
@@ -184,7 +187,7 @@ async function createRecord(
     recordId,
     tableId: context.table.tableId,
     values,
-    provenance: provenanceFor(values),
+    provenance,
   };
 
   const commit = await commitEvents(
@@ -238,15 +241,6 @@ async function patchRecord(
     after.set(fieldId, value);
   }
 
-  const report = validateRecord(context, {
-    recordId: current.recordId,
-    tableId: context.table.tableId,
-    values: after,
-  });
-  if (!report.isValid) {
-    return { outcome: "rejected", report };
-  }
-
   const changes: readonly FieldChangeV1[] = [...requested]
     .filter(([fieldId, value]) => {
       const previous = before.get(fieldId) ?? MISSING_VALUE;
@@ -258,6 +252,18 @@ async function patchRecord(
       after: value,
       provenance: AUTHORED,
     }));
+
+  // Only the values that move are authored by this patch; a reference carried
+  // over unchanged is judged as the earlier write left it (D36).
+  const report = validateRecord(context, {
+    recordId: current.recordId,
+    tableId: context.table.tableId,
+    values: after,
+    provenance: changeProvenance(changes),
+  });
+  if (!report.isValid) {
+    return { outcome: "rejected", report };
+  }
 
   if (changes.length === 0) {
     // Nothing moved. An event here would record a change the data does not
@@ -409,10 +415,12 @@ async function restoreRecord(
   // FR-12: a restore is validated before it commits, against the schema as it
   // stands now — not as it stood when the record was deleted.
   const values = completeValues(context.table.fields, restoration.values);
+  const provenance = rekeyByFields(context.table.fields, restoration.provenance);
   const report = validateRecord(context, {
     recordId: restoration.recordId,
     tableId: context.table.tableId,
     values,
+    provenance,
   });
   if (!report.isValid) {
     return { outcome: "rejected", report };
@@ -422,7 +430,7 @@ async function restoreRecord(
     recordId: restoration.recordId,
     tableId: context.table.tableId,
     values,
-    provenance: rekeyByFields(context.table.fields, restoration.provenance),
+    provenance,
   };
 
   const commit = await commitEvents(
@@ -532,10 +540,74 @@ export function buildValidationContext(
     rules: projection
       .execute({ kind: "list-validation-rules", tableId: summary.tableId })
       .map((rule) => rule.rule),
-    // F02 proposes no reference field (D25); nothing can be referenced.
-    referenceExists: (): boolean => false,
+    referenceExists: projectionReferenceResolver(projection),
+    referenceTargets: projection
+      .execute({ kind: "list-relationships", tableId: summary.tableId })
+      .filter(
+        ({ relationship }) =>
+          relationship.isActive &&
+          encodeDomainId(relationship.fromTableId) === encodeDomainId(summary.tableId),
+      )
+      .map(({ relationship, toTableName }) => ({
+        fieldId: canonicalFieldId(fields, relationship.fromFieldId),
+        tableId: relationship.toTableId,
+        tableLabel: toTableName,
+      })),
   };
 }
+
+/**
+ * The one reference resolver over a hydrated app: a record id resolves when a
+ * record with that id is live in exactly the named table — deleted, absent,
+ * and "live in another table" all fail. Commands and tail replay use this;
+ * promotion answers the same {@link ReferenceResolver} type from its own key
+ * map.
+ */
+export function projectionReferenceResolver(
+  projection: ProjectionEnginePort,
+): ReferenceResolver {
+  return (tableId, recordId) =>
+    projection.execute({ kind: "record-is-live", tableId, recordId });
+}
+
+/**
+ * Validates a record exactly as a command would against the projection as it
+ * stands now — the tail-replay half of invariant 5. Null when the projection
+ * holds no such table.
+ */
+export function validateAgainstProjection(
+  projection: ProjectionEnginePort,
+  record: {
+    readonly recordId: RecordId;
+    readonly tableId: TableId;
+    readonly values: ReadonlyMap<FieldId, CellValueV1>;
+    readonly provenance: ReadonlyMap<FieldId, ValueProvenanceV1>;
+  },
+): ValidationReport | null {
+  const context = buildValidationContext(projection, record.tableId);
+  if (context === null) {
+    return null;
+  }
+  return validateRecord(context, {
+    recordId: record.recordId,
+    tableId: context.table.tableId,
+    values: completeValues(context.table.fields, record.values),
+    provenance: rekeyByFields(context.table.fields, record.provenance),
+  });
+}
+
+const canonicalFieldId = (
+  fields: readonly FieldDefV1[],
+  fieldId: FieldId,
+): FieldId =>
+  fields.find((field) => encodeDomainId(field.fieldId) === encodeDomainId(fieldId))
+    ?.fieldId ?? fieldId;
+
+/** The provenance a patch asserts: exactly the fields it moves. */
+export const changeProvenance = (
+  changes: readonly FieldChangeV1[],
+): ReadonlyMap<FieldId, ValueProvenanceV1> =>
+  new Map(changes.map((change) => [change.fieldId, change.provenance]));
 
 /**
  * Re-keys a map onto `fields`' own `FieldId` instances. An id no field

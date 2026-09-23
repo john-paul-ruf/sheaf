@@ -101,7 +101,11 @@ const buildCheckpoint = (): ProjectionCheckpointV1 => {
       },
     ],
     enumOptions: [],
+    relationships: [],
     validationRules: [],
+    inertItems: [],
+    importLineages: [],
+    inferenceDecisions: [],
     recordPages: [
       {
         records: [9, 10].map((fill) => ({

@@ -1,6 +1,7 @@
 /**
  * The semantic payload ↔ canonical CBOR mapping for the four record events
- * F02's CRUD authors (M33; CA-08 producer, CA-13 consumer).
+ * F02's CRUD authors (M33; CA-08 producer, CA-13 consumer), and the read half
+ * of the schema events an appended table's commit carries (CA-23, D38).
  *
  * M09 carries `DomainEventV1.payload` as **opaque** canonical CBOR, so the
  * author of a commit owns what it means. `src/import/staging/events.ts` is that
@@ -12,6 +13,14 @@
  * agreement S02's guards check — typed events matching the commit they ride on
  * — is only real if one file owns both directions. `encode∘decode` is asserted
  * to be identity in `tests/unit/workers/record-event-payloads.test.ts`.
+ *
+ * The append commit's `table.created`, `field.created`, `enum.changed`, and
+ * `inference-decision.recorded` payloads are written by promotion
+ * (`src/import/staging/events.ts`), which owns their encoding; this file owns
+ * reading them back when that commit is replayed after a restart. Their table,
+ * field, option, and sheet shapes are M23's `roots.ts` codecs, so a definition
+ * reads the same from a checkpoint and from an event. A `table.created` written
+ * before F03 carries no `sourceSheet` and reads as `null`.
  *
  * The cell-value mapping is **M23's own** (`encodeCellValue`/`decodeCellValue`),
  * not a second copy: a value stored in a checkpoint record page and the same
@@ -29,7 +38,7 @@ import type {
   RecordPatchedPayloadV1,
   RecordRestoredPayloadV1,
 } from "../../domain/model/events.js";
-import { DELETION_SOURCES } from "../../domain/model/events.js";
+import { DELETION_SOURCES, INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
 import type { FieldId } from "../../domain/model/ids.js";
 import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
 import {
@@ -37,7 +46,14 @@ import {
   type ValueProvenanceV1,
 } from "../../domain/model/provenance.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
-import { decodeCellValue, encodeCellValue } from "../../import/staging/roots.js";
+import {
+  decodeCellValue,
+  decodeEnumOption,
+  decodeFieldDef,
+  decodeSheetDescriptor,
+  decodeTableDef,
+  encodeCellValue,
+} from "../../import/staging/roots.js";
 import {
   asMap,
   bytesOfLength,
@@ -69,6 +85,21 @@ export type RecordEventKindV1 = (typeof RECORD_EVENT_KINDS)[number];
 
 export function isRecordEventKind(kind: string): kind is RecordEventKindV1 {
   return (RECORD_EVENT_KINDS as readonly string[]).includes(kind);
+}
+
+/** Every kind a tail commit may carry: CRUD, plus an appended table's schema. */
+export const TAIL_EVENT_KINDS = Object.freeze([
+  ...RECORD_EVENT_KINDS,
+  "table.created",
+  "field.created",
+  "enum.changed",
+  "inference-decision.recorded",
+] as const);
+
+export type TailEventKindV1 = (typeof TAIL_EVENT_KINDS)[number];
+
+export function isTailEventKind(kind: string): kind is TailEventKindV1 {
+  return (TAIL_EVENT_KINDS as readonly string[]).includes(kind);
 }
 
 // --------------------------------------------------------------- provenance --
@@ -356,6 +387,101 @@ function decodeRestored(value: DecodedValue): RecordRestoredPayloadV1 {
     ),
     record: decodeAuthoredRecord(field(map, "record")),
   };
+}
+
+/**
+ * Reads any tail event back into its typed form. Record events go through
+ * {@link decodeRecordEventPayload}; the schema events use M23's definitions.
+ */
+export function decodeTailEventPayload(
+  kind: TailEventKindV1,
+  payload: DecodedValue,
+): F02DomainEventV1 {
+  switch (kind) {
+    case "record.created":
+    case "record.patched":
+    case "record.deleted":
+    case "record.restored":
+      return decodeRecordEventPayload(kind, payload);
+    case "table.created": {
+      const map = asMap(payload, "a table.created payload");
+      const withSheet = map.has("sourceSheet");
+      exactKeys(
+        map,
+        withSheet ? ["table", "sourceSheetId", "sourceSheet"] : ["table", "sourceSheetId"],
+        "a table.created payload",
+      );
+      const sourceSheetId = field(map, "sourceSheetId");
+      const sourceSheet = withSheet ? field(map, "sourceSheet") : null;
+      return {
+        kind,
+        payload: {
+          table: decodeTableDef(field(map, "table")),
+          sourceSheetId:
+            sourceSheetId === null
+              ? null
+              : asDomainId("sheet", bytesOfLength(sourceSheetId, ID_BYTES, "a sheet id")),
+          sourceSheet: sourceSheet === null ? null : decodeSheetDescriptor(sourceSheet),
+        },
+      };
+    }
+    case "field.created": {
+      const map = exactKeys(
+        asMap(payload, "a field.created payload"),
+        ["field", "evidence"],
+        "a field.created payload",
+      );
+      return {
+        kind,
+        payload: { field: decodeFieldDef(field(map, "field")), evidence: field(map, "evidence") },
+      };
+    }
+    case "enum.changed": {
+      const map = exactKeys(
+        asMap(payload, "an enum.changed payload"),
+        ["fieldId", "priorOptionSetSha256", "options"],
+        "an enum.changed payload",
+      );
+      const prior = field(map, "priorOptionSetSha256");
+      return {
+        kind,
+        payload: {
+          fieldId: fieldIdOf(field(map, "fieldId")),
+          priorOptionSetSha256:
+            prior === null ? null : bytesOfLength(prior, SHA256_BYTES, "an option-set digest"),
+          options: list(field(map, "options"), "enum options").map(decodeEnumOption),
+        },
+      };
+    }
+    case "inference-decision.recorded": {
+      const map = exactKeys(
+        asMap(payload, "an inference-decision.recorded payload"),
+        ["evidenceFingerprint", "statement", "evidence", "disposition"],
+        "an inference-decision.recorded payload",
+      );
+      return {
+        kind,
+        payload: {
+          evidenceFingerprint: bytesOfLength(
+            field(map, "evidenceFingerprint"),
+            SHA256_BYTES,
+            "an evidence fingerprint",
+          ),
+          statement: field(map, "statement"),
+          evidence: field(map, "evidence"),
+          disposition: oneOf(
+            field(map, "disposition"),
+            INFERENCE_DISPOSITIONS,
+            "a decision disposition",
+          ),
+        },
+      };
+    }
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
 }
 
 function bytes32(value: Uint8Array, what: string): Uint8Array {

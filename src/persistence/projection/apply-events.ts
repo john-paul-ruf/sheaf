@@ -30,10 +30,11 @@ import type {
   AuthoredRecordV1,
   F02DomainEventV1,
   FieldChangeV1,
+  TableCreatedPayloadV1,
 } from "../../domain/model/events.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type { CommitId, FieldId } from "../../domain/model/ids.js";
-import type { EnumOptionDefV1 } from "../../domain/model/schema.js";
+import type { EnumOptionDefV1, FieldDefV1 } from "../../domain/model/schema.js";
 import { compareCommits, verifyCommitChain } from "../codecs/event-commit.js";
 import type {
   DomainEventV1,
@@ -57,7 +58,14 @@ import {
   withTransaction,
   type ProjectionHandleV1,
 } from "./engine.js";
-import { cacheEnumOption, insertEnumOption } from "./hydrate.js";
+import {
+  cacheEnumOption,
+  cacheSchema,
+  insertEnumOption,
+  insertField,
+  insertSheetSnapshot,
+  insertTables,
+} from "./hydrate.js";
 import {
   idKey,
   insertRecord,
@@ -246,13 +254,16 @@ function applyEvent(
 
   switch (event.kind) {
     case "app.created":
+      // The app's identity arrives with the checkpoint promotion wrote
+      // (CA-11/D29); replaying the commit that created it writes history only.
+      break;
+
     case "table.created":
+      applyTableCreated(handle, event.payload, wire);
+      break;
+
     case "field.created":
-      // The schema and the app's identity arrive with the checkpoint promotion
-      // wrote (CA-11/D29). Replaying the commit that created them may not
-      // duplicate those rows — but it may not silently ignore a subject this
-      // projection does not hold either, because that would be a missing table.
-      assertSubjectExists(handle, event, wire);
+      applyFieldCreated(handle, event.payload.field, wire);
       break;
 
     case "record.created": {
@@ -551,24 +562,61 @@ function assertSameTable(state: RecordState, tableId: Uint8Array): void {
   }
 }
 
-/** The subject of a checkpoint-owned schema event must already be loaded. */
-function assertSubjectExists(
+/**
+ * A table the checkpoint already holds is the initial import's, and replaying
+ * its creation writes history only. A table the projection does not hold is
+ * one a later commit appended (CA-23, D38): it is built here — its source sheet
+ * first, then the table, its fields, and its key/label references — inside
+ * the tail's one transaction, so a trigger that refuses any part of it disposes
+ * the projection exactly as a refused checkpoint would.
+ */
+function applyTableCreated(
   handle: ProjectionHandleV1,
-  event: F02DomainEventV1,
+  payload: TableCreatedPayloadV1,
   wire: DomainEventV1,
 ): void {
-  if (event.kind === "table.created") {
-    const tableId = wire.subject.tableId;
-    if (tableId === undefined || !handle.schema.tables.has(idKey(tableId))) {
-      throw new IntegrityError("event names a table this projection lacks");
-    }
+  const tableId = wire.subject.tableId;
+  if (tableId === undefined || !equalBytes(tableId, payload.table.tableId)) {
+    throw new IntegrityError("table.created names another table than its subject");
   }
-  if (event.kind === "field.created") {
-    const fieldId = wire.subject.fieldId;
-    if (fieldId === undefined || !handle.schema.fields.has(idKey(fieldId))) {
-      throw new IntegrityError("event names a field this projection lacks");
-    }
+  if (handle.schema.tables.has(idKey(tableId))) {
+    return;
   }
+  if (payload.sourceSheet !== null) {
+    insertSheetSnapshot(handle, payload.sourceSheet);
+  }
+  insertTables(handle, [payload.table]);
+  cacheSchema(handle.schema, [payload.table], []);
+}
+
+/**
+ * A field the projection holds already arrived with its table. A new field of
+ * a table it holds is built; a field of a table it does not hold is an
+ * integrity failure, never a table conjured to receive it.
+ */
+function applyFieldCreated(
+  handle: ProjectionHandleV1,
+  field: FieldDefV1,
+  wire: DomainEventV1,
+): void {
+  const fieldId = wire.subject.fieldId;
+  if (fieldId === undefined || !equalBytes(fieldId, field.fieldId)) {
+    throw new IntegrityError("field.created names another field than its subject");
+  }
+  if (handle.schema.fields.has(idKey(fieldId))) {
+    return;
+  }
+  const table = handle.schema.tables.get(idKey(field.tableId));
+  if (table === undefined) {
+    throw new IntegrityError("event names a table this projection lacks");
+  }
+  insertField(handle, { ...table, fields: [] }, field);
+  const fields = [...(handle.schema.fieldsByTable.get(idKey(field.tableId)) ?? []), field];
+  handle.schema.fieldsByTable.set(
+    idKey(field.tableId),
+    fields.sort((left, right) => left.fieldOrdinal - right.fieldOrdinal),
+  );
+  handle.schema.fields.set(idKey(fieldId), field);
 }
 
 /** A restore may only undo a delete of the same record, recorded in history. */
