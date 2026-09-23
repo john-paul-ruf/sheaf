@@ -916,7 +916,7 @@ const id16 = <T>(value: DecodedValue, what: string): T =>
 const revision = (value: DecodedValue, what: string): bigint =>
   BigInt(count(value, what));
 
-const encodeRelationship = (relationship: RelationshipDefV1): CborValue =>
+export const encodeRelationship = (relationship: RelationshipDefV1): CborValue =>
   cborMap([
     ["relationshipId", relationship.relationshipId],
     ["fromTableId", relationship.fromTableId],
@@ -1066,7 +1066,7 @@ const decodeMessageParameters = (
   return parameters;
 };
 
-const encodeValidationRule = (rule: CheckpointValidationRuleV1): CborValue =>
+export const encodeValidationRule = (rule: CheckpointValidationRuleV1): CborValue =>
   cborMap([
     ["tableId", rule.tableId],
     ["displayName", rule.displayName],

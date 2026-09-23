@@ -17,15 +17,21 @@ import type {
   AppThemeV1,
   InferenceDispositionV1,
 } from "../../domain/model/events.js";
-import type { FieldId, LineageId, SheetId } from "../../domain/model/ids.js";
+import type { FieldId, LineageId } from "../../domain/model/ids.js";
 import type { StorageId16 } from "../../domain/model/bytes.js";
-import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../../domain/model/schema.js";
+import type {
+  EnumOptionDefV1,
+  FieldDefV1,
+  RelationshipDefV1,
+  TableDefV1,
+} from "../../domain/model/schema.js";
+import type { SheetDescriptorV1 } from "../../domain/model/snapshots.js";
 import type { CborValue } from "../../persistence/codecs/canonical-cbor.js";
-import type { InferenceStatementV1 } from "../inference/statements.js";
-import type { ProposedAppV1 } from "../inference/infer.js";
+import type { WorkbookStatementV1 } from "../inference/statements.js";
+import type { ProposedWorkbookV1 } from "../inference/workbook-proposal.js";
 import { cborMap } from "./proposal-codec.js";
-import { encodeAppTheme } from "./roots.js";
-import { encodeStatement } from "./proposal-codec.js";
+import { encodeAppTheme, encodeRelationship, encodeSheetDescriptor } from "./roots.js";
+import { encodeWorkbookEvidence, encodeWorkbookStatement } from "./workbook-proposal-codec.js";
 
 const fieldType = (type: FieldDefV1["type"]): CborValue =>
   type.kind === "currency"
@@ -72,18 +78,47 @@ const enumOption = (option: EnumOptionDefV1): CborValue =>
 
 /**
  * The evidence ledger `import.accepted` carries: what was proposed and why,
- * without the rows. The rows are in the checkpoint and the snapshot; a copy
+ * without the rows. The rows are in the checkpoint and the snapshots; a copy
  * inside an immutable event would be a third representation to keep true.
+ * Each imported sheet names its snapshot, so every sheet's snapshot is
+ * reachable from the ledger as well as from the head.
  */
-const evidenceLedger = (proposal: ProposedAppV1): CborValue =>
+const evidenceLedger = (
+  proposal: ProposedWorkbookV1,
+  sheetSnapshots: readonly { readonly sheetKey: string; readonly snapshotManifestStorageId: StorageId16 }[],
+): CborValue =>
   cborMap([
     ["fileName", proposal.fileName],
     ["appName", proposal.appName],
-    ["tableName", proposal.table.tableName],
-    ["headerRowIndex", proposal.headerRowIndex === null ? null : proposal.headerRowIndex],
-    ["rowCount", proposal.rowCount],
-    ["discardedRowCount", proposal.discardedRowCount],
-    ["statements", proposal.statements.map(encodeStatement)],
+    [
+      "sheets",
+      proposal.sheets.map((sheet) =>
+        cborMap([
+          ["sheetKey", sheet.sheetKey],
+          ["name", sheet.name],
+          ["isSelected", sheet.isSelected],
+          ["classification", [...sheet.classification]],
+          [
+            "snapshotManifestStorageId",
+            sheetSnapshots.find((entry) => entry.sheetKey === sheet.sheetKey)?.snapshotManifestStorageId ?? null,
+          ],
+        ]),
+      ),
+    ],
+    [
+      "tables",
+      proposal.tables.map((table) =>
+        cborMap([
+          ["tableKey", table.tableKey],
+          ["tableName", table.tableName],
+          ["headerRowIndex", table.headerRowIndex],
+          ["rowCount", table.rowCount],
+          ["discardedRowCount", table.discardedRowCount],
+          ["joinedToTableKey", table.joinedToTableKey],
+        ]),
+      ),
+    ],
+    ["statements", proposal.statements.map(encodeWorkbookStatement)],
     [
       "diagnostics",
       proposal.diagnostics.map((diagnostic) =>
@@ -96,11 +131,21 @@ const evidenceLedger = (proposal: ProposedAppV1): CborValue =>
     ],
   ]);
 
+/**
+ * A decision's statement and evidence as `inference-decision.recorded` carries
+ * them and the checkpoint's decision list repeats them: the same values, so
+ * the materialized decision and its authority cannot disagree.
+ */
+export const decisionStatement = (statement: WorkbookStatementV1): CborValue => encodeWorkbookStatement(statement);
+export const decisionEvidence = (statement: WorkbookStatementV1): CborValue =>
+  statement.evidence.map(encodeWorkbookEvidence);
+
 export const encodeImportEventPayload = {
   appCreated(payload: {
     readonly displayName: string;
     readonly tables: readonly TableDefV1[];
     readonly enumOptions: readonly EnumOptionDefV1[];
+    readonly relationships: readonly RelationshipDefV1[];
     readonly theme: AppThemeV1;
     readonly importLineageId: LineageId;
     readonly schemaRevision: bigint;
@@ -109,19 +154,25 @@ export const encodeImportEventPayload = {
       ["displayName", payload.displayName],
       ["tables", payload.tables.map(tableDef)],
       ["enumOptions", payload.enumOptions.map(enumOption)],
+      ["relationships", payload.relationships.map(encodeRelationship)],
       ["theme", encodeAppTheme(payload.theme)],
       ["importLineageId", payload.importLineageId],
       ["schemaRevision", payload.schemaRevision],
     ]);
   },
 
+  /**
+   * The table and its sheet's whole descriptor (D38's "source provenance"),
+   * so a tail that creates a table can build its sheet row too (CA-23).
+   */
   tableCreated(payload: {
     readonly table: TableDefV1;
-    readonly sourceSheetId: SheetId;
+    readonly sourceSheet: SheetDescriptorV1;
   }): CborValue {
     return cborMap([
       ["table", tableDef(payload.table)],
-      ["sourceSheetId", payload.sourceSheetId],
+      ["sourceSheetId", payload.sourceSheet.sheetId],
+      ["sourceSheet", encodeSheetDescriptor(payload.sourceSheet)],
     ]);
   },
 
@@ -150,13 +201,13 @@ export const encodeImportEventPayload = {
 
   inferenceDecision(payload: {
     readonly evidenceFingerprint: Uint8Array;
-    readonly statement: InferenceStatementV1;
+    readonly statement: WorkbookStatementV1;
     readonly disposition: InferenceDispositionV1;
   }): CborValue {
     return cborMap([
       ["evidenceFingerprint", payload.evidenceFingerprint],
-      ["statement", encodeStatement(payload.statement)],
-      ["evidence", payload.statement.evidence.length],
+      ["statement", decisionStatement(payload.statement)],
+      ["evidence", decisionEvidence(payload.statement)],
       ["disposition", payload.disposition],
     ]);
   },
@@ -167,7 +218,8 @@ export const encodeImportEventPayload = {
     readonly snapshotManifestStorageId: StorageId16;
     readonly checkpointManifestStorageId: StorageId16;
     readonly originalBaselineStorageId: StorageId16;
-    readonly proposal: ProposedAppV1;
+    readonly proposal: ProposedWorkbookV1;
+    readonly sheetSnapshots: readonly { readonly sheetKey: string; readonly snapshotManifestStorageId: StorageId16 }[];
     readonly acceptedSchemaRevision: bigint;
   }): CborValue {
     return cborMap([
@@ -176,7 +228,7 @@ export const encodeImportEventPayload = {
       ["snapshotManifestStorageId", payload.snapshotManifestStorageId],
       ["checkpointManifestStorageId", payload.checkpointManifestStorageId],
       ["originalBaselineStorageId", payload.originalBaselineStorageId],
-      ["evidenceLedger", evidenceLedger(payload.proposal)],
+      ["evidenceLedger", evidenceLedger(payload.proposal, payload.sheetSnapshots)],
       ["acceptedSchemaRevision", payload.acceptedSchemaRevision],
     ]);
   },

@@ -55,17 +55,13 @@ import {
   type WorkbookFormatV1,
 } from "../facts/index.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
-import type { ProposedAppV1 } from "../inference/infer.js";
-import type { ReviewEditV1 } from "../inference/review-edits.js";
+import type { WorkbookReviewEditV1 } from "../inference/review-edits.js";
+import type { ProposedWorkbookV1 } from "../inference/workbook-proposal.js";
 import {
   asMap,
   bytesOfLength,
   cborMap,
   count,
-  decodeProposal,
-  decodeReviewEdit,
-  encodeProposal,
-  encodeReviewEdit,
   exactKeys,
   field,
   integerOrNull,
@@ -74,6 +70,12 @@ import {
   optionalCount,
   text,
 } from "./proposal-codec.js";
+import {
+  decodeWorkbookProposal,
+  decodeWorkbookReviewEdit,
+  encodeWorkbookProposal,
+  encodeWorkbookReviewEdit,
+} from "./workbook-proposal-codec.js";
 
 /**
  * Stated here rather than imported from M08: M23 reaches crypto only through
@@ -217,10 +219,13 @@ export interface ImportStageV1 {
   readonly sourceChunks: readonly StagedChunkRefV1[];
   readonly factChunks: readonly StagedChunkRefV1[];
   readonly snapshotChunks: readonly StagedChunkRefV1[];
-  /** Null until the parse completes; inference has nothing exact before then. */
-  readonly proposal: ProposedAppV1 | null;
+  /**
+   * S02's workbook proposal (a delimited file is its one-table case); null
+   * until the parse completes, since inference has nothing exact before then.
+   */
+  readonly proposal: ProposedWorkbookV1 | null;
   /** In application order, so promotion can replay what the user did. */
-  readonly reviewEdits: readonly ReviewEditV1[];
+  readonly reviewEdits: readonly WorkbookReviewEditV1[];
   readonly retainedStorageIds: readonly string[];
   readonly temporaryStorageIds: readonly string[];
   readonly progress: ImportStageProgressV1;
@@ -521,9 +526,9 @@ export function encodeImportStage(stage: ImportStageV1): Uint8Array {
       ["snapshotChunks", stage.snapshotChunks.map(encodeChunk)],
       [
         "proposal",
-        stage.proposal === null ? null : encodeProposal(stage.proposal),
+        stage.proposal === null ? null : encodeWorkbookProposal(stage.proposal),
       ],
-      ["reviewEdits", stage.reviewEdits.map(encodeReviewEdit)],
+      ["reviewEdits", stage.reviewEdits.map(encodeWorkbookReviewEdit)],
       ["retainedStorageIds", [...stage.retainedStorageIds]],
       ["temporaryStorageIds", [...stage.temporaryStorageIds]],
       [
@@ -747,9 +752,9 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
     snapshotChunks: list(field(map, "snapshotChunks"), "snapshot chunks").map(
       decodeChunk,
     ),
-    proposal: proposal === null ? null : decodeProposal(proposal),
+    proposal: proposal === null ? null : decodeWorkbookProposal(proposal),
     reviewEdits: list(field(map, "reviewEdits"), "review edits").map(
-      decodeReviewEdit,
+      decodeWorkbookReviewEdit,
     ),
     retainedStorageIds: list(
       field(map, "retainedStorageIds"),

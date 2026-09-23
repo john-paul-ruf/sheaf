@@ -14,6 +14,7 @@ import type {
   IdleTimeoutMinutesV1,
   ImportCleanupReceiptViewV1,
   ProposedAppWireV1,
+  ProposedWorkbookWireV1,
   ResetInventoryViewV1,
   UnlockedSessionViewV1,
 } from "../../../src/workers/protocol/messages.js";
@@ -207,11 +208,102 @@ export function cleanupReceipt(
   return { reason: "import-cancelled", deletedCount: 3, completed: true, ...overrides };
 }
 
+/**
+ * A one-table proposal as the worker sends it (CA-19): S02's delimited case,
+ * under the keys S02 gives it (`s0`, `s0.r0`, `s0.r0.c<column>`). Written from
+ * F02's shape, so a suite states its fixture in the terms the review renders.
+ */
+export function workbookWire(f02: ProposedAppWireV1): ProposedWorkbookWireV1 {
+  const tableKey = "s0.r0";
+  const columnKey = (columnIndex: number): string => `${tableKey}.c${String(columnIndex)}`;
+  return {
+    fileName: f02.fileName,
+    isDelimited: true,
+    appName: f02.appName,
+    sheets: [
+      {
+        sheetKey: "s0",
+        sheetIndex: 0,
+        name: f02.fileName,
+        sheetKind: "worksheet",
+        visibility: "visible",
+        isSelected: true,
+        classification: ["table"],
+        declaredRange: null,
+        dateSystem: null,
+        rowCount: f02.rowCount,
+        usedCellCount: 0,
+        formulaCellCount: 0,
+        omittedRegionCount: 0,
+      },
+    ],
+    tables: [
+      {
+        tableKey,
+        sheetKey: "s0",
+        tableName: f02.table.tableName,
+        source: { kind: "region" },
+        firstColumn: 0,
+        lastColumn: Math.max(0, f02.table.fields.length - 1),
+        headerRowIndex: f02.headerRowIndex,
+        leadingRows: f02.leadingRows,
+        discardedRows: f02.discardedRows,
+        discardedRowCount: f02.discardedRowCount,
+        rowCount: f02.rowCount,
+        joinedToTableKey: null,
+        fields: f02.table.fields.map((field) => ({
+          columnKey: columnKey(field.columnIndex),
+          columnIndex: field.columnIndex,
+          fieldName: field.fieldName,
+          isNameGenerated: field.isNameGenerated,
+          type: field.type,
+          valueType: field.type,
+          sourceFormat: field.sourceFormat,
+          enumOptions: field.enumOptions,
+          violations: field.violations,
+          formulaText: null,
+        })),
+        keyColumnKey: null,
+        labelColumnKey: null,
+      },
+    ],
+    relationships: [],
+    recordRules: [],
+    inertItems: [],
+    inertCounts: {
+      formula: 0,
+      chart: 0,
+      "pivot-table": 0,
+      drawing: 0,
+      image: 0,
+      comment: 0,
+      "external-link": 0,
+      hyperlink: 0,
+      "embedded-object": 0,
+      "form-control": 0,
+      "data-connection": 0,
+      "conditional-formatting": 0,
+      "cell-styling": 0,
+      sparkline: 0,
+      script: 0,
+      "unsupported-validation": 0,
+    },
+    statements: f02.statements.map((statement) => {
+      const targetKey =
+        statement.columnIndex !== null ? columnKey(statement.columnIndex) : statement.subject === "app-name" ? null : tableKey;
+      // The suite's own statement ids stand: the review projects ids unreshaped.
+      return { ...statement, targetKey };
+    }),
+    diagnostics: f02.diagnostics,
+    isRowCountExact: true,
+  };
+}
+
 /** The minimum proposal shape; suites widen it where the assertion needs it. */
 export function wireProposal(
   overrides: Partial<ProposedAppWireV1> = {},
-): ProposedAppWireV1 {
-  return {
+): ProposedWorkbookWireV1 {
+  return workbookWire({
     fileName: "field-log-messy.csv",
     appName: "Field Log Messy",
     table: { tableName: "Field Log Messy", fields: [] },
@@ -224,7 +316,7 @@ export function wireProposal(
     statements: [],
     diagnostics: [],
     ...overrides,
-  };
+  });
 }
 
 export interface ImportServiceCall {

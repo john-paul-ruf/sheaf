@@ -498,21 +498,10 @@ export async function readAppRoots(
     );
     const checkpoint = roots.decodeCheckpointManifest(checkpointBytes);
 
-    // `semanticSha256` is recomputed here from the manifest's own body, so a
-    // manifest whose hash did not describe it would fail.
-    const recomputedCheckpoint = await hash.sha256(
-      roots.encodeCheckpointBody({
-        manifestVersion: checkpoint.manifestVersion,
-        appId: checkpoint.appId,
-        schemaRevision: checkpoint.schemaRevision,
-        frontier: checkpoint.frontier,
-        appState: checkpoint.appState,
-        tables: checkpoint.tables,
-        enumOptions: checkpoint.enumOptions,
-        sheetSnapshots: checkpoint.sheetSnapshots,
-        recordPages: checkpoint.recordPages,
-      }),
-    );
+    // `semanticSha256` is recomputed here from the manifest's own body as
+    // written (every root it carries, F02 or F03), so a manifest whose hash
+    // did not describe it would fail.
+    const recomputedCheckpoint = await hash.sha256(roots.checkpointSemanticBody(checkpointBytes));
     const recomputedHead = await hash.sha256(
       roots.encodeAppHeadBody({
         headVersion: decodedHead.headVersion,

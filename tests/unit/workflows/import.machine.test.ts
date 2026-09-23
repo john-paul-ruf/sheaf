@@ -15,7 +15,11 @@ import {
   isChosenName,
   PARSER_STOP_TIMEOUT_MS,
 } from "../../../src/application/workflows/import.machine.js";
-import type { ImportServices } from "../../../src/application/workflows/import-services.js";
+import {
+  singleTableProposal,
+  workbookEditOf,
+  type ImportServices,
+} from "../../../src/application/workflows/import-services.js";
 import {
   cleanupReceipt,
   fakeImportServices,
@@ -27,6 +31,7 @@ import {
   stageAbsent,
   stagePresent,
   wireProposal,
+  workbookWire,
   workerError,
   STAGE_ID,
   type FakeImportServices,
@@ -445,9 +450,10 @@ describe("the import machine", () => {
     const edits = fake.calls
       .filter((call) => call.name === "applyReviewEdit")
       .map((call) => (call.input as { edit: unknown }).edit);
+    // Addressed to the proposal's one table by its key (CA-19).
     expect(edits).toEqual([
       { kind: "rename-app", appName: "Field Log" },
-      { kind: "rename-table", tableName: "Visits" },
+      { kind: "rename-table", tableKey: "s0.r0", tableName: "Visits" },
     ]);
     expect(actor.getSnapshot().matches({ reviewing: "deciding" })).toBe(true);
   });
@@ -713,5 +719,101 @@ describe("import helpers", () => {
         detected: { kind: "pdf" },
       }),
     ).toBeNull();
+  });
+});
+
+describe("the one-table review this page renders (mechanical until S07, D48)", () => {
+  it("fails closed on a proposal with more than one table — no partial app is shown", async () => {
+    const twoTables = wireProposal();
+    const proposal = { ...twoTables, tables: [...twoTables.tables, { ...twoTables.tables[0], tableKey: "s0.r1" }] } as typeof twoTables;
+    const fake = happyServices({
+      runInference: resolves({ kind: "runInference" as const, proposal }),
+    });
+    const actor = await toParsing(fake);
+    fake.emit({ kind: "completed", rowCount: 40, batchesSent: 1 });
+    await settled();
+    await settled();
+    await settled();
+
+    expect(actor.getSnapshot().matches("reviewing")).toBe(false);
+    expect(actor.getSnapshot().context.failure).toBe("service-error");
+    expect(fake.names()).not.toContain("applyReviewEdit");
+  });
+
+  it("fails closed on a workbook-only member, and projects a delimited proposal exactly", () => {
+    const f02 = {
+      fileName: "f.csv",
+      appName: "F",
+      table: {
+        tableName: "F",
+        fields: [
+          {
+            columnIndex: 0,
+            fieldName: "Site",
+            isNameGenerated: false,
+            type: { kind: "text" } as const,
+            sourceFormat: { kind: "text" } as const,
+            enumOptions: [],
+            violations: null,
+          },
+        ],
+      },
+      headerRowIndex: 0,
+      leadingRows: [],
+      discardedRows: [],
+      discardedRowCount: 0,
+      rowCount: 3,
+      isRowCountExact: true as const,
+      statements: [],
+      diagnostics: [],
+    };
+    const wire = workbookWire(f02);
+    expect(singleTableProposal(wire)).toEqual(f02);
+    const reference = { ...wire, tables: [{ ...wire.tables[0], fields: [{ ...wire.tables[0]!.fields[0]!, type: { kind: "reference" as const } }] }] } as typeof wire;
+    expect(singleTableProposal(reference)).toBeNull();
+  });
+
+  it("addresses an F02 edit to the one table by its keys (CA-19)", () => {
+    const wire = workbookWire({
+      fileName: "f.csv",
+      appName: "F",
+      table: {
+        tableName: "F",
+        fields: [
+          {
+            columnIndex: 2,
+            fieldName: "Amount",
+            isNameGenerated: false,
+            type: { kind: "number" },
+            sourceFormat: { kind: "decimal", currencySymbol: null },
+            enumOptions: [],
+            violations: null,
+          },
+        ],
+      },
+      headerRowIndex: 0,
+      leadingRows: [],
+      discardedRows: [],
+      discardedRowCount: 0,
+      rowCount: 3,
+      isRowCountExact: true,
+      statements: [],
+      diagnostics: [],
+    });
+    expect(workbookEditOf(wire, { kind: "override-type", columnIndex: 2, type: { kind: "text" } })).toEqual({
+      kind: "override-type",
+      tableKey: "s0.r0",
+      columnKey: "s0.r0.c2",
+      type: { kind: "text" },
+    });
+    expect(workbookEditOf(wire, { kind: "set-header-row", rowIndex: 1 })).toEqual({
+      kind: "set-header-row",
+      regionKey: "s0.r0",
+      rowIndex: 1,
+    });
+    // A column the table lacks is still addressed; the worker refuses it.
+    expect(workbookEditOf(wire, { kind: "rename-field", columnIndex: 9, fieldName: "X" })).toMatchObject({
+      columnKey: "s0.r0.c9",
+    });
   });
 });

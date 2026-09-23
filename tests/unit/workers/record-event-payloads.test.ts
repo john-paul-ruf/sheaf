@@ -368,31 +368,21 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
   });
 
   it("reads promotion's table.created, with and without the sheet descriptor", () => {
-    // The shape promotion writes today (no descriptor): the sheet reads null.
-    const withoutSheet = decodeTailEventPayload(
-      "table.created",
-      roundTrip(encodeImportEventPayload.tableCreated({ table, sourceSheetId: sheetId })),
-    );
-    expect(withoutSheet).toEqual({
+    // The shape promotion writes since F03: the descriptor rides along.
+    const written = encodeImportEventPayload.tableCreated({ table, sourceSheet: sheet });
+    expect(decodeTailEventPayload("table.created", roundTrip(written))).toEqual({
+      kind: "table.created",
+      payload: { table, sourceSheetId: sheet.sheetId, sourceSheet: sheet },
+    });
+    expect((written as ReadonlyMap<string, CborValue>).get("sourceSheet")).toEqual(encodeSheetDescriptor(sheet));
+
+    // The shape F02 promotion wrote (no descriptor): the sheet reads null.
+    const f02 = new Map(written as ReadonlyMap<string, CborValue>);
+    f02.delete("sourceSheet");
+    f02.set("sourceSheetId", sheetId);
+    expect(decodeTailEventPayload("table.created", roundTrip(f02))).toEqual({
       kind: "table.created",
       payload: { table, sourceSheetId: sheetId, sourceSheet: null },
-    });
-
-    const withSheet = decodeTailEventPayload(
-      "table.created",
-      roundTrip(
-        new Map<string, CborValue>([
-          ...(encodeImportEventPayload.tableCreated({
-            table,
-            sourceSheetId: sheetId,
-          }) as ReadonlyMap<string, CborValue>),
-          ["sourceSheet", encodeSheetDescriptor(sheet)],
-        ]),
-      ),
-    );
-    expect(withSheet).toEqual({
-      kind: "table.created",
-      payload: { table, sourceSheetId: sheetId, sourceSheet: sheet },
     });
   });
 
@@ -436,7 +426,7 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
           new Map<string, CborValue>([
             ...(encodeImportEventPayload.tableCreated({
               table,
-              sourceSheetId: sheetId,
+              sourceSheet: sheet,
             }) as ReadonlyMap<string, CborValue>),
             ["extra", 1n],
           ]),

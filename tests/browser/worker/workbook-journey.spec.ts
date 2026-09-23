@@ -1,0 +1,264 @@
+/**
+ * The first narrow journey of F03 (S06 CP3; CAP-22/CAP-23 at the worker tier;
+ * CA-19, CA-20, CA-22).
+ *
+ * The pinned demo workbook goes through every real boundary: the real import
+ * worker (OOXML adapter via the registry), the page's channel, the real data
+ * worker's stage, S02's `inferWorkbook`, a review edit that rejects the
+ * Visits→Jobs relationship, promotion into real IndexedDB under real
+ * libsodium, `openApp`, S03's read RPCs — then a fresh worker (a restart) whose
+ * reads must be identical, and finally every durable root decoded from raw
+ * IndexedDB with its digest recomputed. No provider is a fixture here; the
+ * only test-shaped thing is where the file comes from.
+ */
+
+import { expect, test, type Page } from "@playwright/test";
+import type {
+  DataWorkerRequestV1,
+  DataWorkerResponseV1,
+  RecordReferenceViewV1,
+} from "../../../src/workers/protocol/messages.js";
+import { PASSPHRASE, command, installFixture, start, teardown } from "./runtime.js";
+import { readWorkbookRoots } from "./workbook-roots.js";
+import { runWorkbookImport } from "./workbook-runtime.js";
+
+const JOURNEY_TIMEOUT_MS = 240_000;
+const WORKBOOK_FLOWS = ["delimited", "workbook"] as const;
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/harness.html");
+});
+
+test.afterEach(async ({ page }) => {
+  await teardown(page);
+});
+
+/** One request that must succeed, narrowed to the response it names. */
+async function ask<K extends DataWorkerRequestV1["kind"]>(
+  page: Page,
+  request: Extract<DataWorkerRequestV1, { kind: K }>,
+): Promise<Extract<DataWorkerResponseV1, { kind: K }>> {
+  const answered = await command(page, request);
+  if (!answered.ok || answered.response.kind !== request.kind) {
+    throw new Error(`${request.kind} failed: ${JSON.stringify(answered)}`);
+  }
+  return answered.response as Extract<DataWorkerResponseV1, { kind: K }>;
+}
+
+/** Imports, reviews and promotes the demo workbook, Archive 2018 deselected. */
+async function promotedDemo(page: Page): Promise<string> {
+  await start(page);
+  expect((await command(page, { kind: "setup", passphrase: PASSPHRASE })).ok).toBe(true);
+  await installFixture(page, "ooxml/fieldwork-q3.xlsx", "fieldwork-q3.xlsx");
+  const run = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS, selection: [0, 1, 2, 3, 4, 5] });
+  expect(run.events.some((event) => event.kind === "completed")).toBe(true);
+  const stageId = run.stageId as string;
+
+  const inferred = await ask(page, { kind: "runInference", stageId });
+  const proposal = inferred.proposal;
+  expect(proposal.isDelimited).toBe(false);
+  expect(proposal.sheets.map((sheet) => `${sheet.name}:${sheet.classification.join("+")}`)).toContain(
+    "Archive 2018:excluded",
+  );
+  expect(proposal.tables.filter((table) => table.joinedToTableKey === null).map((table) => table.tableName)).toEqual([
+    "Jobs",
+    "Customers",
+    "Crew",
+    "Visits",
+    "Materials",
+  ]);
+  const visitsToJobs = proposal.relationships.find((relationship) => relationship.relationshipKey === "rel:s3.t0.c1");
+  expect(visitsToJobs).toMatchObject({ isApplied: true, detectionSource: "key-match" });
+
+  const rejected = await ask(page, {
+    kind: "applyReviewEdit",
+    stageId,
+    edit: { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" },
+  });
+  if (rejected.outcome !== "applied") throw new Error(`the rejection did not apply: ${rejected.reason}`);
+  expect(rejected.proposal.relationships.find((relationship) => relationship.relationshipKey === "rel:s3.t0.c1")?.isApplied).toBe(
+    false,
+  );
+
+  const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: "Fieldwork Q3" });
+  if (promoted.outcome !== "promoted") {
+    throw new Error(`promotion refused: ${promoted.reason} ${JSON.stringify(promoted.issues)}`);
+  }
+  expect(promoted.tableCount).toBe(5);
+  // The broken customer key is kept and flagged, not refused (FR-4, D36).
+  expect(promoted.flaggedRecordCount).toBeGreaterThan(0);
+  return promoted.appId;
+}
+
+/** Every read the journey makes; they must be identical after a restart. */
+async function reads(page: Page, appId: string) {
+  const opened = await ask(page, { kind: "openApp", appId });
+  const session = opened.session;
+  if (session === null) throw new Error("the app did not open");
+  const tableId = (name: string): string => {
+    const found = session.tables.find((table) => table.displayName === name);
+    if (found === undefined) throw new Error(`no ${name} table`);
+    return found.tableId;
+  };
+  const allRecords = async (name: string) => {
+    const records = [];
+    let cursor: number | null = null;
+    for (;;) {
+      const page_: DataWorkerResponseV1 = await ask(page, {
+        kind: "queryRecords",
+        appId,
+        tableId: tableId(name),
+        cursor,
+        limit: 100,
+      });
+      if (page_.kind !== "queryRecords" || page_.page === null) throw new Error("no page");
+      records.push(...page_.page.records);
+      if (!page_.page.hasMore) break;
+      cursor = page_.page.nextCursor;
+    }
+    return records;
+  };
+
+  const jobs = await allRecords("Jobs");
+  const customers = await allRecords("Customers");
+  // A Job's parent Customer, by its label; and a Job whose key matched nothing.
+  const jobReferences: RecordReferenceViewV1[] = [];
+  for (const job of jobs) {
+    const detail = await ask(page, { kind: "getRecord", appId, recordId: job.recordId });
+    jobReferences.push(...(detail.record?.references ?? []));
+  }
+  const resolved = jobReferences.filter((reference) => reference.status === "resolved");
+  const broken = jobReferences.filter((reference) => reference.status === "broken");
+  const firstJob = jobs[0];
+  if (firstJob === undefined || customers[0] === undefined) throw new Error("expected jobs and customers");
+  const jobRelated = await ask(page, { kind: "getRelatedRecords", appId, recordId: firstJob.recordId });
+  const customerRelated = await ask(page, { kind: "getRelatedRecords", appId, recordId: customers[0].recordId });
+
+  const sheets = await ask(page, { kind: "listSheetSnapshots", appId });
+  const overview = sheets.sheets?.find((sheet) => sheet.displayName === "Overview");
+  if (overview === undefined) throw new Error("no Overview snapshot");
+  const overviewPage = await ask(page, { kind: "getSnapshotPage", appId, sheetId: overview.sheetId, firstRow: 0, rowCount: 100 });
+  const inert = await ask(page, { kind: "listInertItems", appId, sheetId: null });
+
+  return {
+    tables: session.tables.map((table) => ({
+      name: table.displayName,
+      count: table.recordCount,
+      fields: table.fields.map((field) => `${field.displayName}:${field.type.kind}`),
+    })),
+    resolvedLabels: resolved.map((reference) => (reference.status === "resolved" ? reference.label : "")).sort(),
+    brokenKeys: broken.map((reference) => (reference.status === "broken" ? reference.originalKey : "")),
+    jobParents: jobRelated.related?.parents,
+    customerChildren: customerRelated.related?.children.map((child) => ({
+      table: child.tableName,
+      count: child.count,
+      first: child.first.map((record) => record.label),
+    })),
+    sheets: sheets.sheets?.map((sheet) => ({
+      name: sheet.displayName,
+      classification: sheet.classification,
+      inert: sheet.inertCounts,
+    })),
+    overview: overviewPage.page,
+    inert: inert.items?.map((item) => ({ kind: item.kind, sheet: item.sheetName, location: item.location, reason: item.reasonKey })),
+  };
+}
+
+test("the first narrow journey: demo workbook → review → multi-table app → restart → raw roots (CAP-23)", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  const appId = await promotedDemo(page);
+
+  const before = await reads(page, appId);
+
+  // --- tables, as reviewed ----------------------------------------------------
+  expect(before.tables.map((table) => table.name)).toEqual(["Jobs", "Customers", "Crew", "Visits", "Materials"]);
+  // The rejected relationship leaves Visits.Job ID its value type: text.
+  expect(before.tables.find((table) => table.name === "Visits")?.fields).toContain("Job ID:text");
+  expect(before.tables.find((table) => table.name === "Jobs")?.fields).toContain("Customer ID:reference");
+
+  // --- navigation, both directions (CAP-24 over a promoted app) ---------------
+  expect(before.resolvedLabels.length).toBeGreaterThan(0);
+  // One distinct unmatched key (S02's `brokenReferenceCount` counts keys, not
+  // rows); every row holding it shows it as the original key (D36, STA-011).
+  expect(new Set(before.brokenKeys)).toEqual(new Set(["C-013"]));
+  expect(before.brokenKeys).toHaveLength(2);
+  expect(before.jobParents?.[0]).toMatchObject({ status: expect.stringMatching(/resolved|broken/) });
+  expect(before.customerChildren?.[0]).toMatchObject({ table: "Jobs" });
+  expect(before.customerChildren?.[0]?.count).toBeGreaterThan(0);
+
+  // --- snapshots and the inert inventory --------------------------------------
+  expect(before.sheets?.map((sheet) => sheet.name)).toEqual(["Jobs", "Customers", "Crew", "Visits", "Materials", "Overview"]);
+  expect(before.sheets?.find((sheet) => sheet.name === "Overview")?.classification).toEqual(
+    expect.arrayContaining(["summary"]),
+  );
+  expect(before.overview?.format).toBe("sheet-v2");
+  expect(before.overview?.rows.length).toBeGreaterThan(0);
+  expect(before.overview?.rows.flatMap((row) => row.cells).some((cell) => cell.text !== "")).toBe(true);
+  const kinds = (before.inert ?? []).map((item) => item.kind);
+  expect(kinds.filter((kind) => kind === "chart")).toHaveLength(1);
+  expect(kinds.filter((kind) => kind === "drawing")).toHaveLength(2);
+  // The Balance and Customer formula columns on Jobs, preserved, not live (D33).
+  expect((before.inert ?? []).filter((item) => item.kind === "formula" && item.sheet === "Jobs").length).toBeGreaterThanOrEqual(2);
+  expect((before.inert ?? []).filter((item) => item.kind === "formula").every((item) => item.reason === "formula-not-live-yet")).toBe(
+    true,
+  );
+
+  // --- restart: a new page, a new worker, an unlock; the same reads -----------
+  await page.evaluate(() => {
+    window.__sheafApp?.dispose();
+  });
+  await page.goto("/harness.html");
+  await start(page);
+  expect((await command(page, { kind: "unlock", passphrase: PASSPHRASE })).ok).toBe(true);
+  const after = await reads(page, appId);
+  expect(after).toEqual(before);
+
+  // --- every durable root, from raw IndexedDB (CA-20, CA-22, CL-04) -----------
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.appCount).toBe(1);
+  expect(roots.head).toEqual({
+    semanticMatches: true,
+    sourceManifestCount: 1,
+    snapshotManifestCount: 6,
+    conflictPageCount: 0,
+    auditPageCount: 0,
+    baselinePageCount: 1,
+  });
+  expect(roots.checkpoint.semanticMatches).toBe(true);
+  // The F03 key set (D37), written in full.
+  expect(roots.checkpoint.keys).toEqual(
+    expect.arrayContaining(["relationships", "validationRules", "inertItems", "inferenceDecisions", "importLineages"]),
+  );
+  expect(roots.checkpoint.tables.find((table) => table.name === "Customers")?.key).toEqual(expect.any(String));
+  expect(roots.checkpoint.relationships).toEqual([
+    { from: "Jobs", field: "Customer ID", to: "Customers", key: roots.checkpoint.tables.find((t) => t.name === "Customers")?.key, source: "lookup-formula" },
+  ]);
+  // The rejection is durable: a relationship decision, disposition rejected.
+  expect(roots.checkpoint.decisions).toContainEqual({ kind: "relationship", subject: "relationship", disposition: "rejected" });
+  expect(roots.checkpoint.lineages).toEqual([
+    { importKind: "initial", ordinal: 0, sourceName: "fieldwork-q3.xlsx", matchesSourceManifest: true },
+  ]);
+  expect(roots.checkpoint.sheets.every((sheet) => sheet.listedInHead)).toBe(true);
+  expect(roots.checkpoint.inert.every((item) => item.reason !== "visual-only")).toBe(true);
+  expect(roots.pages.digestsMatch).toBe(true);
+  expect(roots.pages.records).toBe(before.tables.reduce((sum, table) => sum + table.count, 0));
+  expect(roots.events).toMatchObject({ commits: 1, chainOk: true, digestMatches: true });
+  expect(roots.events.kinds[0]?.[0]).toBe("app.created");
+  expect(roots.events.kinds[0]?.at(-1)).toBe("import.accepted");
+  expect(roots.events.kinds[0]).not.toContain("record.created");
+  // The retained original (D21), decoded: manifest and its first chunk.
+  expect(roots.source).toMatchObject({
+    fileName: "fieldwork-q3.xlsx",
+    firstChunkDigestMatches: true,
+    manifestDigestMatches: true,
+  });
+  expect(roots.source.chunkCount).toBeGreaterThan(0);
+  expect(roots.source.firstChunkBytes).toBeGreaterThan(0);
+  expect(roots.snapshots).toHaveLength(6);
+  for (const snapshot of roots.snapshots) {
+    expect(snapshot, snapshot.name).toMatchObject({ manifestDigestMatches: true, firstChunkDigestMatches: true });
+  }
+  expect(roots.snapshots.find((snapshot) => snapshot.name === "Jobs")?.firstChunkRows).toBeGreaterThan(0);
+});

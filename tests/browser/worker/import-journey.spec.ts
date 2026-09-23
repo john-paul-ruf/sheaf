@@ -65,20 +65,25 @@ test("the demo fixture's pinned proposal reproduces through the worker path", as
     throw new Error("expected a proposal");
   }
   const proposal = inferred.response.proposal;
+  // A delimited file is S02's one-sheet, one-table case (CA-19).
+  expect(proposal.isDelimited).toBe(true);
+  expect(proposal.tables).toHaveLength(1);
+  const table = proposal.tables[0];
+  if (table === undefined) throw new Error("expected the one table");
 
-  // S03's pinned demo expectations, reached through the real worker rather
-  // than by calling `inferProposal` in a unit test.
+  // F02's pinned demo expectations, reached through the real worker and
+  // S02's workbook path rather than by calling inference in a unit test.
   expect(proposal.appName).toBe("Field Log Messy");
-  expect(proposal.headerRowIndex).toBe(3);
-  expect(proposal.rowCount).toBe(40);
+  expect(table.headerRowIndex).toBe(3);
+  expect(table.rowCount).toBe(40);
   expect(proposal.isRowCountExact).toBe(true);
-  expect(proposal.table.fields).toHaveLength(9);
+  expect(table.fields).toHaveLength(9);
   expect(proposal.statements).toHaveLength(24);
 
   // The enum and currency findings the demo turns on.
-  const site = proposal.table.fields.find((field) => field.fieldName === "Site");
+  const site = table.fields.find((field) => field.fieldName === "Site");
   expect(site?.type.kind).toBe("enum");
-  const currency = proposal.table.fields.find(
+  const currency = table.fields.find(
     (field) => field.type.kind === "currency",
   );
   expect(currency?.type).toEqual({ kind: "currency", currencyCode: "USD" });
@@ -147,7 +152,7 @@ test("D28: NFD source stages without a codec error, and says so at review", asyn
   expect(normalized?.occurrences).toBeGreaterThan(0);
 
   // The normalised text is what is stored — NFC, and readable.
-  const names = inferred.response.proposal.leadingRows.flatMap((row) => row.cells);
+  const names = (inferred.response.proposal.tables[0]?.leadingRows ?? []).flatMap((row) => row.cells);
   expect(names.every((cell) => cell.normalize("NFC") === cell)).toBe(true);
 });
 
@@ -173,7 +178,7 @@ test("an edit is written into the stage and survives a re-read", async ({
   const overridden = await command(page, {
     kind: "applyReviewEdit",
     stageId,
-    edit: { kind: "override-type", columnIndex: 0, type: { kind: "text" } },
+    edit: { kind: "override-type", tableKey: "s0.r0", columnKey: "s0.r0.c0", type: { kind: "text" } },
   });
   if (
     !overridden.ok ||
@@ -182,9 +187,9 @@ test("an edit is written into the stage and survives a re-read", async ({
   ) {
     throw new Error("expected the override to apply");
   }
-  expect(overridden.response.proposal.table.fields[0]?.type.kind).toBe("text");
+  expect(overridden.response.proposal.tables[0]?.fields[0]?.type.kind).toBe("text");
   // Nothing has measured the new type yet, so the count is null, not zero.
-  expect(overridden.response.proposal.table.fields[0]?.violations).toBeNull();
+  expect(overridden.response.proposal.tables[0]?.fields[0]?.violations).toBeNull();
 
   // Re-read the proposal from the encrypted stage. `runInference` returns the
   // *staged* proposal rather than inferring again, so the edits are still
@@ -194,7 +199,7 @@ test("an edit is written into the stage and survives a re-read", async ({
     throw new Error("expected the staged proposal");
   }
   expect(reread.response.proposal.appName).toBe("Site Field Log");
-  expect(reread.response.proposal.table.fields[0]?.type.kind).toBe("text");
+  expect(reread.response.proposal.tables[0]?.fields[0]?.type.kind).toBe("text");
 
   // Both edited statements are marked `edited`, which is exactly what
   // promotion writes into `inference-decision.recorded`.
@@ -205,7 +210,7 @@ test("an edit is written into the stage and survives a re-read", async ({
     ]),
   );
   expect(dispositions.get("app-name")).toBe("edited");
-  expect(dispositions.get("field-type:0")).toBe("edited");
+  expect(dispositions.get("field-type:s0.r0.c0")).toBe("edited");
 });
 
 test("an impossible edit is a typed result, not an error, and changes nothing", async ({
@@ -221,7 +226,7 @@ test("an impossible edit is a typed result, not an error, and changes nothing", 
   const rejected = await command(page, {
     kind: "applyReviewEdit",
     stageId,
-    edit: { kind: "rename-field", columnIndex: 99, fieldName: "Nowhere" },
+    edit: { kind: "rename-field", tableKey: "s0.r0", columnKey: "s0.r0.c99", fieldName: "Nowhere" },
   });
 
   // D23: a refusal the user can act on crosses as a result, not an error kind.
@@ -256,7 +261,7 @@ test("the whole worker-tier journey: import, review, create app, restart", async
   const renamed = await command(page, {
     kind: "applyReviewEdit",
     stageId,
-    edit: { kind: "rename-field", columnIndex: 0, fieldName: "Location" },
+    edit: { kind: "rename-field", tableKey: "s0.r0", columnKey: "s0.r0.c0", fieldName: "Location" },
   });
   if (!renamed.ok || renamed.response.kind !== "applyReviewEdit") {
     throw new Error("expected an edit result");
@@ -266,7 +271,7 @@ test("the whole worker-tier journey: import, review, create app, restart", async
   const overridden = await command(page, {
     kind: "applyReviewEdit",
     stageId,
-    edit: { kind: "override-type", columnIndex: 0, type: { kind: "text" } },
+    edit: { kind: "override-type", tableKey: "s0.r0", columnKey: "s0.r0.c0", type: { kind: "text" } },
   });
   if (!overridden.ok || overridden.response.kind !== "applyReviewEdit") {
     throw new Error("expected an edit result");
@@ -414,7 +419,7 @@ test("a refused promotion is a typed result and leaves nothing behind", async ({
   if (!inferred.ok || inferred.response.kind !== "runInference") {
     throw new Error("expected a proposal");
   }
-  expect(inferred.response.proposal.table.fields).toEqual([]);
+  expect(inferred.response.proposal.tables[0]?.fields).toEqual([]);
 
   const before = await readStore(page);
   const promoted = await command(page, {

@@ -233,7 +233,8 @@ export type ReviewEditWireV1 =
 export interface ApplyReviewEditRequestV1 {
   readonly kind: "applyReviewEdit";
   readonly stageId: string;
-  readonly edit: ReviewEditWireV1;
+  /** S02's workbook edit (CA-19); a delimited proposal takes the same keyed forms. */
+  readonly edit: WorkbookReviewEditWireV1;
 }
 
 /**
@@ -801,6 +802,334 @@ export interface ProposedAppWireV1 {
 }
 
 /**
+ * S02's workbook proposal (`ProposedWorkbookV1`), restated structurally — the
+ * CA-19 wire (CA-16's rule: projected, never reshaped). A delimited file is its
+ * one-sheet, one-table case. `tests/unit/workers/proposal-wire.test.ts` pins
+ * it against S02's type in both directions.
+ *
+ * The one projection: a record rule's comparison value is a
+ * {@link RuleValueWireV1}, the cell values a validation rule can state.
+ * `CellValueV1`'s enum and reference members carry byte ids, which this file
+ * cannot name, and no rule ever holds one; the worker refuses to send a rule
+ * that did (`import-handlers.ts`).
+ */
+export type WorkbookSourceValueFormatWireV1 =
+  | SourceValueFormatWireV1
+  | { readonly kind: "serial-date"; readonly system: "1900" | "1904" };
+
+export interface RangeWireV1 {
+  readonly firstRow: number;
+  readonly firstColumn: number;
+  readonly lastRow: number;
+  readonly lastColumn: number;
+}
+
+export type PreservedPartKindWireV1 =
+  | "formula"
+  | "chart"
+  | "pivot-table"
+  | "drawing"
+  | "image"
+  | "comment"
+  | "external-link"
+  | "hyperlink"
+  | "embedded-object"
+  | "form-control"
+  | "data-connection"
+  | "conditional-formatting"
+  | "cell-styling"
+  | "sparkline"
+  | "script"
+  | "unsupported-validation";
+
+export type PreservedReasonKeyWireV1 =
+  | "formula-not-live-yet"
+  | "chart-not-live-yet"
+  | "pivot-not-live-yet"
+  | "visual-only"
+  | "note-kept-as-text"
+  | "link-not-followed"
+  | "external-source-not-fetched"
+  | "object-not-opened"
+  | "control-not-run"
+  | "connection-not-refreshed"
+  | "formatting-not-reproduced"
+  | "script-not-run"
+  | "validation-not-expressible";
+
+export type WorkbookInferenceSubjectWireV1 =
+  | InferenceSubjectWireV1
+  | "table-split"
+  | "table-merge"
+  | "relationship"
+  | "formula"
+  | "sheet-classification"
+  | "record-rule"
+  | "table-key"
+  | "table-label";
+
+export type WorkbookReviewEditKindWireV1 =
+  | ReviewEditKindWireV1
+  | "reject-relationship"
+  | "restore-relationship"
+  | "retarget-relationship"
+  | "reject-statement"
+  | "restore-statement"
+  | "set-key"
+  | "set-label";
+
+export type ImportDiagnosticCodeWireV2 = ImportDiagnosticCodeWireV1 | "error-value" | "malformed-value";
+
+export interface ImportDiagnosticWireV2 {
+  readonly code: ImportDiagnosticCodeWireV2;
+  readonly severity: "info" | "warning";
+  readonly firstRowIndex: number | null;
+  readonly firstColumnIndex: number | null;
+  readonly occurrences: number;
+}
+
+type ValidationRuleWireV1 = "list" | "whole" | "decimal" | "date" | "time" | "text-length" | "custom";
+type ValidationOperatorWireV1 =
+  | "between"
+  | "not-between"
+  | "equal"
+  | "not-equal"
+  | "less-than"
+  | "less-than-or-equal"
+  | "greater-than"
+  | "greater-than-or-equal";
+type ListSourceWireV1 =
+  | { readonly kind: "inline"; readonly values: readonly string[] }
+  | { readonly kind: "range"; readonly ref: string };
+
+export type WorkbookEvidenceWireV1 =
+  | EvidenceWireV1
+  | {
+      readonly kind: "declared-table";
+      readonly name: string;
+      readonly range: RangeWireV1;
+      readonly headerRowCount: number;
+      readonly totalsRowCount: number;
+    }
+  | {
+      readonly kind: "number-format";
+      readonly numberFormat: string;
+      readonly formatClass: "general" | "number" | "currency" | "percent" | "date" | "time" | "datetime" | "text" | "other";
+      readonly currencySymbol: string | null;
+      readonly matched: number;
+      readonly sampled: number;
+    }
+  | {
+      readonly kind: "validation-rule";
+      readonly rule: ValidationRuleWireV1;
+      readonly operator: ValidationOperatorWireV1 | null;
+      readonly listSource: ListSourceWireV1 | null;
+      readonly formula1: string | null;
+      readonly formula2: string | null;
+      readonly listOptions: readonly string[] | null;
+    }
+  | {
+      readonly kind: "lookup-formula";
+      readonly functionName: string;
+      readonly formulaText: string;
+      readonly parentSheetName: string;
+      readonly parentTableName: string;
+      readonly parentColumnName: string;
+      readonly outcome: "relationship" | "parent-key-differs";
+    }
+  | {
+      readonly kind: "key-match";
+      readonly parentTableName: string;
+      readonly parentColumnName: string;
+      readonly matched: number;
+      readonly measured: number;
+      readonly isSampled: boolean;
+    }
+  | { readonly kind: "matching-headings"; readonly headings: readonly string[]; readonly rowIndex: number }
+  | { readonly kind: "blank-row-gap"; readonly afterRowIndex: number; readonly beforeRowIndex: number }
+  | { readonly kind: "column-gap"; readonly afterColumnIndex: number; readonly beforeColumnIndex: number }
+  | {
+      readonly kind: "formula-text";
+      readonly text: string | null;
+      readonly isArray: boolean;
+      readonly isExternal: boolean;
+      readonly formulaCount: number;
+    }
+  | {
+      readonly kind: "sheet-shape";
+      readonly sheetName: string;
+      readonly sheetKind: "worksheet" | "chartsheet" | "dialogsheet";
+      readonly usedCellCount: number;
+      readonly formulaCellCount: number;
+      readonly tableCount: number;
+    }
+  | { readonly kind: "preserved-part"; readonly partKind: PreservedPartKindWireV1; readonly count: number }
+  | { readonly kind: "previously-rejected" };
+
+export interface WorkbookStatementWireV1 {
+  readonly statementId: string;
+  readonly subject: WorkbookInferenceSubjectWireV1;
+  readonly editKind: WorkbookReviewEditKindWireV1 | null;
+  readonly targetKey: string | null;
+  readonly columnIndex: number | null;
+  readonly evidence: readonly WorkbookEvidenceWireV1[];
+  readonly evidenceFingerprint: string;
+  readonly disposition: "accepted" | "rejected" | "edited";
+}
+
+export interface ProposedSheetWireV1 {
+  readonly sheetKey: string;
+  readonly sheetIndex: number;
+  readonly name: string;
+  readonly sheetKind: "worksheet" | "chartsheet" | "dialogsheet";
+  readonly visibility: "visible" | "hidden" | "very-hidden";
+  readonly isSelected: boolean;
+  readonly classification: readonly ("table" | "lookup" | "summary" | "chart" | "snapshot" | "excluded")[];
+  readonly declaredRange: RangeWireV1 | null;
+  readonly dateSystem: "1900" | "1904" | null;
+  readonly rowCount: number | null;
+  readonly usedCellCount: number | null;
+  readonly formulaCellCount: number | null;
+  readonly omittedRegionCount: number;
+}
+
+export interface ProposedWorkbookFieldWireV1 {
+  readonly columnKey: string;
+  readonly columnIndex: number;
+  readonly fieldName: string;
+  readonly isNameGenerated: boolean;
+  readonly type: FieldTypeWireV1;
+  readonly valueType: ProposedFieldTypeWireV1;
+  readonly sourceFormat: WorkbookSourceValueFormatWireV1;
+  readonly enumOptions: readonly { readonly label: string; readonly occurrences: number }[];
+  readonly violations: {
+    readonly count: number;
+    readonly examples: readonly { readonly rowIndex: number; readonly sourceText: string }[];
+  } | null;
+  readonly formulaText: string | null;
+}
+
+export interface ProposedTableWireV2 {
+  readonly tableKey: string;
+  readonly sheetKey: string;
+  readonly tableName: string;
+  readonly source:
+    | {
+        readonly kind: "declared-table";
+        readonly name: string;
+        readonly range: RangeWireV1;
+        readonly headerRowCount: number;
+        readonly totalsRowCount: number;
+      }
+    | { readonly kind: "region" };
+  readonly firstColumn: number;
+  readonly lastColumn: number;
+  readonly headerRowIndex: number | null;
+  readonly leadingRows: readonly { readonly rowIndex: number; readonly cells: readonly string[] }[];
+  readonly discardedRows: readonly {
+    readonly rowIndex: number;
+    readonly reason: "above-header" | "empty-row" | "totals-row";
+    readonly cells: readonly string[];
+  }[];
+  readonly discardedRowCount: number;
+  readonly rowCount: number;
+  readonly joinedToTableKey: string | null;
+  readonly fields: readonly ProposedWorkbookFieldWireV1[];
+  readonly keyColumnKey: string | null;
+  readonly labelColumnKey: string | null;
+}
+
+export interface ProposedRelationshipWireV1 {
+  readonly relationshipKey: string;
+  readonly fromTableKey: string;
+  readonly fromColumnKey: string;
+  readonly toTableKey: string;
+  readonly toColumnKey: string;
+  readonly detectionSource: "lookup-formula" | "key-match" | "user";
+  readonly isApplied: boolean;
+  readonly brokenReferenceCount: number;
+  readonly isSampled: boolean;
+  readonly candidates: readonly {
+    readonly toTableKey: string;
+    readonly toColumnKey: string;
+    readonly basis: "lookup-formula" | "heading" | "containment" | "heading-and-containment";
+    readonly brokenReferenceCount: number;
+  }[];
+}
+
+/** The cell values a record rule can compare against: never an id-bearing value. */
+export type RuleValueWireV1 =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "decimal"; readonly decimal: string }
+  | { readonly kind: "date"; readonly epochDay: number }
+  | { readonly kind: "boolean"; readonly boolean: boolean }
+  | { readonly kind: "missing" }
+  | { readonly kind: "blank" }
+  | { readonly kind: "invalid-preserved"; readonly sourceText: string };
+
+export type ProposedRuleConditionWireV1 =
+  | { readonly kind: "field-equals"; readonly columnKey: string; readonly value: RuleValueWireV1 }
+  | { readonly kind: "not"; readonly condition: ProposedRuleConditionWireV1 };
+
+export interface ProposedRecordRuleWireV1 {
+  readonly ruleKey: string;
+  readonly tableKey: string;
+  readonly columnKey: string;
+  readonly condition: ProposedRuleConditionWireV1;
+  readonly isActive: boolean;
+}
+
+export interface ProposedInertItemWireV1 {
+  readonly kind: PreservedPartKindWireV1;
+  readonly sheetKey: string;
+  readonly location: string;
+  readonly reasonKey: PreservedReasonKeyWireV1;
+  readonly anchor: RangeWireV1 | null;
+}
+
+export interface ProposedWorkbookWireV1 {
+  readonly fileName: string;
+  readonly isDelimited: boolean;
+  readonly appName: string;
+  readonly sheets: readonly ProposedSheetWireV1[];
+  readonly tables: readonly ProposedTableWireV2[];
+  readonly relationships: readonly ProposedRelationshipWireV1[];
+  readonly recordRules: readonly ProposedRecordRuleWireV1[];
+  readonly inertItems: readonly ProposedInertItemWireV1[];
+  readonly inertCounts: Readonly<Record<PreservedPartKindWireV1, number>>;
+  readonly statements: readonly WorkbookStatementWireV1[];
+  readonly diagnostics: readonly ImportDiagnosticWireV2[];
+  /** Always `true`: a proposal comes from a completed stream (D24). */
+  readonly isRowCountExact: true;
+}
+
+/** S02's `WorkbookReviewEditV1`: every target is a stable key, never a name. */
+export type WorkbookReviewEditWireV1 =
+  | { readonly kind: "rename-app"; readonly appName: string }
+  | { readonly kind: "rename-table"; readonly tableKey: string; readonly tableName: string }
+  | { readonly kind: "rename-field"; readonly tableKey: string; readonly columnKey: string; readonly fieldName: string }
+  | {
+      readonly kind: "override-type";
+      readonly tableKey: string;
+      readonly columnKey: string;
+      readonly type: ProposedFieldTypeWireV1;
+    }
+  | { readonly kind: "set-header-row"; readonly regionKey: string; readonly rowIndex: number | null }
+  | {
+      readonly kind: "edit-enum-options";
+      readonly tableKey: string;
+      readonly columnKey: string;
+      readonly options: readonly string[];
+    }
+  | { readonly kind: "reject-relationship"; readonly relationshipKey: string }
+  | { readonly kind: "restore-relationship"; readonly relationshipKey: string }
+  | { readonly kind: "retarget-relationship"; readonly relationshipKey: string; readonly toTableKey: string }
+  | { readonly kind: "reject-statement"; readonly statementId: string }
+  | { readonly kind: "restore-statement"; readonly statementId: string }
+  | { readonly kind: "set-key"; readonly tableKey: string; readonly columnKey: string | null }
+  | { readonly kind: "set-label"; readonly tableKey: string; readonly columnKey: string };
+
+/**
  * A stage's progress and terminal status. Counts only — no cell value, and no
  * file content: the name is the one page-known fact the import flow may echo.
  */
@@ -825,7 +1154,7 @@ export interface GetImportStageResponseV1 {
 
 export interface RunInferenceResponseV1 {
   readonly kind: "runInference";
-  readonly proposal: ProposedAppWireV1;
+  readonly proposal: ProposedWorkbookWireV1;
 }
 
 /**
@@ -837,7 +1166,7 @@ export type ApplyReviewEditResponseV1 =
   | {
       readonly kind: "applyReviewEdit";
       readonly outcome: "applied";
-      readonly proposal: ProposedAppWireV1;
+      readonly proposal: ProposedWorkbookWireV1;
     }
   | {
       readonly kind: "applyReviewEdit";

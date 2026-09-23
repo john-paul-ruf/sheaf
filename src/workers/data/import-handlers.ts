@@ -79,8 +79,7 @@ import { IMPORT_BUDGET_V1 } from "../../import/preflight/budgets.js";
 import type { DetectedFormatV1 } from "../../import/source/sniff.js";
 import type { PreflightReportV1 } from "../../import/preflight/preflight.js";
 import type { WorkbookFactStreamItemV2 } from "../../import/facts/index.js";
-import { encodeFactStreamItem } from "../../import/staging/fact-codec.js";
-import { asStorageId16, encodeStorageId16 } from "../../domain/model/bytes.js";
+import { asStorageId16, decodeStorageId16, encodeStorageId16 } from "../../domain/model/bytes.js";
 import {
   IMPORT_STAGE_PAYLOAD_KIND,
   IMPORT_STAGE_SCOPE,
@@ -92,7 +91,11 @@ import {
   stageWithReviewEdit,
   writeImportStage,
 } from "../../import/staging/lifecycle.js";
-import { inferProposal } from "../../import/inference/infer.js";
+import { delimitedStream } from "../../import/inference/infer.js";
+import { inferWorkbook } from "../../import/inference/workbook.js";
+import type { ProposedRuleConditionV1, ProposedWorkbookV1 } from "../../import/inference/workbook-proposal.js";
+import { decodeFactStreamItem, encodeFactStreamItem } from "../../import/staging/fact-codec.js";
+import type { LoadedImportStageV1 } from "../../import/staging/lifecycle.js";
 import {
   isStageChannelInboundV1,
   stageAck,
@@ -106,6 +109,8 @@ import type {
   DataWorkerResponseV1,
   DetectedDelimitedV1,
   ImportPreflightFactsV1,
+  ProposedRuleConditionWireV1,
+  ProposedWorkbookWireV1,
   WorkbookSheetSummaryWireV1,
   WorkbookStageFactsV1,
   GetImportStageRequestV1,
@@ -483,6 +488,33 @@ export interface ImportHandlerDependenciesV1 {
   readonly crypto?: EnvelopeCryptoPort;
 }
 
+/**
+ * The proposal as the wire carries it (CA-19): S02's shape unchanged, except a
+ * record rule's comparison value, which the byte-free wire restates without
+ * the id-bearing members no rule can hold. A rule holding one is a defect.
+ */
+export function proposalWire(proposal: ProposedWorkbookV1): ProposedWorkbookWireV1 {
+  const condition = (value: ProposedRuleConditionV1): ProposedRuleConditionWireV1 => {
+    if (value.kind === "not") return { kind: "not", condition: condition(value.condition) };
+    if (value.value.kind === "enum" || value.value.kind === "reference") {
+      throw new DataWorkerCommandError("internal");
+    }
+    return { kind: "field-equals", columnKey: value.columnKey, value: value.value };
+  };
+  return {
+    ...proposal,
+    recordRules: proposal.recordRules.map((rule) => ({ ...rule, condition: condition(rule.condition) })),
+  };
+}
+
+/**
+ * A new app has no rejection memory, so inference never digests a
+ * fingerprint here; if it tried, the empty memory would be a lie.
+ */
+const noRejectionMemory = (): string => {
+  throw new Error("a new app has no rejection memory to match");
+};
+
 /** Where a live stage's workflow reference is remembered between requests. */
 export interface ActiveStageV1 {
   readonly stageId: string;
@@ -615,6 +647,36 @@ export function createImportHandlers(
     return loaded === undefined
       ? undefined
       : { context, catalogPort, loaded };
+  }
+
+  /**
+   * The stage's facts, in order. The channel's in-memory copy serves while it
+   * holds the whole stream; otherwise — after a reload, say — the staged fact
+   * chunks are the authority (D17), each decrypted, checked against its
+   * recorded digest, and decoded exactly (CA-17).
+   */
+  async function stagedFacts(
+    stageId: string,
+    loaded: LoadedImportStageV1,
+  ): Promise<readonly WorkbookFactStreamItemV2[]> {
+    const inMemory = channels.get(stageId)?.facts ?? [];
+    if (inMemory.length === loaded.stage.factChunks.length && inMemory.at(-1)?.kind === "summary") {
+      return inMemory;
+    }
+    const facts: WorkbookFactStreamItemV2[] = [];
+    for (const chunk of loaded.stage.factChunks) {
+      const frame = await store.getEnvelope(decodeStorageId16(chunk.storageId));
+      if (frame === undefined) {
+        throw new DataWorkerCommandError("integrity");
+      }
+      const { payload } = await crypto.open(frame, IMPORT_STAGE_SCOPE, loaded.provisionalKey, IMPORT_STAGE_PAYLOAD_KIND);
+      const digest = await crypto.sha256(payload);
+      if (digest.byteLength !== chunk.sha256.byteLength || digest.some((byte, index) => byte !== chunk.sha256[index])) {
+        throw new DataWorkerCommandError("integrity");
+      }
+      facts.push(decodeFactStreamItem(payload));
+    }
+    return facts;
   }
 
   /**
@@ -928,16 +990,37 @@ export function createImportHandlers(
         // Already inferred. Re-running would discard the user's edits, so the
         // staged proposal — edits and all — is what comes back.
         crypto.destroyKey(loaded.provisionalKey);
-        return { kind: "runInference", proposal: loaded.stage.proposal };
+        return { kind: "runInference", proposal: proposalWire(loaded.stage.proposal) };
       }
 
-      const facts = channels.get(request.stageId)?.facts ?? [];
-      let proposal;
+      let proposal: ProposedWorkbookV1;
       try {
-        // `inferProposal` throws on a summary-less stream by design (S03): a
-        // cancelled parse has nothing exact to propose from, and nothing here
-        // synthesises a summary to make it answer.
-        proposal = inferProposal(facts, { fileName: loaded.stage.fileName });
+        const facts = await stagedFacts(request.stageId, loaded);
+        const stage = loaded.stage;
+        // One path for every format (CA-19): a delimited stream reaches S02's
+        // single-table case without its one sheet fact, so its proposal,
+        // statements and fingerprints are F02's. `inferWorkbook` throws on a
+        // summary-less stream by design: a cancelled parse has nothing exact
+        // to propose from, and nothing here synthesises a summary.
+        proposal = inferWorkbook(stage.format === "delimited" ? delimitedStream(facts) : facts, {
+          fileName: stage.fileName,
+          // Every inventoried sheet, selected or not: the unselected ones are
+          // listed as excluded and never read (D39).
+          sheetSelection:
+            stage.inventory === null
+              ? null
+              : stage.inventory.map((sheet) => ({
+                  sheetIndex: sheet.sheetIndex,
+                  name: sheet.name,
+                  sheetKind: sheet.sheetKind,
+                  visibility: sheet.visibility,
+                  isSelected: stage.selectedSheets.includes(sheet.sheetIndex),
+                })),
+          // A new app has no decisions to remember (D44).
+          rejectionMemory: new Set(),
+          fingerprintOf: noRejectionMemory,
+          existingApp: null,
+        });
       } catch {
         crypto.destroyKey(loaded.provisionalKey);
         throw new DataWorkerCommandError("integrity");
@@ -952,7 +1035,7 @@ export function createImportHandlers(
       crypto.destroyKey(loaded.provisionalKey);
       rememberWorkflow(request.stageId, written.loaded.workflowStorageId);
 
-      return { kind: "runInference", proposal };
+      return { kind: "runInference", proposal: proposalWire(proposal) };
     },
 
     /**
@@ -976,7 +1059,7 @@ export function createImportHandlers(
           kind: "applyReviewEdit",
           outcome: "rejected",
           reason:
-            result.kind === "rejected" ? result.reason : "unknown-column",
+            result.kind === "rejected" ? result.reason : "unknown-table",
         };
       }
 
@@ -992,7 +1075,7 @@ export function createImportHandlers(
       return {
         kind: "applyReviewEdit",
         outcome: "applied",
-        proposal: result.proposal,
+        proposal: proposalWire(result.proposal),
       };
     },
 
@@ -1014,7 +1097,13 @@ export function createImportHandlers(
         throw new DataWorkerCommandError("integrity");
       }
       const { context, catalogPort, loaded } = opened;
-      const facts = channels.get(request.stageId)?.facts ?? [];
+      let facts: readonly WorkbookFactStreamItemV2[];
+      try {
+        facts = await stagedFacts(request.stageId, loaded);
+      } catch {
+        crypto.destroyKey(loaded.provisionalKey);
+        throw new DataWorkerCommandError("integrity");
+      }
 
       const result = await promoteStagedImport(
         {

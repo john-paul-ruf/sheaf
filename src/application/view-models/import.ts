@@ -43,6 +43,7 @@ import type {
   ImportPhaseV1,
   importMachine,
 } from "../workflows/import.machine.js";
+import { singleTableProposal } from "../workflows/import-services.js";
 
 type ImportSnapshot = SnapshotFrom<typeof importMachine>;
 
@@ -771,7 +772,10 @@ function announceEnded(
 
 function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
   const { context } = snapshot;
-  const proposal = context.proposal;
+  // This page reviews one delimited table (D48). A proposal with no one-table
+  // view never reaches review — the machine fails closed on it — so here it
+  // reads as "nothing proposed yet" rather than as part of an app.
+  const proposal = context.proposal === undefined ? undefined : (singleTableProposal(context.proposal) ?? undefined);
   const statements = proposal?.statements ?? [];
   const fields = (proposal?.table.fields ?? []).map((field) =>
     toField(field, statements),

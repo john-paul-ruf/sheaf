@@ -545,15 +545,16 @@ const ruleValueOf = (validation: ValidationFact, dateSystem: DateSystemV1 | null
   return decimal === null || (validation.rule === "whole" && decimal.includes(".")) ? null : decimalValue(decimal);
 };
 
-/**
- * Reads a completed V2 fact stream and proposes a multi-table app.
- *
- * @throws when the stream carries no terminal summary.
- */
-export function inferWorkbook(
-  items: Iterable<WorkbookFactStreamItemV2>,
-  context: WorkbookInferenceContextV1,
-): ProposedWorkbookV1 {
+/** What one pass over a fact stream leaves: every sheet's measured state, or the delimited table. */
+interface ReadStreamV1 {
+  readonly sheets: readonly SheetState[];
+  readonly definedNames: readonly DefinedNameFact[];
+  readonly delimited: DelimitedState | null;
+  readonly diagnostics: readonly ImportDiagnosticV2[] | null;
+}
+
+/** The one pass over the facts that both inference and the row plan read. */
+function readStream(items: Iterable<WorkbookFactStreamItemV2>): ReadStreamV1 {
   const sheets: SheetState[] = [];
   const definedNames: DefinedNameFact[] = [];
   let delimited: DelimitedState | null = null;
@@ -670,7 +671,7 @@ export function inferWorkbook(
           break;
         default: {
           const unreachable: never = fact;
-          return unreachable;
+          throw new Error(`an unknown fact kind: ${String(unreachable)}`);
         }
       }
     }
@@ -681,6 +682,19 @@ export function inferWorkbook(
   }
   if (delimited !== null) flushDelimitedRow(delimited);
 
+  return { sheets, definedNames, delimited, diagnostics };
+}
+
+/**
+ * Reads a completed V2 fact stream and proposes a multi-table app.
+ *
+ * @throws when the stream carries no terminal summary.
+ */
+export function inferWorkbook(
+  items: Iterable<WorkbookFactStreamItemV2>,
+  context: WorkbookInferenceContextV1,
+): ProposedWorkbookV1 {
+  const { sheets, definedNames, delimited, diagnostics } = readStream(items);
   if (diagnostics === null) {
     throw new Error("inference needs a completed fact stream with its summary");
   }
@@ -692,6 +706,41 @@ export function inferWorkbook(
         context,
       )
     : proposeWorkbook(sheets, definedNames, diagnostics, context);
+}
+
+/** Where one proposed table's rows lie: the first and last source row its builder was fed. */
+export interface TableRowExtentV1 {
+  readonly firstRowIndex: number;
+  readonly lastRowIndex: number;
+}
+
+/**
+ * The row extent of every table a proposal over this stream names, keyed by
+ * table key — read by the same pass inference makes, so promotion places each
+ * source row in exactly the table the proposal measured it into. Row extents
+ * are all a proposal leaves out: the columns, header and totals rows are in
+ * the proposal itself, where the review may have moved them. A table fed no
+ * row has no entry.
+ *
+ * @throws when the stream carries no terminal summary.
+ */
+export function tableRowExtents(items: Iterable<WorkbookFactStreamItemV2>): ReadonlyMap<string, TableRowExtentV1> {
+  const { sheets, delimited, diagnostics } = readStream(items);
+  if (diagnostics === null) {
+    throw new Error("a row plan needs a completed fact stream with its summary");
+  }
+  const extents = new Map<string, TableRowExtentV1>();
+  const add = (tableKey: string, measured: MeasuredTableV1): void => {
+    if (measured.firstRowIndex >= 0) {
+      extents.set(tableKey, { firstRowIndex: measured.firstRowIndex, lastRowIndex: measured.lastRowIndex });
+    }
+  };
+  if (delimited !== null || sheets.length === 0) {
+    if (delimited !== null) add("s0.r0", delimited.builder.finish());
+    return extents;
+  }
+  for (const candidate of candidatesOf(sheets)) add(candidate.tableKey, candidate.measured);
+  return extents;
 }
 
 /** F02's single-table proposal in the workbook shape, statements and fingerprints unchanged. */
@@ -808,13 +857,8 @@ const countInert = (items: readonly ProposedInertItemV1[]): Readonly<Record<Pres
   return counts;
 };
 
-function proposeWorkbook(
-  sheets: readonly SheetState[],
-  definedNames: readonly DefinedNameFact[],
-  diagnostics: readonly ImportDiagnosticV2[],
-  context: WorkbookInferenceContextV1,
-): ProposedWorkbookV1 {
-  // Pass 1 — every sheet measured, merges and splits decided.
+/** Pass 1 of a workbook proposal: every sheet measured, merges and splits decided. */
+function candidatesOf(sheets: readonly SheetState[]): Candidate[] {
   const candidates: Candidate[] = [];
   for (const sheet of sheets) {
     const sheetKey = `s${sheet.info.sheetIndex}`;
@@ -879,6 +923,17 @@ function proposeWorkbook(
       }
     }
   }
+  return candidates;
+}
+
+function proposeWorkbook(
+  sheets: readonly SheetState[],
+  definedNames: readonly DefinedNameFact[],
+  diagnostics: readonly ImportDiagnosticV2[],
+  context: WorkbookInferenceContextV1,
+): ProposedWorkbookV1 {
+  // Pass 1 — every sheet measured, merges and splits decided.
+  const candidates = candidatesOf(sheets);
 
   // Pass 2 — every table typed and named.
   const takenNames = new Set((context.existingApp?.tableNames ?? []).map((name) => name.toLowerCase()));

@@ -625,7 +625,7 @@ test("a created record is validated, durable, and searchable at once", async ({
   ).toEqual({ kind: "missing" });
 });
 
-test("CA-22: an F02 app's delimited snapshot opens as a page, its discarded title rows included", async ({
+test("CA-22: a delimited app's snapshot opens as a page, its discarded title rows included and marked", async ({
   page,
 }) => {
   test.setTimeout(APP_TIMEOUT_MS);
@@ -635,7 +635,8 @@ test("CA-22: an F02 app's delimited snapshot opens as a page, its discarded titl
   if (!listed.ok || listed.response.kind !== "listSheetSnapshots") {
     throw new Error("expected a listSheetSnapshots response");
   }
-  // The F02 manifest decodes to its F02-true defaults (D37): one table sheet.
+  // A delimited file is one sheet playing one role (D37's F02-true reading,
+  // now written explicitly by promotion).
   expect(listed.response.sheets).toHaveLength(1);
   const sheet = listed.response.sheets?.[0];
   expect(sheet?.classification).toEqual(["table"]);
@@ -652,9 +653,15 @@ test("CA-22: an F02 app's delimited snapshot opens as a page, its discarded titl
     throw new Error("expected a snapshot page");
   }
   const snapshot = read.response.page;
-  expect(snapshot.format).toBe("delimited-v1");
-  // F02's writer named the sheet after the proposed table.
-  expect(snapshot.displayName).toBe("Field Log Messy");
+  // Since F03 every import writes S03's sheet format (one path, CA-22); the
+  // F02 v1 page is still read by the same RPC (`sheet-snapshot.test.ts`).
+  expect(snapshot.format).toBe("sheet-v2");
+  // A delimited file's one sheet is the file itself.
+  expect(snapshot.displayName).toBe("field-log-messy.csv");
+  // The rows no table took are marked with why (FR-4).
+  expect(snapshot.discardedRows).toEqual(
+    expect.arrayContaining([{ rowIndex: 0, reason: "above-header" }]),
+  );
   // FR-4's "recoverable", decode-proven: the rows the import set aside are here.
   expect(snapshot.rows[0]?.cells).toEqual([
     { columnIndex: 0, text: "Cedar & Finch Field Log", kind: "text" },

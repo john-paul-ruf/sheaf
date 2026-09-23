@@ -21,8 +21,24 @@ import { describe, expect, it } from "vitest";
 import type {
   ApplyReviewEditResponseV1,
   ProposedAppWireV1,
+  ProposedRecordRuleWireV1,
+  ProposedWorkbookWireV1,
   ReviewEditWireV1,
+  RuleValueWireV1,
+  WorkbookReviewEditWireV1,
 } from "../../../src/workers/protocol/messages.js";
+import type { CellValueV1 } from "../../../src/domain/model/values.js";
+import type {
+  ProposedRecordRuleV1,
+  ProposedWorkbookV1,
+} from "../../../src/import/inference/workbook-proposal.js";
+import type {
+  WorkbookReviewEditRejectionV1,
+  WorkbookReviewEditV1,
+} from "../../../src/import/inference/review-edits.js";
+import { inferWorkbook } from "../../../src/import/inference/workbook.js";
+import { proposalWire } from "../../../src/workers/data/import-handlers.js";
+import { streamWorkbookFixture } from "../staging/workbook-streams.js";
 import type { ProposedAppV1 } from "../../../src/import/inference/infer.js";
 import type {
   ReviewEditRejectionV1,
@@ -56,12 +72,52 @@ type RejectionPin = ReviewEditRejectionV1 extends
   ? true
   : never;
 
+// CA-19: S02's workbook proposal and its wire, everything but the rule values
+// the byte-free wire restates, in both directions.
+type WorkbookPin = MutuallyAssignable<
+  Omit<ProposedWorkbookV1, "recordRules">,
+  Omit<ProposedWorkbookWireV1, "recordRules">
+>;
+type RulePin = MutuallyAssignable<Omit<ProposedRecordRuleV1, "condition">, Omit<ProposedRecordRuleWireV1, "condition">>;
+/** A rule's value on the wire is exactly a cell value without an identity. */
+type RuleValuePin = MutuallyAssignable<Exclude<CellValueV1, { kind: "enum" | "reference" }>, RuleValueWireV1>;
+type WorkbookEditPin = MutuallyAssignable<WorkbookReviewEditV1, WorkbookReviewEditWireV1>;
+type WorkbookRejectionPin = WorkbookReviewEditRejectionV1 extends
+  Extract<ApplyReviewEditResponseV1, { outcome: "rejected" }>["reason"]
+  ? true
+  : never;
+
 describe("the wire proposal", () => {
   it("is the same type as S03's, in both directions", () => {
     // The assertions are the four type aliases above; this case exists so the
     // file has a runtime presence and so the pins cannot be deleted silently.
     const pins: [ProposalPin, EditPin, RejectionPin] = [true, true, true];
     expect(pins).toEqual([true, true, true]);
+  });
+
+  it("is S02's workbook proposal and edit, in both directions (CA-19)", () => {
+    const pins: [WorkbookPin, RulePin, RuleValuePin, WorkbookEditPin, WorkbookRejectionPin] = [
+      true,
+      true,
+      true,
+      true,
+      true,
+    ];
+    expect(pins).toEqual([true, true, true, true, true]);
+  });
+
+  it("carries the demo workbook's real proposal unchanged", async () => {
+    const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx");
+    if (stream === null) throw new Error("the demo workbook did not size");
+    const proposal = inferWorkbook(stream.items, {
+      fileName: "fieldwork-q3.xlsx",
+      sheetSelection: null,
+      rejectionMemory: new Set(),
+      fingerprintOf: (input) => input,
+      existingApp: null,
+    });
+    // Through the wire and back through structured clone: no field lost.
+    expect(structuredClone(proposalWire(proposal))).toEqual(proposal);
   });
 
   it("carries a real inferred proposal without losing a field", async () => {

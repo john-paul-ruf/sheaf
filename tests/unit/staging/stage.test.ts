@@ -7,9 +7,10 @@
  * what the user reviewed — and every constraint database.md § Import staging
  * states is refused rather than stored.
  *
- * The proposal round-tripped below is built from S03's own inference over a
- * real fixture, not from a hand-written literal: the shape this codec must
- * carry is whatever `inferProposal` actually produces.
+ * The proposals round-tripped below are built by S02's own inference over real
+ * fixtures — the delimited file and the pinned demo workbook — not from
+ * hand-written literals: the shape this codec must carry is whatever
+ * `inferWorkbook` actually produces (CA-19).
  */
 
 import { describe, expect, it } from "vitest";
@@ -37,8 +38,11 @@ import {
   ENVELOPE_SCOPES_V1,
 } from "../../../src/migrations/003_envelope_format_v1.js";
 import { parseDelimited } from "../../../src/import/formats/delimited/parse.js";
-import { inferProposal } from "../../../src/import/inference/infer.js";
-import { applyReviewEdit } from "../../../src/import/inference/review-edits.js";
+import { delimitedStream } from "../../../src/import/inference/infer.js";
+import { applyWorkbookReviewEdit } from "../../../src/import/inference/review-edits.js";
+import { inferWorkbook } from "../../../src/import/inference/workbook.js";
+import type { ProposedWorkbookV1 } from "../../../src/import/inference/workbook-proposal.js";
+import { streamWorkbookFixture } from "./workbook-streams.js";
 import { sniffContent } from "../../../src/import/source/sniff.js";
 import {
   isDelimitedSniff,
@@ -48,7 +52,6 @@ import {
 import type {
   WorkbookFactStreamItemV2,
 } from "../../../src/import/facts/index.js";
-import type { ProposedAppV1 } from "../../../src/import/inference/infer.js";
 import { fixtureSource } from "../import/fixtures.js";
 
 const FIXTURE = "delimited/field-log-messy.csv";
@@ -68,8 +71,15 @@ const chunk = (seed: number, sequence: number): StagedChunkRefV1 => ({
 
 interface Fixture {
   readonly preflight: PreflightReportV1;
-  readonly proposal: ProposedAppV1;
+  readonly proposal: ProposedWorkbookV1;
 }
+
+const CONTEXT = {
+  sheetSelection: null,
+  rejectionMemory: new Set<string>(),
+  fingerprintOf: (input: string): string => input,
+  existingApp: null,
+};
 
 let cached: Fixture | undefined;
 
@@ -89,13 +99,13 @@ async function realFixture(): Promise<Fixture> {
   }
 
   const items: WorkbookFactStreamItemV2[] = [];
-  for await (const item of parseDelimited(source, sniff.format)) {
+  for await (const item of parseDelimited(source, sniff.format, { sheetName: "field-log-messy" })) {
     items.push(item);
   }
 
   cached = {
     preflight: outcome.report,
-    proposal: inferProposal(items, { fileName: "field-log-messy.csv" }),
+    proposal: inferWorkbook(delimitedStream(items), { ...CONTEXT, fileName: "field-log-messy.csv" }),
   };
   return cached;
 }
@@ -138,7 +148,7 @@ async function stage(
     temporaryStorageIds: [facts.storageId],
     progress: {
       phase: "reviewing",
-      rowsSoFar: proposal.rowCount,
+      rowsSoFar: proposal.tables[0]?.rowCount ?? 0,
       batchesCommitted: 1,
       ackedBatchSeq: 0,
     },
@@ -166,7 +176,7 @@ describe("encodeImportStage / decodeImportStage", () => {
 
   it("carries review edits and the dispositions they set", async () => {
     const { proposal } = await realFixture();
-    const edited = applyReviewEdit(proposal, {
+    const edited = applyWorkbookReviewEdit(proposal, {
       kind: "rename-app",
       appName: "Site Field Log",
     });
@@ -195,24 +205,75 @@ describe("encodeImportStage / decodeImportStage", () => {
     // stale. Null and zero are different facts — "not measured yet" versus
     // "none" — and a codec that collapsed them would make the review screen
     // claim a clean column it never checked.
-    const overridden = applyReviewEdit(proposal, {
+    const overridden = applyWorkbookReviewEdit(proposal, {
       kind: "override-type",
-      columnIndex: 0,
+      tableKey: "s0.r0",
+      columnKey: "s0.r0.c0",
       type: { kind: "text" },
     });
     if (overridden.kind !== "applied") {
       throw new Error(`edit rejected: ${overridden.reason}`);
     }
-    const fields = overridden.proposal.table.fields;
+    const fields = overridden.proposal.tables[0]?.fields ?? [];
     expect(fields[0]?.violations).toBeNull();
     expect(fields.some((entry) => entry.violations !== null)).toBe(true);
 
     const decoded = decodeImportStage(
       encodeImportStage(await stage({ proposal: overridden.proposal })),
     );
-    expect(decoded.proposal?.table.fields.map((entry) => entry.violations)).toEqual(
+    expect(decoded.proposal?.tables[0]?.fields.map((entry) => entry.violations)).toEqual(
       fields.map((entry) => entry.violations),
     );
+  });
+
+  it("round-trips the demo workbook's reviewed proposal and its keyed edits (CA-19)", async () => {
+    const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx", { selection: [0, 1, 2, 3, 4, 5] });
+    if (stream === null) throw new Error("the demo workbook did not size");
+    const inferred = inferWorkbook(stream.items, {
+      ...CONTEXT,
+      fileName: "fieldwork-q3.xlsx",
+      sheetSelection: stream.report.sheets.map((sheet) => ({
+        sheetIndex: sheet.sheetIndex,
+        name: sheet.name,
+        sheetKind: sheet.kind,
+        visibility: sheet.visibility,
+        isSelected: sheet.sheetIndex !== 6,
+      })),
+    });
+    const edits = [
+      { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" },
+      { kind: "rename-table", tableKey: "s1.t0", tableName: "Clients" },
+    ] as const;
+    let proposal = inferred;
+    for (const edit of edits) {
+      const result = applyWorkbookReviewEdit(proposal, edit);
+      if (result.kind !== "applied") throw new Error(`edit rejected: ${result.reason}`);
+      proposal = result.proposal;
+    }
+    // Every V2 member is exercised: sheets (one excluded), declared and region
+    // tables, a joined region, relationships, rules, inert items, workbook evidence.
+    expect(proposal.sheets.some((sheet) => sheet.classification.includes("excluded"))).toBe(true);
+    expect(proposal.relationships.length).toBeGreaterThan(0);
+    expect(proposal.inertItems.length).toBeGreaterThan(0);
+
+    const staged = await stage({
+      format: "xlsx",
+      preflight: null,
+      inventory: stream.report.sheets.map((sheet) => ({
+        sheetIndex: sheet.sheetIndex,
+        name: sheet.name,
+        sheetKind: sheet.kind,
+        visibility: sheet.visibility,
+        estimatedRowCount: sheet.estimatedRowCount,
+        estimatedCellCount: sheet.estimatedCellCount,
+      })),
+      selectedSheets: [0, 1, 2, 3, 4, 5],
+      proposal,
+      reviewEdits: edits,
+    });
+    const encoded = encodeImportStage(staged);
+    expect(decodeImportStage(encoded)).toEqual(staged);
+    expect(encodeImportStage(decodeImportStage(encoded))).toEqual(encoded);
   });
 
   it("refuses trailing bytes, an unknown field, and a missing field", async () => {

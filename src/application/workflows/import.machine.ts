@@ -39,11 +39,16 @@ import { assign, fromCallback, fromPromise, setup } from "xstate";
 import type { ImportWorkerEventV1 } from "../../workers/protocol/import-messages.js";
 import type {
   ImportCleanupReceiptViewV1,
-  ProposedAppWireV1,
+  ProposedWorkbookWireV1,
+  WorkbookReviewEditWireV1,
   ReviewEditWireV1,
 } from "../../workers/protocol/messages.js";
 import { toSecurityError, type SecurityError } from "./services.js";
-import type { ImportServices } from "./import-services.js";
+import {
+  singleTableProposal,
+  workbookEditOf,
+  type ImportServices,
+} from "./import-services.js";
 
 type PreflightEventV1 = Extract<ImportWorkerEventV1, { readonly kind: "preflight" }>;
 
@@ -116,7 +121,12 @@ export interface ImportContext {
   readonly progress: ImportProgressFactsV1;
   /** Exact, from the parser's terminal summary — never an estimate (D24). */
   readonly parsedRowCount: number | undefined;
-  readonly proposal: ProposedAppWireV1 | undefined;
+  /**
+   * The worker's proposal (CA-19). This page renders only its one-table
+   * delimited case (D48) — the view model reads it through
+   * `singleTableProposal` — and S07 replaces that with the workbook review.
+   */
+  readonly proposal: ProposedWorkbookWireV1 | undefined;
   /** Edits waiting to be applied, oldest first. */
   readonly pendingEdits: readonly ReviewEditWireV1[];
   /** The closed reason S03 gave for the last refused edit (CA-16). */
@@ -264,7 +274,7 @@ export const importMachine = setup({
       async ({
         input,
       }: {
-        input: StageInput & { edit: ReviewEditWireV1 };
+        input: StageInput & { edit: WorkbookReviewEditWireV1 };
       }) =>
         gated(input.services, input.stageId, () =>
           input.services.applyReviewEdit({
@@ -601,6 +611,15 @@ export const importMachine = setup({
             actions: assign({ failure: "stage-missing" }),
           },
           {
+            // Only a one-table proposal has an F02 review; anything else fails
+            // closed rather than rendering part of an app (D48).
+            guard: ({ event }) =>
+              event.output.kind === "ok" &&
+              singleTableProposal(event.output.value.proposal) === null,
+            target: "failing",
+            actions: assign({ failure: "service-error" }),
+          },
+          {
             target: "reviewing",
             actions: assign(({ context, event }) => {
               if (event.output.kind !== "ok") {
@@ -622,7 +641,7 @@ export const importMachine = setup({
               }
               if (
                 isChosenName(context.tableName) &&
-                context.tableName.trim() !== proposal.table.tableName
+                context.tableName.trim() !== proposal.tables[0]?.tableName
               ) {
                 pending.push({
                   kind: "rename-table",
@@ -671,13 +690,24 @@ export const importMachine = setup({
             input: ({ context }) => ({
               services: context.services,
               stageId: context.stageId as string,
-              edit: context.pendingEdits[0] as ReviewEditWireV1,
+              edit: workbookEditOf(
+                context.proposal as ProposedWorkbookWireV1,
+                context.pendingEdits[0] as ReviewEditWireV1,
+              ),
             }),
             onDone: [
               {
                 guard: ({ event }) => event.output.kind === "stage-missing",
                 target: "#import.failing",
                 actions: assign({ failure: "stage-missing" }),
+              },
+              {
+                guard: ({ event }) =>
+                  event.output.kind === "ok" &&
+                  event.output.value.outcome === "applied" &&
+                  singleTableProposal(event.output.value.proposal) === null,
+                target: "#import.failing",
+                actions: assign({ failure: "service-error" }),
               },
               {
                 target: "deciding",

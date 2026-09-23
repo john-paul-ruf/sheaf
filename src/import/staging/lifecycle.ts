@@ -43,12 +43,12 @@ import type { StagingCatalogPort } from "../../application/ports/staging-catalog
 import type { DetectedFormatV1, ExtensionContradictionV1 } from "../source/sniff.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
 import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
-import type { ProposedAppV1 } from "../inference/infer.js";
 import {
-  applyReviewEdit,
-  type ReviewEditResultV1,
-  type ReviewEditV1,
+  applyWorkbookReviewEdit,
+  type ReviewEditResultV2,
+  type WorkbookReviewEditV1,
 } from "../inference/review-edits.js";
+import type { ProposedWorkbookV1 } from "../inference/workbook-proposal.js";
 import {
   asMap,
   bytesOfLength,
@@ -566,7 +566,7 @@ export async function writeImportStage(
  */
 export function stageWithProposal(
   stage: ImportStageV1,
-  proposal: ProposedAppV1,
+  proposal: ProposedWorkbookV1,
 ): ImportStageV1 {
   return {
     ...stage,
@@ -580,19 +580,19 @@ export function stageWithProposal(
 /**
  * Applies one review edit to the staged proposal.
  *
- * S03's `applyReviewEdit` is total and pure, so a rejection is a **value**
- * here as well: the stage relays it and writes nothing (CA-16). An applied
- * edit is appended to `reviewEdits` in order, which is what lets promotion
- * replay exactly what the user did.
+ * S02's `applyWorkbookReviewEdit` is total and pure, so a rejection is a
+ * **value** here as well: the stage relays it and writes nothing (CA-16). An
+ * applied edit is appended to `reviewEdits` in order, which is what lets
+ * promotion replay exactly what the user did.
  */
 export function stageWithReviewEdit(
   stage: ImportStageV1,
-  edit: ReviewEditV1,
-): ReviewEditResultV1 & { readonly stage?: ImportStageV1 } {
+  edit: WorkbookReviewEditV1,
+): ReviewEditResultV2 & { readonly stage?: ImportStageV1 } {
   if (stage.proposal === null) {
-    return { kind: "rejected", reason: "unknown-column" };
+    return { kind: "rejected", reason: "unknown-table" };
   }
-  const result = applyReviewEdit(stage.proposal, edit);
+  const result = applyWorkbookReviewEdit(stage.proposal, edit);
   if (result.kind === "rejected") {
     return result;
   }
