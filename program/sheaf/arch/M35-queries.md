@@ -76,3 +76,8 @@ count. Typed filter/sort compilation is F04 (FR-13).
 - `records.ts`: `planRecordPage(projection, query, candidateBudget = QUERY_CANDIDATE_ROW_BUDGET)`.
   - Adds `total`, `partial {scanned, tableTotal, cause: "query-budget", remedy: "narrow-filters"}` and `nextSortValue`.
   - Filters or a sort route to `query-records`; a plain browse or search keeps the F03 path. Browse `total` equals the table count; plain search `total` is null.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M35 queries — `src/application/queries/charts.ts` (new))
+
+- `readChartDataset(projection, definition, {tableOffset?, budgets?})` (L210): validates, compiles the chart's filters with S04's `compileRecordQuery`, reads `chart-dataset`, applies the mark budget (whole categories, stacked marks counted together), `measure-desc` order, per-mark `filterIntent: FilterV1[] | null` = chart filters ∧ `markFilterIntent(category)` ∧ series intent; summary `{highest, lowest, total, count}` and the table page (50 rows) over every aggregated category. Budgets default to `budgets.ts` (unchanged; S04 created the chart constants).

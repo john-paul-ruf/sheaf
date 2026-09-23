@@ -99,3 +99,8 @@ this is a test-visibility constraint only.
 ### F04 delta — SESSION-04 (M38 Primitives)
 
 - Unchanged.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M38 primitives)
+
+- Unchanged.

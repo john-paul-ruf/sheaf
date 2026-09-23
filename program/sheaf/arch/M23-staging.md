@@ -227,3 +227,9 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
 - Exported codecs: `encodeFieldDef` (writes `formulaId` only for a computed field; decoder accepts both key sets), `encodeEnumOption`, `decodeRelationship`, `encodeRuleIR`/`decodeRuleIR` (IR v1 or v2; a v1 rule naming a v2 condition is refused), `encodeFormulaIR`/`decodeFormulaIR` (depth-bounded by `MAX_EVALUATION_DEPTH`, catalog names closed), `encodeFormulaDefinition`/`decodeFormulaDefinition` (refuses an illegal disposition/determinism pair, a live/frozen formula without IR, a target the migration CHECK would refuse), `encodeFormulaMetadata`/`decodeFormulaMetadata`. `CheckpointValidationRuleV1.rule` is v1|v2.
 - `tests/unit/staging/roots.test.ts` carries a committed F03 checkpoint KAT (generated at 4ce7f54).
 - Note for S07: `src/import/staging/events.ts` still has its own field-def encoder without `formulaId`; imported computed columns must use `encodeFieldDef`.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M23 staging — `src/import/staging/roots.ts`)
+
+- Exported codecs `encodeFilter`/`decodeFilter` (L1706/L1712), `encodeChartDefinition`/`decodeChartDefinition` (L1796/L1817), `CheckpointChartV1 {definition, ordinal, provenance, chartRevision}` (L1857), `encodeCheckpointChart`/`decodeCheckpointChart` (L1864/L1872).
+- Checkpoint `charts` root: `CheckpointManifestV1.charts?` (L856), resolved default `[]` (L899); key sets F02, F03, **F04-formula** (`F03 + formulas`, L2109 — the shape S03 wrote) and full **F04** (`+ charts`, L2112). The encoder always writes the full set; F02/F03/F04-formula bytes decode to `charts: []`. **S07 CP2 writes imported charts here with `provenance: "imported"`.**

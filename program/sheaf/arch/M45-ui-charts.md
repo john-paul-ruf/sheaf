@@ -41,3 +41,8 @@ drafts (encrypted operational state, D61); pinned charts on the app home
 ## Change History
 
 - 2026-09-23 — fragment seeded (Planner, F04 planning).
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M45 charts UI — `src/ui/charts/` (new))
+
+- `chart-canvas.tsx` (the only Chart.js importer; registers Bar/Line/Pie/Scatter controllers, Bar/Line/Point/Arc elements, Category/Linear scales, Legend, Tooltip; palette from `--app-accent`, `--violet-600`, `--app-primary`, `--app-ink`; `aria-hidden` canvas; hit-test → `onMark`; reduced motion → `animation: false`; pure `chartConfiguration`), `chart-figure.tsx` (canvas + CTL-075 mark list + summary; `ChartScope` = STA-015), `chart-text.ts` (all chart sentences), `chart-detail-screen.tsx` (SCR-033), `mark-detail-sheet.tsx` (SHT-012), `accessibility-view-sheet.tsx` (SHT-017), `chart-builder-screen.tsx` (SCR-034), `discard-draft-dialog.tsx` (MOD-012), `chart-saved-dialog.tsx` (MOD-013), `charts-index-screen.tsx` (SCR-053), `charts.module.css`. `tests/unit/ui/architecture.test.ts` allows `chart.js` from exactly `charts/chart-canvas.tsx`, with negative controls.

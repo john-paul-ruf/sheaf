@@ -102,3 +102,9 @@ that were written.
 ### F04 delta — SESSION-04 (M07 Ports (`src/application/ports/projection.ts`))
 
 - Restates the `query-records` kind and its result structurally, with mutual assignability pinned in `tests/unit/workers/projection-port.test.ts` (24 kinds).
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M07 ports — `src/application/ports/projection.ts`)
+
+- `ProjectionChartV1 = ChartStateV1`; `ProjectionCheckpointV1.charts?` (absent = none).
+- Query kinds `list-charts` → `ProjectionChartV1[]` (display order) and `chart-dataset {tableId, filters: ProjectionFilterTermV1[], shape: ProjectionChartShapeV1, sourceRowBudget}` → `ProjectionChartDatasetV1 | null`; shapes `ProjectionChartKeyV1` (`empty | value{value,label,parents} | empty-parent{parents} | unreadable`), `ProjectionChartGroupV1` (`records, measured, sum, min, max` as canonical decimals), `ProjectionChartPointV1`. Mirrored in M12 `types.ts`; `projection-port.test.ts` pins both (26 kinds).

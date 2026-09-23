@@ -78,3 +78,8 @@ validate with the record's own provenance.
 - New `formula-env.ts`: projection-backed `EvaluationEnvV1`, `frozenLiteral`, `liveResult`.
 - `execute-command.ts`: `commitEvents` exported with `{ issues, rowCountAfter, isSchemaChange }`; schema commits advance the revision (`buildAuthoredCommit(…, isSchemaChange)`) and pass `projectionRevalidator`; accepted results carry `recalculatedFieldIds`; computed fields are not completed as `missing`; a new record's frozen columns get their literal (provenance `evidence.frozen`); `formulaClock?` dep (absent → UTC day).
 - Commands sweep has a negative control and covers the new files.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M34 commands — `src/application/commands/chart-commands.ts` (new))
+
+- `saveChart` (L91; validated by S01 `validateChartDefinition`, new chart → next free ordinal, revision 0, provenance `user`; edit → `stale-chart` unless `expectedRevision` matches), `setChartPin` (L143; same definition with the pin flipped, no commit when it already stands), `deleteChart` (L160), `readChartSchema`; results `saved | deleted | stale-chart | refused | unknown-chart`. All through `commitEvents` (invariant 1).

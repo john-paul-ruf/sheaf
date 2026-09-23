@@ -127,3 +127,8 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 - `filter-intent.ts` (D63): `RECORDS_FILTER_INTENT_KEY = "sheaf.records.filterIntent"`, `filterIntentState(filters)` and `readFilterIntent(state)`. `RecordsRoute` keys its query state by `location.key` and starts from the intent.
 - `AppAreaWiring` gains `structure` (loaded per opened app), `recalculated`, and `announce(sentence, recalculatedFieldIds?)`.
 - `AppHomeRoute` loads `getAppMetrics`.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M54 routes — `src/routes/`)
+
+- CA-07 amendment 4 (chart half): `chartsPath`, `newChartPath`, `chartPath`, `editChartPath` (`guards.tsx`); `isAppAreaPath` now also matches `/charts(/{id}(/edit)?)?` (incl. `/charts/new`). New `chart-routes.tsx`: `ChartsIndexRoute`, `ChartBuilderRoute` (draft restore, debounced preview, MOD-012/MOD-013), `ChartDetailRoute`, `usePinnedCharts`, `openMarkRecords`. `filter-intent.ts`: `filterIntentState(filters, origin?)`, `RECORDS_FILTER_ORIGIN_KEY`, `readFilterOrigin` (chart name + record labels, beside S04's intent key). `app-runtime.tsx` composes `ChartServices`; `app-area-hooks.tsx` `AppAreaWiring.charts`; `route-table.tsx` mounts the four chart paths and feeds app home and the records route.

@@ -259,3 +259,8 @@ file — additive at the wire, rewritten at the VM):**
   - `announceRecalculated(fieldIds, fields)` (D60).
 - **Metrics:** `selectMetricsVm(metrics, tables, structure)` returns `MetricVm[]`; `AppHomeVm.metrics` via `selectAppHomeVm(session, metrics = [])`.
 - **Change history:** `describeEvent` moved here from the UI and names F04's structure kinds, with a truthful generic sentence for unnamed kinds.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M37 view models — `src/application/view-models/records.ts`)
+
+- Same reason, the chart VMs are sections of `records.ts`, not `charts.ts`: `selectChartDetailVm` (SCR-033/pinned/preview), `appendTablePage`, `ChartCategoryVm`/`ChartMarkVm`/`ChartScopeVm`/`ChartDetailVm`, `ChartFieldTypeVm`; `selectChartBuilderVm`, `defaultChartDefinition`, `CHART_TYPE_CHOICES`, `groupingKey`/`measureKey`; `selectChartsIndexVm`. `AppHomeVm.pinnedCharts`; `RecordsListVm.chartOrigin` (+ `RecordsQueryVmInput.chartOrigin`), announced as "Selected mark · {chart}"; history sentences for `chart.saved`/`chart.deleted`.

@@ -177,3 +177,8 @@ carries a port.**
 - `RecordPageViewV1` gains optional `nextSortCursor`, `total` and `partial` (`RecordQueryPartialWireV1`).
 - `QueryRecordsResponseV1` gains optional `refusal?: FilterRefusalWireV1`, returned with `page: null`.
 - The handler NFC-normalizes filter text (D28). A malformed id yields `malformed-request` and is redacted to its kind.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M32 protocol — `src/workers/protocol/messages.ts`)
+
+- Requests: `listCharts` (L690), `getChart` (L695), `saveChart` (L705), `setChartPin` (L714), `deleteChart` (L722), `getChartDraft` (L730), `saveChartDraft` (L736), `discardChartDraft` (L742), `getChartDataset {source: chart|draft, tableOffset?}` (L751). Wire shapes `ChartGroupingWireV1` (L649), `ChartMeasureWireV1` (L659), `ChartDefinitionWireV1` (L676, a definition without its id), `ChartViewV1` (L2257), `ChartDraftViewV1` (L2269), `ChartRefusalWireV1` (L2276), `ChartCommandOutcomeWireV1` (L2292), `ChartKeyWireV1` (L2348), `ChartMarkWireV1` (L2355), `ChartDatasetViewV1` (L2376), `GetChartDatasetResponseV1` (L2402). Still no byte or key type.

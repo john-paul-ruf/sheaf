@@ -162,3 +162,8 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 - `records-screen.tsx`: chips, match count, "Clear all filters", the STA-014 banner, the STA-026 filtered-empty state, and a refusal banner.
 - Detail and form render computed columns read-only. App home shows "At a glance" only when metrics exist.
 - `ReferenceSearchBody` takes an optional `selectedIds` for multi-select.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M44 records UI — `src/ui/records/`)
+
+- `app-frame.tsx`: `AppArea` gains `"charts"`; `AppNavigation.charts?` adds the "Charts" destination (after the table) → SCR-053. `app-home-screen.tsx`: pinned charts (mark → records filtered, "View data table" → SCR-033, "Edit chart"); the F02 absence card is drawn only when there are no metrics and no pinned chart. `records-screen.tsx`: the heading eyebrow names the chart a mark's filter came from.

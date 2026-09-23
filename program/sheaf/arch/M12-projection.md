@@ -238,3 +238,10 @@ fact.
 - Sort: one field, keyset over `(sort value, record_pk)`; missing values last in both directions. Enum sorts by option ordinal, reference by the parent's label (else key) field.
 - Budget: candidates are the table ∧ search. Past the budget, the first N candidates in `record_pk` order are admitted and the result has `total: null` plus `partial {scanned, tableTotal}`. Within the budget, `total` is an exact `count(*)`.
 - `RECORD_SUMMARY_COLUMNS` is exported from `statements.ts`.
+
+<!-- formulas-queries-charts SESSION-05 -->
+### F04 delta — SESSION-05 (M12 projection — `src/persistence/projection/`)
+
+- `charts` rows: `UPSERT_CHART` / `DELETE_CHART` / `SELECT_CHART_IDS` (`statements.ts`); `upsertChartRow` (`hydrate.ts`) hydrates the checkpoint root and caches definitions in `schema.charts` (engine cache; reads come from it, `definition_cbor` is written by `cbor-values.ts#encodeChartDefinition`, byte-identical to M23's codec — pinned in `roots.test.ts`).
+- Replay (`apply-events.ts`): `chart.saved` requires `chartRevision` = 0 for a new chart or held revision + 1, and a payload consistent with its definition; `chart.deleted` requires a held chart. A taken ordinal is refused by `UNIQUE (chart_ordinal)`. History subject `chart`, subject id = `objectId`.
+- New `chart-query.ts#chartDataset(handle, query, labelOf)`: bounded page loop (1,000 rows/statement) over the newest `sourceRowBudget` rows by `record_pk DESC`, one `cells` alias per dimension/measure, S04's filter terms via `filter-sql.ts#queryWhere` (now exported), exact decimal aggregation (M03 `decimal.ts`), text grouped case-insensitively (`foldText`) as the text filter matches, dates bucketed by epoch-day arithmetic, relationship groupings join reference → parent record → parent lane and keep the parents per category. `query-exec.ts` dispatches it with its own `recordLabel`.
