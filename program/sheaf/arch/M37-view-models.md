@@ -159,3 +159,14 @@ exactly one consumer and depends on the fact beside it, so it lives on its VM
 - `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
 - `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
 - `src/ui/import/**`: unchanged.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M37 View models — `import.ts`, `library.ts`**
+- `library.ts`: `AppChoiceVm`, `selectAppChoices(apps, selectedAppId)`.
+- SCR-016: `AcceptedFormatGroupVm` loses `availability`; order is upload.html's (spreadsheet structure, value-only).
+- SCR-017: destinations carry `isSelected` and `reason: "listing-local-apps" | "local-apps-not-listed" | "no-local-apps" | "too-large-to-append"`; `destination`, `appChoices`, `appendEstimate {estimatedEvents, estimatedRows, eventCap}`, `needsAppName`.
+- New `WorkbookPreflightVm` (SCR-018 `workbookFits`, SCR-019 `workbookSubset|workbookHandoff`): `sheets[] {shape: declared-table|table-region|charts-and-summary, badge: use|inspect|dashboard|excluded, rows/cells: SheetEstimateVm, isHidden}`, `selection {selectedCount, sheetCount, estimatedRows, estimatedCells, maxEstimatedCells, blocker}`, `drawingNotices`, `contradiction {declaredExtension, detectedFormat}`, `declaredExtension`, `handoff {instructions, copy}`. **Type-held:** `SheetEstimateVm = {estimated, value} | {not-declared}` — no exact member, no number on not-declared. `handoffInstructions(fileName)` composes import-large.html's sentences.
+- SCR-020 `sheet`; SCR-021 `unreadableDetail` (D42 token), `RefusalCopyTokenV1` no longer includes `workbook-format-later-release` (`laterReleaseFormat` removed); SCR-022 `detail {stage, diagnostic, sheet}`; done `landing: app-home | appended-table{tableId}`.
+- SCR-023 `ImportReviewVm` is multi-table: `tables[] {tableKey, sheetName, declaredTableName, rowCount (exact, joined regions summed), joined[], keyFieldName, labelFieldName, statements, fields[]}`, `connections[]`, `calculations[]`, `formulaRegionCount`, `sheets[] {classification, statements, inertItems}`, `appStatements`, `brokenReferenceCount`, `isExcelWorkbook`, `promotionIssues: PromotionIssueGroupVm[]` (grouped by field + token via records `toIssueVm`), `confirm {kind: create-app|add-table, appName, tableName}`. Statements attach to owners by their own `targetKey` (never re-derived). `REVIEW_EDIT_REJECTION_TOKENS` ≡ S02 `WORKBOOK_REVIEW_EDIT_REJECTIONS` (test-pinned).

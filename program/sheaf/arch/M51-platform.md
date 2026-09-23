@@ -70,3 +70,9 @@ when a session holds this lease with a reason to make it.
   in; an empty `# SESSION-07 lease r2 — correction delta` heading with no body
   removed (its content is M36's cancel-ordering fix, recorded there); the M61
   e2e paragraphs moved to `M61-e2e-tests.md`.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M51 Platform**
+- New `src/platform/clipboard.ts`: `copyText(text) → Promise<"copied"|"unavailable">`; injected by the route, never imported by `src/ui/**`.

@@ -91,3 +91,9 @@ this is a test-visibility constraint only.
   `5ab3b07`); no primitive was edited in the whole feature.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the three-item backlog above
   recorded from SESSION-07/08's returns. F02 wrote no delta into this fragment.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M38 UI primitives**
+- New `checkbox.tsx` + `checkbox.module.css` (CTL-043): React Aria `Checkbox`, whole row is the 44px target; `isDisabled` requires `disabledReason` (type-held, like `Button`). No CTL-068 wrapper was needed (SCR-017's app list is CTL-044 radios).

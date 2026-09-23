@@ -136,4 +136,8 @@ reported in their sessions' handoffs per CA-07's own rule.
   and the `# M54 — Routes … CA-07 amendment 2` section that had been stapled
   inside `M44-ui-records.md` moved here, where the module it describes lives.
 
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
 
+**M54 Routes**
+- `route-table.tsx` composes `WorkbookPreflightScreen` (SCR-018/019 workbook steps), wires `SET_DESTINATION`, `TOGGLE_SHEET`, `CLEAR_ALL`, `COPY_HANDOFF` (via injected `copyText`), and sends review edits verbatim. Post-create landing: new app → `appPath(appId)`; append → `tablePath(appId, appendedTableId)`.

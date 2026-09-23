@@ -108,3 +108,9 @@ two dense halves; one file would have been unreadable).
 - `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
 - `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
 - `src/ui/import/**`: unchanged.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M43 UI import**
+- New `workbook-preflight-screen.tsx` (SCR-018/019 workbook, MOD-004 dialog, handoff card). Upload (SCR-016) per upload.html with a CSV/TSV picker for "table targeting"; SCR-017 live destination + "Which app" radio list; SCR-021 macro card + MOD-005 dialog, unsafe-container headings/sentences per detail token (`UNREADABLE_DETAIL_SENTENCE`, shared with SCR-022); D19 card and `RELEASE_SCOPE` removed; SCR-020 "Sheet k of n · name" (also in the progress region's name); SCR-022/MOD-008 failed stage/sheet/raw diagnostic. Review rewritten for multi-table (connections with Change connection → reject/restore/retarget, Live calculations as preserved-not-live, Sheets & snapshots with STA-012 inert items, excluded sheets). `ReviewEditIntentV1` is now the structural twin of `WorkbookReviewEditWireV1`.

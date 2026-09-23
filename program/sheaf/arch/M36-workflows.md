@@ -179,3 +179,18 @@ was verified to fail 5 of 6 against the pre-correction machine.
 - `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
 - `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
 - `src/ui/import/**`: unchanged.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M36 Workflows — `import.machine.ts`, `import-services.ts`**
+- One import machine, two branches. `detecting` + `workbook-preflight` → `workbookSizing.{routing → fits | subset | handoff}` (route is the report's, D31); default selection is `report.defaultSelection` (D47).
+- New events: `SET_DESTINATION{destination}`, `TOGGLE_SHEET{sheetIndex}`, `SELECT_ALL`, `CLEAR_ALL`, `COPY_HANDOFF{result: "copied"|"unavailable"}`; `APPLY_EDIT.edit` is now `WorkbookReviewEditWireV1` (keys, never names). `CANCEL` in `workbookSizing` → `choosingFile` (terminates the parser; nothing staged).
+- `START` from `workbookSizing.fits|subset` is guarded by `selectionFits` (non-empty and ≤ `report.budgets.maxEstimatedCells`, per-sheet estimates, null weighs 0 — same arithmetic as `routeOf`). `handoff` accepts only `COPY_HANDOFF` / `CHOOSE_FILE` / `CANCEL`.
+- Context adds `workbook`, `selectedSheets`, `handoffCopy`, `library: listing|listed{apps}|unlisted`, `destination: new-app | existing-app{appId}`, `progress.sheet {ordinal,count,name}|null`, `failureDetail`, `promoted.appendedTableId`.
+- `delimitedTarget` invokes `listLibrary`; `SET_DESTINATION{existing-app}` only when the app is listed and `appendEventEstimate(facts) = estimatedRows + columns + 2 ≤ APPEND_EVENT_CAP (10,000)` (D38; cap test-pinned to M23 `APPEND_MAX_EVENTS`).
+- `beginStage` request: delimited (+ `destination` for an append) or workbook (`detected {kind:"workbook", format}`, every inventoried sheet, sorted `selectedSheets`); `proceed` carries `selectedSheets` for a workbook only.
+- A `refused{workbook-format-later-release}` now fails closed (`failing`, `service-error`): the page accepts workbooks (D42/D48).
+- `promoting` accepts under `proposal.appName` (the reviewed name; regression fixed: the SCR-017 name used to win over a review rename). An append reads `listTables` before and after the commit and records the new table id.
+- `PARSER_STOP_TIMEOUT_MS` stays 5,000 ms (S06 measured xlsx cancel 13.5–17.9 ms, ~280× headroom).
+- Services: `ACCEPTED_FLOWS = ["delimited","workbook"]` sent on `startImport` (D48 flipped); `beginStage(Omit<BeginImportStageRequestV1,"kind">)`, `proceed({stageId, selectedSheets?})`, new `listLibrary()`, `listTables({appId})`. S06's mechanical `singleTableProposal` / `workbookEditOf` are removed.

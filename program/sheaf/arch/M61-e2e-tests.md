@@ -63,3 +63,10 @@ FORGE-CONFIG's corpus-owner rule.
 - 2026-09-08 — fragment created by Roshi (F02 final pass), collecting the e2e
   contract that had been stapled into `M51-platform.md` and carried only in
   session returns and STATE's Verification Baseline.
+
+<!-- workbook-fidelity SESSION-07 -->
+### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
+
+**M61 E2E**
+- New `workbook-import.spec.ts` (demo journey + reload, handoff + clipboard, subset, macro + unsafe refusals, workbook cancel, streamed failure naming stage + raw diagnostic, XLSB/XLS/ODS/HTML-as-XLS smokes, axe + 320px) and `append-import.spec.ts` (TSV into the demo app → lands on the new table → reload; over-segment file refused at pre-flight; axe + 320px). All run under `fixtures/no-network.ts`.
+- `import-flow.spec.ts` and `gate-f02-demo.spec.ts`: the `.xlsx` refusal legs now use `unsafe/payroll.xlsm` (headers state it); SCR-016 later-release and SCR-017 D18 copy assertions follow D19/D38.
