@@ -68,6 +68,10 @@
     --color-action-text: var(--white);
     --color-accent: var(--leaf-500);
     --color-selected-on-ink: var(--sprout-300);
+    /* Dark chrome: the rail and an app's hero. An app remaps these onto its
+       own ink and surface (./app-theme.ts). */
+    --color-chrome: var(--ink-950);
+    --color-chrome-text: var(--white);
 
     /* ---- §System-owned semantics — never theme-overridable ----
        Text/icon always accompanies these; hue alone never carries state
@@ -164,5 +168,16 @@
       --duration-control: 1ms;
       --duration-panel: 1ms;
     }
+  }
+
+  /* System-owned, chosen per rendered mode — never by the theme (design.md
+     § Built-in app palettes → Focus): a dark app shows Sprout 300 on every
+     background. `--focus-ring` is redeclared because a custom property
+     inherits its computed value, not the reference it was built from. */
+  [data-app-mode="dark"] {
+    --focus-ring-color: var(--sprout-300);
+    --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+
+    color-scheme: dark;
   }
 }

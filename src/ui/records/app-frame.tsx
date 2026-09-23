@@ -1,7 +1,8 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { AppHomeVm } from "../../application/view-models/records.js";
 import { AppShell, type ShellDestination } from "../layout/app-shell.js";
 import { cx } from "../primitives/class-names.js";
+import { appThemeVariables, useAppRenderMode } from "../theme/app-theme.js";
 import visuallyHidden from "../primitives/visually-hidden.module.css";
 
 /**
@@ -30,12 +31,14 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  * **The hrefs arrive as data.** A screen states where it goes; `src/routes/`
  * decides what that spells (the M41 rule, restated).
  *
- * **The app's theme is applied here, from the app's own fact.** Promotion
- * writes `AppThemeV1` into the durable app state (D29), it crosses as
- * `AppSessionViewV1.theme`, and this is where it becomes six custom
- * properties. The six are presentation-only: the system-owned semantics —
- * danger, warning, success, the focus ring, the hit-target floor — are not
- * among them and cannot be reached from here (M40's `SYSTEM_OWNED_PROPERTIES`).
+ * **The app's theme is applied here, from the app's own fact.** Promotion or
+ * a saved theme writes `AppThemeV1` into the durable app state (D29, D56), it
+ * crosses as `AppSessionViewV1.theme`, and here it becomes the root's custom
+ * properties in the mode it is drawn in (`system` follows the device, live)
+ * and its density (M40's `app-theme.ts`). They are presentation-only: the
+ * system-owned semantics — danger, warning, success, the focus ring, the
+ * hit-target floor — cannot be reached from here, because M40's guard throws
+ * on them.
  */
 
 /** The theme as the view model carries it — the wire shape, by alias. */
@@ -91,24 +94,6 @@ export interface AppFrameProps {
   readonly children: ReactNode;
 }
 
-/**
- * `--app-*` only. React's `CSSProperties` does not admit custom properties on
- * its own, and the intersection says exactly which ones this file may set —
- * so a system-owned property cannot be written here even by mistake.
- */
-type AppThemeStyle = CSSProperties & Record<`--app-${string}`, string>;
-
-export function appThemeStyle(theme: AppThemeVm): AppThemeStyle {
-  return {
-    "--app-ink": theme.tokens["app-ink"],
-    "--app-canvas": theme.tokens["app-canvas"],
-    "--app-surface": theme.tokens["app-surface"],
-    "--app-primary": theme.tokens["app-primary"],
-    "--app-accent": theme.tokens["app-accent"],
-    "--app-muted": theme.tokens["app-muted"],
-  };
-}
-
 export function AppFrame({
   nav,
   area,
@@ -119,6 +104,7 @@ export function AppFrame({
   topBarActions,
   children,
 }: AppFrameProps): ReactNode {
+  const mode = useAppRenderMode(app.theme);
   const table =
     nav.tables.find((candidate) => candidate.tableId === currentTableId) ?? nav.tables[0];
   const destinations: readonly ShellDestination[] = [
@@ -179,7 +165,11 @@ export function AppFrame({
   ];
 
   return (
-    <div style={appThemeStyle(app.theme)}>
+    <div
+      data-app-density={app.theme.density ?? "comfortable"}
+      data-app-mode={mode}
+      style={appThemeVariables(app.theme, mode)}
+    >
       <AppShell
         destinations={destinations}
         title={title}

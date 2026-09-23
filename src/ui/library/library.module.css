@@ -147,6 +147,13 @@
   line-height: 1;
 }
 
+/* A saved logo in the glyph's place: the same box, the bitmap letterboxed. */
+.logo {
+  object-fit: contain;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
 .status {
   border-radius: var(--radius-pill);
   padding: var(--space-4) var(--space-12);

@@ -7,6 +7,8 @@ import {
   assertPresentationOnly,
   SYSTEM_OWNED_PROPERTIES,
 } from "../../../src/ui/theme/theme.js";
+import { appThemeTokens, appThemeVariables } from "../../../src/ui/theme/app-theme.js";
+import { BUILT_IN_PALETTES, DEFAULT_APP_THEME } from "../../../src/import/staging/theme.js";
 import "../../../src/ui/theme/base.css";
 
 describe("applyShellTheme", () => {
@@ -83,5 +85,56 @@ describe("the app theme's system-owned guard (CA-32)", () => {
     expect(tokensCss).toContain("--focus-ring-color-on-ink: var(--sprout-300);");
     expect(tokensCss).toContain(`--leaf-700: ${SYSTEM_FOCUS_COLORS.onLight};`);
     expect(tokensCss).toContain(`--sprout-300: ${SYSTEM_FOCUS_COLORS.onInk};`);
+  });
+});
+
+describe("an app theme on its root (M40 app-theme, CA-32)", () => {
+  const indigo = BUILT_IN_PALETTES.find((palette) => palette.key === "indigo")!;
+  const theme = { tokens: indigo.light, darkTokens: indigo.dark };
+  const systemOwned = new Set<string>(SYSTEM_OWNED_PROPERTIES);
+
+  it("draws light with the palette's light set, and remaps the shell's roles onto it", () => {
+    const variables = appThemeVariables(theme, "light");
+    expect(variables["--app-primary"]).toBe(indigo.light["app-primary"]);
+    expect(variables["--color-canvas"]).toBe(indigo.light["app-canvas"]);
+    expect(variables["--color-action-text"]).toBe(indigo.light["app-surface"]);
+    expect(variables["--color-chrome"]).toBe(indigo.light["app-ink"]);
+    expect(variables["--color-chrome-text"]).toBe(indigo.light["app-surface"]);
+    // Light keeps the shell's muted text and panels, which the palette canvases carry.
+    expect(variables).not.toHaveProperty("--color-text-muted");
+  });
+
+  it("draws dark with the dark set: surface chrome, canvas label, ink for muted text", () => {
+    const variables = appThemeVariables(theme, "dark");
+    expect(variables["--app-primary"]).toBe(indigo.dark["app-primary"]);
+    expect(variables["--color-text"]).toBe(indigo.dark["app-ink"]);
+    expect(variables["--color-text-muted"]).toBe(indigo.dark["app-ink"]);
+    expect(variables["--color-action-text"]).toBe(indigo.dark["app-canvas"]);
+    expect(variables["--color-chrome"]).toBe(indigo.dark["app-surface"]);
+    expect(variables["--color-panel"]).toBe(indigo.dark["app-muted"]);
+  });
+
+  it("puts a custom accent in place of the palette's in every mode", () => {
+    const accented = { ...theme, customAccent: "#7fa9d6" };
+    expect(appThemeTokens(accented, "light")["app-accent"]).toBe("#7fa9d6");
+    expect(appThemeVariables(accented, "dark")["--app-accent"]).toBe("#7fa9d6");
+  });
+
+  it("steps compact density to the dense 12px, and leaves the hit-target floor alone", () => {
+    expect(appThemeVariables({ ...theme, density: "compact" }, "light")["--space-16"]).toBe("var(--space-12)");
+    expect(appThemeVariables(theme, "light")).not.toHaveProperty("--space-16");
+  });
+
+  it("draws a theme with no dark set in its only set", () => {
+    expect(appThemeVariables(DEFAULT_APP_THEME, "dark")["--app-ink"]).toBe(DEFAULT_APP_THEME.tokens["app-ink"]);
+  });
+
+  it("never names a system-owned property, in any mode or density", () => {
+    for (const mode of ["light", "dark"] as const) {
+      for (const density of ["comfortable", "compact"] as const) {
+        const names = Object.keys(appThemeVariables({ ...theme, density }, mode));
+        expect(names.filter((name) => systemOwned.has(name))).toEqual([]);
+      }
+    }
   });
 });

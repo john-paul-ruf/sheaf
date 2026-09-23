@@ -21,7 +21,7 @@
  *    them. A count that was never cached crosses as `null`, never as `0`.
  */
 
-import type { LibraryAppV1 } from "../../workers/protocol/messages.js";
+import type { LibraryAppV1, LibraryThemeTileV1 } from "../../workers/protocol/messages.js";
 
 export type LibraryActionId = "choose-workbook" | "connect-durable-home";
 
@@ -72,6 +72,12 @@ export interface LibraryTileVm {
   /** The app's own identity (D29): an M40 palette token and one glyph. */
   readonly accentId: string;
   readonly glyph: string;
+  /**
+   * The identity a saved theme gives the tile (CAP-37): its primary with the
+   * label colour on it, and its logo in place of the glyph. Absent while the
+   * app keeps the theme it was created with, whose identity is `accentId`.
+   */
+  readonly themeTile?: LibraryThemeTileV1;
   readonly status: LibraryTileStatusV1;
   /** The catalog's cache. `null` is "not counted", never "no rows". */
   readonly rowCount: number | null;
@@ -143,6 +149,7 @@ function toTile(app: LibraryAppV1): LibraryTileVm {
     displayName: app.displayName,
     accentId: app.accentId,
     glyph: app.glyph,
+    ...(app.themeTile === undefined ? {} : { themeTile: app.themeTile }),
     status: app.isScratch ? "scratch" : "not-stated",
     rowCount: app.rowCountCache,
     tableCount: app.tableCount,

@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AppShell,
   type ShellDestination,
 } from "../../../src/ui/layout/app-shell.js";
 import { AuthShell } from "../../../src/ui/layout/auth-shell.js";
+import { AppFrame, type AppIdentity, type AppNavigation } from "../../../src/ui/records/app-frame.js";
+import { BUILT_IN_PALETTES } from "../../../src/import/staging/theme.js";
 import "../../../src/ui/theme/base.css";
-import { cssRulesFor, query, queryAll, render } from "./render.js";
+import { cssRulesFor, interact, query, queryAll, render } from "./render.js";
 
 const DESTINATIONS: readonly ShellDestination[] = [
   { id: "library", label: "All apps", href: "#/library", glyph: "A" },
@@ -199,5 +201,95 @@ describe("AppShell — post-unlock frame", () => {
       (element) => element.tagName,
     );
     expect(order).toEqual(["ASIDE", "NAV", "MAIN", "NAV"]);
+  });
+});
+
+describe("AppFrame — the app's theme, mode and density on its root (CAP-37)", () => {
+  const indigo = BUILT_IN_PALETTES.find((palette) => palette.key === "indigo")!;
+  const nav: AppNavigation = {
+    library: "#/library",
+    appHome: "#/app/a",
+    appHistory: "#/app/a/history",
+    appSnapshots: "#/app/a/snapshots",
+    tables: [],
+  };
+  const app = (theme: Partial<AppIdentity["theme"]>): AppIdentity => ({
+    appId: "a",
+    displayName: "Cedar & Finch",
+    theme: { themeKey: "indigo", tokens: indigo.light, darkTokens: indigo.dark, ...theme },
+  });
+  const frame = (identity: AppIdentity) => (
+    <AppFrame app={identity} area="home" nav={nav} title="App home">
+      <p>Body</p>
+    </AppFrame>
+  );
+  const root = (): HTMLElement => query("[data-app-mode]");
+
+  /** A device colour scheme the test can flip, as `matchMedia` reports it. */
+  function deviceScheme(initiallyDark: boolean) {
+    let isDark = initiallyDark;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      media: query,
+      get matches() {
+        return query === "(prefers-color-scheme: dark)" && isDark;
+      },
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    }));
+    return {
+      listeners,
+      flip: (dark: boolean) => {
+        isDark = dark;
+        for (const listener of listeners) listener();
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("draws a dark theme with the dark set and marks the root dark", async () => {
+    await render(frame(app({ mode: "dark" })));
+    expect(root().dataset["appMode"]).toBe("dark");
+    expect(root().style.getPropertyValue("--app-primary")).toBe(indigo.dark["app-primary"]);
+    expect(root().style.getPropertyValue("--color-canvas")).toBe(indigo.dark["app-canvas"]);
+    expect(root().style.getPropertyValue("--color-danger")).toBe("");
+    expect(root().style.getPropertyValue("--focus-ring-color")).toBe("");
+  });
+
+  it("follows the device live in system mode, and stops listening when it leaves", async () => {
+    const device = deviceScheme(false);
+    const mounted = await render(frame(app({ mode: "system" })));
+    expect(root().dataset["appMode"]).toBe("light");
+    expect(root().style.getPropertyValue("--app-canvas")).toBe(indigo.light["app-canvas"]);
+
+    await interact(() => device.flip(true));
+    expect(root().dataset["appMode"]).toBe("dark");
+    expect(root().style.getPropertyValue("--app-canvas")).toBe(indigo.dark["app-canvas"]);
+
+    mounted.unmount();
+    expect(device.listeners.size).toBe(0);
+  });
+
+  it("ignores the device for an explicit mode", async () => {
+    deviceScheme(true);
+    await render(frame(app({ mode: "light" })));
+    expect(root().dataset["appMode"]).toBe("light");
+  });
+
+  it("marks the density, and compact steps the 16px spacing to 12px", async () => {
+    await render(frame(app({ density: "compact" })));
+    expect(root().dataset["appDensity"]).toBe("compact");
+    expect(root().style.getPropertyValue("--space-16")).toBe("var(--space-12)");
+  });
+
+  it("refuses to draw a theme that reaches a system-owned property", async () => {
+    const tokens = { ...indigo.light, "--color-danger": "#000000" } as typeof indigo.light;
+    const hostile = { ...app({}), theme: { themeKey: "indigo", tokens } };
+    // Only the six named tokens are read, so a stray key never reaches the root.
+    await render(frame(hostile));
+    expect(root().style.getPropertyValue("--color-danger")).toBe("");
   });
 });

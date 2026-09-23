@@ -273,3 +273,37 @@ describe("SCR-012 — search keeps its term and its scope", () => {
     expect(document.body.textContent).not.toContain("durable-home");
   });
 });
+
+describe("SCR-010 — the tile carries the app's saved identity (CAP-37)", () => {
+  const logo = { pngBase64: "iVBORw0KGgo=", width: 48, height: 32 };
+
+  async function renderTiles(apps: readonly LibraryAppV1[]): Promise<void> {
+    await render(
+      <LibraryScreen appHref={appHref} nav={nav} searchHref={ROUTE_HREFS.librarySearch} vm={populated(selectLibraryVm(apps))} />,
+    );
+  }
+
+  it("draws the glyph on the theme's primary, with its label colour", async () => {
+    await renderTiles([app({ themeTile: { primary: "#3d4e69", label: "#fcfcfd", logo: null } })]);
+    const glyph = query('[data-tile="app-1"] [aria-hidden="true"]');
+    expect(glyph.textContent).toBe("FL");
+    expect(glyph.style.getPropertyValue("--tile-accent")).toBe("#3d4e69");
+    expect(glyph.style.getPropertyValue("--tile-accent-ink")).toBe("#fcfcfd");
+  });
+
+  it("shows the logo in the glyph's place, as decoration beside the named link", async () => {
+    await renderTiles([app({ themeTile: { primary: "#3d4e69", label: "#fcfcfd", logo } })]);
+    const image = query<HTMLImageElement>('[data-tile="app-1"] img');
+    expect(image.getAttribute("src")).toBe(`data:image/png;base64,${logo.pngBase64}`);
+    expect(image.getAttribute("alt")).toBe("");
+    expect([image.width, image.height]).toEqual([48, 32]);
+    expect(query('[data-tile="app-1"]').textContent).not.toContain("FL");
+  });
+
+  it("keeps the D29 accent for an app that has never saved a theme", async () => {
+    await renderTiles([app()]);
+    expect(query('[data-tile="app-1"]').getAttribute("data-accent")).toBe("leaf");
+    expect(query('[data-tile="app-1"] [aria-hidden="true"]').getAttribute("style")).toBeNull();
+    expect(queryAll('[data-tile="app-1"] img')).toHaveLength(0);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type {
   LibraryActionReason,
   LibraryActionVm,
@@ -8,6 +8,7 @@ import type {
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
+import { logoSource } from "../theme/app-theme.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import styles from "./library.module.css";
 
@@ -132,6 +133,35 @@ export function LibraryActions({
   );
 }
 
+/**
+ * The tile's mark: the app's logo, or its glyph on the theme's primary, or on
+ * its D29 accent. Decorative — the tile's heading names the app — so the
+ * logo's text alternative is empty rather than the name read twice.
+ */
+function TileMark({ tile }: { readonly tile: LibraryTileVm }): ReactNode {
+  const theme = tile.themeTile;
+  if (theme?.logo != null) {
+    return (
+      <img
+        alt=""
+        className={cx(styles["glyph"], styles["logo"])}
+        height={theme.logo.height}
+        src={logoSource(theme.logo)}
+        width={theme.logo.width}
+      />
+    );
+  }
+  const style =
+    theme === undefined
+      ? undefined
+      : ({ "--tile-accent": theme.primary, "--tile-accent-ink": theme.label } as CSSProperties);
+  return (
+    <span aria-hidden="true" className={cx(styles["glyph"])} {...(style === undefined ? {} : { style })}>
+      {tile.glyph}
+    </span>
+  );
+}
+
 export interface LibraryTileListProps {
   readonly tiles: readonly LibraryTileVm[];
   /** Where a tile opens. S07's interim destination lands on the library. */
@@ -152,9 +182,7 @@ export function LibraryTileList({
           key={tile.appId}
         >
           <div className={cx(styles["identity"])}>
-            <span aria-hidden="true" className={cx(styles["glyph"])}>
-              {tile.glyph}
-            </span>
+            <TileMark tile={tile} />
             {tile.status === "scratch" && (
               <span className={cx(styles["status"])}>{SCRATCH_STATUS}</span>
             )}

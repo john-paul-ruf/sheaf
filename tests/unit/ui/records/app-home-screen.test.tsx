@@ -112,6 +112,22 @@ describe("SCR-024 — the app becomes a place", () => {
     expect(style).not.toContain("--focus-ring");
   });
 
+  it("shows the initials while no logo is saved", async () => {
+    await renderHome();
+    expect(queryAll("[data-app-logo]")).toHaveLength(0);
+    expect(query('[data-screen="SCR-024"] [aria-hidden="true"]').textContent).toBe("FL");
+  });
+
+  it("shows a saved logo in the monogram's place, named as the app (CAP-37)", async () => {
+    const logo = { pngBase64: "iVBORw0KGgo=", width: 48, height: 32 };
+    const base = session();
+    await renderHome(selectAppHomeVm(session({ theme: { ...base.theme, logo } })));
+    const image = query<HTMLImageElement>("[data-app-logo]");
+    expect(image.getAttribute("alt")).toBe("Field Log");
+    expect(image.getAttribute("src")).toBe(`data:image/png;base64,${logo.pngBase64}`);
+    expect(queryAll('[data-screen="SCR-024"] [aria-hidden="true"]').filter((node) => node.textContent === "FL")).toHaveLength(0);
+  });
+
   it("offers the lone table's add action in the hero as well as on the card", async () => {
     await renderHome();
     const addLinks = queryAll("a").filter((link) =>

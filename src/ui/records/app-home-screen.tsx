@@ -10,6 +10,7 @@ import chartStyles from "../charts/charts.module.css";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
+import { logoSource } from "../theme/app-theme.js";
 import { AppFrame, type AppNavigation } from "./app-frame.js";
 import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
@@ -99,9 +100,21 @@ export function AppHomeScreen({
       <div className={cx(styles["stack"])} data-screen="SCR-024">
         <section className={cx(styles["hero"])}>
           <div className={cx(styles["heroIdentity"])}>
-            <span aria-hidden="true" className={cx(styles["monogram"])}>
-              {monogramFor(vm.displayName)}
-            </span>
+            {vm.theme.logo === undefined ? (
+              <span aria-hidden="true" className={cx(styles["monogram"])}>
+                {monogramFor(vm.displayName)}
+              </span>
+            ) : (
+              <img
+                alt={vm.displayName}
+                className={cx(styles["monogram"])}
+                data-app-logo=""
+                height={vm.theme.logo.height}
+                src={logoSource(vm.theme.logo)}
+                style={{ objectFit: "contain" }}
+                width={vm.theme.logo.width}
+              />
+            )}
             <div>
               <span className={cx(styles["eyebrow"])}>Generated app</span>
               <h1 className={cx(styles["heroTitle"])}>{vm.displayName}</h1>

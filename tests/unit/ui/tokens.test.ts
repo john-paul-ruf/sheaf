@@ -163,6 +163,15 @@ describe("tokens.css — system-owned semantics", () => {
     expect(tokens.get("--focus-ring-color-on-ink")).toBe("var(--sprout-300)");
   });
 
+  it("lets the system, not a theme, turn the focus ring Sprout in a dark app", () => {
+    const block = /\[data-app-mode="dark"\]\s*\{([^}]*)\}/.exec(TOKENS_CSS)?.[1] ?? "";
+    const dark = declarations(block);
+    expect(dark.get("--focus-ring-color")).toBe("var(--sprout-300)");
+    expect(dark.get("--focus-ring")).toBe("var(--focus-ring-width) solid var(--focus-ring-color)");
+    // The light default is untouched.
+    expect(tokens.get("--focus-ring-color")).toBe("var(--leaf-700)");
+  });
+
   it("matches theme.ts's runtime deny-list exactly", () => {
     for (const name of SYSTEM_OWNED_PROPERTIES) {
       expect(tokens.has(name)).toBe(true);

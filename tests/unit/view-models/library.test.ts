@@ -129,6 +129,13 @@ describe("selectLibraryVm", () => {
     ]);
   });
 
+  it("carries a saved theme's tile identity, and none for an app that never saved one (CAP-37)", () => {
+    const themeTile = { primary: "#3d4e69", label: "#fcfcfd", logo: { pngBase64: "iVBORw0KGgo=", width: 2, height: 2 } };
+    const [themed, plain] = populated(selectLibraryVm([app({ themeTile }), app({ appId: "app-02" })])).tiles;
+    expect(themed?.themeTile).toEqual(themeTile);
+    expect(plain).not.toHaveProperty("themeTile");
+  });
+
   it("keeps an uncounted app uncounted rather than showing zero", () => {
     const vm = populated(selectLibraryVm([app({ rowCountCache: null })]));
     expect(vm.tiles[0]?.rowCount).toBeNull();
