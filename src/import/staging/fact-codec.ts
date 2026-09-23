@@ -16,6 +16,7 @@
  * adapter's fixture corpus.
  */
 
+import { CodecError } from "../../domain/model/errors.js";
 import type { OptionId, RecordId } from "../../domain/model/ids.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import {
@@ -25,8 +26,12 @@ import {
   type DecodedValue,
 } from "../../persistence/codecs/canonical-cbor.js";
 import {
+  CHART_BAR_DIRECTIONS,
+  CHART_GROUPINGS,
+  CHART_PART_TYPES,
   FORMAT_CLASSES,
   IMPORT_DIAGNOSTIC_CODES,
+  PIVOT_SUBTOTALS,
   PRESERVED_PART_KINDS,
   PRESERVED_REASON_KEYS,
   SHEET_KINDS,
@@ -34,7 +39,9 @@ import {
   VALIDATION_OPERATORS,
   VALIDATION_RULES,
   factStreamItemToCanonicalValue,
+  type ChartPartDefinitionV1,
   type ImportDiagnosticV2,
+  type PivotPartDefinitionV1,
   type RangeV1,
   type ValidationListSourceV1,
   type WorkbookFactStreamItemV2,
@@ -156,6 +163,57 @@ const listSource = (value: DecodedValue): ValidationListSourceV1 | null => {
   return { kind, ref: text(field(map, "ref"), "a list source reference") };
 };
 
+const optionalOneOf = <T extends string>(value: DecodedValue, allowed: readonly T[], what: string): T | null =>
+  value === null ? null : oneOf(value, allowed, what);
+
+const chartDefinition = (value: DecodedValue): ChartPartDefinitionV1 => {
+  const map = exactKeys(
+    asMap(value, "a chart definition"),
+    ["chartType", "barDirection", "grouping", "title", "series"],
+    "a chart definition",
+  );
+  return {
+    chartType: oneOf(field(map, "chartType"), CHART_PART_TYPES, "a chart type"),
+    barDirection: optionalOneOf(field(map, "barDirection"), CHART_BAR_DIRECTIONS, "a bar direction"),
+    grouping: optionalOneOf(field(map, "grouping"), CHART_GROUPINGS, "a chart grouping"),
+    title: optionalText(field(map, "title"), "a chart title"),
+    series: list(field(map, "series"), "chart series").map((entry) => {
+      const series = exactKeys(
+        asMap(entry, "a chart series"),
+        ["name", "categoriesRef", "valuesRef", "xRef", "yRef"],
+        "a chart series",
+      );
+      return {
+        name: optionalText(field(series, "name"), "a series name"),
+        categoriesRef: optionalText(field(series, "categoriesRef"), "a series reference"),
+        valuesRef: optionalText(field(series, "valuesRef"), "a series reference"),
+        xRef: optionalText(field(series, "xRef"), "a series reference"),
+        yRef: optionalText(field(series, "yRef"), "a series reference"),
+      };
+    }),
+  };
+};
+
+const pivotDefinition = (value: DecodedValue): PivotPartDefinitionV1 => {
+  const map = exactKeys(
+    asMap(value, "a pivot definition"),
+    ["sourceSheet", "sourceRef", "rowFields", "dataFields"],
+    "a pivot definition",
+  );
+  return {
+    sourceSheet: optionalText(field(map, "sourceSheet"), "a pivot source sheet"),
+    sourceRef: text(field(map, "sourceRef"), "a pivot source"),
+    rowFields: list(field(map, "rowFields"), "pivot row fields").map((entry) => text(entry, "a pivot field")),
+    dataFields: list(field(map, "dataFields"), "pivot data fields").map((entry) => {
+      const data = exactKeys(asMap(entry, "a pivot data field"), ["cacheFieldName", "subtotal"], "a pivot data field");
+      return {
+        cacheFieldName: text(field(data, "cacheFieldName"), "a pivot field"),
+        subtotal: oneOf(field(data, "subtotal"), PIVOT_SUBTOTALS, "a pivot subtotal"),
+      };
+    }),
+  };
+};
+
 const FACT_KEYS: Readonly<Record<WorkbookFactV2["kind"], readonly string[]>> = Object.freeze({
   row: ["kind", "rowIndex", "cellCount"],
   value: ["kind", "rowIndex", "columnIndex", "value"],
@@ -175,7 +233,9 @@ const FACT_KINDS = Object.freeze(Object.keys(FACT_KEYS) as WorkbookFactV2["kind"
 const fact = (value: DecodedValue): WorkbookFactV2 => {
   const loose = asMap(value, "a fact");
   const kind = oneOf(field(loose, "kind"), FACT_KINDS, "a fact kind");
-  const map: DecodedMap = exactKeys(loose, FACT_KEYS[kind], "a fact");
+  const hasDefinition = kind === "preserved-part" && loose.has("definition");
+  const keys = hasDefinition ? [...FACT_KEYS[kind], "definition"] : FACT_KEYS[kind];
+  const map: DecodedMap = exactKeys(loose, keys, "a fact");
   switch (kind) {
     case "row":
       return {
@@ -251,15 +311,21 @@ const fact = (value: DecodedValue): WorkbookFactV2 => {
         ref: text(field(map, "ref"), "a defined name reference"),
         sheetIndex: optionalCount(field(map, "sheetIndex"), "a defined name scope"),
       };
-    case "preserved-part":
-      return {
+    case "preserved-part": {
+      const partKind = oneOf(field(map, "partKind"), PRESERVED_PART_KINDS, "a preserved part kind");
+      const part = {
         kind,
-        partKind: oneOf(field(map, "partKind"), PRESERVED_PART_KINDS, "a preserved part kind"),
+        partKind,
         location: text(field(map, "location"), "a preserved part location"),
         reasonKey: oneOf(field(map, "reasonKey"), PRESERVED_REASON_KEYS, "a preserved reason"),
         anchor: optionalRange(field(map, "anchor")),
         partPath: optionalText(field(map, "partPath"), "a part path"),
       };
+      if (!hasDefinition) return part;
+      if (partKind === "chart") return { ...part, definition: chartDefinition(field(map, "definition")) };
+      if (partKind === "pivot-table") return { ...part, definition: pivotDefinition(field(map, "definition")) };
+      throw new CodecError(`a ${partKind} part carries no definition`);
+    }
     default: {
       const unreachable: never = kind;
       return unreachable;

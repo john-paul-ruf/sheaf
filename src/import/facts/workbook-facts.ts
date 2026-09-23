@@ -241,6 +241,74 @@ export const PRESERVED_REASON_BY_KIND: Readonly<Record<PreservedPartKindV1, Pres
     "unsupported-validation": "validation-not-expressible",
   });
 
+/** The chart families a chart part's plot maps to; `other` is everything else, combos included. */
+export const CHART_PART_TYPES = Object.freeze(["bar", "line", "pie", "scatter", "area", "other"] as const);
+export type ChartPartTypeV1 = (typeof CHART_PART_TYPES)[number];
+
+/** `c:barDir`: horizontal bars (`bar`) or vertical columns (`col`). */
+export const CHART_BAR_DIRECTIONS = Object.freeze(["bar", "col"] as const);
+export type ChartBarDirectionV1 = (typeof CHART_BAR_DIRECTIONS)[number];
+
+/** `c:grouping@val`, as authored. */
+export const CHART_GROUPINGS = Object.freeze(["clustered", "stacked", "percentStacked", "standard"] as const);
+export type ChartGroupingV1 = (typeof CHART_GROUPINGS)[number];
+
+/** One `c:ser`: every reference is the formula text as authored (`Jobs!$E$2:$E$61`). */
+export interface ChartPartSeriesV1 {
+  /** The series name: its reference, or its literal text. */
+  readonly name: string | null;
+  readonly categoriesRef: string | null;
+  readonly valuesRef: string | null;
+  /** Scatter only. */
+  readonly xRef: string | null;
+  readonly yRef: string | null;
+}
+
+/**
+ * What one OOXML chart part declares (CA-31, D55) — read, never interpreted.
+ * Bounds: at most {@link CHART_PART_MAX_SERIES} series, each reference at most
+ * {@link CHART_PART_MAX_REF_LENGTH} characters; a part over either carries no
+ * definition. The title is plain NFC text of at most
+ * {@link CHART_PART_MAX_TITLE_LENGTH} characters.
+ */
+export interface ChartPartDefinitionV1 {
+  readonly chartType: ChartPartTypeV1;
+  /** `bar` charts only. */
+  readonly barDirection: ChartBarDirectionV1 | null;
+  /** `null` where the plot declares none (pie, scatter) and for `other`. */
+  readonly grouping: ChartGroupingV1 | null;
+  readonly title: string | null;
+  readonly series: readonly ChartPartSeriesV1[];
+}
+
+export const CHART_PART_MAX_SERIES = 64;
+export const CHART_PART_MAX_REF_LENGTH = 1_024;
+export const CHART_PART_MAX_TITLE_LENGTH = 256;
+
+/** The pivot data-field summaries a chart measure can express; others are dropped. */
+export const PIVOT_SUBTOTALS = Object.freeze(["sum", "count", "average", "min", "max"] as const);
+export type PivotSubtotalV1 = (typeof PIVOT_SUBTOTALS)[number];
+
+/**
+ * What one pivot table declares over a worksheet cache source (CA-31, D55).
+ * Fields are named by their cache field names. `sourceRef` is the source as
+ * authored: an A1 range on `sourceSheet`, or — with `sourceSheet: null` — a
+ * table or defined name. At most {@link PIVOT_PART_MAX_FIELDS} cache fields;
+ * cached records are never read.
+ */
+export interface PivotPartDefinitionV1 {
+  readonly sourceSheet: string | null;
+  readonly sourceRef: string;
+  readonly rowFields: readonly string[];
+  readonly dataFields: readonly { readonly cacheFieldName: string; readonly subtotal: PivotSubtotalV1 }[];
+}
+
+export const PIVOT_PART_MAX_FIELDS = 256;
+
+export const isChartPartDefinition = (
+  definition: ChartPartDefinitionV1 | PivotPartDefinitionV1,
+): definition is ChartPartDefinitionV1 => "chartType" in definition;
+
 /** V2's new fact kinds (D32). */
 export type WorkbookStructureFactV1 =
   | {
@@ -305,6 +373,12 @@ export type WorkbookStructureFactV1 =
       readonly reasonKey: PreservedReasonKeyV1;
       readonly anchor: RangeV1 | null;
       readonly partPath: string | null;
+      /**
+       * Present only on a `chart` (a {@link ChartPartDefinitionV1}) or
+       * `pivot-table` (a {@link PivotPartDefinitionV1}) whose part was read
+       * within its bounds; absent, never `undefined`, otherwise.
+       */
+      readonly definition?: ChartPartDefinitionV1 | PivotPartDefinitionV1;
     };
 
 export type WorkbookFactV2 =
@@ -479,6 +553,43 @@ const listSourceToCanonicalValue = (
       ]);
 };
 
+const partDefinitionToCanonicalValue = (
+  definition: ChartPartDefinitionV1 | PivotPartDefinitionV1,
+): CanonicalFactValueV1 =>
+  isChartPartDefinition(definition)
+    ? map([
+        ["chartType", definition.chartType],
+        ["barDirection", definition.barDirection],
+        ["grouping", definition.grouping],
+        ["title", definition.title],
+        [
+          "series",
+          definition.series.map((series) =>
+            map([
+              ["name", series.name],
+              ["categoriesRef", series.categoriesRef],
+              ["valuesRef", series.valuesRef],
+              ["xRef", series.xRef],
+              ["yRef", series.yRef],
+            ]),
+          ),
+        ],
+      ])
+    : map([
+        ["sourceSheet", definition.sourceSheet],
+        ["sourceRef", definition.sourceRef],
+        ["rowFields", [...definition.rowFields]],
+        [
+          "dataFields",
+          definition.dataFields.map((field) =>
+            map([
+              ["cacheFieldName", field.cacheFieldName],
+              ["subtotal", field.subtotal],
+            ]),
+          ),
+        ],
+      ]);
+
 const factToCanonicalValue = (fact: WorkbookFactV2): CanonicalFactValueV1 => {
   switch (fact.kind) {
     case "row":
@@ -567,6 +678,9 @@ const factToCanonicalValue = (fact: WorkbookFactV2): CanonicalFactValueV1 => {
         ["reasonKey", fact.reasonKey],
         ["anchor", rangeOrNull(fact.anchor)],
         ["partPath", fact.partPath],
+        ...(fact.definition === undefined
+          ? []
+          : [["definition", partDefinitionToCanonicalValue(fact.definition)] as const]),
       ]);
     default: {
       const unreachable: never = fact;

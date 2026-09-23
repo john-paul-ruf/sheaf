@@ -14,6 +14,7 @@
  *   formula) belongs to the row just opened, below its `cellCount`, in rising
  *   column order;
  * - every range and anchor lies inside the grid, first ≤ last;
+ * - only a chart or pivot-table preserved part carries a definition;
  * - every item maps to the canonical CBOR value domain.
  */
 
@@ -183,6 +184,9 @@ export function assertConformingStream(
           break;
         case "preserved-part":
           if (fact.anchor !== null) checkRange(fact.anchor, "preserved-part anchor");
+          if ("definition" in fact && fact.partKind !== "chart" && fact.partKind !== "pivot-table") {
+            violation(`a ${fact.partKind} part carries a definition`);
+          }
           break;
         case "defined-name":
           break;

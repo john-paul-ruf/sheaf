@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { decodeCanonical, encodeCanonical } from "../../../../src/persistence/codecs/canonical-cbor.js";
 import { decimalValue, invalidPreservedValue, textValue } from "../../../../src/domain/model/values.js";
 import {
+  CHART_PART_TYPES,
   factStreamItemToCanonicalValue,
+  isChartPartDefinition,
+  PIVOT_SUBTOTALS,
   IMPORT_DIAGNOSTIC_CODES,
   IMPORT_DIAGNOSTIC_CODES_V1,
   PRESERVED_PART_KINDS,
@@ -98,5 +101,50 @@ describe("fact vocabulary V2", () => {
       expect(PRESERVED_REASON_KEYS).toContain(PRESERVED_REASON_BY_KIND[kind]);
     }
     expect(PRESERVED_REASON_BY_KIND.formula).toBe("formula-not-live-yet");
+  });
+
+  it("maps a chart or pivot definition only when the fact carries one, with exact keys", () => {
+    const part = EVERY_KIND[10] as Extract<WorkbookFactV2, { kind: "preserved-part" }>;
+    const chart = {
+      ...part,
+      definition: {
+        chartType: "scatter",
+        barDirection: null,
+        grouping: null,
+        title: null,
+        series: [{ name: null, categoriesRef: null, valuesRef: null, xRef: "Crew!$C$2:$C$9", yRef: "Crew!$D$2:$D$9" }],
+      },
+    } as const;
+    const pivot = {
+      ...part,
+      partKind: "pivot-table",
+      reasonKey: "pivot-not-live-yet",
+      definition: { sourceSheet: null, sourceRef: "JobsTable", rowFields: ["Status"], dataFields: [{ cacheFieldName: "Quoted", subtotal: "average" }] },
+    } as const;
+    const facts = (factStreamItemToCanonicalValue({ kind: "batch", batchSeq: 0, facts: [part, chart, pivot] }) as ReadonlyMap<string, unknown>).get(
+      "facts",
+    ) as ReadonlyMap<string, unknown>[];
+    expect(facts[0]?.has("definition")).toBe(false);
+    expect(facts[1]?.get("definition")).toEqual(
+      new Map<string, unknown>([
+        ["chartType", "scatter"],
+        ["barDirection", null],
+        ["grouping", null],
+        ["title", null],
+        ["series", [new Map<string, unknown>([["name", null], ["categoriesRef", null], ["valuesRef", null], ["xRef", "Crew!$C$2:$C$9"], ["yRef", "Crew!$D$2:$D$9"]])]],
+      ]),
+    );
+    expect(facts[2]?.get("definition")).toEqual(
+      new Map<string, unknown>([
+        ["sourceSheet", null],
+        ["sourceRef", "JobsTable"],
+        ["rowFields", ["Status"]],
+        ["dataFields", [new Map<string, unknown>([["cacheFieldName", "Quoted"], ["subtotal", "average"]])]],
+      ]),
+    );
+    expect(isChartPartDefinition(chart.definition)).toBe(true);
+    expect(isChartPartDefinition(pivot.definition)).toBe(false);
+    expect([...CHART_PART_TYPES]).toEqual(["bar", "line", "pie", "scatter", "area", "other"]);
+    expect([...PIVOT_SUBTOTALS]).toEqual(["sum", "count", "average", "min", "max"]);
   });
 });

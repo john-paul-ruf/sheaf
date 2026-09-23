@@ -117,6 +117,89 @@ describe("staged fact chunks (CA-17)", () => {
     expect([...kinds].sort()).toEqual([...ALL_KINDS].sort());
   });
 
+  describe("the optional chart and pivot definition (CA-31)", () => {
+    const part = {
+      kind: "preserved-part",
+      partKind: "chart",
+      location: "Overview!D2:K18",
+      reasonKey: "chart-not-live-yet",
+      anchor: { firstRow: 1, firstColumn: 3, lastRow: 17, lastColumn: 10 },
+      partPath: "xl/charts/chart1.xml",
+    } as const;
+    const chart = {
+      ...part,
+      definition: {
+        chartType: "bar",
+        barDirection: "col",
+        grouping: "clustered",
+        title: "Quoted by status",
+        series: [{ name: "Jobs!$E$1", categoriesRef: "Jobs!$D$2:$D$61", valuesRef: "Jobs!$E$2:$E$61", xRef: null, yRef: null }],
+      },
+    } as const;
+    const pivot = {
+      ...part,
+      partKind: "pivot-table",
+      reasonKey: "pivot-not-live-yet",
+      partPath: "xl/pivotTables/pivotTable1.xml",
+      definition: {
+        sourceSheet: "Data",
+        sourceRef: "A1:B4",
+        rowFields: ["Crew"],
+        dataFields: [
+          { cacheFieldName: "Hours", subtotal: "sum" },
+          { cacheFieldName: "Crew", subtotal: "count" },
+        ],
+      },
+    } as const;
+    const batch = (...facts: WorkbookFactV2[]): WorkbookFactStreamItemV2 => ({ kind: "batch", batchSeq: 0, facts });
+    const definitionOf = (item: WorkbookFactStreamItemV2): Map<string, unknown> =>
+      ((decodeCanonical(encodeFactStreamItem(item)) as Map<string, unknown>).get("facts") as Map<string, unknown>[])[0]?.get(
+        "definition",
+      ) as Map<string, unknown>;
+
+    it("round-trips a chart and a pivot definition byte-identically, and absent stays absent", () => {
+      expectRoundTrip(batch(chart, pivot, part));
+      const decoded = decodeFactStreamItem(encodeFactStreamItem(batch(part)));
+      expect(decoded.kind === "batch" ? Object.keys(decoded.facts[0] ?? {}) : []).not.toContain("definition");
+      expect(encodeFactStreamItem(batch(part))).toEqual(encodeCanonical(factStreamItemToCanonicalValue(batch(part))));
+    });
+
+    it("refuses a definition on a part kind that has none, or of the other kind", () => {
+      const withDefinition = (kind: string, definition: unknown): Uint8Array => {
+        const map = decodeCanonical(encodeFactStreamItem(batch(part))) as Map<string, unknown>;
+        const fact = (map.get("facts") as Map<string, unknown>[])[0] as Map<string, unknown>;
+        fact.set("partKind", kind).set("definition", definition);
+        return encodeCanonical(map as never);
+      };
+      const chartMap = definitionOf(batch(chart));
+      const pivotMap = definitionOf(batch(pivot));
+      expect(decodeFactStreamItem(withDefinition("chart", chartMap))).toEqual(batch(chart));
+      expect(() => decodeFactStreamItem(withDefinition("image", chartMap))).toThrow(CodecError);
+      expect(() => decodeFactStreamItem(withDefinition("chart", pivotMap))).toThrow(CodecError);
+      expect(() => decodeFactStreamItem(withDefinition("pivot-table", chartMap))).toThrow(CodecError);
+      expect(() => decodeFactStreamItem(withDefinition("chart", null))).toThrow(CodecError);
+    });
+
+    it("refuses a definition value outside its closed sets or with an extra key", () => {
+      const mutated = (change: (definition: Map<string, unknown>) => void, item = batch(chart)): Uint8Array => {
+        const map = decodeCanonical(encodeFactStreamItem(item)) as Map<string, unknown>;
+        change(((map.get("facts") as Map<string, unknown>[])[0] as Map<string, unknown>).get("definition") as Map<string, unknown>);
+        return encodeCanonical(map as never);
+      };
+      expect(() => decodeFactStreamItem(mutated((definition) => definition.set("chartType", "radar")))).toThrow(CodecError);
+      expect(() => decodeFactStreamItem(mutated((definition) => definition.set("grouping", "sideways")))).toThrow(CodecError);
+      expect(() => decodeFactStreamItem(mutated((definition) => definition.set("colors", [])))).toThrow(CodecError);
+      expect(() =>
+        decodeFactStreamItem(
+          mutated(
+            (definition) => ((definition.get("dataFields") as Map<string, unknown>[])[0] as Map<string, unknown>).set("subtotal", "product"),
+            batch(pivot),
+          ),
+        ),
+      ).toThrow(CodecError);
+    });
+  });
+
   describe("refuse a chunk that is not exactly a fact", () => {
     const valid: WorkbookFactStreamItemV2 = {
       kind: "batch",

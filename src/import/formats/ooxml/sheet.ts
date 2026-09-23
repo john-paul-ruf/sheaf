@@ -26,6 +26,8 @@ import {
 } from "../../../domain/model/values.js";
 import {
   decimalCellOfDouble,
+  type ChartPartDefinitionV1,
+  type PivotPartDefinitionV1,
   PRESERVED_REASON_BY_KIND,
   VALIDATION_OPERATORS,
   type ImportDiagnosticCodeV2,
@@ -40,7 +42,8 @@ import { BoundExceededError, CONTAINER_BOUNDS_V1 } from "../../source/bounds.js"
 import { partEvents, readRelationships, relationshipKind } from "../../source/opc.js";
 import { tokenizeXml, type XmlStartEventV1 } from "../../source/xml.js";
 import type { ZipContainerHandleV1 } from "../../source/zip.js";
-import { readCommentAnchors, readDrawingObjects } from "./drawings.js";
+import { readChartDefinition } from "./charts.js";
+import { readCommentAnchors, readDrawingObjects, type DrawingObjectV1 } from "./drawings.js";
 import { readTablePart, type SheetPartV1 } from "./inventory.js";
 import {
   attribute,
@@ -79,6 +82,7 @@ export const preservedPart = (
   location: string,
   anchor: RangeV1 | null,
   partPath: string | null,
+  definition: ChartPartDefinitionV1 | PivotPartDefinitionV1 | null = null,
 ): WorkbookFactV2 => ({
   kind: "preserved-part",
   partKind,
@@ -86,7 +90,13 @@ export const preservedPart = (
   reasonKey: PRESERVED_REASON_BY_KIND[partKind],
   anchor,
   partPath,
+  ...(definition === null ? {} : { definition }),
 });
+
+const chartDefinitionOf = async (zip: ZipContainerHandleV1, object: DrawingObjectV1) =>
+  object.partKind === "chart" && object.partPath !== null && zip.has(object.partPath)
+    ? (await readChartDefinition(zip, object.partPath)).definition
+    : null;
 
 const pivotAnchor = async (zip: ZipContainerHandleV1, partName: string): Promise<RangeV1 | null> => {
   for await (const event of partEvents(zip, partName)) {
@@ -118,7 +128,8 @@ export async function sheetPartFacts(
       }
       case "drawing":
         for (const object of await readDrawingObjects(zip, target)) {
-          facts.push(preservedPart(object.partKind, at(object.anchor), object.anchor, object.partPath ?? target));
+          const definition = await chartDefinitionOf(zip, object);
+          facts.push(preservedPart(object.partKind, at(object.anchor), object.anchor, object.partPath ?? target, definition));
         }
         break;
       case "comments":
