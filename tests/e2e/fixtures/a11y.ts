@@ -40,11 +40,24 @@ export async function auditable(page: Page, id: string): Promise<void> {
 /**
  * Nothing required is cut off. Two ways that happens: the document scrolls
  * sideways, or a box with hidden overflow is narrower than the text inside it.
+ *
+ * A box past the right edge inside a sideways scroller that itself fits the
+ * viewport is reachable, not cut off: design.md's compact class asks for
+ * horizontal chip scrollers. The scroller's own overflow is still a finding.
  */
 export async function clipped(page: Page): Promise<readonly string[]> {
   return page.evaluate(() => {
     const problems: string[] = [];
     const root = document.documentElement;
+    const inFittingScroller = (element: HTMLElement): boolean => {
+      for (let box = element.parentElement; box !== null; box = box.parentElement) {
+        const overflowX = getComputedStyle(box).overflowX;
+        if (overflowX === "auto" || overflowX === "scroll") {
+          return box.getBoundingClientRect().right <= root.clientWidth + 1;
+        }
+      }
+      return false;
+    };
     if (root.scrollWidth > root.clientWidth + 1) {
       problems.push(
         `document scrolls sideways: ${String(root.scrollWidth)} > ${String(root.clientWidth)}`,
@@ -58,7 +71,7 @@ export async function clipped(page: Page): Promise<readonly string[]> {
         continue;
       }
       const text = (element.textContent ?? "").trim().slice(0, 40);
-      if (box.right > root.clientWidth + 1) {
+      if (box.right > root.clientWidth + 1 && !inFittingScroller(element)) {
         problems.push(`overflows right: ${text}`);
       }
       const style = getComputedStyle(element);
