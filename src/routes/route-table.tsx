@@ -75,6 +75,8 @@ import type {
   RecordDetailViewV1,
   RecordIssueViewV1,
   RecordPageViewV1,
+  RelatedChildrenPageViewV1,
+  RelatedRecordsViewV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
 import type { RecordsServices } from "../application/workflows/records-services.js";
@@ -111,6 +113,12 @@ import {
   type AppNavigation,
 } from "../ui/records/app-frame.js";
 import type { FieldTypeVm } from "../ui/records/values.js";
+import { RepairReferenceDialog } from "../ui/records/repair-reference-dialog.js";
+import {
+  referenceSearchFor,
+  useListReferences,
+  useTableSwitcher,
+} from "./app-area-hooks.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -1011,18 +1019,7 @@ function OpenedApp({
 
   return (
     <Routes>
-      <Route
-        element={
-          <AppHomeScreen
-            nav={nav}
-            newRecordHref={(tableId) => hashHref(newRecordPath(appId, tableId))}
-            tableHref={(tableId) => hashHref(tablePath(appId, tableId))}
-            topBarActions={topBarActions}
-            vm={selectAppHomeVm(session)}
-          />
-        }
-        path="/app/:appId"
-      />
+      <Route element={<AppHomeRoute area={area} />} path="/app/:appId" />
       <Route element={<RecordsRoute area={area} />} path="/app/:appId/t/:tableId" />
       <Route
         element={<RecordFormRoute area={area} mode="create" />}
@@ -1054,6 +1051,31 @@ function OpenedApp({
       />
       <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
     </Routes>
+  );
+}
+
+/** SCR-024, with CTL-059 → SHT-003 over it. */
+function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
+  const appId = identity.appId;
+  const switcher = useTableSwitcher({
+    records,
+    appId,
+    tables: session.tables,
+    currentTableId: null,
+  });
+  return (
+    <AppHomeScreen
+      nav={nav}
+      newRecordHref={(tableId) => hashHref(newRecordPath(appId, tableId))}
+      overlays={switcher.overlay}
+      tableHref={(tableId) => hashHref(tablePath(appId, tableId))}
+      topBarActions={topBarActions}
+      vm={selectAppHomeVm(session)}
+      {...(switcher.vm === undefined || switcher.open === undefined
+        ? {}
+        : { tableSwitcher: switcher.vm, onOpenTableSwitcher: switcher.open })}
+    />
   );
 }
 
@@ -1134,6 +1156,13 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   const [busy, setBusy] = useState(true);
 
   const appId = identity.appId;
+  const references = useListReferences({ records, appId, table, pages });
+  const switcher = useTableSwitcher({
+    records,
+    appId,
+    tables: session.tables,
+    currentTableId: tableId,
+  });
 
   useEffect(() => {
     if (table === undefined) return undefined;
@@ -1208,11 +1237,15 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
       newRecordHref={hashHref(newRecordPath(appId, tableId))}
       onSearch={setSearch}
       onShowMore={showMore}
+      overlays={switcher.overlay}
       recordHref={(recordId) =>
         hashHref(recordPath(appId, tableId, recordId))
       }
       topBarActions={topBarActions}
-      vm={selectRecordsListVm(table, merged)}
+      vm={selectRecordsListVm(table, merged, references)}
+      {...(switcher.vm === undefined || switcher.open === undefined
+        ? {}
+        : { tableSwitcher: switcher.vm, onOpenTableSwitcher: switcher.open })}
     />
   );
 }
@@ -1242,15 +1275,31 @@ function RecordDetailRoute({
   const [record, setRecord] = useState<RecordDetailViewV1 | null | undefined>(
     undefined,
   );
+  const [related, setRelated] = useState<RelatedRecordsViewV1 | null>(null);
+  const [childPages, setChildPages] = useState<
+    ReadonlyMap<string, readonly RelatedChildrenPageViewV1[]>
+  >(new Map());
+  const [readingChildrenOf, setReadingChildrenOf] = useState<string | null>(null);
+  const [repairing, setRepairing] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** Bumped by a repair, so the record and its relationships are re-read. */
+  const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
     let live = true;
-    void records.getRecord({ appId, recordId }).then(
-      ({ record: found }) => {
-        if (live) setRecord(found);
+    setRecord(undefined);
+    setRelated(null);
+    setChildPages(new Map());
+    void Promise.all([
+      records.getRecord({ appId, recordId }),
+      records.getRelatedRecords({ appId, recordId }),
+    ]).then(
+      ([{ record: found }, { related: links }]) => {
+        if (!live) return;
+        setRelated(links);
+        setRecord(found);
       },
       () => {
         if (live) setRecord(null);
@@ -1259,7 +1308,7 @@ function RecordDetailRoute({
     return () => {
       live = false;
     };
-  }, [records, appId, recordId]);
+  }, [records, appId, recordId, generation]);
 
   // The acknowledgement belongs to the arrival, not to the address: leaving
   // this screen is what ends it.
@@ -1290,8 +1339,67 @@ function RecordDetailRoute({
     );
   }
 
-  const vm = selectRecordDetailVm(table, record);
+  const vm = selectRecordDetailVm(table, record, {
+    related,
+    childPages,
+    tables: session.tables,
+  });
   const deleteVm = selectDeleteRecordDialogVm(vm, busy);
+  const missing = vm.missing.find((candidate) => candidate.fieldId === repairing);
+
+  const showChildren = (relationshipId: string): void => {
+    const group = vm.hasMany.find((candidate) => candidate.relationshipId === relationshipId);
+    if (group === undefined) return;
+    setReadingChildrenOf(relationshipId);
+    void records
+      .getRelatedChildren({
+        appId,
+        relationshipId,
+        parentRecordId: recordId,
+        after: group.isExpanded ? group.nextCursor : null,
+      })
+      .then(
+        ({ page }) => {
+          setReadingChildrenOf(null);
+          if (page === null) return;
+          setChildPages((current) =>
+            new Map(current).set(relationshipId, [
+              ...(group.isExpanded ? (current.get(relationshipId) ?? []) : []),
+              page,
+            ]),
+          );
+        },
+        () => {
+          setReadingChildrenOf(null);
+        },
+      );
+  };
+
+  // MOD-011: the chosen record id goes through the ordinary patch command,
+  // and the refusal, if any, is the validator's (invariant 5).
+  const repair = (fieldId: string, chosenId: string): void => {
+    setBusy(true);
+    void records
+      .patchRecord({
+        appId,
+        recordId,
+        changes: [{ fieldId, value: { kind: "reference", recordId: chosenId } }],
+      })
+      .then(
+        (response) => {
+          setBusy(false);
+          setRepairing(null);
+          area.announce(announceRecordCommand(toCommandOutcomeVm(response), "saved"));
+          if (response.outcome !== "accepted") return;
+          area.refresh();
+          setGeneration((current) => current + 1);
+        },
+        () => {
+          setBusy(false);
+          setRepairing(null);
+        },
+      );
+  };
 
   const confirmDelete = (): void => {
     setBusy(true);
@@ -1345,7 +1453,31 @@ function RecordDetailRoute({
             onConfirm={confirmDelete}
             vm={deleteVm}
           />
+          {missing !== undefined && (
+            <RepairReferenceDialog
+              busy={busy}
+              missing={missing}
+              onLeaveFlagged={() => {
+                setRepairing(null);
+              }}
+              onRepair={(choice) => {
+                repair(missing.fieldId, choice.recordId);
+              }}
+              search={referenceSearchFor(
+                records,
+                appId,
+                { fieldId: missing.fieldId, displayName: missing.relationName },
+                null,
+              )}
+            />
+          )}
         </>
+      }
+      onRepair={setRepairing}
+      onShowChildren={showChildren}
+      readingChildrenOf={readingChildrenOf}
+      recordHref={(otherTableId, otherRecordId) =>
+        hashHref(recordPath(appId, otherTableId, otherRecordId))
       }
       recordsHref={hashHref(tablePath(appId, tableId))}
       topBarActions={topBarActions}
@@ -1513,6 +1645,9 @@ function RecordFormRoute({
       }
       nav={nav}
       onSave={save}
+      referenceSearch={(field, currentRecordId) =>
+        referenceSearchFor(records, appId, field, currentRecordId)
+      }
       topBarActions={topBarActions}
       vm={vm}
     />

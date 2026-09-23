@@ -48,6 +48,7 @@ function renderDetail(
       editHref={`#/app/${APP_ID}/t/${TABLE_ID}/r/record-1/edit`}
       nav={nav}
       onOpenActions={onOpenActions}
+      recordHref={(tableId, recordId) => `#/app/${APP_ID}/t/${tableId}/r/${recordId}`}
       recordsHref={`#/app/${APP_ID}/t/${TABLE_ID}`}
       vm={vm}
     />,
@@ -106,7 +107,7 @@ describe("SCR-027 — one record, read", () => {
     );
   });
 
-  it("renders no relationships section for a value-only app (D25)", async () => {
+  it("renders no relationships section for a value-only table (STA-025)", async () => {
     await renderDetail();
 
     const screen = query('[data-screen="SCR-027"]');
@@ -142,6 +143,7 @@ describe("SCR-027 — one record, read", () => {
         nav={nav}
         notice="Saved on this device."
         onOpenActions={vi.fn()}
+        recordHref={() => "#/record"}
         recordsHref="#/records"
         vm={selectRecordDetailVm(table(), detail())}
       />,

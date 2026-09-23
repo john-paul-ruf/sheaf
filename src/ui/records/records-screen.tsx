@@ -3,6 +3,7 @@ import type {
   RecordCardVm,
   RecordFactVm,
   RecordsListVm,
+  TableSwitcherVm,
 } from "../../application/view-models/records.js";
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
@@ -13,6 +14,7 @@ import {
   type AppIdentity,
   type AppNavigation,
 } from "./app-frame.js";
+import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
   describeRecordCount,
   describeValue,
@@ -46,6 +48,11 @@ import styles from "./records.module.css";
  *
  * The mock's filter chips and sort control are absent: typed filters and sort
  * are FR-13's, and F04 builds them (M44 fragment).
+ *
+ * **Other tables are one control away** (CTL-059 → SHT-003): the trigger
+ * names the current table and its exact count; the sheet lists every table.
+ * A reference column reads as the related record's label, or as a missing
+ * related record with its original key — never a raw id, never blank.
  */
 
 export interface RecordsScreenProps {
@@ -60,6 +67,11 @@ export interface RecordsScreenProps {
   /** Field types, so an amount renders as its currency (M37 holds no locale). */
   readonly fieldTypes?: ReadonlyMap<string, FieldTypeVm>;
   readonly busy?: boolean;
+  /** CTL-059's state; present when the app has more than one table. */
+  readonly tableSwitcher?: TableSwitcherVm;
+  readonly onOpenTableSwitcher?: () => void;
+  /** SHT-003 and anything else the route composed. */
+  readonly overlays?: ReactNode;
   readonly topBarActions?: ReactNode;
 }
 
@@ -73,6 +85,9 @@ export function RecordsScreen({
   onShowMore,
   fieldTypes,
   busy = false,
+  tableSwitcher,
+  onOpenTableSwitcher,
+  overlays,
   topBarActions,
 }: RecordsScreenProps): ReactNode {
   const searchText = vm.scope.kind === "search" ? vm.scope.text : "";
@@ -126,6 +141,9 @@ export function RecordsScreen({
           <InlineLink target={{ kind: "internal", href: newRecordHref }}>
             Add a record
           </InlineLink>
+          {tableSwitcher !== undefined && onOpenTableSwitcher !== undefined && (
+            <TableSwitcherTrigger onOpen={onOpenTableSwitcher} vm={tableSwitcher} />
+          )}
         </div>
 
         {vm.emptiness === null ? (
@@ -164,6 +182,7 @@ export function RecordsScreen({
           />
         )}
       </div>
+      {overlays}
     </AppFrame>
   );
 }

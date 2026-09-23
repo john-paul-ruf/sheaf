@@ -510,6 +510,85 @@
   outline-offset: var(--focus-ring-offset);
 }
 
+/* The secondary line inside a sheet option: a state, a count. */
+.optionState {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-control);
+}
+
+/* ---- SCR-027 relationships (record-detail.html; CTL-069/070/071) -------- */
+
+.relations {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.relation {
+  display: grid;
+  gap: var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.relationTag {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.relationTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+
+/* STA-011: a flagged state, in the warning pair — never a blank cell. */
+.relation[data-state="missing"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-tint);
+}
+
+.relation[data-state="missing"] .relationTag {
+  color: var(--color-warning-ink);
+}
+
+.disclosure summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  color: var(--color-action);
+  font-weight: var(--weight-control);
+  cursor: pointer;
+}
+
+.disclosure summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.childList {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.childList a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  overflow-wrap: anywhere;
+}
+
 /* ---- SCR-032 change history ---------------------------------------------- */
 
 .entryList {

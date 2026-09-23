@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
-import type { AppHomeVm } from "../../application/view-models/records.js";
+import type {
+  AppHomeVm,
+  TableSwitcherVm,
+} from "../../application/view-models/records.js";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { AppFrame, type AppNavigation } from "./app-frame.js";
+import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
   describeRecordCount,
   formatCount,
@@ -38,6 +42,11 @@ export interface AppHomeScreenProps {
   readonly tableHref: (tableId: string) => string;
   /** Where a new record for a table is authored. */
   readonly newRecordHref: (tableId: string) => string;
+  /** CTL-059's state; present when the app has more than one table. */
+  readonly tableSwitcher?: TableSwitcherVm;
+  readonly onOpenTableSwitcher?: () => void;
+  /** SHT-003 and anything else the route composed. */
+  readonly overlays?: ReactNode;
   readonly topBarActions?: ReactNode;
 }
 
@@ -46,6 +55,9 @@ export function AppHomeScreen({
   nav,
   tableHref,
   newRecordHref,
+  tableSwitcher,
+  onOpenTableSwitcher,
+  overlays,
   topBarActions,
 }: AppHomeScreenProps): ReactNode {
   // With exactly one table there is one truthful place for "add a record" to
@@ -129,9 +141,14 @@ export function AppHomeScreen({
             <h2 className={cx(styles["sectionTitle"])} id="app-tables">
               Open a table
             </h2>
-            <InlineLink target={{ kind: "internal", href: nav.appHistory }}>
-              Change history
-            </InlineLink>
+            <div className={cx(styles["actions"])}>
+              {tableSwitcher !== undefined && onOpenTableSwitcher !== undefined && (
+                <TableSwitcherTrigger onOpen={onOpenTableSwitcher} vm={tableSwitcher} />
+              )}
+              <InlineLink target={{ kind: "internal", href: nav.appHistory }}>
+                Change history
+              </InlineLink>
+            </div>
           </div>
 
           <ul className={cx(styles["tableList"])}>
@@ -187,6 +204,7 @@ export function AppHomeScreen({
           </p>
         </section>
       </div>
+      {overlays}
     </AppFrame>
   );
 }

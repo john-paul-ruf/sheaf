@@ -16,6 +16,10 @@ import {
 } from "./app-frame.js";
 import { EnumPickerSheet } from "./enum-picker-sheet.js";
 import {
+  ReferencePickerSheet,
+  type ReferenceSearch,
+} from "./reference-picker-sheet.js";
+import {
   describeValue,
   epochDayToIsoDate,
   isCanonicalDecimalText,
@@ -52,8 +56,10 @@ import styles from "./records.module.css";
  * confirmed outcome and is rendered where the route sends the person after the
  * commit is durable (invariant 1).
  *
- * A `reference` field is read-only with its reason, because F02 has no
- * producer for one and `AuthoredCellWireValueV1` type-excludes it (D25).
+ * **A reference is chosen, not typed (SHT-002).** The picker searches the
+ * related table by human label; the chosen record id is authored through the
+ * same create/patch command, and an id the worker cannot resolve comes back
+ * as a blocking refusal rendered at the field like any other (CA-21).
  */
 
 /** Structurally `AuthoredCellWireValueV1`; checked against it at the route. */
@@ -64,7 +70,8 @@ export type AuthoredValueIntentV1 =
   | { readonly kind: "option"; readonly optionId: string }
   | { readonly kind: "date"; readonly epochDay: number }
   | { readonly kind: "blank" }
-  | { readonly kind: "missing" };
+  | { readonly kind: "missing" }
+  | { readonly kind: "reference"; readonly recordId: string };
 
 export interface AuthoredEntryIntentV1 {
   readonly fieldId: string;
@@ -75,7 +82,13 @@ export interface AuthoredEntryIntentV1 {
 type Draft =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "boolean"; readonly boolean: boolean }
-  | { readonly kind: "option"; readonly optionId: string | null };
+  | { readonly kind: "option"; readonly optionId: string | null }
+  | {
+      readonly kind: "reference";
+      readonly recordId: string | null;
+      /** What the trigger reads; null before anything was chosen. */
+      readonly label: string | null;
+    };
 
 /** The type-to-keyboard map, read off control-atlas.html (CTL-030–036). */
 interface KeyboardV1 {
@@ -111,6 +124,14 @@ export function initialDraft(field: RecordFormFieldVm): Draft {
         kind: "option",
         optionId: value?.kind === "option" ? value.optionId : null,
       };
+    case "reference": {
+      const reference = value?.kind === "reference" ? value.reference : null;
+      return reference?.kind === "resolved"
+        ? { kind: "reference", recordId: reference.recordId, label: reference.label }
+        : reference?.kind === "pending"
+          ? { kind: "reference", recordId: reference.recordId, label: null }
+          : { kind: "reference", recordId: null, label: null };
+    }
     default:
       return { kind: "text", text: initialText(value) };
   }
@@ -161,6 +182,14 @@ export function intentFor(
           value: { kind: "option", optionId: draft.optionId },
         };
   }
+  if (draft.kind === "reference") {
+    return draft.recordId === null
+      ? cleared
+      : {
+          fieldId: field.fieldId,
+          value: { kind: "reference", recordId: draft.recordId },
+        };
+  }
 
   const text = draft.text;
   if (text.trim() === "") return cleared;
@@ -195,6 +224,11 @@ export interface RecordFormScreenProps {
   readonly nav: AppNavigation;
   readonly cancelHref: string;
   readonly onSave: (entries: readonly AuthoredEntryIntentV1[]) => void;
+  /** SHT-002's search for one reference field, holding `current`. */
+  readonly referenceSearch?: (
+    field: RecordFormFieldVm,
+    currentRecordId: string | null,
+  ) => ReferenceSearch;
   /** Edit mode only: opens MOD-009. */
   readonly onDelete?: () => void;
   /** MOD-009 and anything else the route composed. */
@@ -208,6 +242,7 @@ export function RecordFormScreen({
   nav,
   cancelHref,
   onSave,
+  referenceSearch,
   onDelete,
   overlays,
   topBarActions,
@@ -284,6 +319,7 @@ export function RecordFormScreen({
             <FormField
               draft={draftFor(field)}
               field={field}
+              isTouched={drafts.has(field.fieldId)}
               key={field.fieldId}
               onOpenPicker={() => {
                 setPicking(field.fieldId);
@@ -325,7 +361,29 @@ export function RecordFormScreen({
         </p>
       </div>
 
-      {picked !== undefined && pickedDraft !== null && (
+      {picked?.input.kind === "reference" &&
+        pickedDraft?.kind === "reference" &&
+        referenceSearch !== undefined && (
+          <ReferencePickerSheet
+            currentRecordId={pickedDraft.recordId}
+            currentText={referenceText(picked, pickedDraft, drafts.has(picked.fieldId))}
+            fieldName={picked.displayName}
+            isOpen
+            onApply={(choice) => {
+              setDraft(picked.fieldId, {
+                kind: "reference",
+                recordId: choice?.recordId ?? null,
+                label: choice?.label ?? null,
+              });
+              setPicking(null);
+            }}
+            onClose={() => {
+              setPicking(null);
+            }}
+            search={referenceSearch(picked, pickedDraft.recordId)}
+          />
+        )}
+      {picked?.input.kind === "enum" && pickedDraft !== null && (
         <EnumPickerSheet
           fieldName={picked.displayName}
           isOpen
@@ -345,14 +403,31 @@ export function RecordFormScreen({
   );
 }
 
+/**
+ * What a reference field holds, in words: the stored value until something is
+ * chosen, then the choice. Null when it holds nothing.
+ */
+function referenceText(
+  field: RecordFormFieldVm,
+  draft: Draft,
+  isTouched: boolean,
+): string | null {
+  if (isTouched && draft.kind === "reference") return draft.label;
+  return field.value === null || field.value.kind === "missing" || field.value.kind === "blank"
+    ? null
+    : describeValue(field.value, undefined);
+}
+
 function FormField({
   field,
   draft,
+  isTouched,
   onSetDraft,
   onOpenPicker,
 }: {
   readonly field: RecordFormFieldVm;
   readonly draft: Draft;
+  readonly isTouched: boolean;
   readonly onSetDraft: (draft: Draft) => void;
   readonly onOpenPicker: () => void;
 }): ReactNode {
@@ -399,9 +474,18 @@ function FormField({
       </label>
 
       {input.kind === "reference" ? (
-        <p className={cx(styles["readOnly"])} id={inputId}>
-          {field.value === null ? "Not given" : describeValue(field.value, undefined)}
-        </p>
+        <button
+          aria-describedby={describedBy}
+          aria-labelledby={`${labelId} ${inputId}`}
+          className={cx(styles["input"])}
+          data-control="reference-picker"
+          data-invalid={blocking}
+          id={inputId}
+          onClick={onOpenPicker}
+          type="button"
+        >
+          {referenceText(field, draft, isTouched) ?? "Choose a record"}
+        </button>
       ) : input.kind === "enum" ? (
         <button
           aria-describedby={describedBy}

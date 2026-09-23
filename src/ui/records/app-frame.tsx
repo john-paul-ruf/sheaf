@@ -15,6 +15,12 @@ import visuallyHidden from "../primitives/visually-hidden.module.css";
  * destinations, and only one of them is displayed — so the app area adds no
  * second primary nav to any layout class.
  *
+ * **One table destination, the rest one control away.** app-home.html's bar
+ * carries a single table ("Home · Jobs · …"); a workbook app may have six,
+ * and six more links in a 320px bar would each be narrower than the 44px hit
+ * floor. So the bar names the current table (or the first, off any table),
+ * and every table is reachable through CTL-059 → SHT-003 with its count.
+ *
  * **The hrefs arrive as data.** A screen states where it goes; `src/routes/`
  * decides what that spells (the M41 rule, restated).
  *
@@ -99,6 +105,8 @@ export function AppFrame({
   topBarActions,
   children,
 }: AppFrameProps): ReactNode {
+  const table =
+    nav.tables.find((candidate) => candidate.tableId === currentTableId) ?? nav.tables[0];
   const destinations: readonly ShellDestination[] = [
     {
       id: "app-home",
@@ -107,15 +115,19 @@ export function AppFrame({
       glyph: "⌂",
       ...(area === "home" ? { isCurrent: true } : {}),
     },
-    ...nav.tables.map((table) => ({
-      id: `table-${table.tableId}`,
-      label: table.displayName,
-      href: table.href,
-      glyph: "≡",
-      ...(area === "records" && currentTableId === table.tableId
-        ? { isCurrent: true }
-        : {}),
-    })),
+    ...(table === undefined
+      ? []
+      : [
+          {
+            id: `table-${table.tableId}`,
+            label: table.displayName,
+            href: table.href,
+            glyph: "≡",
+            ...(area === "records" && currentTableId === table.tableId
+              ? { isCurrent: true }
+              : {}),
+          },
+        ]),
     {
       id: "app-history",
       label: "Change history",
