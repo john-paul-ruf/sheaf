@@ -36,13 +36,18 @@ export function ReferenceSearchBody({
   fieldName,
   search,
   selectedId,
+  selectedIds,
   onSelect,
 }: {
   readonly fieldName: string;
   readonly search: ReferenceSearch;
   readonly selectedId: string | null;
+  /** SHT-008 selects several; SHT-002 and MOD-011 one (`selectedId`). */
+  readonly selectedIds?: ReadonlySet<string>;
   readonly onSelect: (candidate: ReferenceCandidateVm) => void;
 }): ReactNode {
+  const isSelected = (recordId: string): boolean =>
+    selectedId === recordId || (selectedIds?.has(recordId) ?? false);
   const [query, setQuery] = useState("");
   const [vm, setVm] = useState<ReferencePickerVm | null>(null);
   const asked = useRef(0);
@@ -91,9 +96,9 @@ export function ReferenceSearchBody({
           {vm.candidates.map((candidate) => (
             <li key={candidate.recordId}>
               <button
-                aria-pressed={selectedId === candidate.recordId}
+                aria-pressed={isSelected(candidate.recordId)}
                 className={cx(styles["sheetOption"])}
-                data-selected={selectedId === candidate.recordId}
+                data-selected={isSelected(candidate.recordId)}
                 onClick={() => {
                   onSelect(candidate);
                 }}

@@ -17,6 +17,7 @@ import type { RecordsServices } from "../application/workflows/records-services.
 import type { AppIdentity, AppNavigation } from "../ui/records/app-frame.js";
 import type {
   AppSessionViewV1,
+  AppStructureViewV1,
   AppTableViewV1,
   RecordPageViewV1,
   RecordReferenceViewV1,
@@ -35,8 +36,16 @@ export interface AppAreaWiring {
   readonly records: RecordsServices;
   readonly session: AppSessionViewV1;
   readonly topBarActions: ReactNode;
-  readonly announce: (sentence: string) => void;
+  /**
+   * Says what a durable write did. `recalculatedFieldIds` are the computed
+   * columns it re-derived (D60): the next screen underlines them briefly.
+   */
+  readonly announce: (sentence: string, recalculatedFieldIds?: readonly string[]) => void;
   readonly refresh: () => void;
+  /** The app's structure (formulas in its own names); null until read. */
+  readonly structure: AppStructureViewV1 | null;
+  /** The computed columns the last confirmed write re-derived. */
+  readonly recalculated: ReadonlySet<string>;
 }
 
 /**

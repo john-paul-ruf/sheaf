@@ -12,6 +12,7 @@ import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
+import { ComputedValue } from "./computed-value.js";
 import {
   AppFrame,
   type AppIdentity,
@@ -92,6 +93,8 @@ export interface RecordDetailScreenProps {
   readonly onOpenActions: () => void;
   /** A confirmed write's acknowledgement, once it is durable (invariant 1). */
   readonly notice?: string;
+  /** Computed columns the last confirmed write re-derived (D60). */
+  readonly recalculatedFieldIds?: ReadonlySet<string>;
   /** SHT-010, MOD-009 and anything else the route composed. */
   readonly overlays?: ReactNode;
   readonly topBarActions?: ReactNode;
@@ -109,6 +112,7 @@ export function RecordDetailScreen({
   onRepair,
   onOpenActions,
   notice,
+  recalculatedFieldIds,
   overlays,
   topBarActions,
 }: RecordDetailScreenProps): ReactNode {
@@ -160,7 +164,11 @@ export function RecordDetailScreen({
 
         <dl className={cx(styles["fieldList"])}>
           {vm.fields.map((field) => (
-            <DetailField field={field} key={field.fieldId} />
+            <DetailField
+              field={field}
+              isRecalculated={recalculatedFieldIds?.has(field.fieldId) ?? false}
+              key={field.fieldId}
+            />
           ))}
         </dl>
 
@@ -337,10 +345,22 @@ function Missing({
 
 function DetailField({
   field,
+  isRecalculated,
 }: {
   readonly field: RecordDetailFieldVm;
+  readonly isRecalculated: boolean;
 }): ReactNode {
   const preserved = field.value.kind === "invalid-preserved";
+  if (field.computed !== null) {
+    return (
+      <div className={cx(styles["fieldRow"])} data-field={field.fieldId}>
+        <dt className={cx(styles["fieldLabel"])}>{field.displayName}</dt>
+        <dd className={cx(styles["fieldValue"])}>
+          <ComputedValue computed={field.computed} isRecalculated={isRecalculated} type={field.type} value={field.value} />
+        </dd>
+      </div>
+    );
+  }
   return (
     <div className={cx(styles["fieldRow"])} data-field={field.fieldId}>
       <dt className={cx(styles["fieldLabel"])}>{field.displayName}</dt>

@@ -231,6 +231,88 @@
   font-size: var(--text-supporting);
 }
 
+/*
+ * records.html's chip row (SHT-004–009): one line that scrolls sideways on a
+ * phone, so the sticky tools keep one height however many filters apply.
+ */
+.chipRow {
+  display: flex;
+  gap: var(--space-8);
+  margin: 0;
+  padding: var(--space-4) 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.chipRow > li {
+  flex: none;
+}
+
+/* Inside an empty state the chips wrap instead: nothing scrolls there. */
+.chipWrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.chip,
+.chipText {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-16);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chipText {
+  cursor: default;
+}
+
+.chip[data-active="true"],
+.chipPair .chipText {
+  border-color: var(--color-action);
+  background: var(--color-panel);
+}
+
+.chip:focus-visible,
+.chipClear:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* An applied filter: what it says, then × — two targets, one pill. */
+.chipPair {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.chipPair > .chipMain,
+.chipPair > .chipText {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.chipClear {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  border: 1px solid var(--color-action);
+  border-left: 0;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+
 .recordList {
   display: grid;
   gap: var(--space-12);
@@ -510,11 +592,161 @@
   outline-offset: var(--focus-ring-offset);
 }
 
+/* A filter or sort sheet's own contents, spaced like a form. */
+.sheetBody {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.sheetCheck {
+  min-height: var(--target-min);
+}
+
+/* SHT-009's direction: two choices side by side, one pressed. */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.segment {
+  min-height: var(--target-min);
+  border: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: var(--weight-control);
+  cursor: pointer;
+}
+
+.segment + .segment {
+  border-left: 1px solid var(--color-border);
+}
+
+.segment[data-selected="true"] {
+  background: var(--color-panel);
+  font-weight: var(--weight-status);
+  box-shadow: inset 0 -3px 0 var(--color-action);
+}
+
+.segment:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: calc(var(--focus-ring-offset) * -1);
+}
+
 /* The secondary line inside a sheet option: a state, a count. */
 .optionState {
   margin-left: auto;
   color: var(--color-text-muted);
   font-size: var(--text-caption);
+  font-weight: var(--weight-control);
+}
+
+/*
+ * CA-26 computed values (record-detail.html, record-edit.html): read-only,
+ * labelled with what kind of value they are, the expression in the app's own
+ * names beneath. A recalculated value underlines for a moment — an underline,
+ * never a flash — and under reduced motion the duration tokens collapse, so
+ * it simply shows as recalculated (design.md § Motion).
+ */
+.computedBadge {
+  display: inline-block;
+  margin-left: var(--space-8);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-8);
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.computedBadge[data-badge="Unsupported formula"] {
+  background: var(--color-danger-tint);
+  color: var(--color-danger-ink);
+}
+
+.computedBadge[data-badge="Frozen at import"] {
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+}
+
+.computedValue {
+  min-height: var(--target-min);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  background: var(--color-panel);
+}
+
+.expression {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+[data-recalculated="true"] .recalculated {
+  text-decoration: underline;
+  text-decoration-color: var(--color-action);
+  text-decoration-thickness: 2px;
+  text-underline-offset: var(--space-4);
+  animation: recalculated-fade var(--duration-panel) ease-out 6 alternate;
+}
+
+@keyframes recalculated-fade {
+  from {
+    text-decoration-color: var(--color-action);
+  }
+  to {
+    text-decoration-color: transparent;
+  }
+}
+
+/* ---- SCR-024 At a glance (app-home.html) --------------------------------- */
+
+.glance {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+}
+
+.metricLabel {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.metricValue {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  overflow-wrap: anywhere;
+}
+
+.metricNote {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+.metric[data-status="error"] .metricNote,
+.metric[data-status="cycle"] .metricNote,
+.metric[data-status="unsupported"] .metricNote {
+  color: var(--color-danger-ink);
   font-weight: var(--weight-control);
 }
 
@@ -764,6 +996,12 @@
 }
 
 @media (min-width: 900px) {
+  /* The desktop class has the width to show every chip: they wrap, and nothing scrolls. */
+  .chipRow {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
   .tools {
     margin-left: calc(var(--gutter-desktop) * -1);
     margin-right: calc(var(--gutter-desktop) * -1);

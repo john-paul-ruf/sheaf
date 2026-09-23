@@ -1,7 +1,9 @@
 import type {
+  FilterChipVm,
   RecordDetailVm,
   RecordValueVm,
   ReferenceCellVm,
+  SortVm,
 } from "../../application/view-models/records.js";
 
 /**
@@ -184,4 +186,73 @@ export function formatCount(value: number): string {
 /** "1 record" / "40 records", grouped. */
 export function describeRecordCount(count: number): string {
   return count === 1 ? "1 record" : `${formatCount(count)} records`;
+}
+
+/**
+ * Numeric order of two canonical decimals, without a float — so SHT-006 can
+ * say "the minimum is above the maximum" before anything is sent. The domain
+ * checks the same rule again (`validateFilter`); this only lets the sheet say
+ * it first.
+ */
+export function compareDecimalText(left: string, right: string): number {
+  const sign = (text: string): number => (text.startsWith("-") ? -1 : /^0(\.0+)?$/u.test(text) ? 0 : 1);
+  if (sign(left) !== sign(right)) return sign(left) - sign(right);
+  const [leftWhole = "", leftFraction = ""] = left.replace("-", "").split(".");
+  const [rightWhole = "", rightFraction = ""] = right.replace("-", "").split(".");
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const a = `${leftWhole.padStart(40, "0")}${leftFraction.padEnd(width, "0")}`;
+  const b = `${rightWhole.padStart(40, "0")}${rightFraction.padEnd(width, "0")}`;
+  const magnitude = a < b ? -1 : a > b ? 1 : 0;
+  return sign(left) < 0 ? -magnitude : magnitude;
+}
+
+function describeAmount(decimal: string, type: FieldTypeVm | undefined): string {
+  return type?.kind === "currency" ? formatCurrency(decimal, type.currencyCode) : decimal;
+}
+
+/** What one active filter says, in one line: "Status: Scheduled" (records.html). */
+export function describeFilterChip(chip: FilterChipVm, type: FieldTypeVm | undefined): string {
+  const name = chip.fieldName;
+  const value = chip.value;
+  switch (value.kind) {
+    case "options":
+      return `${name}: ${value.labels.join(", ")}`;
+    case "date-range":
+      if (value.from !== null && value.to !== null) {
+        return value.from === value.to
+          ? `${name}: ${formatEpochDay(value.from)}`
+          : `${name}: ${formatEpochDay(value.from)} – ${formatEpochDay(value.to)}`;
+      }
+      return value.from !== null
+        ? `${name}: from ${formatEpochDay(value.from)}`
+        : `${name}: until ${formatEpochDay(value.to ?? 0)}`;
+    case "number-range":
+      if (value.min !== null && value.max !== null) {
+        return value.min === value.max
+          ? `${name}: ${describeAmount(value.min, type)}`
+          : `${name}: ${describeAmount(value.min, type)} – ${describeAmount(value.max, type)}`;
+      }
+      return value.min !== null
+        ? `${name}: at least ${describeAmount(value.min, type)}`
+        : `${name}: at most ${describeAmount(value.max ?? "0", type)}`;
+    case "boolean":
+      return `${name}: ${value.value ? "Yes" : "No"}`;
+    case "records":
+      return value.labels.length === value.count
+        ? `${name}: ${value.labels.join(", ")}`
+        : `${name}: ${describeRecordCount(value.count)}`;
+    case "broken-reference":
+      return `${name}: Missing related record`;
+    case "text":
+      return value.match === "contains" ? `${name} contains “${value.text}”` : `${name} is “${value.text}”`;
+    case "empty":
+      return `${name}: no value`;
+    case "not-empty":
+      return `${name}: has a value`;
+  }
+}
+
+/** SHT-009's current choice, as the Sort control reads it. */
+export function describeSort(sort: SortVm): string {
+  return `Sorted by ${sort.fieldName}, ${sort.direction === "asc" ? "ascending" : "descending"}`;
 }

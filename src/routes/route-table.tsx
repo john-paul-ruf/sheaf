@@ -56,8 +56,12 @@ import {
   type PickedWorkbookV1,
 } from "../platform/file-pick.js";
 import {
+  announceRecalculated,
   announceRecordCommand,
+  computedFieldsOf,
+  describeFilterRefusal,
   selectAppHomeVm,
+  selectMetricsVm,
   selectChangeHistoryVm,
   selectDeleteRecordDialogVm,
   selectRecordDetailVm,
@@ -66,13 +70,18 @@ import {
   selectRestoreRecordDialogVm,
   toCommandOutcomeVm,
   type ChangeHistoryEntryVm,
+  type RecordsFilterV1,
+  type RecordsSortV1,
 } from "../application/view-models/records.js";
 import type {
+  AppMetricsViewV1,
   AppSessionViewV1,
+  AppStructureViewV1,
   AppTableViewV1,
   ChangeHistoryPageViewV1,
   LibraryAppV1,
   RecordDetailViewV1,
+  RecordCommandOutcomeV1,
   RecordIssueViewV1,
   RecordPageViewV1,
   DeletedRecordViewV1,
@@ -99,6 +108,8 @@ import { LibraryScreen } from "../ui/library/library-screen.js";
 import { LibrarySearchScreen } from "../ui/library/library-search-screen.js";
 import { AppHomeScreen } from "../ui/records/app-home-screen.js";
 import { RecordsScreen } from "../ui/records/records-screen.js";
+import { FilterSheet } from "../ui/records/filter-sheets.js";
+import { SortSheet } from "../ui/records/sort-sheet.js";
 import { RecordDetailScreen } from "../ui/records/record-detail-screen.js";
 import {
   RecordFormScreen,
@@ -122,6 +133,7 @@ import {
   type AppAreaWiring,
 } from "./app-area-hooks.js";
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
+import { readFilterIntent } from "./filter-intent.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -931,8 +943,29 @@ function OpenedApp({
    * render.
    */
   const [notice, setNotice] = useState<string | null>(null);
+  /** The computed columns the confirmed write re-derived (D60). */
+  const [recalculated, setRecalculated] = useState<ReadonlySet<string>>(new Set());
   /** Bumped by a write, so counts and rows are re-read rather than guessed. */
   const [generation, setGeneration] = useState(0);
+  /** The app's formulas in its own names, for computed values (D58). */
+  const [structure, setStructure] = useState<AppStructureViewV1 | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void records.getAppStructure({ appId }).then(
+      (answered) => {
+        if (live) setStructure(answered.structure);
+      },
+      () => {
+        // Without it a computed value still shows, read-only, without its
+        // expression; nothing is guessed in its place.
+        if (live) setStructure(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, generation]);
 
   useEffect(() => {
     let live = true;
@@ -959,6 +992,12 @@ function OpenedApp({
 
   const clearNotice = useCallback(() => {
     setNotice(null);
+    setRecalculated(new Set());
+  }, []);
+
+  const announce = useCallback((sentence: string, recalculatedFieldIds: readonly string[] = []) => {
+    setNotice(sentence);
+    setRecalculated(new Set(recalculatedFieldIds));
   }, []);
 
   // An operational write, once per visit: it caches when the app was opened
@@ -1018,8 +1057,10 @@ function OpenedApp({
     records,
     session,
     topBarActions,
-    announce: setNotice,
+    announce,
     refresh,
+    structure,
+    recalculated,
   };
 
   return (
@@ -1068,6 +1109,22 @@ function OpenedApp({
 function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   const { identity, nav, records, session, topBarActions } = area;
   const appId = identity.appId;
+  // SCR-024 "At a glance" (CAP-29): read on arrival; none drawn until read.
+  const [metrics, setMetrics] = useState<AppMetricsViewV1 | null>(null);
+  useEffect(() => {
+    let live = true;
+    void records.getAppMetrics({ appId }).then(
+      (answered) => {
+        if (live) setMetrics(answered.metrics);
+      },
+      () => {
+        if (live) setMetrics(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, session]);
   const switcher = useTableSwitcher({
     records,
     appId,
@@ -1081,7 +1138,7 @@ function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
       overlays={switcher.overlay}
       tableHref={(tableId) => hashHref(tablePath(appId, tableId))}
       topBarActions={topBarActions}
-      vm={selectAppHomeVm(session)}
+      vm={selectAppHomeVm(session, selectMetricsVm(metrics, session.tables, area.structure))}
       {...(switcher.vm === undefined || switcher.open === undefined
         ? {}
         : { tableSwitcher: switcher.vm, onOpenTableSwitcher: switcher.open })}
@@ -1139,8 +1196,28 @@ function AppUnavailable({
   );
 }
 
-/** SCR-025/SCR-026 — one table, paged, searched in the projection. */
+/**
+ * SCR-025/SCR-026 — one table, paged, searched, filtered and sorted in the
+ * projection (CA-29).
+ *
+ * The query lives here: `{search, filters, sort}`. It starts from the filter
+ * intent another surface put in the navigation state (D63; S05's chart mark),
+ * never from the URL, and starts afresh on each navigation — the inner
+ * component is keyed by the location, so an intent applies once and a table
+ * never inherits another table's filters.
+ */
 function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
+  const location = useLocation();
+  return <RecordsQueryRoute area={area} initialFilters={readFilterIntent(location.state)} key={location.key} />;
+}
+
+function RecordsQueryRoute({
+  area,
+  initialFilters,
+}: {
+  readonly area: AppAreaWiring;
+  readonly initialFilters: readonly RecordsFilterV1[];
+}): ReactNode {
   const { identity, nav, records, session, topBarActions } = area;
   const { tableId = "" } = useParams();
   const table = session.tables.find(
@@ -1148,8 +1225,15 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   );
 
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<readonly RecordsFilterV1[]>(initialFilters);
+  const [sort, setSort] = useState<RecordsSortV1 | null>(null);
+  /** Labels of records a reference filter names, as SHT-008 showed them. */
+  const [recordLabels, setRecordLabels] = useState<ReadonlyMap<string, string>>(new Map());
   const [pages, setPages] = useState<readonly RecordPageViewV1[] | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
+  const [filtering, setFiltering] = useState<string | null>(null);
+  const [sorting, setSorting] = useState(false);
 
   const appId = identity.appId;
   const references = useListReferences({ records, appId, table, pages });
@@ -1169,10 +1253,13 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
         appId,
         tableId,
         search: search === "" ? null : search,
+        ...(filters.length === 0 ? {} : { filters }),
+        ...(sort === null ? {} : { sort }),
       })
       .then(
-        ({ page }) => {
+        ({ page, refusal: refused }) => {
           if (!live) return;
+          setRefusal(refused === undefined ? null : describeFilterRefusal(refused, table));
           setPages(page === null ? [emptyPage(tableId)] : [page]);
           setBusy(false);
         },
@@ -1189,7 +1276,7 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
     return () => {
       live = false;
     };
-  }, [records, appId, tableId, search, table]);
+  }, [records, appId, tableId, search, filters, sort, table]);
 
   const showMore = useCallback(() => {
     const last = pages?.at(-1);
@@ -1201,13 +1288,15 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
         tableId,
         cursor: last.nextCursor,
         search: search === "" ? null : search,
+        ...(filters.length === 0 ? {} : { filters }),
+        ...(sort === null ? {} : { sort, sortCursor: last.nextSortCursor ?? null }),
       })
       .then(({ page }) => {
         setBusy(false);
         if (page === null) return;
         setPages((current) => [...(current ?? []), page]);
       });
-  }, [records, appId, tableId, search, pages]);
+  }, [records, appId, tableId, search, filters, sort, pages]);
 
   if (table === undefined) {
     // The app is open and this table is not in it; its home is what is true.
@@ -1224,6 +1313,15 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
     );
   }
 
+  const vm = selectRecordsListVm(table, merged, references, { filters, sort, recordLabels });
+  const filteringField = vm.filterableFields.find((field) => field.fieldId === filtering);
+  const applyFilter = (fieldId: string, filter: RecordsFilterV1 | null, labels?: ReadonlyMap<string, string>): void => {
+    // One filter per column from a sheet: it replaces what that column had.
+    setFilters((current) => [...current.filter((candidate) => candidate.fieldId !== fieldId), ...(filter === null ? [] : [filter])]);
+    if (labels !== undefined) setRecordLabels((current) => new Map([...current, ...labels]));
+    setFiltering(null);
+  };
+
   return (
     <RecordsScreen
       app={identity}
@@ -1231,14 +1329,60 @@ function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
       fieldTypes={fieldTypes(table)}
       nav={nav}
       newRecordHref={hashHref(newRecordPath(appId, tableId))}
+      onClearAllFilters={() => {
+        setFilters([]);
+      }}
+      onClearFilter={(chip) => {
+        setFilters((current) => current.filter((candidate) => candidate !== chip.filter));
+      }}
+      onOpenFilter={setFiltering}
+      onOpenSort={() => {
+        setSorting(true);
+      }}
       onSearch={setSearch}
       onShowMore={showMore}
-      overlays={switcher.overlay}
+      overlays={
+        <>
+          {switcher.overlay}
+          {filteringField !== undefined && (
+            <FilterSheet
+              current={filters.find((candidate) => candidate.fieldId === filteringField.fieldId) ?? null}
+              field={filteringField}
+              onApply={(filter, labels) => {
+                applyFilter(filteringField.fieldId, filter, labels);
+              }}
+              onClose={() => {
+                setFiltering(null);
+              }}
+              recordLabels={recordLabels}
+              referenceSearch={referenceSearchFor(
+                records,
+                appId,
+                { fieldId: filteringField.fieldId, displayName: filteringField.fieldName },
+                null,
+              )}
+            />
+          )}
+          {sorting && (
+            <SortSheet
+              onApply={(next) => {
+                setSort(next);
+                setSorting(false);
+              }}
+              onClose={() => {
+                setSorting(false);
+              }}
+              vm={vm}
+            />
+          )}
+        </>
+      }
       recordHref={(recordId) =>
         hashHref(recordPath(appId, tableId, recordId))
       }
       topBarActions={topBarActions}
-      vm={selectRecordsListVm(table, merged, references)}
+      vm={vm}
+      {...(refusal === null ? {} : { refusal })}
       {...(switcher.vm === undefined || switcher.open === undefined
         ? {}
         : { tableSwitcher: switcher.vm, onOpenTableSwitcher: switcher.open })}
@@ -1339,6 +1483,7 @@ function RecordDetailRoute({
     related,
     childPages,
     tables: session.tables,
+    computedFields: computedFieldsOf(area.structure),
   });
   const deleteVm = selectDeleteRecordDialogVm(vm, busy);
   const missing = vm.missing.find((candidate) => candidate.fieldId === repairing);
@@ -1385,7 +1530,7 @@ function RecordDetailRoute({
         (response) => {
           setBusy(false);
           setRepairing(null);
-          area.announce(announceRecordCommand(toCommandOutcomeVm(response), "saved"));
+          announceWrite(area, table, response, "saved");
           if (response.outcome !== "accepted") return;
           area.refresh();
           setGeneration((current) => current + 1);
@@ -1418,6 +1563,7 @@ function RecordDetailRoute({
 
   return (
     <RecordDetailScreen
+      recalculatedFieldIds={area.recalculated}
       app={identity}
       editHref={hashHref(editRecordPath(appId, tableId, recordId))}
       nav={nav}
@@ -1588,6 +1734,7 @@ function RecordFormRoute({
   const vm = selectRecordFormVm({
     table,
     busy,
+    computedFields: computedFieldsOf(area.structure),
     ...(record === null ? {} : { record }),
     ...(issues === null ? {} : { issues }),
   });
@@ -1619,7 +1766,7 @@ function RecordFormRoute({
 
         // Accepted: the commit is durable, so this is where it is said.
         setIssues(null);
-        area.announce(said);
+        announceWrite(area, table, response, action);
         area.refresh();
         void navigate(
           recordPath(appId, tableId, response.receipt.recordId),
@@ -1851,6 +1998,23 @@ function mergePages(
   const last = pages.at(-1);
   if (last === undefined) return null;
   return { ...last, records: pages.flatMap((page) => page.records) };
+}
+
+/**
+ * A durable write's acknowledgement, and — when it re-derived computed
+ * columns — which ones, by name and never by value (D60): "Saved on this
+ * device. Balance recalculated." The live region reads it; focus stays put.
+ */
+function announceWrite(
+  area: AppAreaWiring,
+  table: AppTableViewV1,
+  response: RecordCommandOutcomeV1,
+  action: "created" | "saved",
+): void {
+  const said = announceRecordCommand(toCommandOutcomeVm(response), action);
+  const moved = response.outcome === "accepted" ? (response.recalculated?.fieldIds ?? []) : [];
+  const recalculated = announceRecalculated(moved, table.fields);
+  area.announce(recalculated === "" ? said : `${said} ${recalculated}`, moved);
 }
 
 /** A page for a table whose read answered nothing at all. */

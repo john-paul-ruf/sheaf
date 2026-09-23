@@ -59,6 +59,7 @@ import type {
   ChangeHistoryPageViewV1,
   DeletedRecordViewV1,
   FieldTypeWireV1,
+  FilterRefusalWireV1,
   FilterWireV1,
   InertItemKindWireV1,
   InertItemViewV1,
@@ -626,6 +627,10 @@ export interface RecordCardVm {
  */
 export type RecordsEmptinessV1 = "empty-table" | "no-results";
 
+/** A records filter and a sort as the route holds and sends them (CA-29). */
+export type RecordsFilterV1 = FilterWireV1;
+export type RecordsSortV1 = SortWireV1;
+
 /** The sheet a field's filter chip opens (sheet-atlas.html). */
 export type FilterSheetIdV1 = "SHT-004" | "SHT-005" | "SHT-006" | "SHT-007" | "SHT-008";
 
@@ -685,6 +690,11 @@ export interface FilterableFieldVm {
   readonly sheet: FilterSheetIdV1;
   readonly type: FieldTypeWireV1;
   readonly isFiltered: boolean;
+  /**
+   * Every option an enum field has had, retired ones included: filtering by a
+   * retired option still finds the records that hold it. Empty otherwise.
+   */
+  readonly enumOptions: readonly { readonly optionId: string; readonly label: string; readonly isActive: boolean }[];
 }
 
 /** SHT-009: one column and one direction; missing values sort last either way. */
@@ -907,7 +917,20 @@ export function selectRecordsListVm(
       const sheet = filterSheetFor(field.type);
       return sheet === null
         ? []
-        : [{ fieldId: field.fieldId, fieldName: field.displayName, sheet, type: field.type, isFiltered: filtered.has(field.fieldId) }];
+        : [
+            {
+              fieldId: field.fieldId,
+              fieldName: field.displayName,
+              sheet,
+              type: field.type,
+              isFiltered: filtered.has(field.fieldId),
+              enumOptions: field.enumOptions.map((option) => ({
+                optionId: option.optionId,
+                label: option.label,
+                isActive: option.isActive,
+              })),
+            },
+          ];
     }),
     sort:
       query.sort === null
@@ -929,6 +952,33 @@ export function selectRecordsListVm(
       partial,
     }),
   };
+}
+
+/**
+ * Why the worker refused a filter or the sort (CA-29), naming the column and
+ * never the value. The refused query ran nothing; its chips stay, so the
+ * filter at fault can be cleared.
+ */
+export function describeFilterRefusal(refusal: FilterRefusalWireV1, table: AppTableViewV1): string {
+  const name = table.fields.find((field) => field.fieldId === refusal.fieldId)?.displayName ?? UNKNOWN_FIELD_NAME;
+  switch (refusal.reason) {
+    case "unknown-field":
+      return `${name} is not a column of ${table.displayName} any more, so nothing was searched. Clear its filter or sort.`;
+    case "operator-type-mismatch":
+      return `That filter does not fit ${name}, so nothing was searched. Clear it and choose again.`;
+    case "unknown-option":
+      return `A chosen ${name} option is no longer in its list, so nothing was searched. Clear it and choose again.`;
+    case "inverted-range":
+      return `The ${name} range starts after it ends, so nothing was searched.`;
+    case "empty-filter":
+      return `The ${name} filter chooses nothing, so nothing was searched.`;
+    case "invalid-value":
+      return `A ${name} filter value is not one Sheaf can compare, so nothing was searched.`;
+    default: {
+      const unreachable: never = refusal.reason;
+      return unreachable;
+    }
+  }
 }
 
 /** "1 active filter excludes" / "2 active filters exclude" (records-empty.html). */

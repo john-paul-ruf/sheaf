@@ -14,6 +14,7 @@ import {
   type AppIdentity,
   type AppNavigation,
 } from "./app-frame.js";
+import { ComputedValue } from "./computed-value.js";
 import { EnumPickerSheet } from "./enum-picker-sheet.js";
 import {
   ReferencePickerSheet,
@@ -315,7 +316,18 @@ export function RecordFormScreen({
         {/* The typed refusals are the worker's; the browser's own validation
             would pre-empt them and never let the domain answer. */}
         <form className={cx(styles["form"])} noValidate onSubmit={submit}>
-          {vm.fields.map((field) => (
+          {vm.fields.map((field) =>
+            field.computed !== null ? (
+              // Never an input (CA-26): read-only, and never part of the save.
+              <div className={cx(styles["fieldGroup"])} data-field={field.fieldId} key={field.fieldId}>
+                <span className={cx(styles["label"])}>{field.displayName}</span>
+                <ComputedValue
+                  computed={field.computed}
+                  type={field.input.kind === "currency" ? { kind: "currency", currencyCode: field.input.currencyCode } : undefined}
+                  value={field.value}
+                />
+              </div>
+            ) : (
             <FormField
               draft={draftFor(field)}
               field={field}
@@ -328,7 +340,8 @@ export function RecordFormScreen({
                 setDraft(field.fieldId, draft);
               }}
             />
-          ))}
+            ),
+          )}
 
           <div className={cx(styles["thumbActions"])}>
             {vm.busy ? (

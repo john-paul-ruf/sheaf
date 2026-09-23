@@ -10,6 +10,7 @@ import { AppFrame, type AppNavigation } from "./app-frame.js";
 import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
   describeRecordCount,
+  describeValue,
   formatCount,
   formatInstant,
   isoInstant,
@@ -20,11 +21,13 @@ import styles from "./records.module.css";
 /**
  * SCR-024 — the generated app's home (app-home.html, CAP-15, FR-11 subset).
  *
- * **Only what F02 knows is drawn.** app-home.html's "This week's pulse"
- * metrics and its pinned chart are computed surfaces F04 builds; `AppHomeVm`
- * carries no field for either, so this screen cannot fill one with a fiction
- * (STA-025 truthful absence). Their absence is *stated* rather than left as a
- * hole, in the same words S07 used for the formats this release does not read.
+ * **Only what the app holds is drawn.** "At a glance" (CAP-29, CA-26) shows
+ * the metrics and dashboard values the app actually has, each with its live
+ * value or, when there is none, the reason in words; an app with none draws
+ * no section, and the mock's narrative line ("Four jobs need you today") is
+ * sample data, never composed here. The pinned chart is S05's; until an app
+ * has metrics, the absence of computed surfaces is *stated* rather than left
+ * as a hole (STA-025).
  *
  * **The scratch fact is a status line, not a reminder.** D26 defers MOD-001/
  * MOD-002 and their durable-home chooser to F05, so the app says where it
@@ -136,6 +139,33 @@ export function AppHomeScreen({
           </StatusBanner>
         )}
 
+        {vm.metrics.length > 0 && (
+          <section aria-labelledby="app-glance" data-section="glance">
+            <div className={cx(styles["sectionHead"])}>
+              <h2 className={cx(styles["sectionTitle"])} id="app-glance">
+                At a glance
+              </h2>
+              <span className={cx(styles["note"])}>Live from local data</span>
+            </div>
+            <ul className={cx(styles["glance"])}>
+              {vm.metrics.map((metric) => (
+                <li className={cx(styles["metric"])} data-metric={metric.formulaId} data-status={metric.status} key={metric.formulaId}>
+                  <span className={cx(styles["metricLabel"])}>
+                    {metric.tableName === null ? metric.label : `${metric.label} · ${metric.tableName}`}
+                  </span>
+                  <span className={cx(styles["metricValue"])}>
+                    {metric.value === null ? "—" : describeValue(metric.value, undefined)}
+                  </span>
+                  <span className={cx(styles["metricNote"])}>{metric.note}</span>
+                  {metric.expression !== null && (
+                    <span className={cx(styles["expression"])}>{metric.expression}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section aria-labelledby="app-tables">
           <div className={cx(styles["sectionHead"])}>
             <h2 className={cx(styles["sectionTitle"])} id="app-tables">
@@ -196,6 +226,7 @@ export function AppHomeScreen({
           </ul>
         </section>
 
+        {vm.metrics.length === 0 && (
         <section className={cx(styles["card"])}>
           <h2 className={cx(styles["cardTitle"])}>
             This app shows the data it holds.
@@ -206,6 +237,7 @@ export function AppHomeScreen({
             or filled in to stand for them.
           </p>
         </section>
+        )}
       </div>
       {overlays}
     </AppFrame>

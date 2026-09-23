@@ -1,14 +1,18 @@
 import type { ReactNode } from "react";
-import type {
-  RecordCardVm,
-  RecordFactVm,
-  RecordsListVm,
-  TableSwitcherVm,
+import {
+  describeActiveFilters,
+  type FilterChipVm,
+  type RecordCardVm,
+  type RecordFactVm,
+  type RecordsListVm,
+  type TableSwitcherVm,
 } from "../../application/view-models/records.js";
 import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
+import { StatusBanner } from "../primitives/status-banner.js";
 import { TextField } from "../primitives/text-field.js";
+import { ActiveChip, FilterChips } from "./filter-chips.js";
 import {
   AppFrame,
   type AppIdentity,
@@ -17,7 +21,9 @@ import {
 import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
   describeRecordCount,
+  describeSort,
   describeValue,
+  formatCount,
   type FieldTypeVm,
 } from "./values.js";
 import styles from "./records.module.css";
@@ -31,23 +37,26 @@ import styles from "./records.module.css";
  * stays in the field in every state, including the one where it matched
  * nothing.
  *
- * **A count is the table's count, always.** `tableRecordCount` is how many
- * live records the *table* holds; the projection answers no "how many matched"
- * question, and `RecordsListVm` has no field for one — so a search page says
- * what it searched and what the table holds, and never invents a match count
- * (CA-14).
+ * **The table's count, and a match count only when one was counted.**
+ * `tableRecordCount` is how many live records the *table* holds. A filtered
+ * or sorted page also says how many matched — `matchCount`, exact — and a
+ * plain search or a partial page says none, because nothing counted it
+ * (CA-14, CA-29).
+ *
+ * **Filters and sort ride with the search** (records.html; SHT-004–009): a
+ * sideways chip row inside the sticky tools, each applied filter readable and
+ * clearable on its own, and "Clear all filters" beside the count (STA-026).
+ * A page the query budget cut short says exactly how much it searched and
+ * how to widen it (STA-014, D53, D62).
  *
  * **Empty and no-result stay two different screens.** records-empty.html is
- * explicit: clearing the search fixes one of them and does nothing for the
- * other, so they cannot share a sentence or an action.
+ * explicit: clearing the search or the filters fixes one of them and does
+ * nothing for the other, so they cannot share a sentence or an action.
  *
  * **One list, densified.** records.html draws phone cards and a desktop table
  * as separate blocks; the accessibility contract forbids the desktop table
  * creating a second keyboard order, so the same list is laid out as cards up
  * to the desktop class and as dense rows above it (records.module.css).
- *
- * The mock's filter chips and sort control are absent: typed filters and sort
- * are FR-13's, and F04 builds them (M44 fragment).
  *
  * **Other tables are one control away** (CTL-059 → SHT-003): the trigger
  * names the current table and its exact count; the sheet lists every table.
@@ -62,6 +71,14 @@ export interface RecordsScreenProps {
   readonly recordHref: (recordId: string) => string;
   readonly newRecordHref: string;
   readonly onSearch: (text: string) => void;
+  /** SHT-009. */
+  readonly onOpenSort?: () => void;
+  /** SHT-004–008 for one column. */
+  readonly onOpenFilter?: (fieldId: string) => void;
+  readonly onClearFilter?: (chip: FilterChipVm) => void;
+  readonly onClearAllFilters?: () => void;
+  /** The worker refused a filter or the sort: M37's sentence for why. */
+  readonly refusal?: string;
   /** Present only while `vm.hasMore`; appends the next page. */
   readonly onShowMore?: () => void;
   /** Field types, so an amount renders as its currency (M37 holds no locale). */
@@ -82,6 +99,11 @@ export function RecordsScreen({
   recordHref,
   newRecordHref,
   onSearch,
+  onOpenSort,
+  onOpenFilter,
+  onClearFilter,
+  onClearAllFilters,
+  refusal,
   onShowMore,
   fieldTypes,
   busy = false,
@@ -127,6 +149,15 @@ export function RecordsScreen({
               </Button>
             )}
           </div>
+          {onOpenSort !== undefined && onOpenFilter !== undefined && onClearFilter !== undefined && (
+            <FilterChips
+              onClearFilter={onClearFilter}
+              onOpenFilter={onOpenFilter}
+              onOpenSort={onOpenSort}
+              vm={vm}
+              {...(fieldTypes === undefined ? {} : { fieldTypes })}
+            />
+          )}
           <p className={cx(styles["scopeLine"])}>
             <span>
               {`This table holds ${describeRecordCount(vm.tableRecordCount)}.`}
@@ -134,8 +165,36 @@ export function RecordsScreen({
             {vm.scope.kind === "search" && (
               <span>{`Showing what matches “${vm.scope.text}” on this device.`}</span>
             )}
+            {vm.matchCount !== null && (vm.filters.length > 0 || vm.sort !== null) && (
+              <span data-match-count={vm.matchCount}>
+                {`${vm.matchCount === 1 ? "1 record matches" : `${formatCount(vm.matchCount)} records match`}${
+                  vm.sort === null ? "" : ` · ${describeSort(vm.sort).toLowerCase()}`
+                }.`}
+              </span>
+            )}
+            {vm.filters.length > 0 && onClearAllFilters !== undefined && (
+              <Button onPress={onClearAllFilters}>Clear all filters</Button>
+            )}
           </p>
         </div>
+
+        {refusal !== undefined && (
+          <StatusBanner title="This filter was not applied" tone="danger">
+            {refusal}
+          </StatusBanner>
+        )}
+
+        {vm.partial !== null && (
+          <div data-state="STA-014">
+            <StatusBanner
+              title={`Searched the first ${formatCount(vm.partial.scanned)} of ${formatCount(vm.partial.tableTotal)} rows`}
+              tone="warning"
+            >
+              These are the matches among them. Narrow the search or add a
+              filter to search every row on this device.
+            </StatusBanner>
+          </div>
+        )}
 
         <div className={cx(styles["actions"])}>
           <InlineLink target={{ kind: "internal", href: newRecordHref }}>
@@ -179,6 +238,9 @@ export function RecordsScreen({
             newRecordHref={newRecordHref}
             onSearch={onSearch}
             vm={vm}
+            {...(fieldTypes === undefined ? {} : { fieldTypes })}
+            {...(onClearFilter === undefined ? {} : { onClearFilter })}
+            {...(onClearAllFilters === undefined ? {} : { onClearAllFilters })}
           />
         )}
       </div>
@@ -188,19 +250,67 @@ export function RecordsScreen({
 }
 
 /**
- * SCR-026's two states. The one a search caused keeps the term and offers to
- * clear it; the one an empty table caused offers the first record instead,
- * because clearing a search it never had would change nothing.
+ * SCR-026's two states. The one a query caused keeps its term and its filters,
+ * each clearable (STA-026); the one an empty table caused offers the first
+ * record instead, because clearing a search it never had would change
+ * nothing.
  */
 function EmptyRecords({
   vm,
   newRecordHref,
   onSearch,
+  fieldTypes,
+  onClearFilter,
+  onClearAllFilters,
 }: {
   readonly vm: RecordsListVm;
   readonly newRecordHref: string;
   readonly onSearch: (text: string) => void;
+  readonly fieldTypes?: ReadonlyMap<string, FieldTypeVm>;
+  readonly onClearFilter?: (chip: FilterChipVm) => void;
+  readonly onClearAllFilters?: () => void;
 }): ReactNode {
+  if (vm.emptiness === "no-results" && vm.filters.length > 0) {
+    const text = vm.scope.kind === "search" ? vm.scope.text : null;
+    return (
+      <section className={cx(styles["emptyState"])} data-empty="no-results" data-state="STA-026">
+        <h2 className={cx(styles["cardTitle"])}>
+          {text === null ? "No record matches these filters." : `No record matches “${text}” with these filters.`}
+        </h2>
+        {onClearFilter !== undefined && (
+          <ul aria-label="Active filters" className={cx(styles["chipRow"], styles["chipWrap"])}>
+            {vm.filters.map((chip, index) => (
+              <li key={`${chip.fieldId}-${String(index)}`}>
+                <ActiveChip chip={chip} onClear={onClearFilter} type={fieldTypes?.get(chip.fieldId)} />
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className={cx(styles["lede"])}>
+          {`The table contains ${describeRecordCount(vm.tableRecordCount)}. ${describeActiveFilters(
+            vm.filters.length,
+          )} all of them.`}
+        </p>
+        <div className={cx(styles["actions"])}>
+          {onClearAllFilters !== undefined && (
+            <Button onPress={onClearAllFilters} tone="primary">
+              Clear all filters
+            </Button>
+          )}
+          {text !== null && (
+            <Button
+              onPress={() => {
+                onSearch("");
+              }}
+            >
+              Clear search
+            </Button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   if (vm.emptiness === "no-results") {
     const text = vm.scope.kind === "search" ? vm.scope.text : "";
     return (
