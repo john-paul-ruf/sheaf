@@ -78,3 +78,27 @@ Extracted from specs/architecture.md §Module Contracts + specs/design.md
 - `assertPresentationOnly(variables)`: the one guard for shell and app themes; `applyShellTheme` calls it.
 - `appThemeVariables(theme, drawn)` gives the six `--app-*` plus the presentation roles remapped onto them (`--color-canvas/surface/text/action/action-text/accent/chrome/chrome-text`; in dark also `--color-text-muted/panel/border/border-input/disabled-fill`). Compact density sets `--space-16: var(--space-12)`. `appThemeTokens`, `useAppRenderMode(theme)` (system follows `prefers-color-scheme` live; a theme with no dark set draws light), `logoSource`.
 - `tokens.css`: new roles `--color-chrome` (ink-950), `--color-chrome-text` (white); system-owned `[data-app-mode="dark"] { --focus-ring-color: sprout-300; --focus-ring; color-scheme: dark }`.
+
+
+<!-- formulas-queries-charts OWNER-THEME-DARK-SEMANTICS -->
+### F04 delta — M40 — theme (OWNER-THEME-DARK-SEMANTICS delta)
+
+- **New system-owned role set: semantic text on the app background.**
+  `--color-danger-text`, `--color-warning-text`, `--color-info-text`,
+  `--color-success-text` (`src/ui/theme/tokens.css`). In `:root` each equals its
+  `--color-*-ink`, so light mode renders exactly as before. Under
+  `[data-app-mode="dark"]` the system swaps them to the dark-mode text inks from
+  design.md § Built-in app palettes → System semantics in dark mode: Clay 300,
+  Marigold 500, River 300, Leaf 300. One value per role, for every app and
+  palette. Consumers: text drawn directly on `app-canvas`/`app-surface`
+  (records `.issue`, `.metricNote` error states, charts `.failure`, schema
+  `.failure`).
+- **Badge/tint inks unchanged.** `--color-*-ink` and `--color-*-tint` are not
+  redeclared in dark mode. A pale tint with a `*-ink` stays a self-contained chip.
+- **New palette steps:** `--clay-300: #e08a6e`, `--river-300: #6aa3c8`,
+  `--leaf-300: #62b397`.
+- **Guard:** the four `--color-*-text` roles are added to
+  `SYSTEM_OWNED_PROPERTIES` (`src/ui/theme/theme.ts`), so `assertPresentationOnly`
+  and `applyShellTheme` refuse them from any theme.
+- **Rule for new code:** semantic text on an app background reads
+  `--color-*-text`. Text on a semantic tint reads `--color-*-ink`.
