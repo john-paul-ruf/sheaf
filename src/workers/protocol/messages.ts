@@ -744,6 +744,19 @@ export interface DiscardChartDraftRequestV1 {
   readonly appId: string;
 }
 
+/**
+ * A chart's bounded dataset (CA-30): a saved chart's, or a builder's draft for
+ * the live preview. `tableOffset` pages the accessible table (SHT-017).
+ */
+export interface GetChartDatasetRequestV1 {
+  readonly kind: "getChartDataset";
+  readonly appId: string;
+  readonly source:
+    | { readonly kind: "chart"; readonly chartId: string }
+    | { readonly kind: "draft"; readonly definition: ChartDefinitionWireV1 };
+  readonly tableOffset?: number;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -792,7 +805,8 @@ export type DataWorkerRequestV1 =
   | DeleteChartRequestV1
   | GetChartDraftRequestV1
   | SaveChartDraftRequestV1
-  | DiscardChartDraftRequestV1;
+  | DiscardChartDraftRequestV1
+  | GetChartDatasetRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -2325,6 +2339,73 @@ export interface DiscardChartDraftResponseV1 {
   readonly kind: "discardChartDraft";
 }
 
+/**
+ * A category or series of a dataset. `value` carries the category (for a
+ * date grouping, its bucket's first day); `label` names an option or a
+ * referenced record where the value alone cannot. `empty-parent`: related
+ * records whose own field is empty.
+ */
+export type ChartKeyWireV1 =
+  | { readonly kind: "empty" }
+  | { readonly kind: "value"; readonly value: CellWireValueV1; readonly label: string | null }
+  | { readonly kind: "empty-parent" }
+  /** Imported values kept exactly as written: counted, and no filter names them. */
+  | { readonly kind: "unreadable" };
+
+export type ChartMarkWireV1 =
+  | {
+      readonly kind: "group";
+      readonly category: ChartKeyWireV1;
+      readonly series: ChartKeyWireV1 | null;
+      /** Canonical decimal; null when no counted row carried the measured field. */
+      readonly value: string | null;
+      readonly records: number;
+      /**
+       * ANDed, these find exactly the rows the mark counted (CA-29/30): hand
+       * them to the records route as its filter intent (D63). Null when no
+       * filter can name them.
+       */
+      readonly filterIntent: readonly FilterWireV1[] | null;
+    }
+  | { readonly kind: "point"; readonly recordId: string; readonly x: string; readonly y: string };
+
+/**
+ * CA-30's dataset: bounded, and truthful about its scope. The page composes
+ * the summary from these facts; no sentence crosses the wire.
+ */
+export interface ChartDatasetViewV1 {
+  /** The saved chart, or null for a draft. */
+  readonly chart: ChartViewV1 | null;
+  readonly definition: ChartDefinitionWireV1;
+  readonly marks: readonly ChartMarkWireV1[];
+  readonly sourceRowsConsidered: number;
+  readonly matchingRows: number;
+  readonly tableTotal: number;
+  /** D53: the newest rows were read, because more matched than the budget allows. */
+  readonly sample: { readonly kind: "newest"; readonly rows: number } | null;
+  readonly omittedCategories: number;
+  /** Scatter: rows read that lack one of the axes. */
+  readonly unplottedRows: number;
+  readonly summary: {
+    readonly highest: ChartMarkWireV1 | null;
+    readonly lowest: ChartMarkWireV1 | null;
+    readonly total: string | null;
+    readonly count: number;
+  };
+  readonly tablePage: {
+    readonly rows: readonly ChartMarkWireV1[];
+    readonly offset: number;
+    readonly total: number;
+  };
+}
+
+export interface GetChartDatasetResponseV1 {
+  readonly kind: "getChartDataset";
+  /** Null with no refusals: no such app, chart or table. */
+  readonly dataset: ChartDatasetViewV1 | null;
+  readonly refusals?: readonly ChartRefusalWireV1[];
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -2373,7 +2454,8 @@ export type DataWorkerResponseV1 =
   | DeleteChartResponseV1
   | GetChartDraftResponseV1
   | SaveChartDraftResponseV1
-  | DiscardChartDraftResponseV1;
+  | DiscardChartDraftResponseV1
+  | GetChartDatasetResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

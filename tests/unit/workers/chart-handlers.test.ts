@@ -202,6 +202,49 @@ describe("chart commands (CA-30)", () => {
   );
 });
 
+describe("chart datasets over the wire (CA-30)", () => {
+  it(
+    "draws a saved chart from all 60 rows, and every mark's intent finds exactly its count",
+    async () => {
+      const [chart] = await charts();
+      if (chart === undefined) throw new Error("no chart");
+      const { dataset } = await ask(handler, { kind: "getChartDataset", appId, source: { kind: "chart", chartId: chart.chartId } });
+      if (dataset === null) throw new Error("no dataset");
+      expect(dataset.chart?.chartId).toBe(chart.chartId);
+      expect(dataset).toMatchObject({ sourceRowsConsidered: 60, matchingRows: 60, tableTotal: 60, sample: null, omittedCategories: 0 });
+      expect(dataset.marks.length).toBeGreaterThan(1);
+      let counted = 0;
+      for (const mark of dataset.marks) {
+        if (mark.kind !== "group" || mark.filterIntent === null) continue;
+        const { page } = await ask(handler, { kind: "queryRecords", appId, tableId: jobs.tableId, filters: mark.filterIntent, limit: 1 });
+        expect(page?.total).toBe(mark.records);
+        counted += mark.records;
+      }
+      expect(counted).toBe(60);
+    },
+    SLOW,
+  );
+
+  it(
+    "previews a draft without saving it, and refuses one the schema does not support",
+    async () => {
+      const rows = await countEnvelopeRows();
+      const preview = await ask(handler, { kind: "getChartDataset", appId, source: { kind: "draft", definition: byStatus("Preview", false) } });
+      expect(preview.dataset?.chart).toBeNull();
+      expect(preview.dataset?.definition.name).toBe("Preview");
+      const refused = await ask(handler, {
+        kind: "getChartDataset",
+        appId,
+        source: { kind: "draft", definition: { ...byStatus("Bad", false), measure: { kind: "sum", fieldId: fieldNamed(jobs, "Status").fieldId } } },
+      });
+      expect(refused.dataset).toBeNull();
+      expect(refused.refusals?.map((refusal) => refusal.reason)).toEqual(["measure-field-type"]);
+      expect(await countEnvelopeRows()).toBe(rows);
+    },
+    SLOW,
+  );
+});
+
 describe("chart drafts (D61)", () => {
   it(
     "saves, restores and discards one draft per app, authoring no event",

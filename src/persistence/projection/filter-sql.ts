@@ -187,11 +187,15 @@ function termWhere(handle: ProjectionHandleV1, term: ProjectionFilterTermV1): Fr
   }
 }
 
-function queryWhere(
+/**
+ * The scope and every filter as one `WHERE` body over `records AS r` — the
+ * predicate a chart dataset reads its source rows through, too (CA-30).
+ */
+export function queryWhere(
   handle: ProjectionHandleV1,
   scope: QueryScopeV1,
   filters: readonly ProjectionFilterTermV1[],
-): Fragment {
+): { readonly sql: string; readonly parameters: readonly SqlParam[] } {
   if (filters.length > MAX_FILTERS) {
     throw new CodecError("a records query carries more filters than its bound");
   }

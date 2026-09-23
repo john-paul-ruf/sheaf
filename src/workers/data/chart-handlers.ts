@@ -15,7 +15,7 @@
  */
 
 import { encodeBase64Url } from "../../domain/model/bytes.js";
-import type { ChartDefinitionV1, GroupingV1, MeasureV1 } from "../../domain/model/charts.js";
+import type { ChartDefinitionV1, ChartRefusalV1, GroupingV1, MeasureV1 } from "../../domain/model/charts.js";
 import type { FilterV1 } from "../../domain/model/filters.js";
 import { createDomainId, decodeDomainId, encodeDomainId, type ChartId, type DomainIdKind } from "../../domain/model/ids.js";
 import {
@@ -28,22 +28,28 @@ import {
 } from "../../application/commands/chart-commands.js";
 import type { ClockPort } from "../../application/ports/clock.js";
 import type { EntropyPort } from "../../application/ports/entropy.js";
-import type { ProjectionChartV1 } from "../../application/ports/projection.js";
+import type { ProjectionChartKeyV1, ProjectionChartV1 } from "../../application/ports/projection.js";
+import { readChartDataset, type ChartDatasetV1, type ChartMarkV1 } from "../../application/queries/charts.js";
 import { sha256 } from "../../crypto/hash.js";
 import { decodeChartDefinition, encodeChartDefinition } from "../../import/staging/roots.js";
 import { asMap, cborMap, count, exactKeys, field } from "../../import/staging/proposal-codec.js";
 import { decodeCanonical, encodeCanonical } from "../../persistence/codecs/canonical-cbor.js";
 import type {
   ChartCommandOutcomeWireV1,
+  ChartDatasetViewV1,
   ChartDefinitionWireV1,
   ChartDraftViewV1,
   ChartGroupingWireV1,
+  ChartKeyWireV1,
+  ChartMarkWireV1,
   ChartMeasureWireV1,
+  ChartRefusalWireV1,
   ChartViewV1,
   DataWorkerResponseV1,
   DeleteChartRequestV1,
   DiscardChartDraftRequestV1,
   FilterWireV1,
+  GetChartDatasetRequestV1,
   GetChartDraftRequestV1,
   GetChartRequestV1,
   ListChartsRequestV1,
@@ -55,7 +61,7 @@ import { DataWorkerCommandError } from "../protocol/redact.js";
 import type { AppSessionV1 } from "./app-session.js";
 import type { LocalCatalogAppEntryV1, LocalCatalogV1 } from "./catalog.js";
 import type { WorkerSessionContextV1 } from "./event-store.js";
-import { toDomainFilter } from "./record-handlers.js";
+import { toDomainFilter, toWireValue } from "./record-handlers.js";
 
 export interface ChartHandlerDependenciesV1 {
   readonly clock: ClockPort;
@@ -78,6 +84,7 @@ export interface ChartHandlersV1 {
   getChartDraft(request: GetChartDraftRequestV1): Promise<DataWorkerResponseV1>;
   saveChartDraft(request: SaveChartDraftRequestV1): Promise<DataWorkerResponseV1>;
   discardChartDraft(request: DiscardChartDraftRequestV1): Promise<DataWorkerResponseV1>;
+  getChartDataset(request: GetChartDatasetRequestV1): Promise<DataWorkerResponseV1>;
 }
 
 export function createChartHandlers(deps: ChartHandlerDependenciesV1): ChartHandlersV1 {
@@ -184,6 +191,40 @@ export function createChartHandlers(deps: ChartHandlerDependenciesV1): ChartHand
     async discardChartDraft(request) {
       await writeDraft(request.appId, undefined);
       return { kind: "discardChartDraft" };
+    },
+
+    async getChartDataset(request) {
+      const session = await deps.appSession(request.appId);
+      if (session === undefined) return { kind: "getChartDataset", dataset: null };
+      let chart: ProjectionChartV1 | null = null;
+      let definition: ChartDefinitionV1;
+      if (request.source.kind === "chart") {
+        const chartId = chartIdOf(request.source.chartId);
+        chart =
+          session.projection
+            .execute({ kind: "list-charts" })
+            .find((candidate) => encodeDomainId(candidate.definition.chartId) === encodeDomainId(chartId)) ?? null;
+        if (chart === null) return { kind: "getChartDataset", dataset: null };
+        definition = chart.definition;
+      } else {
+        // A draft has no identity yet; the dataset never reads it.
+        definition = { ...toChartBody(request.source.definition), chartId: createDomainId("chart", deps.entropy) };
+      }
+      const offset = request.tableOffset ?? 0;
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new DataWorkerCommandError("malformed-request");
+      const result = readChartDataset(session.projection, definition, { tableOffset: offset });
+      switch (result.outcome) {
+        case "dataset":
+          return { kind: "getChartDataset", dataset: toDatasetView(result.dataset, chart) };
+        case "refused":
+          return { kind: "getChartDataset", dataset: null, refusals: result.refusals.map(toRefusalWire) };
+        case "unknown-table":
+          return { kind: "getChartDataset", dataset: null };
+        default: {
+          const unreachable: never = result;
+          return unreachable;
+        }
+      }
     },
   };
 }
@@ -386,14 +427,7 @@ function toOutcomeWire(result: ChartCommandResultV1): ChartCommandOutcomeWireV1 
     case "stale-chart":
       return { result: "stale-chart", chartRevision: Number(result.chartRevision) };
     case "refused":
-      return {
-        result: "refused",
-        refusals: result.refusals.map((refusal) => ({
-          reason: refusal.reason,
-          fieldId: refusal.fieldId === null ? null : encodeDomainId(refusal.fieldId),
-          filterReason: refusal.filterReason,
-        })),
-      };
+      return { result: "refused", refusals: result.refusals.map(toRefusalWire) };
     case "unknown-chart":
       return { result: "unknown-chart" };
     default: {
@@ -401,4 +435,58 @@ function toOutcomeWire(result: ChartCommandResultV1): ChartCommandOutcomeWireV1 
       return unreachable;
     }
   }
+}
+
+const toRefusalWire = (refusal: ChartRefusalV1): ChartRefusalWireV1 => ({
+  reason: refusal.reason,
+  fieldId: refusal.fieldId === null ? null : encodeDomainId(refusal.fieldId),
+  filterReason: refusal.filterReason,
+});
+
+function toKeyWire(key: ProjectionChartKeyV1): ChartKeyWireV1 {
+  switch (key.kind) {
+    case "empty":
+    case "empty-parent":
+    case "unreadable":
+      return { kind: key.kind };
+    case "value":
+      return { kind: "value", value: toWireValue(key.value), label: key.label };
+    default: {
+      const unreachable: never = key;
+      return unreachable;
+    }
+  }
+}
+
+const toMarkWire = (mark: ChartMarkV1): ChartMarkWireV1 =>
+  mark.kind === "point"
+    ? { kind: "point", recordId: encodeDomainId(mark.recordId), x: mark.x, y: mark.y }
+    : {
+        kind: "group",
+        category: toKeyWire(mark.category),
+        series: mark.series === null ? null : toKeyWire(mark.series),
+        value: mark.value,
+        records: mark.records,
+        filterIntent: mark.filterIntent === null ? null : mark.filterIntent.map(toFilterWire),
+      };
+
+function toDatasetView(dataset: ChartDatasetV1, chart: ProjectionChartV1 | null): ChartDatasetViewV1 {
+  return {
+    chart: chart === null ? null : toChartView(chart),
+    definition: toDefinitionWire(dataset.definition),
+    marks: dataset.marks.map(toMarkWire),
+    sourceRowsConsidered: dataset.sourceRowsConsidered,
+    matchingRows: dataset.matchingRows,
+    tableTotal: dataset.tableTotal,
+    sample: dataset.sample,
+    omittedCategories: dataset.omittedCategories,
+    unplottedRows: dataset.unplottedRows,
+    summary: {
+      highest: dataset.summary.highest === null ? null : toMarkWire(dataset.summary.highest),
+      lowest: dataset.summary.lowest === null ? null : toMarkWire(dataset.summary.lowest),
+      total: dataset.summary.total,
+      count: dataset.summary.count,
+    },
+    tablePage: { ...dataset.tablePage, rows: dataset.tablePage.rows.map(toMarkWire) },
+  };
 }

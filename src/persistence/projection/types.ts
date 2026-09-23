@@ -31,6 +31,7 @@ import type {
   Sha256V1,
 } from "../../domain/model/events.js";
 import type { FormulaDefinitionV1 } from "../../domain/formulas/ir.js";
+import type { GroupingV1 } from "../../domain/model/charts.js";
 import type { ImpactReportV1 } from "../../domain/validation/schema-impact.js";
 import type {
   AppId,
@@ -551,6 +552,77 @@ export interface ProjectionRecordQueryResultV1 {
   readonly partial: { readonly scanned: number; readonly tableTotal: number } | null;
 }
 
+/**
+ * The shape a chart dataset reads (D54): a grouping (and a stacked chart's
+ * series) with an optional measured field, or a scatter's two axes. Stable
+ * IDs only — the lanes each one reads are the field types' to decide.
+ */
+export type ProjectionChartShapeV1 =
+  | {
+      readonly kind: "grouped";
+      readonly groupBy: GroupingV1;
+      readonly seriesBy: GroupingV1 | null;
+      /** Null counts records; a decimal field is summed, averaged, or bounded. */
+      readonly measureFieldId: FieldId | null;
+    }
+  | { readonly kind: "scatter"; readonly x: FieldId; readonly y: FieldId };
+
+/**
+ * One category or series of a chart dataset. `empty` holds the records with
+ * no value (missing or blank; for a relationship grouping: no reference at
+ * all), `unreadable` those whose value was imported as written; a
+ * relationship grouping's `value` and `empty-parent` name the parents that
+ * carry it, which is how its tapped mark becomes a filter (D54).
+ */
+export type ProjectionChartKeyV1 =
+  | { readonly kind: "empty" }
+  | {
+      readonly kind: "value";
+      /** The value, or for a date grouping the first day of its bucket. */
+      readonly value: CellValueV1;
+      /** An option's or a referenced record's label; null where the value says itself. */
+      readonly label: string | null;
+      readonly parents: readonly RecordId[] | null;
+    }
+  | { readonly kind: "empty-parent"; readonly parents: readonly RecordId[] }
+  /** An imported value kept exactly as written (D36/FR-4): no filter can name these rows. */
+  | { readonly kind: "unreadable" };
+
+/** One category (x series) of a grouped dataset, aggregated exactly. */
+export interface ProjectionChartGroupV1 {
+  readonly category: ProjectionChartKeyV1;
+  readonly series: ProjectionChartKeyV1 | null;
+  /** Source rows in this group. */
+  readonly records: number;
+  /** Of those, how many carry the measured field (all of them for a count). */
+  readonly measured: number;
+  /** Canonical decimals over the measured values; null when none, or out of range. */
+  readonly sum: string | null;
+  readonly min: string | null;
+  readonly max: string | null;
+}
+
+export interface ProjectionChartPointV1 {
+  readonly recordId: RecordId;
+  readonly x: string;
+  readonly y: string;
+}
+
+/**
+ * A chart's bounded dataset (CA-30, D53): request-scoped, never a row. It
+ * says exactly what it read — how many rows matched, how many of those (the
+ * newest, by `record_pk`) it aggregated, and how many the table holds.
+ */
+export interface ProjectionChartDatasetV1 {
+  readonly tableTotal: number;
+  readonly matchingRows: number;
+  readonly sourceRows: number;
+  /** Grouped: in category order, each category's series in series order. */
+  readonly groups: readonly ProjectionChartGroupV1[];
+  /** Scatter: the source rows carrying both axes, newest first. */
+  readonly points: readonly ProjectionChartPointV1[];
+}
+
 export type ProjectionQueryV1 =
   | { readonly kind: "app-state" }
   | { readonly kind: "list-tables" }
@@ -633,6 +705,17 @@ export type ProjectionQueryV1 =
   | { readonly kind: "scalar-results" }
   /** Every live chart, in display order (`chart_ordinal`). */
   | { readonly kind: "list-charts" }
+  /**
+   * A chart's dataset over one table, filtered as the records query filters
+   * (CA-29), reading at most `sourceRowBudget` rows — the newest (D53).
+   */
+  | {
+      readonly kind: "chart-dataset";
+      readonly tableId: TableId;
+      readonly filters: readonly ProjectionFilterTermV1[];
+      readonly shape: ProjectionChartShapeV1;
+      readonly sourceRowBudget: number;
+    }
   /** Search ∧ typed filters ∧ one sort, within a candidate budget (CA-29, D53). */
   | {
       readonly kind: "query-records";
@@ -671,6 +754,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-formulas": readonly ProjectionFormulaV1[];
   readonly "scalar-results": readonly ProjectionScalarResultV1[];
   readonly "list-charts": readonly ProjectionChartV1[];
+  readonly "chart-dataset": ProjectionChartDatasetV1 | null;
   readonly "query-records": ProjectionRecordQueryResultV1;
 }
 

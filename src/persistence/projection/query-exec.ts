@@ -46,6 +46,7 @@ import type { EnumOptionDefV1 } from "../../domain/model/schema.js";
 import type { EventClassV1 } from "../../migrations/004_event_format_v1.js";
 import type { SqlValue } from "@sqlite.org/sqlite-wasm";
 import { decodeBase64Url } from "../../domain/model/bytes.js";
+import { chartDataset } from "./chart-query.js";
 import { readComputedCells } from "./recalc.js";
 import {
   decodeAppTheme,
@@ -288,6 +289,8 @@ function runQuery(
       );
     case "list-charts":
       return answer(listCharts(handle));
+    case "chart-dataset":
+      return answer(chartDataset(handle, query, (recordId) => recordLabel(handle, recordId)));
     case "query-records":
       return answer(queryRecords(handle, query));
     default: {
@@ -626,6 +629,12 @@ function labelOf(handle: ProjectionHandleV1, record: AuthoredRecordV1): string {
   const fieldId = table?.labelFieldId ?? table?.keyFieldId ?? null;
   const value = fieldId === null ? undefined : valueAt(record, fieldId);
   return value === undefined ? "" : displayText(handle, value);
+}
+
+/** A live record's label by its id; null when no live record carries it. */
+function recordLabel(handle: ProjectionHandleV1, recordId: RecordId): string | null {
+  const row = selectRow(handle, SELECT_RECORD_STATE_BY_ID, [recordId]);
+  return row === null ? null : labelOf(handle, decodeAuthoredRecord(bytesAt(row, 4)));
 }
 
 const toLabeled = (

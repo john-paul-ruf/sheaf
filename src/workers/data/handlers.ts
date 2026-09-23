@@ -890,6 +890,8 @@ export function createDataWorkerHandler(
           return charts.saveChartDraft(request);
         case "discardChartDraft":
           return charts.discardChartDraft(request);
+        case "getChartDataset":
+          return charts.getChartDataset(request);
         default: {
           const unreachable: never = request;
           void unreachable;
