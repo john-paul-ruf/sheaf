@@ -42,3 +42,10 @@
 ## Change History
 
 - 2026-09-22 — fragment seeded (Planner, F03 planning).
+
+<!-- workbook-fidelity SESSION-01 -->
+### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
+
+**M15 — OOXML adapter (`src/import/formats/ooxml/`) — created**
+- Exports: **`ooxmlInventoryReader`** (the planned `readOoxmlInventory` name, as an `InventoryReaderV1` value) and `ooxmlAdapter` (`index.ts`). Internal files: `parts.ts` (namespaces for Strict + Transitional, `parseCellRef`/`parseRange`/`parseSqref` — out-of-grid ⇒ `impossible-dimension`), `drawings.ts` (`readDrawingObjects`, `readCommentAnchors`), `inventory.ts` (`MIN_CELL_MARKUP_BYTES = 12`, `SHEET_PREFIX_MAX_BYTES = 1 MiB`, `macroSignalOf`, `readWorkbookPart`, `sheetPartsOf`, `readDeclaredDimension`, `readTablePart`), `styles.ts`, `shared-strings.ts` (`SHARED_STRINGS_MAX_COUNT = 1_048_576`, `SHARED_STRINGS_MAX_CHARACTERS = 33_554_432`), `sheet.ts`, `parse.ts`.
+- Inventory is metadata only; the worksheet prefix read stops at `<sheetData>` (spy-proven, `tests/unit/import/ooxml/preflight.test.ts`).

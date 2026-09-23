@@ -37,3 +37,9 @@ refusal subjects in F02; their fidelity corpora arrive with F03's adapters.
   correction at `98925cc`.
 - 2026-09-08 — fragment created by Roshi (F02 final pass) so the fixture-byte
   contract lives with its own module rather than inside M19's.
+
+<!-- workbook-fidelity SESSION-01 -->
+### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
+
+**M58 — Workbook fixtures — extended**
+- `tests/fixtures/workbooks/build/` (`zip-writer.ts` with a deterministic LZ77+fixed-Huffman deflate, `cfb-writer.ts`, `ooxml-builder.ts`, `corpus.ts` — the generator map, `oversized.ts` — test-time only), `ooxml/` (12 fidelity workbooks from `build-fidelity.ts`, the pinned demo `fieldwork-q3.xlsx` from `build-demo.ts`, `demo-counts.ts`), `unsafe/` (19 refusal fixtures). `tests/unit/import/containers/corpus.test.ts` pins every committed byte to its generator; `SHEAF_WRITE_FIXTURES=1` regenerates.

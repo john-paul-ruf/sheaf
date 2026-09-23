@@ -82,3 +82,9 @@ that stops iterating leaves no read outstanding.
   in; the terminal-summary rule cross-referenced to its two consumers (M21, M36);
   the M58 fixture note that was stapled here moved to its own fragment,
   `M58-workbook-fixtures.md`.
+
+<!-- workbook-fidelity SESSION-01 -->
+### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
+
+**M19 — Delimited — `facts.ts` now a V1 re-export**
+- Re-exports the V1 names from M65; `IMPORT_DIAGNOSTIC_CODES` here is `IMPORT_DIAGNOSTIC_CODES_V1` so F02's exhaustive `SEVERITY` map stays exhaustive. S06 migrates consumers and deletes it.

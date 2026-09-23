@@ -77,3 +77,12 @@ assembled from these facts, never from invented copy (D19/D20).
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-03 staple folded
   in; the seeded "F02 routes" list rewritten to name the landed refusal kinds;
   the real-numbers payload rule recorded where its consumers can find it.
+
+<!-- workbook-fidelity SESSION-01 -->
+### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
+
+**M14 — Pre-flight (`src/import/preflight/`) — extended**
+- `budgets.ts`: `IMPORT_BUDGET_V1` (D31), `ImportBudgetV1`. `preflight.ts`'s `F02_IMPORT_MAX_*` are now aliases of it (names kept).
+- `refusal.ts`: `binary-unreadable` gains **optional** `detail?: UnreadableDetailV1` (optional only because `src/workers/import/parse-session.ts:82`, S06's, builds the refusal without it; every M14 producer sets it). New exports `unreadable(fileName, detail)`, `iworkRefusal`, `laterRelease`. `classifyRefusal` routing unchanged (binary / unknown zip now carry `detail: "unrecognized-content"`).
+- `workbook.ts`: `preflightWorkbook(source, sniff, readers) → WorkbookPreflightOutcomeV1`, `routeOf(sheets, sheetListKnown, budget?)`, `WorkbookPreflightReportV1 {fileName, sourceByteLength, format, formatContradiction, sheets, sheetListKnown, dateSystem, totals{sheetCount, estimatedRowCount|null, estimatedCellCount|null, preservedPartCounts}, route, defaultSelection, budgets, isEstimate: true}`, `WorkbookRouteV1`, `WorkbookFormatContradictionV1 {declaredExtension, detectedFormat}`, `WorkbookTotalsV1`. Identification: zip by `[Content_Types].xml` (xlsb / xlsx) → iWork (`Index/`, `.iwa`) → `mimetype` (ods); cfb → encrypted refusal or `Workbook`/`Book` → xls; html-table → text. No reader ⇒ `workbook-format-later-release`. Routing: > 50 sheets ⇒ handoff; total ≤ 250k ⇒ fits (all); else subset if any sheet fits alone and the sheet list is known (default = longest workbook-order prefix that fits) else handoff (empty selection).
+- Edges: M13 + M65 only; imports no adapter (swept).

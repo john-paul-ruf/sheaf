@@ -54,3 +54,13 @@ the two, the re-export is the only sanctioned duplicate path.
 ## Change History
 
 - 2026-09-22 — fragment seeded (Planner, F03 planning).
+
+<!-- workbook-fidelity SESSION-01 -->
+### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
+
+**M65 — Workbook facts (`src/import/facts/`) — created**
+- `workbook-facts.ts`: V1 moved unchanged (`WorkbookFactV1`, `WorkbookFactBatchV1`, `WorkbookSummaryV1`, `WorkbookFactStreamItemV1`, `ImportDiagnosticV1`, `ImportDiagnosticCodeV1`, `CancellationTokenV1`, `CanonicalFactValueV1`); `IMPORT_DIAGNOSTIC_CODES_V1` (F02 six) and `IMPORT_DIAGNOSTIC_CODES` (V1 + `error-value`, `malformed-value`); V2: `WorkbookFactV2`, `WorkbookStructureFactV1`, `WorkbookFactKindV2`, `WorkbookFactBatchV2`, `WorkbookSummaryV2`, `WorkbookFactStreamItemV2`, `ImportDiagnosticV2`, `ImportDiagnosticCodeV2`, `RangeV1`, `SHEET_KINDS`/`SheetKindV1`, `SHEET_VISIBILITIES`/`SheetVisibilityV1`, `DateSystemV1`, `FORMAT_CLASSES`/`FormatClassV1`, `VALIDATION_RULES`, `VALIDATION_OPERATORS` (kebab-case), `ValidationListSourceV1`, `PRESERVED_PART_KINDS` (D40), `PRESERVED_REASON_KEYS` (13, closed), `PRESERVED_REASON_BY_KIND`, `WORKBOOK_FACTS_PER_BATCH = 1024`, `factStreamItemToCanonicalValue` (total over V2, all integers bigint).
+- Field naming: the discriminator is `kind`, so the sheet's kind is **`sheetKind`** and the preserved part's kind is **`partKind`**.
+- `numbers.ts` (**new, Custom Rule 7** — S04's XLSB/BIFF share the same doubles and Excel format model): `decimalTextOfDouble`, `decimalCellOfDouble`, `BUILTIN_NUMBER_FORMATS` (0–22, 37–49), `classifyNumberFormat`, `NumberFormatClassV1`.
+- `adapter.ts`: `WORKBOOK_FORMATS`/`WorkbookFormatV1`, `ContainerHandleV1`, `MACRO_SIGNAL_KINDS`/`MacroSignalV1 {kind, partPath}`, `PreservedPartCountsV1` (full record; counts only separately-stored parts), `DeclaredTableSummaryV1`, `SheetInventoryItemV1`, `DefinedNameSummaryV1`, `WorkbookInventoryV1`, `InventoryOutcomeV1`, `InventoryReaderV1`, `ParseSheetsOptionsV1`, `WorkbookAdapterV1`.
+- `index.ts` barrel. Edges: value import `domain/model/values` only; **type-only** imports of M13 (`bounds`, `cfb`, `source`, `zip`) — enforced by the sweep.
