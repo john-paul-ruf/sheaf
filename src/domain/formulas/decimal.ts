@@ -249,3 +249,38 @@ export function squareRootDecimal(value: DecimalV1): DecimalV1 | null {
   const normalized = normalizeDecimal({ coefficient, scale: isExact ? scale : scale + 1 });
   return normalized === null ? null : stripTrailingZeros(normalized);
 }
+
+/** `dividend − divisor × ⌊dividend ÷ divisor⌋`, exactly; `null` for a zero divisor. */
+export function moduloDecimals(dividend: DecimalV1, divisor: DecimalV1): DecimalV1 | null {
+  if (divisor.coefficient === 0n) return null;
+  const [a, b, scale] = align(dividend, divisor);
+  const remainder = a % b;
+  const adjusted = remainder !== 0n && remainder < 0n !== b < 0n ? remainder + b : remainder;
+  return normalizeDecimal({ coefficient: adjusted, scale });
+}
+
+/** The multiple of `significance` that `mode` rounds `value` to; `null` for a zero significance. */
+export function multipleOf(value: DecimalV1, significance: DecimalV1, mode: "floor" | "ceiling"): DecimalV1 | null {
+  if (significance.coefficient === 0n) return null;
+  const [a, b, scale] = align(value, significance);
+  const numerator = b < 0n ? -a : a;
+  const quotient = divideRounded(numerator, abs(b), mode);
+  const multiple = normalizeDecimal({ coefficient: quotient * b, scale });
+  return multiple === null ? null : stripTrailingZeros(multiple);
+}
+
+/** `base` to an integer power by repeated squaring, each step inside the v1 domain. */
+export function powerDecimal(base: DecimalV1, exponent: bigint): DecimalV1 | null {
+  if (exponent < 0n) {
+    const positive = powerDecimal(base, -exponent);
+    return positive === null ? null : divideDecimals(DECIMAL_ONE, positive);
+  }
+  let result: DecimalV1 | null = DECIMAL_ONE;
+  let square: DecimalV1 | null = base;
+  for (let rest = exponent; rest > 0n; rest /= 2n) {
+    if (square === null || result === null) return null;
+    if (rest % 2n === 1n) result = multiplyDecimals(result, square);
+    if (rest > 1n) square = multiplyDecimals(square, square);
+  }
+  return result;
+}

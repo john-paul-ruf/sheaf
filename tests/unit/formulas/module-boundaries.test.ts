@@ -10,7 +10,7 @@ import { posix } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const FORMULAS = "src/domain/formulas";
-const MINIMUM_SOURCES = 6;
+const MINIMUM_SOURCES = 17;
 
 const readSources = async (): Promise<Map<string, string>> => {
   const sources = new Map<string, string>();

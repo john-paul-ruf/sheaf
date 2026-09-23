@@ -7,3 +7,6 @@ export * from "./ir.js";
 export * from "./catalog.js";
 export * from "./translate.js";
 export * from "./render.js";
+export * from "./disposition.js";
+export * from "./graph.js";
+export * from "./evaluate.js";
