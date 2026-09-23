@@ -319,6 +319,39 @@ test("cancelling a workbook mid-stream leaves no partial app (STA-019)", async (
   expectNoEgress(network);
 });
 
+test("a sheet that fails mid-stream names its stage, sheet and diagnostic (SCR-022, MOD-008)", async ({ page, network }) => {
+  test.setTimeout(300_000);
+
+  await openApp(page);
+  await protectDevice(page);
+  await openUpload(page);
+  // S05's hostile ODS: its metadata sizes fine, and its cells hit a bound.
+  await choose(page, resolve(CORPUS, "ods/hostile-repeat.ods"));
+  await expect(screen(page, "SCR-018")).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  await page.getByRole("button", { name: /^Import \d+ selected sheets?$/u }).click();
+
+  // The bound is hit before the first sheet opens, so the worker names no
+  // sheet (`sheetOrdinal: null`, CA-24) and the surface names the file.
+  const ended = screen(page, "SCR-022");
+  await expect(ended).toBeVisible({ timeout: PARSE_TIMEOUT_MS });
+  await expect(ended).toContainText("hostile-repeat.ods could not be imported.");
+  await expect(ended).toContainText("Part of the file expands to far more data than its stored size.");
+  await expect(ended).toContainText("Cell stream");
+  await expect(ended.locator("code")).toHaveText("expansion-limit");
+  await expect(ended).toContainText("No partial app remains.");
+  await auditable(page, "SCR-022");
+
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("dialog");
+  await expect(details).toContainText("Failed stage");
+  await expect(details).toContainText("Cell stream");
+  await expect(details).toContainText("expansion-limit");
+  await details.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Return to library" }).click();
+  await expect(screen(page, "SCR-011")).toBeVisible();
+  expectNoEgress(network);
+});
+
 for (const [label, fixture, contradiction] of [
   ["XLSB", "xlsb/fieldwork-jobs.xlsb", false],
   ["XLS", "biff/formulas.xls", false],
