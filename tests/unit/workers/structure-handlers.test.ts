@@ -464,8 +464,12 @@ describe("records beside computed columns (D51, CA-26, invariant 5)", () => {
       const jobs = tableNamed(await structure(), "Jobs");
       const balance = fieldNamed(jobs, "Balance (live)");
       const paid = fieldNamed(jobs, "Paid");
-      const job = (await records(jobs.tableId)).find((record) =>
-        record.values.some((entry) => entry.fieldId === balance.fieldId && entry.computed?.state === "ok"),
+      // Something is paid on it, so setting Paid to zero is a real change
+      // (record order follows random record IDs, so the choice is by value).
+      const job = (await records(jobs.tableId)).find(
+        (record) =>
+          record.values.some((entry) => entry.fieldId === balance.fieldId && entry.computed?.state === "ok") &&
+          record.values.some((entry) => entry.fieldId === paid.fieldId && entry.value.kind === "number" && Number(entry.value.decimal) > 0),
       )!;
       const accepted = commandOf(
         await handler.handle({
