@@ -219,3 +219,11 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
 ### F04 delta — SESSION-02 (M23 — staging (`src/import/staging/fact-codec.ts`))
 
 - Decodes the optional `definition` with exact keys and closed sets. A definition on any other part kind, or a chart definition on a pivot (or the reverse), is a `CodecError`. Absent stays absent, so pre-F04 staged chunks are byte-identical.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M23 — Staging (`src/import/staging/roots.ts`))
+
+- Checkpoint manifest has **three** readable key sets: F02, F03 (formulas → `[]`), F04 (= F03 + `formulas`); the encoder writes F04. `CheckpointFormulaV1 { formula, metadata, isActive, schemaRevision }`.
+- Exported codecs: `encodeFieldDef` (writes `formulaId` only for a computed field; decoder accepts both key sets), `encodeEnumOption`, `decodeRelationship`, `encodeRuleIR`/`decodeRuleIR` (IR v1 or v2; a v1 rule naming a v2 condition is refused), `encodeFormulaIR`/`decodeFormulaIR` (depth-bounded by `MAX_EVALUATION_DEPTH`, catalog names closed), `encodeFormulaDefinition`/`decodeFormulaDefinition` (refuses an illegal disposition/determinism pair, a live/frozen formula without IR, a target the migration CHECK would refuse), `encodeFormulaMetadata`/`decodeFormulaMetadata`. `CheckpointValidationRuleV1.rule` is v1|v2.
+- `tests/unit/staging/roots.test.ts` carries a committed F03 checkpoint KAT (generated at 4ce7f54).
+- Note for S07: `src/import/staging/events.ts` still has its own field-def encoder without `formulaId`; imported computed columns must use `encodeFieldDef`.

@@ -162,3 +162,10 @@ carries a port.**
   import-protocol section; the closed-union note updated to record that F03's
   plan pre-named the sole extender (co-leased), which is why the pattern that
   bit F02 twice did not recur here.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M32 — Protocol (`src/workers/protocol/messages.ts`))
+
+- `ComputedCellWireV1 { state, code? }`; `CellWireEntryV1.computed?` (additive; `CellWireValueV1` **not** widened).
+- `RecalculatedNoticeV1 { fieldIds }` as optional `recalculated` on the accepted `RecordCommandOutcomeV1` (always sent by the worker).
+- Requests `getAppStructure`, `previewSchemaChange`, `applySchemaChange`, `getAppMetrics`; wire types `SchemaChangeWireV1`, `RuleConditionWireV1`, `FormulaTargetWireV1`, `AppStructureViewV1` (+ table/field/rule/relationship/formula views), `ImpactReportWireV1`, `SchemaRefusalWireV1`, `SchemaPreviewViewV1`, `SchemaApplyOutcomeV1`, `MetricViewV1`, `AppMetricsViewV1`. Still no byte type and no import in the file.

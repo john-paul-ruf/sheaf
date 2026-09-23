@@ -147,3 +147,13 @@ and append both surface `columnKey`.
   into the Landed-structure table and the Import-composition/App-session
   sections; two duplicate SESSION-03 headings in the source delta (one for
   `data/`, one for tests) merged into this one fragment without loss.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M33 — Data worker (`src/workers/data/`))
+
+- New `structure-handlers.ts` (the four RPCs; wire ↔ domain; composes definition digests over M23 canonical encoders + M08 SHA-256, the relationship-removal fingerprint via **M21's `workbookFingerprintInput`** (imported, not restated) + SHA-256, per-event payload size for D38, local-time formula clock). `DataWorkerDependencies.schemaCommitLimits?` (tests pin a small cap).
+- New `schema-event-payloads.ts` (F04 payload codec, exact keys; `encodeTableDefinition`). `record-event-payloads.ts`: `encodeRecordEventPayload` now encodes every authored kind (records, command `field.created`/`enum.changed`, F04 kinds) and refuses import-commit kinds; tail kinds include F04; value provenance may carry `evidence: {frozen: text}` (D51) as an optional fourth key (three-key payloads decode unchanged).
+- `app-session.ts`: `localClockReading(clock)` (local calendar day); projection opened with it; tail replay passes the command layer's `projectionRevalidator`.
+- `event-store.ts`: the head's `schemaRevision` now advances with `commit.schemaRevisionAfter` (was never advanced).
+- `record-handlers.ts`: `recalculated` on every accepted command; computed cells mapped to wire (`toComputedEntry`); `refreshVolatile(60 s)` before `queryRecords`/`getRecord` (and `getAppMetrics`).
+- Worker sweep `tests/unit/workers/module-boundaries.test.ts` covers the new files and has a negative control.

@@ -62,3 +62,8 @@ count. Typed filter/sort compilation is F04 (FR-13).
   SESSION-03 (`f29ac33`..`a2c4cf0`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
   folded into "F03 additions" and the head export list.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M35 — Queries (`src/application/queries/structure.ts`))
+
+- `readAppStructure` (tables, fields incl. computed + `formulaId`, options, rules as IR, relationships, formulas with text rendered from IR via `renderFormula`); `readAppMetrics` (table metrics + dashboard values, status per CA-26, `empty` when never evaluated).

@@ -70,3 +70,11 @@ validate with the record's own provenance.
   (`f29ac33`..`a2c4cf0`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
   folded into Landed surface, with its exports added to the head list.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M34 — Commands (`src/application/commands/`))
+
+- New `schema-commands.ts`: `previewSchemaChange(deps, request)`, `executeSchemaChange(deps, request, previewedSchemaRevision)`; `SchemaChangeRequestV1` (D59 + `set-table-key`, names/clauses/text, never caller-made IDs); typed `SchemaRefusalV1` (`unknown-subject`, `invalid-change`, `formula` with best-effort position, `transition`, `validation`); `SEGMENT_LIMITS`. One preparation serves both: `analyzeSchemaChange` over the projection's live records, `validateSchemaTransition` (refusing only violations the change introduces), validation of every patched record against the after-schema (invariant 5), frozen once-evaluation, CA-28 event mapping in trigger-safe order (field before formula; field type → reference before relationship).
+- New `formula-env.ts`: projection-backed `EvaluationEnvV1`, `frozenLiteral`, `liveResult`.
+- `execute-command.ts`: `commitEvents` exported with `{ issues, rowCountAfter, isSchemaChange }`; schema commits advance the revision (`buildAuthoredCommit(…, isSchemaChange)`) and pass `projectionRevalidator`; accepted results carry `recalculatedFieldIds`; computed fields are not completed as `missing`; a new record's frozen columns get their literal (provenance `evidence.frozen`); `formulaClock?` dep (absent → UTC day).
+- Commands sweep has a negative control and covers the new files.

@@ -215,3 +215,14 @@ fact.
   name F03's one exception (`table.created` in an append), which the F02 text
   did not anticipate and would otherwise read as contradicting M23's landed
   append path.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M12 — Projection (`src/persistence/projection/`))
+
+- **New edge M12 → M03** (`../../domain/formulas/`): recalculation runs through the one bounded interpreter (D60, invariant 8) instead of a second evaluator; the projection sweep `tests/unit/projection/module-boundaries.test.ts` allows it and its negative control still refuses the import pipeline.
+- `OpenProjectionInitV1.clock: () => EvaluationClockReadingV1` (required; the worker supplies local time). Handle carries `clock` and `volatileReading`.
+- Replay (`apply-events.ts`) handles every F04 kind inside the commit's transaction: `schema_tables`/`schema_fields` (incl. `is_computed`, `formula_id`) updates, `relationships` insert/update/delete, `validation_rules` upsert/retire (rows are never deleted — issues reference them), `formulas` upsert/retire + `formula_dependencies`; app name. Reorders park moved fields above `2^30` first (unique `(table_id, field_ordinal)`). History subject kinds: relationship → `field`, rule/formula → their `objectId`. A commit that re-shapes an existing table rebuilds its authored lanes + search text and, with `revalidate`, its verdicts (`reindexRecord`).
+- `field.changed` refreshes the per-session definition cache — the currency code lives there (F02 carry closed).
+- **Recalculation** (`recalc-plan.ts` pure, `recalc.ts` SQL): hydrate step 6 = full pass after the graph is loaded; a record commit recomputes only `downstreamOf` the moved fields, and only the written rows for a row-local formula (widening to every row for column/related/formula reads); a schema commit is a full pass; `refreshVolatile` re-evaluates clock-volatile formulas when the reading is ≥ 60 s old or on another local day. Writes CA-26 exactly: computed lane (`origin='computed'`), recalculated `formula` issue (ids `computedIssueId`: pk ‖ 0xff ‖ fieldId[0..7], disjoint from validator ordinals), or `scalar_formula_results` (evaluated_at_ms = session clock). Frozen/unsupported columns project the authored literal into the computed lane and are never evaluated; cycles are flagged, never evaluated. Record writes delete only authored cells and validator issues (`DELETE_AUTHORED_CELLS_FOR_RECORD`, `DELETE_VALIDATOR_ISSUES_FOR_RECORD`). Computed fields are excluded from `record_search`.
+- Reads: `readComputedCells` derives each computed cell's state from its lane + issue (+ authored literal); every record summary carries `computed`.
+- Checkpoint load inserts formulas (after fields, all before any dependency).

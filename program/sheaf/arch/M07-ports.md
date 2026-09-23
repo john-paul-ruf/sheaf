@@ -91,3 +91,9 @@ that were written.
   untouched by SESSION-06.
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 and
   SESSION-06 staples folded into the `projection.ts` row and its own section.
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M07 — Ports)
+
+- `event-repository.ts`: `DomainEventV1` (instantiated union), `RecordRuleIRV1`, `SchemaImpactCountsV1`, `SchemaEventPayloadsV1`, `SchemaEventV1`; `PlannedEventV1.event: DomainEventV1`.
+- `projection.ts`: `ProjectionFormulaV1`; `ProjectionCheckpointV1.formulas`; `ProjectionValidationRuleV1.rule: RecordRuleIRV1`; `ProjectionCommitV1.events: DomainEventV1[]` + optional `revalidate(record) → issues` (the shared validator the projection asks for a re-shaped table, invariant 5); `ProjectionComputedCellV1` (CA-26's eight states, value only where one exists) on `ProjectionRecordSummaryV1.computed`; `ProjectionScalarResultV1`; `ProjectionApplyReceiptV1 { recalculatedFieldIds }`; queries `list-formulas {tableId|null}`, `scalar-results`; `ProjectionEnginePort.applyEvents` resolves with the receipt; new `refreshVolatile(maxAgeMs)`.

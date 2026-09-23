@@ -107,3 +107,8 @@ this write*.
 - Dependency edge now **M02 → M03 type-only** (`import type` from `src/domain/formulas/`), enforced by the rewritten
   `tests/unit/validation/module-boundaries.test.ts` (pure `violationsOf` with zero-file and value-import negative controls;
   the "F02 withholds F04 exports" assertion is replaced by "F04 exports present, no evaluator in M02").
+
+<!-- formulas-queries-charts SESSION-03 -->
+### F04 delta — SESSION-03 (M02 — Validation (`src/domain/validation/schema-impact.ts`, lease r1, S01-KEY))
+
+- `SchemaChangeV1` gains `{ kind: "set-table-key"; tableId; keyFieldId: FieldId | null }` (CA-28 "set key" → `table.changed`, D64). Impact: `missingNow` = records with no key value, `keptAndFlagged` = records repeating an earlier record's key value; nothing patched. Transition: reuses `validateSchemaTransition` → `validateSchema`'s endpoint rule, so a key still targeted by a relationship is refused (`schema.relationship-target-not-key`); computed/inactive keys refused as before.
