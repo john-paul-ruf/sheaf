@@ -131,3 +131,17 @@ not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
   `snapshots.ts` landed by SESSION-03 (`f29ac33`..`a2c4cf0`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
   folded into the per-file sections above; nothing contradicted.
+
+<!-- formulas-queries-charts SESSION-01 -->
+### F04 delta — SESSION-01 (M01 — Domain model (`arch/M01-domain-model.md`))
+
+- `ids.ts`: `DOMAIN_ID_KINDS` += `formula`, `chart`; `FormulaId`, `ChartId`.
+- `schema.ts`: `FieldDefV1.formulaId?: FormulaId` (absent = authored; the "deliberately no isComputed" note is retired);
+  `isComputedField(field)`.
+- New `filters.ts` (CA-29): `FilterV1 {fieldId, operand: FilterOperandV1}` (enum-in, date-range, number-range, boolean-is,
+  reference-in, reference-broken, text-contains, text-equals, is-empty, not-empty), `validateFilter(filter, table,
+  enumOptions) → FilterRefusalV1 | null` (`FILTER_REFUSAL_REASONS`), `compareCanonicalDecimals`.
+- New `charts.ts` (D54, CA-30): `CHART_TYPES` (pinned to migration 005), `ChartDefinitionV1` (grouped: `groupBy`,
+  `seriesBy`, `measure`, `sort`; or `scatter{x, y}`), `GroupingV1` (field | related-field{relationshipId, referenceFieldId,
+  fieldId} | date{unit}), `MeasureV1`, `ChartSchemaV1`, `validateChartDefinition(def, schema) → ChartRefusalV1[]`,
+  `ChartCategoryV1`, `markFilterIntent(def, category) → FilterV1 | null`.

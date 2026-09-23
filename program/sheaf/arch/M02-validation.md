@@ -89,3 +89,21 @@ this write*.
   (D36) landed by SESSION-03 (`f29ac33`..`a2c4cf0`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
   folded into the per-file sections and the severity-policy paragraph.
+
+<!-- formulas-queries-charts SESSION-01 -->
+### F04 delta — SESSION-01 (M02 — Validation (`arch/M02-validation.md`))
+
+- `rules.ts`: `RuleConditionV2`, `ValidationRuleIRV2 {irVersion: 2, …}` (CA-27), `COMPARE_OPERATORS`, `RuleMeasureV2`
+  (`"text-length"`, optional `measure` on `compare`/`between` — the CA-27 conversion bullet's "len operand"),
+  `RULE_V2_MESSAGE_KEYS`, `FORMULA_ISSUE_MESSAGE_KEYS` (unprefixed CA-26 keys).
+- `validate-record.ts`: `ValidationContext.rules: readonly (ValidationRuleIR | ValidationRuleIRV2)[]`; new export
+  `ruleHolds(rule, record)` (three-valued: an undetermined comparison never fires; v1 unchanged). Computed fields
+  (`formulaId` set) skip required/type; a `user`-provenance value without `evidence.frozen` → blocking `formula`
+  `computed-not-authored`. Still the only entrance, still two parameters.
+- New `schema-impact.ts`: `SchemaChangeV1` (D59, 17 kinds), `SchemaSnapshotV1`, `analyzeSchemaChange(change, schema,
+  records, ImpactEnvV1) → ImpactReportV1` (exact counts + `patches` = the `record.patched` values), `convertValueForType`,
+  `validateSchemaTransition(before, after) → {isAllowed, refusals}` (`SCHEMA_TRANSITION_REFUSALS`, 9 kinds; reuses
+  `validateSchema`).
+- Dependency edge now **M02 → M03 type-only** (`import type` from `src/domain/formulas/`), enforced by the rewritten
+  `tests/unit/validation/module-boundaries.test.ts` (pure `violationsOf` with zero-file and value-import negative controls;
+  the "F02 withholds F04 exports" assertion is replaced by "F04 exports present, no evaluator in M02").

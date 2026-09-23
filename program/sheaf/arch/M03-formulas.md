@@ -72,3 +72,43 @@ Files: `ast.ts`, `lexer.ts`, `parser.ts`, `references.ts`, `lookups.ts`,
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-02 delta
   folded into "Landed surface"; no contradiction found. IR/catalog/graph/
   evaluator remain F04's, as planned.
+
+<!-- formulas-queries-charts SESSION-01 -->
+### F04 delta — SESSION-01 (M03 — Formulas (`arch/M03-formulas.md`))
+
+M03 is now the full engine (D34 superseded by landing). Still imports only `src/domain/model/`; still no `eval`/`Function`
+(`tests/unit/formulas/module-boundaries.test.ts`, MINIMUM_SOURCES raised 6 → 17). New files: `ir.ts`, `catalog.ts`,
+`translate.ts`, `render.ts`, `decimal.ts`, `calendar.ts`, `scalars.ts`, `builtins.ts`, `evaluate.ts`, `graph.ts`,
+`disposition.ts` (all re-exported from `index.ts` except the internals `decimal`/`calendar`/`scalars`/`builtins`).
+
+- **IR (`ir.ts`, CA-25):** `FormulaIRDocumentV1 {irVersion: 1, root}`; `FormulaIRV1` = `literal{value: text|decimal|boolean}` ·
+  `error{code: FormulaErrorLiteralV1}` · `field{fieldId}` (this row) · `column{tableId, fieldId}` · `related{relationshipId,
+  referenceFieldId, fieldId}` · `formula{formulaId}` · `unary{+|-|%}` · `binary{IrBinaryOperatorV1}` · `call{name, version, args}`.
+  Stable IDs only. `related` carries `referenceFieldId` (beyond the suggested shape) so dependencies derive from the IR alone.
+  Constants pinned to migration 005: `FORMULA_TARGET_KINDS`, `FORMULA_DISPOSITIONS`, `FORMULA_DETERMINISMS`,
+  `FORMULA_DEPENDENCY_KINDS`. `FormulaTargetV1`, `FormulaDependencyV1`, `FormulaDefinitionV1` (target, displayName,
+  originalText, document|null, disposition, determinism, dependencies — never a value), `FORMULA_ERROR_CODES` (Excel's seven +
+  `#BUDGET`), `dependenciesOf(document)`, `irNodesOf(root)`.
+- **Catalog (`catalog.ts`, D49):** `CATALOG_FUNCTION_NAMES` (exactly D49, 68 names), `FUNCTION_CATALOG_V1` entries
+  `{name, version: 1, minArgs, maxArgs, coercion, determinism: deterministic|clock-volatile|nondeterministic, cost:
+  scalar|aggregate|lookup}`, `CATALOG_VERSION = 1`, `catalogEntryOf(name)`.
+- **Translate (`translate.ts`):** `translateImported(ast, ImportResolverV1) → TranslationV1` (`translated{document,
+  dependencies}` | `unsupported{reason: ImportUnsupportedReasonV1, detail}`; 15 closed reasons incl. `external-source`);
+  `translateImportedText(text, resolver)` (parses; `[1]!Name` → `external-source`); `translateAuthored(text,
+  AuthoredResolverV1) → AuthoredTranslationV1` (`translated` | `unknown-name{name}` | `refused{reason, detail}`);
+  `relativeShapeKey(ast, anchorRow, anchorColumn)`. Lookups become `related` only through an accepted relationship whose
+  target key column is the lookup key column (VLOOKUP exact, XLOOKUP 3-arg, INDEX/MATCH 0); a negated number literal folds.
+- **Render (`render.ts`, D58):** `renderFormula(document, NameLookupV1)`, `formulaTableName(displayName)` (the identifier
+  spelling an authored resolver matches `Table[…]` against). Round-trip with `translateAuthored` is tested.
+- **Evaluator (`evaluate.ts`, CA-26):** `evaluateRow(doc, RowAccessV1, EvaluationEnvV1)`, `evaluateAggregate(doc, env)`,
+  `evaluateScalar(doc, env)`, `evaluateNondeterministicOnce(doc, DomainEntropy, env, row?)`. `EvaluationResultV1` = `ok{value:
+  FormulaResultValueV1}` | `empty` | `error{code}` | `cycle` | `unsupported`; `EVALUATION_RESULT_KINDS` pinned to
+  `scalar_formula_results.status`. `EvaluationEnvV1 {clock, columns: ColumnAccessV1, formulaResults, relatedRow,
+  optionLabel, budget?}`; `FieldReadV1 = CellValueV1 | {kind:"error", code}`. Budget `DEFAULT_EVALUATION_BUDGET = 10_000`
+  node visits, `MAX_EVALUATION_DEPTH = 256` → `#BUDGET`. Exact bigint decimals (34 digits, half-even), epoch-day dates,
+  case-insensitive NFC text compare, `TODAY/NOW` from `env.clock` only, `RAND*` only inside `evaluateNondeterministicOnce`.
+- **Graph (`graph.ts`, D60):** `buildDependencyGraph(FormulaNodeV1[]) → DependencyGraphV1 {order, cycles, readersOfField,
+  readersOfFormula}` (Kahn by layers, bytewise ID order); `downstreamOf(graph, changedFieldIds, changedFormulaIds?)`;
+  `isCycleMember(graph, id)`.
+- **Disposition (`disposition.ts`):** `classifyFormula(document|null) → FormulaClassificationV1`,
+  `UNSUPPORTED_CLASSIFICATION`, `isAllowedClassification(disposition, determinism)` (migration 005's pairs).
