@@ -45,6 +45,7 @@ import type { ZipContainerHandleV1 } from "../../source/zip.js";
 import { readChartDefinition } from "./charts.js";
 import { readCommentAnchors, readDrawingObjects, type DrawingObjectV1 } from "./drawings.js";
 import { readTablePart, type SheetPartV1 } from "./inventory.js";
+import { readPivotDefinition } from "./pivots.js";
 import {
   attribute,
   isSheetElement,
@@ -139,7 +140,8 @@ export async function sheetPartFacts(
         break;
       case "pivottable": {
         const anchor = await pivotAnchor(zip, target);
-        facts.push(preservedPart("pivot-table", at(anchor), anchor, target));
+        const { definition } = await readPivotDefinition(zip, target);
+        facts.push(preservedPart("pivot-table", at(anchor), anchor, target, definition));
         break;
       }
       case "oleobject":

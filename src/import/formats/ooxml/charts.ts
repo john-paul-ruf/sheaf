@@ -29,8 +29,12 @@ import { tokenizeXml } from "../../source/xml.js";
 import type { ZipContainerHandleV1 } from "../../source/zip.js";
 import { attribute, CHART_NAMESPACES } from "./parts.js";
 
-/** Why a part that exists carries no definition. */
-export type PartDefinitionRefusalV1 = "not-declared" | "over-bounds" | UnreadableDetailV1;
+/**
+ * Why a chart or pivot part that exists carries no definition: it declares
+ * none, it is over its bounds, its pivot cache is not a worksheet range, or
+ * the XML reader refused it.
+ */
+export type PartDefinitionRefusalV1 = "not-declared" | "over-bounds" | "unsupported-source" | UnreadableDetailV1;
 
 export type PartDefinitionReadV1<T> =
   | { readonly definition: T; readonly refusal: null }

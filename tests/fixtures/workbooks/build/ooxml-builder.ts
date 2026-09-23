@@ -61,6 +61,24 @@ export interface TableSpec {
   readonly totalsRowCount?: number;
 }
 
+export interface PivotSpec {
+  readonly name: string;
+  /** Where the pivot sits (`location@ref`). */
+  readonly ref: string;
+  /** A real definition over a worksheet cache; omitted, the parts stay F03's bare shells. */
+  readonly cache?: {
+    /** `cacheField@name`, in cache order. */
+    readonly fields: readonly string[];
+    /** `worksheetSource@ref,@sheet`, or `@name` (a table or defined name). */
+    readonly source: { readonly sheet: string; readonly ref: string } | { readonly name: string };
+    /** `rowFields/field@x`; `-2` is the "Values" field. */
+    readonly rowFields?: readonly number[];
+    readonly colFields?: readonly number[];
+    /** `dataFields/dataField`; no `subtotal` writes none (the default, sum). */
+    readonly dataFields?: readonly { readonly name: string; readonly fld: number; readonly subtotal?: string }[];
+  };
+}
+
 export interface SheetSpec {
   readonly name: string;
   readonly kind?: "worksheet" | "chartsheet" | "dialogsheet" | "macrosheet";
@@ -77,7 +95,7 @@ export interface SheetSpec {
   readonly comments?: readonly { readonly ref: string; readonly text: string }[];
   readonly hyperlinks?: readonly { readonly ref: string; readonly target: string }[];
   readonly conditionalFormatting?: readonly string[];
-  readonly pivotTables?: readonly { readonly name: string; readonly ref: string }[];
+  readonly pivotTables?: readonly PivotSpec[];
   readonly sparklines?: boolean;
   readonly oleObjects?: number;
   readonly formControls?: number;
@@ -428,15 +446,36 @@ export const ooxmlEntries = (spec: WorkbookSpec): ZipEntrySpec[] => {
     for (const pivot of sheet.pivotTables ?? []) {
       pivotCount += 1;
       sheetRels.add(ns.rel("pivotTable"), `../pivotTables/pivotTable${pivotCount}.xml`);
+      const cache = pivot.cache;
+      const fieldList = (tag: string, indexes: readonly number[] | undefined) =>
+        indexes === undefined ? "" : `<${tag} count="${indexes.length}">${indexes.map((x) => `<field x="${x}"/>`).join("")}</${tag}>`;
+      const body = cache === undefined
+        ? ""
+        : `<pivotFields count="${cache.fields.length}">${cache.fields.map((_, index) => `<pivotField${cache.rowFields?.includes(index) === true ? ' axis="axisRow"' : ""}${cache.dataFields?.some((field) => field.fld === index) === true ? ' dataField="1"' : ""} showAll="0"/>`).join("")}</pivotFields>` +
+          fieldList("rowFields", cache.rowFields) +
+          fieldList("colFields", cache.colFields) +
+          (cache.dataFields === undefined ? "" : `<dataFields count="${cache.dataFields.length}">${cache.dataFields.map((field) => `<dataField name="${escapeXml(field.name)}" fld="${field.fld}"${field.subtotal === undefined ? "" : ` subtotal="${field.subtotal}"`} baseField="0" baseItem="0"/>`).join("")}</dataFields>`);
       parts.push({
         name: `xl/pivotTables/pivotTable${pivotCount}.xml`,
-        data: `${XML_DECLARATION}<pivotTableDefinition xmlns="${ns.main}" name="${escapeXml(pivot.name)}" cacheId="${pivotCount}" dataCaption="Values"><location ref="${pivot.ref}" firstHeaderRow="1" firstDataRow="1" firstDataCol="1"/></pivotTableDefinition>`,
+        data: `${XML_DECLARATION}<pivotTableDefinition xmlns="${ns.main}" name="${escapeXml(pivot.name)}" cacheId="${pivotCount}" dataCaption="Values"><location ref="${pivot.ref}" firstHeaderRow="1" firstDataRow="1" firstDataCol="1"/>${body}</pivotTableDefinition>`,
         contentType: CONTENT_TYPES.pivotTable,
       });
+      if (cache !== undefined) {
+        const pivotRels = new Relationships();
+        pivotRels.add(ns.rel("pivotCacheDefinition"), `../pivotCache/pivotCacheDefinition${pivotCount}.xml`);
+        parts.push({ name: `xl/pivotTables/_rels/pivotTable${pivotCount}.xml.rels`, data: pivotRels.xml() });
+      }
       const cacheRel = workbookRels.add(ns.rel("pivotCacheDefinition"), `pivotCache/pivotCacheDefinition${pivotCount}.xml`);
+      const source = cache === undefined
+        ? ""
+        : "name" in cache.source
+          ? `name="${escapeXml(cache.source.name)}"`
+          : `ref="${cache.source.ref}" sheet="${escapeXml(cache.source.sheet)}"`;
       parts.push({
         name: `xl/pivotCache/pivotCacheDefinition${pivotCount}.xml`,
-        data: `${XML_DECLARATION}<pivotCacheDefinition xmlns="${ns.main}" recordCount="0"/>`,
+        data: cache === undefined
+          ? `${XML_DECLARATION}<pivotCacheDefinition xmlns="${ns.main}" recordCount="0"/>`
+          : `${XML_DECLARATION}<pivotCacheDefinition xmlns="${ns.main}" xmlns:r="${ns.r}" recordCount="0"><cacheSource type="worksheet"><worksheetSource ${source}/></cacheSource><cacheFields count="${cache.fields.length}">${cache.fields.map((field) => `<cacheField name="${escapeXml(field)}" numFmtId="0"><sharedItems/></cacheField>`).join("")}</cacheFields></pivotCacheDefinition>`,
         contentType: CONTENT_TYPES.pivotCache,
       });
       pivotCaches.push(`<pivotCache cacheId="${pivotCount}" r:id="${cacheRel}"/>`);

@@ -120,7 +120,26 @@ export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<str
     {
       sheets: [
         { name: "Data", rows: [["Crew", "Hours"], ["North", 8], ["South", 6], ["North", 4]] },
-        { name: "Summary", rows: [[], [], ["Crew", "Sum of Hours"], ["North", 12], ["South", 6]], pivotTables: [{ name: "HoursPivot", ref: "A3:B5" }] },
+        {
+          name: "Summary",
+          rows: [[], [], ["Crew", "Sum of Hours", "Count of Crew"], ["North", 12, 2], ["South", 6, 1]],
+          pivotTables: [
+            {
+              name: "HoursPivot",
+              ref: "A3:C5",
+              cache: {
+                fields: ["Crew", "Hours"],
+                source: { sheet: "Data", ref: "A1:B4" },
+                rowFields: [0],
+                colFields: [-2],
+                dataFields: [
+                  { name: "Sum of Hours", fld: 1 },
+                  { name: "Count of Crew", fld: 0, subtotal: "count" },
+                ],
+              },
+            },
+          ],
+        },
       ],
     },
   ],

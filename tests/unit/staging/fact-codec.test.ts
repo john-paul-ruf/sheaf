@@ -117,6 +117,22 @@ describe("staged fact chunks (CA-17)", () => {
     expect([...kinds].sort()).toEqual([...ALL_KINDS].sort());
   });
 
+  it("stages the OOXML corpus's chart and pivot definitions byte-identically", async () => {
+    const defined = new Set<string>();
+    for (const path of await workbookFixturePaths("ooxml")) {
+      const stream = await streamWorkbookFixture(path);
+      if (stream === null) continue;
+      const whole = await streamWorkbookFixture(path, { selection: stream.report.sheets.map((sheet) => sheet.sheetIndex) });
+      for (const item of whole?.items ?? []) {
+        if (item.kind !== "batch") continue;
+        const parts = item.facts.filter((fact) => fact.kind === "preserved-part" && fact.definition !== undefined);
+        parts.forEach((fact) => defined.add(fact.kind === "preserved-part" ? fact.partKind : fact.kind));
+        if (parts.length > 0) expectRoundTrip(item);
+      }
+    }
+    expect([...defined].sort()).toEqual(["pivot-table"]);
+  });
+
   describe("the optional chart and pivot definition (CA-31)", () => {
     const part = {
       kind: "preserved-part",

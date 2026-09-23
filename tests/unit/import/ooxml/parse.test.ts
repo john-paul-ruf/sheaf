@@ -153,7 +153,7 @@ describe("OOXML fact stream", () => {
       ["cell-styling", "Site log", "formatting-not-reproduced"],
     ]);
     const pivot = ofKind(await fixture("pivot-table.xlsx"), "preserved-part");
-    expect(pivot).toMatchObject([{ partKind: "pivot-table", location: "Summary!A3:B5" }]);
+    expect(pivot).toMatchObject([{ partKind: "pivot-table", location: "Summary!A3:C5" }]);
   });
 
   it("stays sparse across separated regions", async () => {
