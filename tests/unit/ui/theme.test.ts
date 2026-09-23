@@ -79,6 +79,16 @@ describe("the app theme's system-owned guard (CA-32)", () => {
     }).not.toThrow();
   });
 
+  it("refuses an app theme that names a dark-mode semantic text ink", () => {
+    for (const role of ["danger", "warning", "info", "success"]) {
+      const name = `--color-${role}-text` as const;
+      expect(SYSTEM_OWNED_PROPERTIES).toContain(name);
+      expect(() => {
+        assertPresentationOnly({ "--app-primary": "#3d4e69", [name]: "#e08a6e" });
+      }).toThrow(name);
+    }
+  });
+
   it("measures contrast against the same focus colours tokens.css fixes (Leaf 700, Sprout 300)", () => {
     const tokensCss = readFileSync(resolve(process.cwd(), "src/ui/theme/tokens.css"), "utf8");
     expect(tokensCss).toContain("--focus-ring-color: var(--leaf-700);");

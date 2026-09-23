@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { contrastRatio } from "../../../src/domain/model/events.js";
+import { BUILT_IN_PALETTES } from "../../../src/import/staging/theme.js";
 import { SYSTEM_OWNED_PROPERTIES } from "../../../src/ui/theme/theme.js";
 
 // The jsdom project serves modules over http://, so `import.meta.url` is not a
@@ -170,6 +172,50 @@ describe("tokens.css — system-owned semantics", () => {
     expect(dark.get("--focus-ring")).toBe("var(--focus-ring-width) solid var(--focus-ring-color)");
     // The light default is untouched.
     expect(tokens.get("--focus-ring-color")).toBe("var(--leaf-700)");
+  });
+
+  describe("semantic text on a dark app background (design.md § System semantics in dark mode)", () => {
+    const block = /\[data-app-mode="dark"\]\s*\{([^}]*)\}/.exec(TOKENS_CSS)?.[1] ?? "";
+    const dark = declarations(block);
+    const DARK_TEXT: ReadonlyArray<readonly [string, string, string, string]> = [
+      ["danger", "--clay-300", "#e08a6e", "--clay-ink"],
+      ["warning", "--marigold-500", "#c78316", "--marigold-ink"],
+      ["info", "--river-300", "#6aa3c8", "--river-ink"],
+      ["success", "--leaf-300", "#62b397", "--leaf-ink"],
+    ];
+
+    it.each(DARK_TEXT)("draws %s text in %s (%s) in a dark app, and in its ink in light", (role, step, value) => {
+      expect(tokens.get(step)).toBe(value);
+      expect(tokens.get(`--color-${role}-text`)).toBe(`var(--color-${role}-ink)`);
+      expect(dark.get(`--color-${role}-text`)).toBe(`var(${step})`);
+    });
+
+    it("leaves badge inks, tints and the base colours alone in dark mode", () => {
+      for (const [role] of DARK_TEXT) {
+        for (const suffix of ["", "-tint", "-ink"]) {
+          expect(dark.has(`--color-${role}${suffix}`)).toBe(false);
+        }
+      }
+      for (const [role, , , ink] of DARK_TEXT) {
+        expect(tokens.get(`--color-${role}-ink`)).toBe(`var(${ink})`);
+      }
+    });
+
+    it("passes 4.5:1 on every built-in palette's dark canvas and surface", () => {
+      for (const palette of BUILT_IN_PALETTES) {
+        for (const background of [palette.dark["app-canvas"], palette.dark["app-surface"]]) {
+          for (const [, , value] of DARK_TEXT) {
+            expect(contrastRatio(value, background), `${value} on ${palette.key} ${background}`).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    });
+
+    it("is system-owned: every role is on theme.ts's deny-list", () => {
+      for (const [role] of DARK_TEXT) {
+        expect(SYSTEM_OWNED_PROPERTIES).toContain(`--color-${role}-text`);
+      }
+    });
   });
 
   it("matches theme.ts's runtime deny-list exactly", () => {

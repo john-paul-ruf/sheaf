@@ -455,12 +455,12 @@
 }
 
 .issue {
-  color: var(--color-danger-ink);
+  color: var(--color-danger-text);
   font-size: var(--text-supporting);
 }
 
 .issue[data-severity="warning"] {
-  color: var(--color-warning-ink);
+  color: var(--color-warning-text);
 }
 
 /* ---- SCR-028 / SCR-029 the record form ----------------------------------- */
@@ -746,7 +746,7 @@
 .metric[data-status="error"] .metricNote,
 .metric[data-status="cycle"] .metricNote,
 .metric[data-status="unsupported"] .metricNote {
-  color: var(--color-danger-ink);
+  color: var(--color-danger-text);
   font-weight: var(--weight-control);
 }
 

@@ -307,7 +307,7 @@
 }
 
 .failure {
-  color: var(--color-danger-ink);
+  color: var(--color-danger-text);
   font-size: var(--text-supporting);
 }
 

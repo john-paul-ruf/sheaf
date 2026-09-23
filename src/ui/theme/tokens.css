@@ -40,6 +40,12 @@
     --marigold-500: #c78316;
     --river-600: #396b8c;
     --violet-600: #705b91;
+    /* Dark-mode semantic text steps (design.md § Built-in app palettes →
+       System semantics in dark mode): lighter steps of the Clay, River and
+       Leaf hues, for text drawn directly on a dark app's canvas or surface. */
+    --clay-300: #e08a6e;
+    --river-300: #6aa3c8;
+    --leaf-300: #62b397;
 
     /* ---- Support values carried by the mocks' `:root` and rules, not by
            design.md's palette table (hairline, tints, secondary text). ---- */
@@ -88,6 +94,13 @@
     --color-warning-ink: var(--marigold-ink);
     --color-info-ink: var(--river-ink);
     --color-success-ink: var(--leaf-ink);
+    /* Semantic text drawn directly on the app background (issue, note and
+       failure lines). The ink in light mode; a dark app swaps it below.
+       Badges and tints keep `*-ink` on their pale fill in every mode. */
+    --color-danger-text: var(--color-danger-ink);
+    --color-warning-text: var(--color-warning-ink);
+    --color-info-text: var(--color-info-ink);
+    --color-success-text: var(--color-success-ink);
 
     /* Focus: "3px Leaf/Sprout outline with 2px separation … remains visible
        on dark themed chrome" (design.md §Accessibility Contract). Leaf on
@@ -171,12 +184,18 @@
   }
 
   /* System-owned, chosen per rendered mode — never by the theme (design.md
-     § Built-in app palettes → Focus): a dark app shows Sprout 300 on every
-     background. `--focus-ring` is redeclared because a custom property
-     inherits its computed value, not the reference it was built from. */
+     § Built-in app palettes → Focus, System semantics in dark mode): a dark
+     app shows Sprout 300 on every background, and semantic text on its canvas
+     or surface in the lighter steps. `--focus-ring` is redeclared because a
+     custom property inherits its computed value, not the reference it was
+     built from. */
   [data-app-mode="dark"] {
     --focus-ring-color: var(--sprout-300);
     --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+    --color-danger-text: var(--clay-300);
+    --color-warning-text: var(--marigold-500);
+    --color-info-text: var(--river-300);
+    --color-success-text: var(--leaf-300);
 
     color-scheme: dark;
   }
