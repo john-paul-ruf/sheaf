@@ -7,8 +7,14 @@
 import { BoundExceededError } from "../../source/bounds.js";
 import { readRelationships, relationshipKind, type OpcRelationshipV1 } from "../../source/opc.js";
 import type { ZipContainerHandleV1 } from "../../source/zip.js";
-import type { MacroSignalV1, SheetKindV1, SheetVisibilityV1 } from "../../facts/index.js";
-import type { PtgExternSheetV1, PtgSupbookV1 } from "../biff/ptg.js";
+import type { DefinedNameSummaryV1, MacroSignalV1, SheetKindV1, SheetVisibilityV1 } from "../../facts/index.js";
+import {
+  decodePtgFormula,
+  type PtgCellV1,
+  type PtgContextV1,
+  type PtgExternSheetV1,
+  type PtgSupbookV1,
+} from "../biff/ptg.js";
 import { BodyReaderV1, BRT, openXlsbRecords } from "./records.js";
 
 export interface XlsbSheetEntryV1 {
@@ -167,4 +173,28 @@ export async function readXlsbWorkbook(zip: ZipContainerHandleV1): Promise<XlsbW
     relationships,
     macroSheet,
   };
+}
+
+/** The `Ptg` decoding context of an XLSB workbook, for a formula at `cell`. */
+export const ptgContextOf = (workbook: XlsbWorkbookV1, cell: PtgCellV1 | null): PtgContextV1 => ({
+  format: "biff12",
+  sheetNames: workbook.sheets.map((sheet) => sheet.name),
+  supbooks: workbook.supbooks,
+  externSheets: workbook.externSheets,
+  definedNames: workbook.names.map((name) => name.name),
+  cell,
+});
+
+/**
+ * Defined names with their references decompiled to text. Function and
+ * macro names are not ranges and are left out; a name whose formula does not
+ * decode is left out rather than guessed.
+ */
+export function definedNamesOf(workbook: XlsbWorkbookV1): DefinedNameSummaryV1[] {
+  const context = ptgContextOf(workbook, null);
+  return workbook.names.flatMap((name) => {
+    if (name.isFunction) return [];
+    const decoded = decodePtgFormula(name.rgce, context, name.rgcb);
+    return "text" in decoded ? [{ name: name.name, ref: decoded.text.normalize("NFC"), sheetIndex: name.sheetIndex }] : [];
+  });
 }

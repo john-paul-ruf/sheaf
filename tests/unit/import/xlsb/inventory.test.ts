@@ -6,6 +6,7 @@ import { sniffContent } from "../../../../src/import/source/sniff.js";
 import { openZipContainer, ZIP_READ_CHUNK_BYTES } from "../../../../src/import/source/zip.js";
 import { buildXlsb, type XlsbWorkbookSpec } from "../../../fixtures/workbooks/xlsb/build-xlsb.js";
 import { PLAIN_XLSB, XLSB_CORPUS } from "../../../fixtures/workbooks/xlsb/corpus.js";
+import { ptg } from "../../../fixtures/workbooks/biff/ptg-writer.js";
 import { entryDataRanges, spyZipHandle } from "../containers/spy.js";
 import { bytesSource, countingSource, fixtureBytes } from "../fixtures.js";
 
@@ -99,6 +100,30 @@ describe("XLSB inventory — exact outcome per fixture", () => {
     const outcome = await preflight(await fixtureBytes("xlsb/plain.xlsb"), "crew.xlsb");
     if (outcome.kind !== "proceed") throw new Error(JSON.stringify(outcome));
     expect(outcome.report).toMatchObject({ format: "xlsb", route: "fits", defaultSelection: [0, 1], formatContradiction: null });
+  });
+
+  it("decompiles defined names with BIFF12 widths; function and undecodable names are left out", async () => {
+    const abs = { rowAbsolute: true, columnAbsolute: true };
+    const bytes = buildXlsb({
+      sheets: [
+        { name: "Jobs", rows: [["a"]] },
+        { name: "Materials", rows: [["m"]] },
+      ],
+      xti: [
+        { supbook: 0, first: 1, last: 1 },
+        { supbook: 0, first: 0, last: 0 },
+      ],
+      names: [
+        { name: "MaterialList", rgce: ptg("biff12").area3d(0, 1, 0, 8, 0, abs).rgce },
+        { name: "LocalRate", sheetIndex: 0, rgce: ptg("biff12").ref3d(1, 0, 1, abs).rgce },
+        { name: "MyFunc", isFunction: true, rgce: ptg("biff12").int(1).rgce },
+        { name: "Broken", rgce: Uint8Array.of(0x1a) },
+      ],
+    });
+    expect(expectInventory(await inventoryOf(bytes)).definedNames).toEqual([
+      { name: "MaterialList", ref: "Materials!$A$2:$A$9", sheetIndex: null },
+      { name: "LocalRate", ref: "Jobs!$B$1", sheetIndex: 0 },
+    ]);
   });
 
   it("names chart sheets, hidden sheets, 1904 and absent dimensions; refuses impossible ones", async () => {

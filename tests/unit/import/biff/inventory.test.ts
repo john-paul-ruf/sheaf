@@ -7,6 +7,7 @@ import { unreadable } from "../../../../src/import/preflight/refusal.js";
 import { sniffContent } from "../../../../src/import/source/sniff.js";
 import { buildBiffWorkbook } from "../../../fixtures/workbooks/biff/build-biff.js";
 import { BIFF_CORPUS, PLAIN } from "../../../fixtures/workbooks/biff/corpus.js";
+import { ptg } from "../../../fixtures/workbooks/biff/ptg-writer.js";
 import { bytesSource, fixtureBytes } from "../fixtures.js";
 import { listRecords, openCfb, spyCfbHandle } from "./spy.js";
 
@@ -148,6 +149,32 @@ describe("BIFF inventory — exact outcome per fixture", () => {
     expect(inventory.sheets[5]).toMatchObject({ declaredRange: null, estimatedCellCount: 0 });
     expect(inventory.sheets[6]?.declaredRange).toBeNull();
     expect(inventory.sheets[6]?.estimatedCellCount).toBeGreaterThan(0);
+  });
+
+  it("decompiles defined names; function names and undecodable names are left out", async () => {
+    const abs = { rowAbsolute: true, columnAbsolute: true };
+    const bytes = buildBiffWorkbook({
+      sheets: [
+        { name: "Jobs", rows: [["a"]] },
+        { name: "Materials", rows: [["m"]] },
+      ],
+      xti: [
+        { supbook: 0, first: 1, last: 1 },
+        { supbook: 0, first: 0, last: 0 },
+      ],
+      names: [
+        { name: "MaterialList", rgce: ptg("biff8").area3d(0, 1, 0, 8, 0, abs).rgce },
+        { name: "LocalRate", sheetIndex: 0, rgce: ptg("biff8").ref3d(1, 0, 1, abs).rgce },
+        { name: "", builtin: 6, sheetIndex: 0, rgce: ptg("biff8").area3d(1, 0, 0, 9, 3, abs).rgce },
+        { name: "MyFunc", isFunction: true, rgce: ptg("biff8").int(1).rgce },
+        { name: "Broken", rgce: Uint8Array.of(0x1a) },
+      ],
+    });
+    expect(expectInventory(await inventoryOf(bytes)).definedNames).toEqual([
+      { name: "MaterialList", ref: "Materials!$A$2:$A$9", sheetIndex: null },
+      { name: "LocalRate", ref: "Jobs!$B$1", sheetIndex: 0 },
+      { name: "_xlnm.Print_Area", ref: "Jobs!$A$1:$D$10", sheetIndex: 0 },
+    ]);
   });
 
   it("refuses a DIMENSIONS beyond Excel's grid as an impossible dimension", async () => {

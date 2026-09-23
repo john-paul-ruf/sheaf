@@ -35,6 +35,16 @@ export interface BiffSheetSpec {
   readonly rows?: readonly (BiffRowSpec | undefined)[];
 }
 
+export interface BiffNameSpec {
+  readonly name: string;
+  /** A built-in name's character code (MS-XLS §2.5.114), e.g. 6 for Print_Area. */
+  readonly builtin?: number;
+  readonly sheetIndex?: number;
+  readonly isFunction?: boolean;
+  readonly rgce: Uint8Array;
+  readonly rgcb?: Uint8Array;
+}
+
 export interface BiffWorkbookSpec {
   readonly version?: "biff8" | "biff5";
   readonly codePage?: number;
@@ -45,6 +55,11 @@ export interface BiffWorkbookSpec {
   /** Cell XFs by index; defaults to one General XF. */
   readonly xfs?: readonly { readonly formatId: number; readonly font?: number }[];
   readonly sheets: readonly BiffSheetSpec[];
+  /** `SUPBOOK`s; defaults to this workbook alone when `xti` is given. */
+  readonly supbooks?: readonly ({ readonly kind: "self" } | { readonly kind: "addin"; readonly names: readonly string[] })[];
+  /** `EXTERNSHEET` entries: supbook index and sheet span. */
+  readonly xti?: readonly { readonly supbook: number; readonly first: number; readonly last: number }[];
+  readonly names?: readonly BiffNameSpec[];
   /** Extra CFB streams — a VBA storage, summary information. */
   readonly streams?: readonly CfbStreamSpec[];
 }
@@ -67,6 +82,10 @@ const RT = {
   WSBOOL: 0x0081,
   BOUNDSHEET: 0x0085,
   FNGROUPNAME: 0x009a,
+  EXTERNSHEET: 0x0017,
+  NAME: 0x0018,
+  EXTERNNAME: 0x0023,
+  SUPBOOK: 0x01ae,
   MULRK: 0x00bd,
   MULBLANK: 0x00be,
   XF: 0x00e0,
@@ -392,6 +411,34 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
       body.raw(isBiff8 ? shortXlUnicodeString(sheet.name) : [sheet.name.length, ...windows1252(sheet.name)]);
       out.push(...record(RT.BOUNDSHEET, body.finish()));
     });
+    if (spec.xti !== undefined || spec.supbooks !== undefined) {
+      for (const book of spec.supbooks ?? [{ kind: "self" as const }]) {
+        if (book.kind === "self") {
+          out.push(...record(RT.SUPBOOK, new Bytes().u16(spec.sheets.length).u16(0x0401).finish()));
+        } else {
+          out.push(...record(RT.SUPBOOK, new Bytes().u16(1).u16(0x3a01).finish()));
+          for (const name of book.names) {
+            out.push(...record(RT.EXTERNNAME, [...new Bytes().u16(0).u32(0).finish(), ...shortXlUnicodeString(name), 0, 0]));
+          }
+        }
+      }
+      const xti = new Bytes().u16((spec.xti ?? []).length);
+      for (const entry of spec.xti ?? []) xti.u16(entry.supbook).u16(entry.first & 0xffff).u16(entry.last & 0xffff);
+      out.push(...record(RT.EXTERNSHEET, xti.finish()));
+    }
+    for (const name of spec.names ?? []) {
+      const text = name.builtin === undefined ? name.name : String.fromCharCode(name.builtin);
+      const { flags, chars } = unicodeBody(text);
+      const grbit = (name.isFunction === true ? 0x0002 : 0) | (name.builtin === undefined ? 0 : 0x0020);
+      out.push(
+        ...record(RT.NAME, [
+          ...new Bytes().u16(grbit).u8(0).u8(text.length).u16(name.rgce.length).u16(0).u16(name.sheetIndex === undefined ? 0 : name.sheetIndex + 1).u32(0).u8(flags).finish(),
+          ...chars,
+          ...name.rgce,
+          ...(name.rgcb ?? []),
+        ]),
+      );
+    }
     return out;
   };
 

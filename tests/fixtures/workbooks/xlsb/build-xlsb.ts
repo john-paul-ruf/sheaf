@@ -48,6 +48,17 @@ export interface XlsbWorkbookSpec {
   readonly xfs?: readonly { readonly formatId: number; readonly font?: number }[];
   readonly sheets: readonly XlsbSheetSpec[];
   readonly vbaProject?: boolean;
+  /** Supporting books; defaults to this workbook alone when `xti` is given. */
+  readonly supbooks?: readonly ({ readonly kind: "self" } | { readonly kind: "addin"; readonly names: readonly string[] })[];
+  /** `BrtExternSheet` entries: supbook index and sheet span. */
+  readonly xti?: readonly { readonly supbook: number; readonly first: number; readonly last: number }[];
+  readonly names?: readonly {
+    readonly name: string;
+    readonly sheetIndex?: number;
+    readonly isFunction?: boolean;
+    readonly rgce: Uint8Array;
+    readonly rgcb?: Uint8Array;
+  }[];
 }
 
 /** One BIFF12 record: variable-length type and size, then the body. */
@@ -114,6 +125,13 @@ export const B = Object.freeze({
   END_SST: 160,
   BEGIN_STYLE_SHEET: 278,
   END_STYLE_SHEET: 279,
+  NAME: 39,
+  BEGIN_EXTERNALS: 353,
+  END_EXTERNALS: 354,
+  SUP_SELF: 357,
+  PLACEHOLDER_NAME: 361,
+  EXTERN_SHEET: 362,
+  SUP_ADDIN: 666,
   BEGIN_LIST: 343,
   END_LIST: 344,
   BEGIN_LIST_COLS: 345,
@@ -264,7 +282,34 @@ export const xlsbEntries = (spec: XlsbWorkbookSpec): ZipEntrySpec[] => {
   spec.sheets.forEach((sheet, index) => {
     book.push(...brt(B.BUNDLE_SH, [...new Bytes().u32(sheet.state ?? 0).u32(index + 1).finish(), ...wide(`rId${index + 1}`), ...wide(sheet.name)]));
   });
-  book.push(...brt(B.END_BUNDLE_SHS), ...brt(B.END_BOOK));
+  book.push(...brt(B.END_BUNDLE_SHS));
+  if (spec.xti !== undefined || spec.supbooks !== undefined) {
+    book.push(...brt(B.BEGIN_EXTERNALS));
+    for (const supbook of spec.supbooks ?? [{ kind: "self" as const }]) {
+      if (supbook.kind === "self") book.push(...brt(B.SUP_SELF));
+      else {
+        book.push(...brt(B.SUP_ADDIN));
+        for (const name of supbook.names) book.push(...brt(B.PLACEHOLDER_NAME, wide(name)));
+      }
+    }
+    const xti = new Bytes().u32((spec.xti ?? []).length);
+    for (const entry of spec.xti ?? []) xti.u32(entry.supbook).u32(entry.first).u32(entry.last);
+    book.push(...brt(B.EXTERN_SHEET, xti.finish()), ...brt(B.END_EXTERNALS));
+  }
+  for (const name of spec.names ?? []) {
+    book.push(
+      ...brt(B.NAME, [
+        ...new Bytes().u32(name.isFunction === true ? 0x0002 : 0).u8(0).u32(name.sheetIndex ?? 0xffffffff).finish(),
+        ...wide(name.name),
+        ...new Bytes().u32(name.rgce.length).finish(),
+        ...name.rgce,
+        ...new Bytes().u32((name.rgcb ?? []).length).finish(),
+        ...(name.rgcb ?? []),
+        ...NULL_WIDE,
+      ]),
+    );
+  }
+  book.push(...brt(B.END_BOOK));
 
   const styles = [...brt(B.BEGIN_STYLE_SHEET), ...brt(B.BEGIN_FMTS, new Bytes().u32((spec.formats ?? []).length).finish())];
   for (const format of spec.formats ?? []) styles.push(...brt(B.FMT, [...new Bytes().u16(format.id).finish(), ...wide(format.code)]));

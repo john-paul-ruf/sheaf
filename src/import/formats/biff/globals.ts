@@ -10,7 +10,7 @@
  * every record after it is encrypted, and Sheaf never decrypts (invariant 8).
  */
 
-import type { MacroSignalV1 } from "../../facts/index.js";
+import type { DefinedNameSummaryV1, MacroSignalV1 } from "../../facts/index.js";
 import type { CfbHandleV1 } from "../../source/cfb.js";
 import { BoundExceededError } from "../../source/bounds.js";
 import { codePageDecoder, type CodePageDecoderV1 } from "./codepage.js";
@@ -31,7 +31,13 @@ import {
   type BiffRecordStreamV1,
   type BiffVersionV1,
 } from "./records.js";
-import type { PtgExternSheetV1, PtgSupbookV1 } from "./ptg.js";
+import {
+  decodePtgFormula,
+  type PtgCellV1,
+  type PtgContextV1,
+  type PtgExternSheetV1,
+  type PtgSupbookV1,
+} from "./ptg.js";
 
 /** `BOUNDSHEET8.dt` (MS-XLS §2.4.28). */
 export const SHEET_TYPE = Object.freeze({ WORKSHEET: 0, MACRO_SHEET: 1, CHART: 2, VB_MODULE: 6 });
@@ -341,4 +347,29 @@ function readName(body: Uint8Array): BiffNameV1 {
     rgce: body.slice(nameEnd, nameEnd + cce),
     rgcb: body.slice(nameEnd + cce),
   };
+}
+
+/** The `Ptg` decoding context of a BIFF8 workbook, for a formula at `cell`. */
+export const ptgContextOf = (globals: BiffGlobalsV1, cell: PtgCellV1 | null): PtgContextV1 => ({
+  format: "biff8",
+  sheetNames: globals.sheets.map((sheet) => sheet.name),
+  supbooks: globals.supbooks,
+  externSheets: globals.externSheets,
+  definedNames: globals.names.map((name) => name.name),
+  cell,
+});
+
+/**
+ * Defined names with their references decompiled to text. Function and
+ * macro names are not ranges and are left out; a name whose formula does not
+ * decode is left out rather than guessed. BIFF5 names are not read.
+ */
+export function definedNamesOf(globals: BiffGlobalsV1): DefinedNameSummaryV1[] {
+  if (globals.version !== "biff8") return [];
+  const context = ptgContextOf(globals, null);
+  return globals.names.flatMap((name) => {
+    if (name.isFunction) return [];
+    const decoded = decodePtgFormula(name.rgce, context, name.rgcb);
+    return "text" in decoded ? [{ name: name.name, ref: decoded.text.normalize("NFC"), sheetIndex: name.sheetIndex }] : [];
+  });
 }

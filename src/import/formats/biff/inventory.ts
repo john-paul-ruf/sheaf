@@ -30,7 +30,7 @@ import {
   type SheetVisibilityV1,
 } from "../../facts/index.js";
 import { BoundExceededError, CONTAINER_BOUNDS_V1, isBoundExceeded } from "../../source/bounds.js";
-import { readBiffGlobals, SHEET_TYPE, storageMacroSignal, type BiffSheetEntryV1 } from "./globals.js";
+import { definedNamesOf, readBiffGlobals, SHEET_TYPE, storageMacroSignal, type BiffSheetEntryV1 } from "./globals.js";
 import {
   CELL_RECORD_TYPES,
   malformed,
@@ -175,7 +175,7 @@ async function readInventory(container: ContainerHandleV1): Promise<InventoryOut
           format: "xls",
           sheets: globals.sheets.map((sheet) => items.get(sheet.sheetIndex) as SheetInventoryItemV1),
           sheetListKnown: true,
-          definedNames: [],
+          definedNames: definedNamesOf(globals),
           dateSystem: globals.is1904 ? "1904" : "1900",
           preservedPartCounts: workbookCounts,
         },

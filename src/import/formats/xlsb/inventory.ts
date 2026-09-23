@@ -37,7 +37,7 @@ import {
 } from "../../facts/index.js";
 import { readCommentAnchors, readDrawingObjects, readTablePart } from "./parts.js";
 import { BodyReaderV1, BRT, CELL_RECORD_TYPES, gridRange, openXlsbRecords } from "./records.js";
-import { readXlsbWorkbook, type XlsbSheetEntryV1 } from "./workbook.js";
+import { definedNamesOf, readXlsbWorkbook, type XlsbSheetEntryV1 } from "./workbook.js";
 
 /** The smallest a populated cell's record can be; see the module comment. */
 export const MIN_CELL_RECORD_BYTES = 7;
@@ -194,7 +194,7 @@ async function readInventory(container: ContainerHandleV1): Promise<InventoryOut
         format: "xlsb",
         sheets,
         sheetListKnown: true,
-        definedNames: [],
+        definedNames: definedNamesOf(workbook),
         dateSystem: workbook.is1904 ? "1904" : "1900",
         preservedPartCounts: workbookCounts(workbook.relationships),
       },
