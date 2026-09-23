@@ -12,6 +12,9 @@ const CREW_ROWS = [
   ["Grace", "Technician", 38],
 ];
 
+/** Jobs per month, the series most charts in `charts.xlsx` plot. */
+const MONTHLY = { series: [{ nameRef: "Data!$B$1", cat: "Data!$A$2:$A$5", val: "Data!$B$2:$B$5" }] } as const;
+
 export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<string, WorkbookSpec>([
   [
     "strict-namespace.xlsx",
@@ -112,6 +115,58 @@ export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<str
       sheets: [
         { name: "Data", rows: [["Month", "Jobs"], ["Jan", 12], ["Feb", 15]] },
         { name: "Jobs chart", kind: "chartsheet", charts: [{ range: "A1:A1" }] },
+      ],
+    },
+  ],
+  [
+    "charts.xlsx",
+    {
+      sheets: [
+        {
+          name: "Data",
+          rows: [
+            ["Month", "Jobs", "Hours", "Rate"],
+            ["Jan", 12, 96, 38],
+            ["Feb", 15, 118, 39],
+            ["Mar", 9, 70, 41],
+            ["Apr", 14, 104, 40],
+          ],
+        },
+        { name: "Other", rows: [["Month", "Visits"], ["Jan", 4], ["Feb", 6], ["Mar", 3], ["Apr", 5]] },
+        {
+          name: "Charts",
+          charts: [
+            { range: "A1:H15", ...MONTHLY, type: "barChart", barDir: "col", grouping: "clustered", title: "Jobs by month" },
+            {
+              range: "J1:Q15",
+              type: "barChart",
+              barDir: "bar",
+              grouping: "stacked",
+              series: [
+                { nameRef: "Data!$B$1", cat: "Data!$A$2:$A$5", val: "Data!$B$2:$B$5" },
+                { nameRef: "Data!$C$1", cat: "Data!$A$2:$A$5", val: "Data!$C$2:$C$5" },
+              ],
+            },
+            { range: "S1:Z15", ...MONTHLY, type: "bar3DChart", barDir: "col", grouping: "percentStacked" },
+            { range: "A17:H31", ...MONTHLY, type: "lineChart", grouping: "standard" },
+            { range: "J17:Q31", ...MONTHLY, type: "pieChart" },
+            { range: "S17:Z31", ...MONTHLY, type: "doughnutChart" },
+            {
+              range: "A33:H47",
+              type: "scatterChart",
+              title: "Hours by rate",
+              series: [{ name: "Hours", x: "Data!$D$2:$D$5", y: "Data!$C$2:$C$5" }],
+            },
+            { range: "J33:Q47", ...MONTHLY, type: "areaChart", grouping: "standard" },
+            {
+              range: "S33:Z47",
+              type: "barChart",
+              barDir: "col",
+              grouping: "clustered",
+              series: [{ nameRef: "Other!$B$1", cat: "Data!$A$2:$A$5", val: "Other!$B$2:$B$5" }],
+            },
+          ],
+        },
       ],
     },
   ],

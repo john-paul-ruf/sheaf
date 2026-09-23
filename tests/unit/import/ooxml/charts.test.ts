@@ -5,7 +5,7 @@ import { ooxmlAdapter } from "../../../../src/import/formats/ooxml/index.js";
 import { openZipContainer } from "../../../../src/import/source/zip.js";
 import { ooxmlEntries, type WorkbookSpec } from "../../../fixtures/workbooks/build/ooxml-builder.js";
 import { writeZip } from "../../../fixtures/workbooks/build/zip-writer.js";
-import { bytesSource } from "../fixtures.js";
+import { bytesSource, fixtureBytes } from "../fixtures.js";
 
 const TRANSITIONAL = {
   c: "http://schemas.openxmlformats.org/drawingml/2006/chart",
@@ -189,6 +189,47 @@ describe("chart part definitions (CA-31)", () => {
 });
 
 describe("chart definitions on the adapter's preserved-part facts", () => {
+  it("reads charts.xlsx: one chart per type and grouping, a scatter, an area, and a series across two sheets", async () => {
+    const zip = await openZipContainer(bytesSource(await fixtureBytes("ooxml/charts.xlsx")));
+    const definitions: unknown[] = [];
+    for await (const item of ooxmlAdapter.parseSheets({ kind: "zip", zip }, [0, 1, 2], { cancellation: { aborted: false } })) {
+      if (item.kind !== "batch") continue;
+      for (const fact of item.facts) {
+        if (fact.kind === "preserved-part" && fact.partKind === "chart") definitions.push(fact.definition);
+      }
+    }
+    const monthly = [{ name: "Data!$B$1", categoriesRef: "Data!$A$2:$A$5", valuesRef: "Data!$B$2:$B$5", xRef: null, yRef: null }];
+    expect(definitions).toEqual([
+      { chartType: "bar", barDirection: "col", grouping: "clustered", title: "Jobs by month", series: monthly },
+      {
+        chartType: "bar",
+        barDirection: "bar",
+        grouping: "stacked",
+        title: null,
+        series: [...monthly, { name: "Data!$C$1", categoriesRef: "Data!$A$2:$A$5", valuesRef: "Data!$C$2:$C$5", xRef: null, yRef: null }],
+      },
+      { chartType: "bar", barDirection: "col", grouping: "percentStacked", title: null, series: monthly },
+      { chartType: "line", barDirection: null, grouping: "standard", title: null, series: monthly },
+      { chartType: "pie", barDirection: null, grouping: null, title: null, series: monthly },
+      { chartType: "pie", barDirection: null, grouping: null, title: null, series: monthly },
+      {
+        chartType: "scatter",
+        barDirection: null,
+        grouping: null,
+        title: "Hours by rate",
+        series: [{ name: "Hours", categoriesRef: null, valuesRef: null, xRef: "Data!$D$2:$D$5", yRef: "Data!$C$2:$C$5" }],
+      },
+      { chartType: "area", barDirection: null, grouping: "standard", title: null, series: monthly },
+      {
+        chartType: "bar",
+        barDirection: "col",
+        grouping: "clustered",
+        title: null,
+        series: [{ name: "Other!$B$1", categoriesRef: "Data!$A$2:$A$5", valuesRef: "Other!$B$2:$B$5", xRef: null, yRef: null }],
+      },
+    ]);
+  });
+
   const SPEC: WorkbookSpec = {
     sheets: [
       { name: "Data", rows: [["Status", "Quoted"], ["Open", 10]], charts: [{ range: "D2:K18" }] },

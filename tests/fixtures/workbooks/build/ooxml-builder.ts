@@ -43,6 +43,56 @@ export interface AnchorSpec {
   readonly range: string;
 }
 
+/** One `c:ser`; every reference is written as `c:f` formula text. */
+export interface ChartSeriesSpec {
+  /** A literal series name (`c:tx/c:v`). */
+  readonly name?: string;
+  /** A series name taken from a cell (`c:tx/c:strRef`). */
+  readonly nameRef?: string;
+  readonly cat?: string;
+  readonly val?: string;
+  /** Scatter `c:xVal` / `c:yVal`. */
+  readonly x?: string;
+  readonly y?: string;
+}
+
+export interface ChartSpec extends AnchorSpec {
+  /** The plot element (`barChart`, `scatterChart` …); omitted, the part is F03's empty `c:chart`. */
+  readonly type?: string;
+  readonly barDir?: "bar" | "col";
+  readonly grouping?: string;
+  readonly title?: string;
+  readonly series?: readonly ChartSeriesSpec[];
+}
+
+const PIE_PLOTS = new Set(["pieChart", "pie3DChart", "doughnutChart", "ofPieChart"]);
+
+/** A chart part's body as ECMA-376 §21.2 lays it out, from a spec with a plot type. */
+const chartBody = (chart: ChartSpec & { readonly type: string }): string => {
+  const reference = (tag: string, kind: "strRef" | "numRef", formula: string | undefined) =>
+    formula === undefined ? "" : `<c:${tag}><c:${kind}><c:f>${escapeXml(formula)}</c:f></c:${kind}></c:${tag}>`;
+  const series = (chart.series ?? []).map((each, index) => {
+    const name = each.nameRef !== undefined
+      ? reference("tx", "strRef", each.nameRef)
+      : each.name === undefined ? "" : `<c:tx><c:v>${escapeXml(each.name)}</c:v></c:tx>`;
+    return `<c:ser><c:idx val="${index}"/><c:order val="${index}"/>${name}${reference("cat", "strRef", each.cat)}${reference("val", "numRef", each.val)}${reference("xVal", "numRef", each.x)}${reference("yVal", "numRef", each.y)}</c:ser>`;
+  });
+  const isScatter = chart.type === "scatterChart";
+  const hasAxes = !PIE_PLOTS.has(chart.type);
+  const head =
+    (isScatter ? '<c:scatterStyle val="lineMarker"/>' : "") +
+    (chart.barDir === undefined ? "" : `<c:barDir val="${chart.barDir}"/>`) +
+    (chart.grouping === undefined ? "" : `<c:grouping val="${chart.grouping}"/>`) +
+    '<c:varyColors val="0"/>';
+  const axis = (tag: string, id: number, cross: number, position: string) =>
+    `<c:${tag}><c:axId val="${id}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${position}"/><c:crossAx val="${cross}"/></c:${tag}>`;
+  const axes = hasAxes ? axis(isScatter ? "valAx" : "catAx", 100, 200, "b") + axis("valAx", 200, 100, "l") : "";
+  const title = chart.title === undefined
+    ? '<c:autoTitleDeleted val="1"/>'
+    : `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>${escapeXml(chart.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`;
+  return `${title}<c:plotArea><c:layout/><c:${chart.type}>${head}${series.join("")}${hasAxes ? '<c:axId val="100"/><c:axId val="200"/>' : ""}</c:${chart.type}>${axes}</c:plotArea><c:plotVisOnly val="1"/>`;
+};
+
 export interface ValidationSpec {
   readonly sqref: string;
   readonly type: "list" | "whole" | "decimal" | "date" | "time" | "textLength" | "custom";
@@ -91,7 +141,7 @@ export interface SheetSpec {
   readonly tables?: readonly TableSpec[];
   readonly shapes?: readonly AnchorSpec[];
   readonly pictures?: readonly AnchorSpec[];
-  readonly charts?: readonly AnchorSpec[];
+  readonly charts?: readonly ChartSpec[];
   readonly comments?: readonly { readonly ref: string; readonly text: string }[];
   readonly hyperlinks?: readonly { readonly ref: string; readonly target: string }[];
   readonly conditionalFormatting?: readonly string[];
@@ -261,7 +311,7 @@ export const ooxmlEntries = (spec: WorkbookSpec): ZipEntrySpec[] => {
     const anchors = [
       ...(sheet.shapes ?? []).map((anchor) => ({ ...anchor, type: "shape" as const })),
       ...(sheet.pictures ?? []).map((anchor) => ({ ...anchor, type: "picture" as const })),
-      ...(sheet.charts ?? []).map((anchor) => ({ ...anchor, type: "chart" as const })),
+      ...(sheet.charts ?? []).map((chart) => ({ range: chart.range, type: "chart" as const, chart })),
     ];
     if (anchors.length > 0) {
       drawingCount += 1;
@@ -284,9 +334,12 @@ export const ooxmlEntries = (spec: WorkbookSpec): ZipEntrySpec[] => {
           } else {
             chartCount += 1;
             const chartRel = drawingRels.add(ns.rel("chart"), `../charts/chart${chartCount}.xml`);
+            const type = anchor.chart.type;
             parts.push({
               name: `xl/charts/chart${chartCount}.xml`,
-              data: `${XML_DECLARATION}<c:chartSpace xmlns:c="${ns.chart}"><c:chart/></c:chartSpace>`,
+              data: type === undefined
+                ? `${XML_DECLARATION}<c:chartSpace xmlns:c="${ns.chart}"><c:chart/></c:chartSpace>`
+                : `${XML_DECLARATION}<c:chartSpace xmlns:c="${ns.chart}" xmlns:a="${ns.a}" xmlns:r="${ns.r}"><c:chart>${chartBody({ ...anchor.chart, type })}</c:chart></c:chartSpace>`,
               contentType: CONTENT_TYPES.chart,
             });
             element = `<xdr:graphicFrame><xdr:nvGraphicFramePr><xdr:cNvPr id="${index + 2}" name="Chart ${index + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm/><a:graphic><a:graphicData uri="${ns.chart}"><c:chart xmlns:c="${ns.chart}" r:id="${chartRel}"/></a:graphicData></a:graphic></xdr:graphicFrame>`;

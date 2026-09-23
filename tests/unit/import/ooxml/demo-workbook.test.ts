@@ -128,6 +128,33 @@ describe("the GATE-F03 demo workbook", () => {
     expect(valueAt(jobs, 5, 8)).toMatchObject({ value: { kind: "boolean", boolean: false } });
   });
 
+  it("carries the Overview chart's definition on its one chart fact, moving no pinned count (CA-31)", async () => {
+    const overview = bySheet(await parse([5])).get("Overview") ?? [];
+    const charts = overview.filter((fact) => fact.kind === "preserved-part" && fact.partKind === "chart");
+    expect(charts).toEqual([
+      {
+        kind: "preserved-part",
+        partKind: "chart",
+        location: "Overview!D2:K18",
+        reasonKey: "chart-not-live-yet",
+        anchor: { firstRow: 1, firstColumn: 3, lastRow: 17, lastColumn: 10 },
+        partPath: "xl/charts/chart1.xml",
+        definition: {
+          chartType: "bar",
+          barDirection: "col",
+          grouping: "clustered",
+          title: "Quoted by status",
+          series: [{ name: "Jobs!$E$1", categoriesRef: "Jobs!$D$2:$D$61", valuesRef: "Jobs!$E$2:$E$61", xRef: null, yRef: null }],
+        },
+      },
+    ]);
+    // The definition rides the existing fact: F03's pins stand as they were.
+    expect(DEMO_FACT_COUNTS.Overview).toEqual({ sheet: 1, "preserved-part": 4, row: 5, value: 9, formula: 4, "cell-format": 1 });
+    expect(DEMO_PRESERVED_PARTS.Overview).toEqual({ drawing: 2, chart: 1, "cell-styling": 1 });
+    expect(DEMO_SUMMARY).toEqual({ rowCount: 2169, columnCount: 10, valueCount: 8996 });
+    expect(overview.filter((fact) => fact.kind === "preserved-part" && "definition" in fact)).toHaveLength(1);
+  });
+
   it("keeps Visits' Job IDs inside Jobs', Crew's spacer and repeated heading, and the missing customer", async () => {
     const sheets = bySheet(await parse([0, 1, 2, 3]));
     const column = (sheet: string, columnIndex: number) =>

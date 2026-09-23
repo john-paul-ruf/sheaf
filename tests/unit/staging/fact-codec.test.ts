@@ -130,7 +130,7 @@ describe("staged fact chunks (CA-17)", () => {
         if (parts.length > 0) expectRoundTrip(item);
       }
     }
-    expect([...defined].sort()).toEqual(["pivot-table"]);
+    expect([...defined].sort()).toEqual(["chart", "pivot-table"]);
   });
 
   describe("the optional chart and pivot definition (CA-31)", () => {

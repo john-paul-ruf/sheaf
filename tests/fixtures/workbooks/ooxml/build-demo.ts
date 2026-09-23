@@ -17,7 +17,8 @@
  *   at row 29 and the headings repeated below it;
  * - **Visits** — declared table whose Job IDs all appear in Jobs (key match);
  * - **Materials** — a single-column lookup list;
- * - **Overview** — summary formulas over Jobs, one chart, two shapes;
+ * - **Overview** — summary formulas over Jobs, one chart (Quoted amount by
+ *   Status, clustered columns), two shapes;
  * - **Archive 2018** — a plain 2,000-row table the demo deselects.
  */
 
@@ -214,7 +215,16 @@ export const DEMO_WORKBOOK: WorkbookSpec = {
         ["Paid total", { value: PAID_TOTAL, style: CURRENCY, formula: { text: `SUM(Jobs!F2:F${JOB_COUNT + 1})` } }],
         ["Balance", { value: cents(QUOTED_TOTAL - PAID_TOTAL), style: CURRENCY, formula: { text: "B4-B5" } }],
       ],
-      charts: [{ range: "D2:K18" }],
+      charts: [
+        {
+          range: "D2:K18",
+          type: "barChart",
+          barDir: "col",
+          grouping: "clustered",
+          title: "Quoted by status",
+          series: [{ nameRef: "Jobs!$E$1", cat: `Jobs!$D$2:$D$${JOB_COUNT + 1}`, val: `Jobs!$E$2:$E$${JOB_COUNT + 1}` }],
+        },
+      ],
       shapes: [{ range: "D20:F24" }, { range: "H20:J24" }],
     },
     { name: "Archive 2018", rows: archiveRows() },
