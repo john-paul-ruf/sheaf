@@ -52,3 +52,19 @@ refusal subjects in F02; their fidelity corpora arrive with F03's adapters.
 - Builders: `biff/build-biff.ts` (BIFF8/BIFF5 over S01's `writeCfb`: SST split across `CONTINUE`, RK/MULRK/NUMBER/MULBLANK choice, FORMULA + SHRFMLA/ARRAY/TABLE/STRING, names, SUPBOOK/EXTERNSHEET, DV, MERGEDCELLS, HLINK, NOTE, OBJ, chart substreams, CONDFMT; `poisonCells: true | number[]`), `biff/ptg-writer.ts` (token streams for both widths), `biff/build-fidelity.ts`, `xlsb/build-xlsb.ts` (BIFF12 parts over S01's `writeZip`, incl. drawings/comments/hyperlinks), `xlsb/build-fidelity.ts` (incl. `FIELDWORK_JOBS`, converted from S01's `DEMO_WORKBOOK`). Corpus maps `biff/corpus.ts` (`BIFF_CORPUS`, 19 files) and `xlsb/corpus.ts` (`XLSB_CORPUS`, 14 files), reproduced byte for byte by `tests/unit/import/{biff,xlsb}/corpus.test.ts` (`SHEAF_WRITE_FIXTURES=1` rewrites).
 - `xlsb/fieldwork-jobs.xlsb` is the XLSB version of the demo's Jobs + Customers (+ Materials) — its facts equal the OOXML adapter's facts for sheets [0,1,4] of `ooxml/fieldwork-q3.xlsx` (sheet indexes and part paths aside) and its per-sheet counts equal `DEMO_FACT_COUNTS`.
 - Host hazard: a BIFF fixture holding a picture, a checkbox and a shape `OBJ` on one sheet was quarantined by this host's endpoint security on write (EPERM on every later open); the corpus splits them (`annotations.xls`, `controls.xls`).
+
+<!-- workbook-fidelity SESSION-05 -->
+### workbook-fidelity SESSION-05 (2026-09-22, commits 871924f..5df4b01)
+
+**M58 — workbook fixtures — grown**
+
+- `tests/fixtures/workbooks/ods/`: `build-ods.ts` (deterministic ODS package builder over S01's `zip-writer.ts`; `FORMAT_STYLES`), `corpus.ts` (`ODS_CORPUS`), `demo-pair.ts` (`DEMO_PAIR`, `buildDemoOds`, `isoDateOf` — Jobs + Customers from S01's `DEMO_WORKBOOK`), 9 fixtures: `lookup-validation`, `repeats`, `hostile-repeat`, `formats`, `annotation-chart`, `encrypted`, `basic-macro`, `no-settings`, `fieldwork-jobs-customers`.
+- `tests/fixtures/workbooks/html-table/`: `corpus.ts` (`HTML_TABLE_CORPUS`, `windows1252`), 5 fixtures: `merged-headers.html`, `active-content.html`, `windows-1252.html`, `excel-export.xls` (MOD-004 case), `fieldwork-jobs-customers.html`.
+- Reproduction asserted by `tests/unit/import/{ods,html-table}/corpus.test.ts` (`SHEAF_WRITE_FIXTURES=1` regenerates).
+
+<!-- workbook-fidelity SESSION-05 -->
+### workbook-fidelity SESSION-05 (2026-09-22, commits 871924f..5df4b01)
+
+**M56/M57 — tests — grown**
+
+- `tests/unit/import/ods/{corpus,inventory,parse}.test.ts`, `tests/unit/import/html-table/{corpus,inventory,parse}.test.ts`, `tests/property/import/{ods,html-table}.test.ts`.
