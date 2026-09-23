@@ -48,7 +48,13 @@ import {
   type RecordPatchedPayloadV1,
   type RecordRestoredPayloadV1,
 } from "../../domain/model/events.js";
-import { DELETION_SOURCES, INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
+import {
+  APP_THEME_TOKENS,
+  DELETION_SOURCES,
+  INFERENCE_DISPOSITIONS,
+  isThemeColor,
+  type AppThemeV1,
+} from "../../domain/model/events.js";
 import type { FieldId } from "../../domain/model/ids.js";
 import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
 import {
@@ -57,11 +63,13 @@ import {
 } from "../../domain/model/provenance.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import {
+  decodeAppTheme,
   decodeCellValue,
   decodeEnumOption,
   decodeFieldDef,
   decodeSheetDescriptor,
   decodeTableDef,
+  encodeAppTheme,
   encodeCellValue,
   encodeEnumOption,
   encodeFieldDef,
@@ -104,7 +112,7 @@ export function isRecordEventKind(kind: string): kind is RecordEventKindV1 {
 
 /**
  * Every kind a tail commit may carry: CRUD, an appended table's schema, and
- * F04's schema, rule, formula and chart edits.
+ * F04's schema, rule, formula, chart and theme edits.
  */
 export const TAIL_EVENT_KINDS = Object.freeze([
   ...RECORD_EVENT_KINDS,
@@ -114,6 +122,7 @@ export const TAIL_EVENT_KINDS = Object.freeze([
   "inference-decision.recorded",
   ...F04_SCHEMA_EVENT_KINDS,
   ...F04_CHART_EVENT_KINDS,
+  "theme.changed",
 ] as const);
 
 export type TailEventKindV1 = (typeof TAIL_EVENT_KINDS)[number];
@@ -327,6 +336,11 @@ export function encodeRecordEventPayload(event: DomainEventV1): CborValue {
     case "chart.saved":
     case "chart.deleted":
       return encodeChartEventPayload(event);
+    case "theme.changed":
+      return cborMap([
+        ["before", event.payload.before === null ? null : encodeTheme(event.payload.before)],
+        ["after", encodeTheme(event.payload.after)],
+      ]);
     case "record.created":
       return cborMap([
         ["record", encodeAuthoredRecord(event.payload.record)],
@@ -359,6 +373,17 @@ export function encodeRecordEventPayload(event: DomainEventV1): CborValue {
     default:
       throw new CodecError("this event kind is not one a command authors");
   }
+}
+
+/** A theme a command writes names every token as a colour (CA-32). */
+function encodeTheme(theme: AppThemeV1): CborValue {
+  for (const token of APP_THEME_TOKENS) {
+    const value = theme.tokens[token] as string | undefined;
+    if (value === undefined || !isThemeColor(value)) {
+      throw new CodecError("a theme token is not a colour");
+    }
+  }
+  return encodeAppTheme(theme);
 }
 
 /**
@@ -477,6 +502,17 @@ export function decodeTailEventPayload(
     case "chart.saved":
     case "chart.deleted":
       return decodeChartEventPayload(kind, payload);
+    case "theme.changed": {
+      const map = exactKeys(asMap(payload, "a theme.changed payload"), ["before", "after"], "a theme.changed payload");
+      const before = field(map, "before");
+      return {
+        kind,
+        payload: {
+          before: before === null ? null : decodeAppTheme(before),
+          after: decodeAppTheme(field(map, "after")),
+        },
+      };
+    }
     case "record.created":
     case "record.patched":
     case "record.deleted":

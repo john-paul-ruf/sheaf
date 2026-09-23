@@ -146,6 +146,7 @@ import {
 } from "./event-store.js";
 import { encodeAuthoredRecordBytes } from "./record-event-payloads.js";
 import type { LocalCatalogAppEntryV1, LocalCatalogV1 } from "./catalog.js";
+import { toThemeWire } from "./theme-handlers.js";
 
 export interface RecordHandlerDependenciesV1 {
   readonly clock: ClockPort;
@@ -814,7 +815,8 @@ function toSessionView(
   return {
     appId: encodeDomainId(state.appId),
     displayName: state.displayName,
-    theme: state.theme,
+    theme: toThemeWire(state.theme),
+    ...(entry === undefined ? {} : { accentId: entry.identity.accentId, glyph: entry.identity.glyph }),
     schemaRevision: Number(state.schemaRevision),
     createdAtEpochMs: state.createdAtMs,
     lastOpenedAtEpochMs: entry?.lastOpenedAtEpochMs ?? state.lastOpenedAtMs,

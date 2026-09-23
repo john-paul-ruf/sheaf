@@ -763,6 +763,28 @@ export interface GetChartDatasetRequestV1 {
   readonly tableOffset?: number;
 }
 
+/** The built-in palettes (DF-1): the same constants the worker composes themes from. */
+export interface ListThemePalettesRequestV1 {
+  readonly kind: "listThemePalettes";
+}
+
+/**
+ * SCR-036 "Save theme locally" (CAP-37). The caller names a palette and its
+ * choices; the tokens are the worker's to compose, never the caller's.
+ */
+export interface ChangeThemeRequestV1 {
+  readonly kind: "changeTheme";
+  readonly appId: string;
+  readonly themeKey: string;
+  readonly mode: AppThemeModeWireV1;
+  readonly density: AppThemeDensityWireV1;
+  readonly customAccent: string | null;
+  readonly logo:
+    | { readonly kind: "keep" }
+    | { readonly kind: "remove" }
+    | ({ readonly kind: "set" } & AppLogoWireV1);
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -812,7 +834,9 @@ export type DataWorkerRequestV1 =
   | GetChartDraftRequestV1
   | SaveChartDraftRequestV1
   | DiscardChartDraftRequestV1
-  | GetChartDatasetRequestV1;
+  | GetChartDatasetRequestV1
+  | ListThemePalettesRequestV1
+  | ChangeThemeRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -1630,6 +1654,18 @@ export interface LibraryAppV1 {
   readonly tableCount: number;
   /** `true` while the app has no durable home — the persistent scratch fact. */
   readonly isScratch: boolean;
+  /**
+   * The tile identity the app's theme gives it (CAP-37): its palette's light
+   * primary with the label colour on it, and its logo. Absent while the app
+   * keeps the theme it was created with, whose tile is `accentId`.
+   */
+  readonly themeTile?: LibraryThemeTileV1;
+}
+
+export interface LibraryThemeTileV1 {
+  readonly primary: string;
+  readonly label: string;
+  readonly logo: AppLogoWireV1 | null;
 }
 
 export interface ListLibraryResponseV1 {
@@ -1700,10 +1736,80 @@ export type AppThemeTokenWireV1 =
   | "app-accent"
   | "app-muted";
 
+export type AppThemeTokensWireV1 = Readonly<Record<AppThemeTokenWireV1, string>>;
+
+/** D56's modes; absent on the wire means light. */
+export type AppThemeModeWireV1 = "light" | "dark" | "system";
+
+/** Absent on the wire means comfortable. */
+export type AppThemeDensityWireV1 = "comfortable" | "compact";
+
+/**
+ * A logo as the page may hold it: the PNG as base64 text (a byte type cannot
+ * cross this contract), at most 256×256 and 64 KiB (D56).
+ */
+export interface AppLogoWireV1 {
+  readonly pngBase64: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * An app's theme (D29, v2 D56). The v2 members are optional and appear only
+ * when the stored theme sets them, so an F02/F03 theme crosses unchanged.
+ * `darkTokens` is the built-in palette's dark set (DF-1), present exactly when
+ * the theme names a palette that has one.
+ */
 export interface AppThemeWireV1 {
   readonly themeKey: string;
-  readonly tokens: Readonly<Record<AppThemeTokenWireV1, string>>;
+  readonly tokens: AppThemeTokensWireV1;
+  readonly mode?: AppThemeModeWireV1;
+  readonly density?: AppThemeDensityWireV1;
+  /** `#rrggbb`, in place of `app-accent` in every mode the theme renders. */
+  readonly customAccent?: string;
+  readonly darkTokens?: AppThemeTokensWireV1;
+  readonly logo?: AppLogoWireV1;
 }
+
+/** A built-in palette (DF-1) as the theme editor offers it. */
+export interface ThemePaletteWireV1 {
+  readonly key: string;
+  readonly name: string;
+  readonly light: AppThemeTokensWireV1;
+  readonly dark: AppThemeTokensWireV1;
+}
+
+/** The contrast pairs CA-32 names, one check per pair per rendered mode. */
+export type ThemeContrastPairWireV1 =
+  | "ink-canvas"
+  | "ink-surface"
+  | "primary-label"
+  | "accent-canvas"
+  | "accent-surface"
+  | "focus-canvas"
+  | "focus-surface"
+  | "focus-chrome";
+
+export interface ThemeContrastCheckWireV1 {
+  readonly mode: "light" | "dark";
+  readonly pair: ThemeContrastPairWireV1;
+  readonly ratio: number;
+  readonly minimum: number;
+}
+
+export type ThemeRefusalWireV1 =
+  | { readonly kind: "unknown-palette" }
+  | { readonly kind: "invalid-accent" }
+  | { readonly kind: "logo"; readonly reason: "unreadable" | "over-bytes" | "over-edge" }
+  | { readonly kind: "contrast"; readonly failures: readonly ThemeContrastCheckWireV1[] };
+
+/** Acknowledged only after the encrypted commit (invariant 1). */
+export type ThemeOutcomeWireV1 =
+  | { readonly result: "changed"; readonly theme: AppThemeWireV1 }
+  /** The stored theme was already this one; nothing was written. */
+  | { readonly result: "unchanged"; readonly theme: AppThemeWireV1 }
+  | { readonly result: "refused"; readonly refusal: ThemeRefusalWireV1 }
+  | { readonly result: "unknown-app" };
 
 export interface AppEnumOptionViewV1 {
   readonly optionId: string;
@@ -1742,6 +1848,9 @@ export interface AppSessionViewV1 {
   readonly appId: string;
   readonly displayName: string;
   readonly theme: AppThemeWireV1;
+  /** The library tile's identity (D29), so the app's own chrome matches it. */
+  readonly accentId?: string;
+  readonly glyph?: string;
   readonly schemaRevision: number;
   readonly createdAtEpochMs: number;
   readonly lastOpenedAtEpochMs: number | null;
@@ -2532,6 +2641,16 @@ export interface GetChartDatasetResponseV1 {
   readonly refusals?: readonly ChartRefusalWireV1[];
 }
 
+export interface ListThemePalettesResponseV1 {
+  readonly kind: "listThemePalettes";
+  readonly palettes: readonly ThemePaletteWireV1[];
+}
+
+export interface ChangeThemeResponseV1 {
+  readonly kind: "changeTheme";
+  readonly outcome: ThemeOutcomeWireV1;
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -2581,7 +2700,9 @@ export type DataWorkerResponseV1 =
   | GetChartDraftResponseV1
   | SaveChartDraftResponseV1
   | DiscardChartDraftResponseV1
-  | GetChartDatasetResponseV1;
+  | GetChartDatasetResponseV1
+  | ListThemePalettesResponseV1
+  | ChangeThemeResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

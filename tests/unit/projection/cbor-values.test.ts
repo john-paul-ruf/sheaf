@@ -30,6 +30,8 @@ import {
   encodeMessageParameters,
   encodeRuleIR,
 } from "../../../src/persistence/projection/cbor-values.js";
+import { encodeAppTheme as encodeDurableTheme } from "../../../src/import/staging/roots.js";
+import { decodeCanonical, encodeCanonical } from "../../../src/persistence/codecs/canonical-cbor.js";
 
 const fieldA = asDomainId("field", new Uint8Array(16).fill(1));
 const fieldB = asDomainId("field", new Uint8Array(16).fill(2));
@@ -148,6 +150,38 @@ describe("app theme payload", () => {
     };
 
     expect(() => encodeAppTheme(partial)).toThrow(CodecError);
+  });
+
+  // CA-32: the projection's session copy of a v2 theme must keep every field,
+  // or a "keep the logo" save reads a logo-less theme and commits its removal.
+  const v2 = {
+    ...theme,
+    mode: "dark" as const,
+    density: "compact" as const,
+    customAccent: "#1a2b3c",
+    logo: { mediaType: "image/png" as const, bytes: new Uint8Array([137, 80, 78, 71]), width: 48, height: 32 },
+  };
+
+  it("round-trips every v2 field", () => {
+    expect(decodeAppTheme(encodeAppTheme(v2))).toEqual(v2);
+  });
+
+  it("keeps an F02/F03 theme's bytes: exactly themeKey and tokens", () => {
+    const bytes = encodeAppTheme(theme);
+    expect([...(decodeCanonical(bytes) as ReadonlyMap<string, unknown>).keys()].sort()).toEqual(["themeKey", "tokens"]);
+    expect(encodeAppTheme(decodeAppTheme(bytes))).toEqual(bytes);
+  });
+
+  it("writes the same theme bytes as the durable app-state codec", () => {
+    for (const each of [theme, v2, { ...theme, mode: "system" as const }]) {
+      expect(encodeAppTheme(each)).toEqual(encodeCanonical(encodeDurableTheme(each)));
+    }
+  });
+
+  it("refuses a mode outside the closed list", () => {
+    const map = new Map(decodeCanonical(encodeAppTheme(v2)) as ReadonlyMap<string, never>);
+    map.set("mode", "sepia" as never);
+    expect(() => decodeAppTheme(encodeCanonical(map as never))).toThrow(CodecError);
   });
 });
 

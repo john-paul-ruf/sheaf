@@ -77,6 +77,7 @@ import {
 import { createRecordHandlers } from "./record-handlers.js";
 import { createStructureHandlers } from "./structure-handlers.js";
 import { createChartHandlers } from "./chart-handlers.js";
+import { createThemeHandlers } from "./theme-handlers.js";
 import type { SchemaCommitLimitsV1 } from "../../application/commands/schema-commands.js";
 import {
   isIdleTimeoutMinutesV1,
@@ -172,6 +173,17 @@ export function createDataWorkerHandler(
   });
 
   const charts = createChartHandlers({
+    clock: deps.clock,
+    entropy: deps.entropy,
+    appSession: (appId) => records.appSession(appId),
+    closeAppSession: (appId) => {
+      records.closeAppSession(appId);
+    },
+    getContext: () => importContext(requireUnlocked()),
+    commitCatalog: (next) => commitCatalog(next),
+  });
+
+  const themes = createThemeHandlers({
     clock: deps.clock,
     entropy: deps.entropy,
     appSession: (appId) => records.appSession(appId),
@@ -892,6 +904,10 @@ export function createDataWorkerHandler(
           return charts.discardChartDraft(request);
         case "getChartDataset":
           return charts.getChartDataset(request);
+        case "listThemePalettes":
+          return Promise.resolve(themes.listThemePalettes());
+        case "changeTheme":
+          return themes.changeTheme(request);
         default: {
           const unreachable: never = request;
           void unreachable;

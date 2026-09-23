@@ -107,6 +107,7 @@ import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { AppSessionV1 } from "./app-session.js";
 import type { LoadedAppV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
+import { toThemeTileWire } from "./theme-handlers.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import { inferWorkbook } from "../../import/inference/workbook.js";
 import { refreshFormulas } from "../../import/inference/formulas.js";
@@ -1502,6 +1503,7 @@ export function createImportHandlers(
           // No home means scratch — the persistent fact the tile states
           // truthfully until F05 gives the user somewhere to put it (D26).
           isScratch: app.homeId === null,
+          ...(app.themeTile === undefined ? {} : { themeTile: toThemeTileWire(app.themeTile) }),
         })),
       });
     },

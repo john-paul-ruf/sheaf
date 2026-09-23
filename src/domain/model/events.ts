@@ -104,10 +104,169 @@ export const APP_THEME_TOKENS = Object.freeze([
 
 export type AppThemeTokenV1 = (typeof APP_THEME_TOKENS)[number];
 
+export type AppThemeTokensV1 = Readonly<Record<AppThemeTokenV1, string>>;
+
+/** D56: how the app is drawn. Absent means light; `system` follows the device. */
+export const APP_THEME_MODES = Object.freeze(["light", "dark", "system"] as const);
+
+export type AppThemeModeV1 = (typeof APP_THEME_MODES)[number];
+
+/** D56: absent means comfortable. */
+export const APP_THEME_DENSITIES = Object.freeze(["comfortable", "compact"] as const);
+
+export type AppThemeDensityV1 = (typeof APP_THEME_DENSITIES)[number];
+
+/** D56: a logo is a PNG of at most 256×256 px and at most 64 KiB. */
+export const APP_LOGO_MAX_EDGE = 256;
+export const APP_LOGO_MAX_BYTES = 64 * 1024;
+
+/** The logo as re-encoded on the page (D56). Absent means the initials remain. */
+export interface AppThemeLogoV1 {
+  readonly mediaType: "image/png";
+  readonly bytes: Uint8Array;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * An app's theme. The v2 fields (D56, CA-32) are additive and optional, so a
+ * theme written by F02 or F03 reads as light, comfortable, the palette's own
+ * accent, and no logo.
+ */
 export interface AppThemeV1 {
-  /** Names the built-in theme this app started from (FR-17, F02 partial). */
+  /** A built-in palette key (DF-1), or the F02 built-in `sheaf.built-in.v1`. */
   readonly themeKey: string;
-  readonly tokens: Readonly<Record<AppThemeTokenV1, string>>;
+  /** The light set: a palette's DF-1 light tokens, or the only set a legacy theme has. */
+  readonly tokens: AppThemeTokensV1;
+  readonly mode?: AppThemeModeV1;
+  readonly density?: AppThemeDensityV1;
+  /** `#rrggbb`. Replaces `app-accent` in every mode the theme renders. */
+  readonly customAccent?: string;
+  readonly logo?: AppThemeLogoV1;
+}
+
+/** A colour a theme may carry: `#rrggbb`, lower case. */
+export function isThemeColor(value: string): boolean {
+  return /^#[0-9a-f]{6}$/u.test(value);
+}
+
+// ------------------------------------------------------------ contrast gate --
+
+/**
+ * One mode a theme is drawn in, with the six tokens it is drawn with — the
+ * custom accent already in place of the palette's.
+ */
+export interface AppThemeRenderingV1 {
+  readonly mode: "light" | "dark";
+  readonly tokens: AppThemeTokensV1;
+}
+
+/**
+ * The system-owned focus colours the gate measures against (design.md § Built-in
+ * app palettes): Leaf 700 on light canvas and surface, Sprout 300 on `app-ink`
+ * chrome and on every dark background. They are M40's `--focus-ring-color` and
+ * `--focus-ring-color-on-ink`, copied because the domain cannot read a
+ * stylesheet; `tests/unit/ui/theme.test.ts` pins them to `tokens.css`.
+ */
+export const SYSTEM_FOCUS_COLORS = Object.freeze({ onLight: "#2d5a4b", onInk: "#cbea80" });
+
+/** The pairs CA-32 names, as design.md's contrast table lists them. */
+export const THEME_CONTRAST_PAIRS = Object.freeze([
+  "ink-canvas",
+  "ink-surface",
+  "primary-label",
+  "accent-canvas",
+  "accent-surface",
+  "focus-canvas",
+  "focus-surface",
+  "focus-chrome",
+] as const);
+
+export type ThemeContrastPairV1 = (typeof THEME_CONTRAST_PAIRS)[number];
+
+/** WCAG 2.x: text pairs 4.5:1, non-text indicators (accent, focus) 3:1. */
+export const TEXT_CONTRAST_MINIMUM = 4.5;
+export const NON_TEXT_CONTRAST_MINIMUM = 3;
+
+export interface ThemeContrastCheckV1 {
+  readonly mode: "light" | "dark";
+  readonly pair: ThemeContrastPairV1;
+  readonly ratio: number;
+  readonly minimum: number;
+  readonly passes: boolean;
+}
+
+const channel = (hex: string, offset: number): number => {
+  const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+  return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+};
+
+const luminance = (hex: string): number => {
+  if (!isThemeColor(hex.toLowerCase())) {
+    throw new RangeError("a theme colour is #rrggbb");
+  }
+  return 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
+};
+
+/** WCAG 2.x contrast ratio of two `#rrggbb` colours, from 1 to 21. */
+export function contrastRatio(first: string, second: string): number {
+  const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a) as [number, number];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * The modes a theme is drawn in (`system` is both), each with the custom accent
+ * applied. A dark rendering needs the palette's dark set; a theme with none can
+ * be drawn only in light, and asking for more is the caller's error.
+ */
+export function themeRenderings(
+  theme: AppThemeV1,
+  darkTokens: AppThemeTokensV1 | null,
+): readonly AppThemeRenderingV1[] {
+  const mode = theme.mode ?? "light";
+  const accented = (tokens: AppThemeTokensV1): AppThemeTokensV1 =>
+    theme.customAccent === undefined ? tokens : { ...tokens, "app-accent": theme.customAccent };
+  const modes: readonly ("light" | "dark")[] = mode === "system" ? ["light", "dark"] : [mode];
+  return modes.map((rendered) => {
+    if (rendered === "light") return { mode: rendered, tokens: accented(theme.tokens) };
+    if (darkTokens === null) throw new RangeError("this theme has no dark set");
+    return { mode: rendered, tokens: accented(darkTokens) };
+  });
+}
+
+/**
+ * The contrast gate (D56, CA-32): every pair of every rendering, with its ratio
+ * and verdict, so a refusal can name what fails. Pure; the editor's live
+ * verdict and the worker's `changeTheme` command run this same function.
+ *
+ * Light mode paints its chrome with `app-ink` (the focus ring there is Sprout);
+ * dark mode paints its chrome with `app-surface`, which the surface pairs
+ * cover. Text on `app-primary` is `app-surface` in light and `app-canvas` in
+ * dark.
+ */
+export function evaluateThemeContrast(
+  renderings: readonly AppThemeRenderingV1[],
+): readonly ThemeContrastCheckV1[] {
+  return renderings.flatMap(({ mode, tokens }) => {
+    const focus = mode === "light" ? SYSTEM_FOCUS_COLORS.onLight : SYSTEM_FOCUS_COLORS.onInk;
+    const label = mode === "light" ? tokens["app-surface"] : tokens["app-canvas"];
+    const pairs: readonly (readonly [ThemeContrastPairV1, string, string, number])[] = [
+      ["ink-canvas", tokens["app-ink"], tokens["app-canvas"], TEXT_CONTRAST_MINIMUM],
+      ["ink-surface", tokens["app-ink"], tokens["app-surface"], TEXT_CONTRAST_MINIMUM],
+      ["primary-label", label, tokens["app-primary"], TEXT_CONTRAST_MINIMUM],
+      ["accent-canvas", tokens["app-accent"], tokens["app-canvas"], NON_TEXT_CONTRAST_MINIMUM],
+      ["accent-surface", tokens["app-accent"], tokens["app-surface"], NON_TEXT_CONTRAST_MINIMUM],
+      ["focus-canvas", focus, tokens["app-canvas"], NON_TEXT_CONTRAST_MINIMUM],
+      ["focus-surface", focus, tokens["app-surface"], NON_TEXT_CONTRAST_MINIMUM],
+      ...(mode === "light"
+        ? [["focus-chrome", SYSTEM_FOCUS_COLORS.onInk, tokens["app-ink"], NON_TEXT_CONTRAST_MINIMUM] as const]
+        : []),
+    ];
+    return pairs.map(([pair, foreground, background, minimum]) => {
+      const ratio = contrastRatio(foreground, background);
+      return { mode, pair, ratio, minimum, passes: ratio >= minimum };
+    });
+  });
 }
 
 export interface AppCreatedPayloadV1 {

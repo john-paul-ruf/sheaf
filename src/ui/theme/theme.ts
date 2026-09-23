@@ -63,27 +63,29 @@ export interface ShellThemeOptions {
 }
 
 /**
- * Mounts the shell theme on `root` — normally `document.documentElement`.
- *
+ * The one guard every theme path goes through — the shell's and each app's.
  * Throws if `variables` names a system-owned property: a theme that could dim
  * the danger colour or the focus ring is a safety regression, so this fails
  * closed rather than silently dropping the assignment.
  */
+export function assertPresentationOnly(variables: ThemeVariables): void {
+  const forbidden = Object.keys(variables).filter((name) => SYSTEM_OWNED.has(name));
+  if (forbidden.length > 0) {
+    throw new Error(
+      `A theme cannot override system-owned properties: ${forbidden.join(", ")}. ` +
+        "Safety semantics and the focus ring are fixed by the Sheaf shell.",
+    );
+  }
+}
+
+/** Mounts the shell theme on `root` — normally `document.documentElement`. */
 export function applyShellTheme(
   root: HTMLElement,
   options: ShellThemeOptions = {},
 ): void {
   const { colorScheme = "light", variables } = options;
 
-  const forbidden = Object.keys(variables ?? {}).filter((name) =>
-    SYSTEM_OWNED.has(name),
-  );
-  if (forbidden.length > 0) {
-    throw new Error(
-      `Shell theme cannot override system-owned properties: ${forbidden.join(", ")}. ` +
-        "Safety semantics and the focus ring are fixed by the Sheaf shell.",
-    );
-  }
+  assertPresentationOnly(variables ?? {});
 
   root.style.colorScheme = colorScheme;
   root.dataset["sheafColorScheme"] = colorScheme;

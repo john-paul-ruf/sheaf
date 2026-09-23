@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { SYSTEM_FOCUS_COLORS } from "../../../src/domain/model/events.js";
 import {
   applyShellTheme,
+  assertPresentationOnly,
   SYSTEM_OWNED_PROPERTIES,
 } from "../../../src/ui/theme/theme.js";
 import "../../../src/ui/theme/base.css";
@@ -55,5 +59,29 @@ describe("shell stylesheet", () => {
     expect(injected).toContain("--ink-950");
     expect(injected).toContain("--target-min");
     expect(injected).toContain("@layer reset, tokens, base");
+  });
+});
+
+describe("the app theme's system-owned guard (CA-32)", () => {
+  it("refuses an app theme that names --color-danger, and every other system-owned property", () => {
+    expect(() => {
+      assertPresentationOnly({ "--app-primary": "#3d4e69", "--color-danger": "#3d4e69" });
+    }).toThrow("--color-danger");
+    for (const name of SYSTEM_OWNED_PROPERTIES) {
+      expect(() => {
+        assertPresentationOnly({ [name]: "#000000" });
+      }).toThrow(name);
+    }
+    expect(() => {
+      assertPresentationOnly({ "--app-primary": "#3d4e69", "--color-surface": "#fcfcfd" });
+    }).not.toThrow();
+  });
+
+  it("measures contrast against the same focus colours tokens.css fixes (Leaf 700, Sprout 300)", () => {
+    const tokensCss = readFileSync(resolve(process.cwd(), "src/ui/theme/tokens.css"), "utf8");
+    expect(tokensCss).toContain("--focus-ring-color: var(--leaf-700);");
+    expect(tokensCss).toContain("--focus-ring-color-on-ink: var(--sprout-300);");
+    expect(tokensCss).toContain(`--leaf-700: ${SYSTEM_FOCUS_COLORS.onLight};`);
+    expect(tokensCss).toContain(`--sprout-300: ${SYSTEM_FOCUS_COLORS.onInk};`);
   });
 });

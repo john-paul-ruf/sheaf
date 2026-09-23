@@ -366,6 +366,7 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
       "inference-decision.recorded",
       ...F04_SCHEMA_EVENT_KINDS,
       ...F04_CHART_EVENT_KINDS,
+      "theme.changed",
     ]);
     expect(isTailEventKind("app.created")).toBe(false);
     expect(isTailEventKind("import.accepted")).toBe(false);

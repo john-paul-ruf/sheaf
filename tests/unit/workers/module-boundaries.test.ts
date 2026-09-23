@@ -25,6 +25,7 @@ const WORKER_FILES = [
   "src/workers/data/schema-event-payloads.ts",
   "src/workers/data/record-handlers.ts",
   "src/workers/data/app-session.ts",
+  "src/workers/data/theme-handlers.ts",
 ];
 
 /**

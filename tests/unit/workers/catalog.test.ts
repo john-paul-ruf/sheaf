@@ -411,3 +411,29 @@ describe("D61 chart draft", () => {
     expect(new TextDecoder().decode(without)).not.toContain("chartDraft");
   });
 });
+
+describe("CAP-37 theme tile", () => {
+  const local = app({ locality: "present", wrappedAppKey: Uint8Array.of(1), appHeadStorageId: "head-1", homeId: null });
+  const tile = { primary: "#3d4e69", label: "#fcfcfd", logo: { bytes: Uint8Array.of(0x89, 0x50), width: 48, height: 32 } };
+
+  it("round-trips a tile with and without a logo, and leaves an untiled entry's bytes without the key", () => {
+    for (const themeTile of [tile, { ...tile, logo: null }]) {
+      const catalog = withEntries([{ ...local, themeTile }], []);
+      const encoded = encodeLocalCatalog(catalog);
+      expect(decodeLocalCatalog(encoded)).toEqual(catalog);
+      expect(encodeLocalCatalog(decodeLocalCatalog(encoded))).toEqual(encoded);
+    }
+    const without = encodeLocalCatalog(withEntries([local], []));
+    expect(decodeLocalCatalog(without).apps[0]).not.toHaveProperty("themeTile");
+    expect(new TextDecoder().decode(without)).not.toContain("themeTile");
+  });
+
+  it("refuses a tile colour that is not #rrggbb and a logo outside 1..256 px or 64 KiB", () => {
+    const refused = (themeTile: typeof tile | { primary: string; label: string; logo: null }) =>
+      () => encodeLocalCatalog(withEntries([{ ...local, themeTile }], []));
+    expect(refused({ ...tile, primary: "var(--color-danger)" })).toThrow(CodecError);
+    expect(refused({ ...tile, label: "#FFF" })).toThrow(CodecError);
+    expect(refused({ ...tile, logo: { ...tile.logo, width: 257 } })).toThrow(CodecError);
+    expect(refused({ ...tile, logo: { ...tile.logo, bytes: new Uint8Array(64 * 1024 + 1) } })).toThrow(CodecError);
+  });
+});

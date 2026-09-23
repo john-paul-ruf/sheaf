@@ -20,8 +20,10 @@ import {
 import { sha256 } from "../../../src/crypto/hash.js";
 import type { FormulaDefinitionV1 } from "../../../src/domain/formulas/index.js";
 import {
+  decodeAppTheme,
   decodeChartDefinition,
   decodeRuleIR,
+  encodeAppTheme,
   encodeChartDefinition,
   encodeRuleIR,
   type CheckpointChartV1,
@@ -906,3 +908,64 @@ function withF03Keys(bytes: Uint8Array, edit: (map: Map<string, unknown>) => voi
   edit(map);
   return encodeCanonical(map as never);
 }
+
+describe("the theme codec, v2 (CA-32, D56)", () => {
+  const logoBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const v2 = {
+    themeKey: "indigo",
+    tokens: DEFAULT_APP_THEME.tokens,
+    mode: "system",
+    density: "compact",
+    customAccent: "#b5642a",
+    logo: { mediaType: "image/png", bytes: logoBytes, width: 48, height: 32 },
+  } as const;
+  const bytesOf = (theme: Parameters<typeof encodeAppTheme>[0]) => encodeCanonical(encodeAppTheme(theme));
+  const themeMap = (theme: Parameters<typeof encodeAppTheme>[0]) =>
+    new Map(decodeCanonical(bytesOf(theme)) as ReadonlyMap<string, unknown>);
+
+  it("reads the F02 checkpoint's theme with every v2 field absent, and writes it back byte-identically", () => {
+    const f02 = decodeCanonical(fromHex(F02_CHECKPOINT_HEX)) as ReadonlyMap<string, unknown>;
+    const stored = (f02.get("appState") as ReadonlyMap<string, unknown>).get("theme");
+    const decoded = decodeAppTheme(stored as never);
+    expect(decoded).toEqual(DEFAULT_APP_THEME);
+    expect(Object.keys(decoded).sort()).toEqual(["themeKey", "tokens"]);
+    expect(bytesOf(decoded)).toEqual(encodeCanonical(stored as never));
+  });
+
+  it("round-trips every v2 field byte-identically", () => {
+    const bytes = bytesOf(v2);
+    const decoded = decodeAppTheme(decodeCanonical(bytes));
+    expect(decoded).toEqual(v2);
+    expect(bytesOf(decoded)).toEqual(bytes);
+  });
+
+  it("writes a v2 key only when it is set", () => {
+    expect([...themeMap({ themeKey: "cedar", tokens: DEFAULT_APP_THEME.tokens, density: "compact" }).keys()].sort()).toEqual([
+      "density",
+      "themeKey",
+      "tokens",
+    ]);
+  });
+
+  it("refuses an unknown key, a mode or density outside its set, a non-colour accent, and a logo out of bounds", () => {
+    const refused = (edit: (map: Map<string, unknown>) => void) => {
+      const map = themeMap(v2);
+      edit(map);
+      return () => decodeAppTheme(decodeCanonical(encodeCanonical(map as never)));
+    };
+    expect(refused((map) => map.set("--color-danger", "#00ff00"))).toThrow(CodecError);
+    expect(refused((map) => map.set("mode", "sepia"))).toThrow(CodecError);
+    expect(refused((map) => map.set("density", "tiny"))).toThrow(CodecError);
+    expect(refused((map) => map.set("customAccent", "var(--color-danger)"))).toThrow(CodecError);
+    const logo = (entries: Record<string, unknown>) => (map: Map<string, unknown>) =>
+      map.set("logo", new Map([...(map.get("logo") as ReadonlyMap<string, unknown>), ...Object.entries(entries)]));
+    expect(refused(logo({ width: 257n }))).toThrow(CodecError);
+    expect(refused(logo({ height: 0n }))).toThrow(CodecError);
+    expect(refused(logo({ mediaType: "image/svg+xml" }))).toThrow(CodecError);
+    expect(refused(logo({ bytes: new Uint8Array(64 * 1024 + 1) }))).toThrow(CodecError);
+    // The six tokens stay a closed set: a seventh is refused like any extra key.
+    expect(
+      refused((map) => map.set("tokens", new Map([...(map.get("tokens") as ReadonlyMap<string, unknown>), ["app-danger", "#ff0000"]]))),
+    ).toThrow(CodecError);
+  });
+});

@@ -21,7 +21,7 @@
  */
 
 import type { AppId } from "../../domain/model/ids.js";
-import type { AppThemeV1 } from "../../domain/model/events.js";
+import type { AppThemeTokensV1, AppThemeV1 } from "../../domain/model/events.js";
 
 /** Names the built-in theme this app started from (FR-17, F02 partial). */
 export const DEFAULT_THEME_KEY = "sheaf.built-in.v1";
@@ -43,6 +43,76 @@ export const DEFAULT_APP_THEME: AppThemeV1 = Object.freeze({
     "app-muted": "#e2ded2",
   }),
 });
+
+/**
+ * The four built-in palettes (FR-17, D56), each as DF-1 gives it: design.md
+ * § Per-app theming contract → "Built-in app palettes", the token table, rows
+ * "{Palette} · light" and "{Palette} · dark" (design-fill `3a4317d`). Nothing
+ * here was picked; `tests/unit/staging/theme.test.ts` reads that table as text
+ * and pins every value, so a drift fails a test rather than an app.
+ *
+ * The key is durable: it is what `AppThemeV1.themeKey` names. A theme written
+ * from a palette stores its light set as `tokens`; the dark set is read from
+ * here when the theme is drawn dark.
+ */
+export interface BuiltInPaletteV1 {
+  readonly key: string;
+  /** The name the palette control shows (theme.html, CTL-115). */
+  readonly name: string;
+  readonly light: AppThemeTokensV1;
+  readonly dark: AppThemeTokensV1;
+}
+
+const palette = (
+  key: string,
+  name: string,
+  light: readonly [string, string, string, string, string, string],
+  dark: readonly [string, string, string, string, string, string],
+): BuiltInPaletteV1 => {
+  const tokens = ([ink, canvas, surface, primary, accent, muted]: readonly string[]): AppThemeTokensV1 =>
+    Object.freeze({
+      "app-ink": ink as string,
+      "app-canvas": canvas as string,
+      "app-surface": surface as string,
+      "app-primary": primary as string,
+      "app-accent": accent as string,
+      "app-muted": muted as string,
+    });
+  return Object.freeze({ key, name, light: tokens(light), dark: tokens(dark) });
+};
+
+/** Columns in design.md's order: ink, canvas, surface, primary, accent, muted. */
+export const BUILT_IN_PALETTES: readonly BuiltInPaletteV1[] = Object.freeze([
+  palette(
+    "cedar",
+    "Cedar",
+    ["#17231e", "#f5f1e7", "#fffdf6", "#315c49", "#c66948", "#d9d0bf"],
+    ["#f2eee3", "#121b17", "#1b2822", "#9cc7ae", "#e08a6a", "#2e3d35"],
+  ),
+  palette(
+    "indigo",
+    "Indigo",
+    ["#1a2233", "#f2f3f6", "#fcfcfd", "#3d4e69", "#b5642a", "#d5d9e2"],
+    ["#e9ecf3", "#121620", "#1b2130", "#a9b8d6", "#e39a5e", "#2c3446"],
+  ),
+  palette(
+    "clay",
+    "Clay",
+    ["#2a1a14", "#f6efe9", "#fffbf7", "#7a4030", "#2f7a6e", "#e0d2c6"],
+    ["#f4e9e1", "#1b1411", "#261c18", "#e3a58e", "#6cc2b3", "#3a2c26"],
+  ),
+  palette(
+    "graphite",
+    "Graphite",
+    ["#1c1c1b", "#f4f3f1", "#fdfcfa", "#3d3c3a", "#3a6ea5", "#dad8d4"],
+    ["#edece9", "#151514", "#201f1e", "#d6d4cf", "#7fa9d6", "#353432"],
+  ),
+]);
+
+/** The built-in palette a theme key names, or undefined for the F02 key or any other. */
+export function builtInPalette(themeKey: string): BuiltInPaletteV1 | undefined {
+  return BUILT_IN_PALETTES.find((candidate) => candidate.key === themeKey);
+}
 
 /**
  * The accent ids a library tile may carry, in the order they are assigned.

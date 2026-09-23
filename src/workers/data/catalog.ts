@@ -38,6 +38,7 @@
  */
 
 import { CodecError } from "../../domain/model/errors.js";
+import { APP_LOGO_MAX_BYTES, APP_LOGO_MAX_EDGE, isThemeColor } from "../../domain/model/events.js";
 import {
   decodeCanonical,
   encodeCanonical,
@@ -101,6 +102,19 @@ export interface AppIdentityV1 {
   readonly glyph: string;
 }
 
+/**
+ * The tile identity an app's own theme gives it (CAP-37): the palette's light
+ * primary, the label colour that reads on it, and the logo. A cache of the
+ * theme like every other display field here — the `theme.changed` commit is the
+ * fact, and the handler that writes it refreshes this in the same request.
+ * Absent while the app keeps the theme it was created with.
+ */
+export interface AppThemeTileV1 {
+  readonly primary: string;
+  readonly label: string;
+  readonly logo: { readonly bytes: Uint8Array; readonly width: number; readonly height: number } | null;
+}
+
 export interface LocalCatalogAppEntryV1 {
   readonly appId: string;
   readonly locality: AppLocalityV1;
@@ -128,6 +142,8 @@ export interface LocalCatalogAppEntryV1 {
    * and a catalog written before charts carries no key for it.
    */
   readonly chartDraft?: Uint8Array;
+  /** CAP-37: absent means the tile is `identity`'s accent and monogram. */
+  readonly themeTile?: AppThemeTileV1;
 }
 
 export type HomeKindV1 = "dropbox" | "onedrive" | "bundle";
@@ -210,6 +226,24 @@ function assertAppDisplayMetadata(app: LocalCatalogAppEntryV1): void {
     assertCount(app.rowCountCache, "app row count cache");
   }
   assertCount(app.tableCount, "app table count");
+  if (app.themeTile !== undefined) {
+    assertThemeTile(app.themeTile);
+  }
+}
+
+function assertThemeTile(tile: AppThemeTileV1): void {
+  if (!isThemeColor(tile.primary) || !isThemeColor(tile.label)) {
+    throw new CodecError("an app tile colour is not #rrggbb");
+  }
+  const logo = tile.logo;
+  if (
+    logo !== null &&
+    (logo.bytes.byteLength === 0 ||
+      logo.bytes.byteLength > APP_LOGO_MAX_BYTES ||
+      ![logo.width, logo.height].every((edge) => Number.isInteger(edge) && edge >= 1 && edge <= APP_LOGO_MAX_EDGE))
+  ) {
+    throw new CodecError("an app tile logo is outside its bounds");
+  }
 }
 
 /** Checks 1–6, plus CA-09's field constraints. Check 7 is the reset path's. */
@@ -379,6 +413,24 @@ function encodeApp(app: LocalCatalogAppEntryV1): CborValue {
     ["rowCountCache", app.rowCountCache],
     ["tableCount", app.tableCount],
     ...(app.chartDraft === undefined ? [] : [["chartDraft", app.chartDraft] as const]),
+    ...(app.themeTile === undefined ? [] : [["themeTile", encodeThemeTile(app.themeTile)] as const]),
+  ]);
+}
+
+function encodeThemeTile(tile: AppThemeTileV1): CborValue {
+  return cborMap([
+    ["primary", tile.primary],
+    ["label", tile.label],
+    [
+      "logo",
+      tile.logo === null
+        ? null
+        : cborMap([
+            ["bytes", tile.logo.bytes],
+            ["width", tile.logo.width],
+            ["height", tile.logo.height],
+          ]),
+    ],
   ]);
 }
 
@@ -532,9 +584,10 @@ const APP_ENTRY_KEYS = Object.freeze([
 function decodeApp(value: DecodedValue): LocalCatalogAppEntryV1 {
   const map = asMap(value, "app entry");
   const hasDraft = map.has("chartDraft");
+  const hasTile = map.has("themeTile");
   assertExactKeys(
     map,
-    hasDraft ? [...APP_ENTRY_KEYS, "chartDraft"] : [...APP_ENTRY_KEYS],
+    [...APP_ENTRY_KEYS, ...(hasDraft ? ["chartDraft"] : []), ...(hasTile ? ["themeTile"] : [])],
     "app entry",
   );
 
@@ -562,7 +615,31 @@ function decodeApp(value: DecodedValue): LocalCatalogAppEntryV1 {
     ),
     tableCount: integer(field(map, "tableCount"), "app table count"),
     ...(hasDraft ? { chartDraft: bytes(field(map, "chartDraft"), "app chart draft") } : {}),
+    ...(hasTile ? { themeTile: decodeThemeTile(field(map, "themeTile")) } : {}),
   };
+}
+
+function decodeThemeTile(value: DecodedValue): AppThemeTileV1 {
+  const map = asMap(value, "app theme tile");
+  assertExactKeys(map, ["primary", "label", "logo"], "app theme tile");
+  const logo = field(map, "logo");
+  let decodedLogo: AppThemeTileV1["logo"] = null;
+  if (logo !== null) {
+    const logoMap = asMap(logo, "app tile logo");
+    assertExactKeys(logoMap, ["bytes", "width", "height"], "app tile logo");
+    decodedLogo = {
+      bytes: bytes(field(logoMap, "bytes"), "app tile logo bytes"),
+      width: integer(field(logoMap, "width"), "app tile logo width"),
+      height: integer(field(logoMap, "height"), "app tile logo height"),
+    };
+  }
+  const tile = {
+    primary: text(field(map, "primary"), "app tile primary"),
+    label: text(field(map, "label"), "app tile label"),
+    logo: decodedLogo,
+  };
+  assertThemeTile(tile);
+  return tile;
 }
 
 function decodeIdentity(value: DecodedValue): AppIdentityV1 {

@@ -24,7 +24,10 @@
 import type { ChartDefinitionV1 } from "../../domain/model/charts.js";
 import { CodecError } from "../../domain/model/errors.js";
 import {
+  APP_THEME_DENSITIES,
+  APP_THEME_MODES,
   APP_THEME_TOKENS,
+  type AppThemeLogoV1,
   type AppThemeTokenV1,
   type AppThemeV1,
   type AuthoredRecordV1,
@@ -268,7 +271,12 @@ export function decodeAuthoredRecord(bytes: Uint8Array): AuthoredRecordV1 {
 
 // ------------------------------------------------------------------- theme --
 
-/** `app_state.theme_cbor` (D29). The engine never composes a default. */
+/**
+ * `app_state.theme_cbor` (D29, v2 per D56). The v2 keys are written only when
+ * set, with the keys M23's `encodeAppTheme` writes, so the bytes agree with the
+ * durable form (pinned in `tests/unit/projection/cbor-values.test.ts`) and an
+ * F02/F03 theme keeps its bytes. The engine never composes a default.
+ */
 export function encodeAppTheme(theme: AppThemeV1): Uint8Array {
   const tokens: CborMap = new Map();
   for (const token of APP_THEME_TOKENS) {
@@ -278,13 +286,47 @@ export function encodeAppTheme(theme: AppThemeV1): Uint8Array {
     }
     tokens.set(token, value);
   }
-  return encodeCanonical(
-    new Map<string, CborValue>([
-      ["themeKey", theme.themeKey],
-      ["tokens", tokens],
-    ]),
-  );
+  const map = new Map<string, CborValue>([
+    ["themeKey", theme.themeKey],
+    ["tokens", tokens],
+  ]);
+  if (theme.mode !== undefined) map.set("mode", theme.mode);
+  if (theme.density !== undefined) map.set("density", theme.density);
+  if (theme.customAccent !== undefined) map.set("customAccent", theme.customAccent);
+  if (theme.logo !== undefined) {
+    map.set(
+      "logo",
+      new Map<string, CborValue>([
+        ["mediaType", theme.logo.mediaType],
+        ["bytes", theme.logo.bytes],
+        ["width", theme.logo.width],
+        ["height", theme.logo.height],
+      ]),
+    );
+  }
+  return encodeCanonical(map);
 }
+
+const oneOf = <T extends string>(map: DecodedMap, field: string, allowed: readonly T[]): T => {
+  const value = readText(map, field);
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new CodecError(`${field} is not in the closed theme list`);
+  }
+  return value as T;
+};
+
+const decodeLogo = (value: DecodedValue): AppThemeLogoV1 => {
+  const map = asMap(value, "app theme logo");
+  if (readText(map, "mediaType") !== "image/png") {
+    throw new CodecError("app theme logo is not a PNG");
+  }
+  return {
+    mediaType: "image/png",
+    bytes: readBytes(map, "bytes"),
+    width: Number(readInteger(map, "width")),
+    height: Number(readInteger(map, "height")),
+  };
+};
 
 export function decodeAppTheme(bytes: Uint8Array): AppThemeV1 {
   const map = asMap(decodeCanonical(bytes), "app theme");
@@ -293,9 +335,14 @@ export function decodeAppTheme(bytes: Uint8Array): AppThemeV1 {
   for (const token of APP_THEME_TOKENS) {
     tokens[token] = readText(source, token);
   }
+  const logo = map.get("logo");
   return {
     themeKey: readText(map, "themeKey"),
     tokens: tokens as Record<AppThemeTokenV1, string>,
+    ...(map.has("mode") ? { mode: oneOf(map, "mode", APP_THEME_MODES) } : {}),
+    ...(map.has("density") ? { density: oneOf(map, "density", APP_THEME_DENSITIES) } : {}),
+    ...(map.has("customAccent") ? { customAccent: readText(map, "customAccent") } : {}),
+    ...(logo === undefined ? {} : { logo: decodeLogo(logo) }),
   };
 }
 

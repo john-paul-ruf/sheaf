@@ -49,8 +49,13 @@ import type {
   SheetId,
   TableId,
 } from "../../domain/model/ids.js";
-import type { AppThemeV1, ChartProvenanceV1, FormulaMetadataV1 } from "../../domain/model/events.js";
+import type { AppThemeLogoV1, AppThemeV1, ChartProvenanceV1, FormulaMetadataV1 } from "../../domain/model/events.js";
 import {
+  APP_LOGO_MAX_BYTES,
+  APP_LOGO_MAX_EDGE,
+  APP_THEME_DENSITIES,
+  APP_THEME_MODES,
+  isThemeColor,
   CHART_PROVENANCES,
   FORMULA_IMPORTED_VALUE_POLICIES,
   FORMULA_SOURCES,
@@ -460,6 +465,22 @@ const APP_THEME_TOKENS = Object.freeze([
   "app-muted",
 ] as const);
 
+const THEME_V2_KEYS = Object.freeze(["mode", "density", "customAccent", "logo"] as const);
+
+const encodeLogo = (logo: AppThemeLogoV1): CborValue =>
+  cborMap([
+    ["mediaType", logo.mediaType],
+    ["bytes", logo.bytes],
+    ["width", logo.width],
+    ["height", logo.height],
+  ]);
+
+/**
+ * The theme codec, v2 (D56, CA-32). The v2 keys are written only when set, so
+ * an F02/F03 theme re-encodes to the bytes it was read from, and those bytes
+ * decode with every v2 field absent: light, comfortable, the palette accent,
+ * the initials.
+ */
 export const encodeAppTheme = (theme: AppThemeV1): CborValue =>
   cborMap([
     ["themeKey", theme.themeKey],
@@ -467,19 +488,48 @@ export const encodeAppTheme = (theme: AppThemeV1): CborValue =>
       "tokens",
       cborMap(APP_THEME_TOKENS.map((token) => [token, theme.tokens[token]])),
     ],
+    ...(theme.mode === undefined ? [] : [["mode", theme.mode] as const]),
+    ...(theme.density === undefined ? [] : [["density", theme.density] as const]),
+    ...(theme.customAccent === undefined ? [] : [["customAccent", theme.customAccent] as const]),
+    ...(theme.logo === undefined ? [] : [["logo", encodeLogo(theme.logo)] as const]),
   ]);
 
+const logoEdge = (value: DecodedValue, what: string): number => {
+  const edge = count(value, what);
+  if (edge < 1 || edge > APP_LOGO_MAX_EDGE) {
+    throw new CodecError(`${what} is outside 1..${APP_LOGO_MAX_EDGE}`);
+  }
+  return edge;
+};
+
+const decodeLogo = (value: DecodedValue): AppThemeLogoV1 => {
+  const map = exactKeys(asMap(value, "a logo"), ["mediaType", "bytes", "width", "height"], "a logo");
+  oneOf(field(map, "mediaType"), ["image/png"] as const, "a logo media type");
+  const bytes = field(map, "bytes");
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > APP_LOGO_MAX_BYTES) {
+    throw new CodecError("a logo is not 1 byte to 64 KiB of bytes");
+  }
+  return {
+    mediaType: "image/png",
+    bytes,
+    width: logoEdge(field(map, "width"), "a logo width"),
+    height: logoEdge(field(map, "height"), "a logo height"),
+  };
+};
+
 export const decodeAppTheme = (value: DecodedValue): AppThemeV1 => {
-  const map = exactKeys(
-    asMap(value, "a theme"),
-    ["themeKey", "tokens"],
-    "a theme",
-  );
+  const source = asMap(value, "a theme");
+  const present = THEME_V2_KEYS.filter((key) => source.has(key));
+  const map = exactKeys(source, ["themeKey", "tokens", ...present], "a theme");
   const tokens = exactKeys(
     asMap(field(map, "tokens"), "theme tokens"),
     [...APP_THEME_TOKENS],
     "theme tokens",
   );
+  const customAccent = map.has("customAccent") ? text(field(map, "customAccent"), "a custom accent") : undefined;
+  if (customAccent !== undefined && !isThemeColor(customAccent)) {
+    throw new CodecError("a custom accent is not #rrggbb");
+  }
   return {
     themeKey: text(field(map, "themeKey"), "a theme key"),
     tokens: Object.fromEntries(
@@ -488,6 +538,10 @@ export const decodeAppTheme = (value: DecodedValue): AppThemeV1 => {
         text(field(tokens, token), "a theme token"),
       ]),
     ) as AppThemeV1["tokens"],
+    ...(map.has("mode") ? { mode: oneOf(field(map, "mode"), APP_THEME_MODES, "a theme mode") } : {}),
+    ...(map.has("density") ? { density: oneOf(field(map, "density"), APP_THEME_DENSITIES, "a theme density") } : {}),
+    ...(customAccent === undefined ? {} : { customAccent }),
+    ...(map.has("logo") ? { logo: decodeLogo(field(map, "logo")) } : {}),
   };
 };
 
