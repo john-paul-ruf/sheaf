@@ -114,3 +114,12 @@ Events that must not exist have no type here.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the F01 "event unions and
   domain IDs arrive in F02" placeholder is superseded and removed; the landed
   surface is stated once, above.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M01 — Domain model**
+- `ids.ts`: `DOMAIN_ID_KINDS` += `relationship`, `inert-item`, `decision`; types `RelationshipId`, `InertItemId`, `DecisionId`.
+- `schema.ts`: `RELATIONSHIP_DETECTION_SOURCES` (= 005 CHECK: declared, lookup-formula, key-match, user), `RelationshipDefV1 {relationshipId, fromTableId, fromFieldId, toTableId, toKeyFieldId, detectionSource, isActive, schemaRevision}`.
+- NEW `snapshots.ts`: `SHEET_CLASSIFICATIONS` (moved here from M12, which re-exports it), `SheetDescriptorV1` (+`classification`, `snapshotRevision`; storage id as text), `CellRangeV1`, `INERT_ITEM_KINDS` (D40, 16), `INERT_REASON_KEYS` (closed: formula-not-live-yet, chart-not-live-yet, object-not-rendered, link-not-followed, script-never-runs, formatting-not-reproduced, validation-not-expressible, kept-in-source), `InertItemV1`, `DECISION_KINDS` (= 005 CHECK), `InferenceDecisionRecordV1` (`decisionKind: DecisionKindV1 | null` — null = not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration 005 in `tests/unit/domain/snapshots.test.ts`.
+- `events.ts`: `TableCreatedPayloadV1.sourceSheet: SheetDescriptorV1 | null`; `AppCreatedPayloadV1.relationships`.

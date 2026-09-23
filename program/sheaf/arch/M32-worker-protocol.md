@@ -135,3 +135,10 @@ unrecognised becomes `internal`.
   the head's "`messages.ts` is the whole wire contract" corrected — the module is
   six files and the byte-carrying half is deliberately a different one; the
   closed-error-kind deviation stated where a future extender will read it.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M32 — Protocol (`messages.ts`, additive; still imports nothing, no byte type)**
+- `AuthoredCellWireValueV1` now admits `reference` (still excludes `invalid`).
+- New requests/responses: `getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`, `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`, `findInSnapshot`, `listInertItems` (shapes in the SESSION-03 handoff). `RecordDetailViewV1.references?`, `ChangeHistoryEntryViewV1.tableId?` (optional on the type only for F02-era fixtures; always sent). No `DATA_WORKER_ERROR_KINDS_V1` change (D42).

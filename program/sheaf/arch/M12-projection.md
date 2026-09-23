@@ -170,3 +170,11 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-02 staple folded
   into one description; the seeded export list corrected to include
   `openProjection`; consumer contracts and owned gaps stated once.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M12 — Projection**
+- `ProjectionCheckpointV1` += `relationships`, `inertItems`, `importLineages`, `inferenceDecisions` (projectable only). Load order: sheets → tables → fields → key/label → options → relationships → rules → inert → lineages → decisions. Schema cache += `relationships` (keyed by reference field).
+- Tail (CA-23): `table.created` for an unknown table builds sheet row (from `sourceSheet`) + table + fields + key/label refs; `field.created` for a known table inserts the field; for an unknown table → integrity dispose. Summaries carry `tableId`.
+- New queries: `record-is-live`, `list-relationships{tableId|null}`, `related-parent{recordId, fieldId}`, `related-children{relationshipId, parentRecordId, afterRecordPk, limit}` (via `idx_cells_field_id`), `count-related-children` (count(*)), `reference-candidates{relationshipId, text, limit}` (FTS over parent table; blank browses), `deleted-record{recordId}`, `list-sheet-snapshots` (+ inert counts per kind via `idx_inert_content_sheet`), `list-inert-items{sheetId|null}`, `list-inference-decisions{decisionKind|null}`. Labels = label field else key, as display text.

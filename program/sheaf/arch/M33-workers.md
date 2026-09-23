@@ -151,3 +151,18 @@ a single `local.catalog` scope.
   including SESSION-04's "Not landed at part 1" list — every item on it landed in
   checkpoints 2–5 and the note is removed rather than left standing; the file
   inventory rewritten as a table of what exists at `5ab3b07`.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M33 — Data worker**
+- `app-session.ts`: manifest → projection mapped straight through (no hardcoded classification/rules); checkpoint pages validated with a resolver over the pages' own records; tail replayed through `validateAgainstProjection` (live schema, real resolver, provenance rule); `AppSessionV1.openSnapshot(storageId)` (manifest digest vs `head.snapshotManifests`, chunk digest vs manifest ref).
+- `record-event-payloads.ts`: `TAIL_EVENT_KINDS`, `isTailEventKind`, `decodeTailEventPayload` (reads promotion's `table.created` with or without `sourceSheet`, `field.created`, `enum.changed`, `inference-decision.recorded`).
+- `record-handlers.ts` / `handlers.ts`: the nine new RPCs; `toDomainValue` maps authored `reference`.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**Tests (M56/M57/M60)**
+- `tests/browser/projection/workbook.spec.ts` (CA-20 hydration, restart row-identity, CA-23 tail build, two dispose controls).
+- `tests/browser/worker/workbook-app-fixture.ts` seals a synthetic multi-table app through production crypto/store (page-side, runtime is disposed while it runs); `relationships.spec.ts` (CAP-24 journey + restart; CA-22 V2 pages/find/inert); `app.spec.ts` += F02 delimited snapshot read.

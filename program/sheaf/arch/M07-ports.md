@@ -84,3 +84,10 @@ that were written.
   the F01 "repository/projection ports arrive with their first composer" note is
   superseded by the landed table; the `envelope-store` "M11 has no delete today"
   seam is closed and recorded as closed (`978f4ff`).
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M07 — Ports (`projection.ts`)**
+- Restates every new M12 shape/query (pinned both ways + exhaustive kind `Record` in `tests/unit/workers/projection-port.test.ts`; 21 query kinds).
+- `ProjectionChangeSummaryV1.tableId: TableId | null`.

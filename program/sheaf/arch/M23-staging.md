@@ -148,3 +148,10 @@ nothing else. No `src/crypto/`, no `src/persistence/envelope-store/`, no
   "Not landed" note, and a superseded "M11 has no delete today" aside) folded
   into one description of the module as it now stands; the epochDay correction
   recorded where the decoder is described.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M23 — Staging (`roots.ts`)**
+- `CheckpointManifestV1` evolution (D37): F03 roots optional for a writer, `ResolvedCheckpointManifestV1` returned by the decoder; `resolveCheckpointManifest` holds the F02-true defaults (the one place). Decoder accepts exactly the F02 key set or exactly the F03 key set (per-sheet keys must match the manifest's set); encoder always writes F03. `checkpointSemanticBody(payload)` = body bytes *as written* (F02 digest verifies; KAT in `tests/unit/staging/roots.test.ts`).
+- New exported codecs: `encodeCellRange/decodeCellRange`, `encodeSheetDescriptor/decodeSheetDescriptor`, `decodeFieldDef/decodeTableDef/decodeEnumOption`; relationship, validation-rule (`CheckpointValidationRuleV1`), inert, decision, lineage codecs (internal).

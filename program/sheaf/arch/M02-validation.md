@@ -69,3 +69,11 @@ result, never as an error kind.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the seeded "F02 scope note"
   and the SESSION-01 delta folded into one landed-surface statement; severity
   policy recorded here, where it binds future callers.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M02 — Validation**
+- `validateSchema(tables, enumOptions, relationships = [])`: 005's relationship trigger as a domain check — issue keys `schema.relationship-source-not-in-table`, `schema.relationship-source-not-reference`, `schema.relationship-target-not-key`, `schema.duplicate-relationship-source`, `schema.duplicate-relationship-id`.
+- `validateRecord` (D36): in a `reference` field, `invalid-preserved` ⇒ `broken-reference` **warning**; `reference{recordId}` not live in the field's target table ⇒ `broken-reference`, **blocking when the value is authored in this write** (`provenance` entry `source: "user"`), **warning otherwise** (imported, or carried over unchanged). Parameters `{fieldLabel, targetTable}`, never the key. A reference field with no active relationship points nowhere (`targetTable: ""`).
+- `ValidationContext.referenceTargets?: ReferenceTargetV1[] {fieldId, tableId, tableLabel}` (optional only so F02 promotion compiles; absent ≡ `[]`). `RecordUnderValidationV1.provenance?` = the provenance each value carries *in this write*. `ReferenceResolver(tableId, recordId)` = "live in exactly that table" — the shared predicate type.

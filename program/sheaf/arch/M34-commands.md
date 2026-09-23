@@ -71,3 +71,9 @@ lives on the staging path (M23) — but it calls the same `validateRecord`
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-05 staple folded
   in; the seeded export list corrected to the landed names (`Command`,
   `CommandResult`, `CommitConfirmed` never shipped under those spellings).
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M34 — Commands**
+- `buildValidationContext` uses the real resolver + `referenceTargets`; exported `projectionReferenceResolver(projection): ReferenceResolver`, `validateAgainstProjection(projection, record)`, `changeProvenance(changes)`. Patch validates with the provenance of the moved fields only; create/restore with the record's provenance.

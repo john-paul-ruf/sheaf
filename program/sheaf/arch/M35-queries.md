@@ -53,3 +53,10 @@ compilation is F04 (FR-13); no unimplemented filter shape is exported.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-05 staple folded
   in; the seeded export list replaced with the landed names; CA-14's
   count-scope rule stated once, here.
+
+<!-- workbook-fidelity SESSION-03 -->
+### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
+
+**M35 — Queries**
+- NEW `relationships.ts`: `planRecordReferences`, `planRelatedRecords` (children preview 5, exact counts), `planRelatedChildrenPage`, `planReferenceCandidates` (null when the field has no active relationship), `planDeletedRecord`.
+- NEW `snapshots.ts`: `planSheetSnapshots`, `planSnapshotSheet`, `planInertItems` (null for an unknown sheet), `planInferenceDecisions` (D44 rejection memory for the append path).
