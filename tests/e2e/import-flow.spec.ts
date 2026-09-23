@@ -16,6 +16,16 @@
  * imported read-only) builds the bytes and Playwright hands them to the file
  * input in memory. That keeps the cancel leg honest — the parse has to be long
  * enough to interrupt — without writing into another session's lease.
+ *
+ * **F03 adaptation (workbook-fidelity SESSION-07).** The page now accepts
+ * workbooks (D48), so D19's later-release refusal is retired and an `.xlsx` no
+ * longer demonstrates "a file Sheaf will not turn into an app". That
+ * behavioural assertion is kept by switching the refusal leg to
+ * `unsafe/payroll.xlsm` (MOD-005 + SCR-021's macro card, library unchanged).
+ * Two F02 copy assertions follow the same retirements: SCR-016 no longer says
+ * workbooks arrive later, and SCR-017's existing-app option is off with D38's
+ * reason (no app on this device yet) rather than D18's. Every other assertion
+ * is unchanged.
  */
 
 import { resolve } from "node:path";
@@ -39,7 +49,7 @@ const CORPUS = resolve(process.cwd(), "tests/fixtures/workbooks");
 
 /** S03's messy demo file: three rows above the header, an enum, a flagged value. */
 const DEMO_CSV = resolve(CORPUS, "delimited/field-log-messy.csv");
-const WORKBOOK_XLSX = resolve(CORPUS, "refusals/fieldwork.xlsx");
+const MACRO_WORKBOOK = resolve(CORPUS, "unsafe/payroll.xlsm");
 const PDF = resolve(CORPUS, "refusals/quarterly.pdf");
 
 /** Rows enough that a parse can be interrupted, and inside the F02 budget. */
@@ -74,7 +84,8 @@ test("the import journey: a messy CSV becomes a durable app", async ({
   // --- CAP-09: the upload landing, reached from the library's own action ----
   await openUpload(page);
   expect(page.url()).toContain("#/upload");
-  await expect(screen(page, "SCR-016")).toContainText("Arrives in a later release");
+  await expect(screen(page, "SCR-016")).toContainText("XLSX, XLSB, XLS, ODS");
+  await expect(screen(page, "SCR-016")).not.toContainText("later release");
 
   // --- CAP-10: content-determined delimited target (SCR-017) ---------------
   await choose(page, DEMO_CSV);
@@ -86,9 +97,9 @@ test("the import journey: a messy CSV becomes a durable app", async ({
   // D24: pre-flight read a bounded sample, so the count is an estimate.
   await expect(target).toContainText(/About [\d,]+ rows/);
   await expect(target).not.toContainText("+ header");
-  // D18: the second destination is offered off, with its reason in text.
+  // D38: the second destination is offered off, with its reason in text.
   await expect(target).toContainText(
-    "Adding a table to an existing app is not available in this release.",
+    "There is no app on this device to add a table to yet.",
   );
 
   await page.getByLabel("App name", { exact: true }).fill("Field Log");
@@ -192,7 +203,7 @@ test("the import journey: a messy CSV becomes a durable app", async ({
   );
 });
 
-test("workbook and PDF files are refused whole, and the library is unchanged", async ({
+test("macro workbook and PDF files are refused whole, and the library is unchanged", async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -200,25 +211,23 @@ test("workbook and PDF files are refused whole, and the library is unchanged", a
   await openApp(page);
   await protectDevice(page);
 
-  // --- D19: an identified workbook gets the composed later-release card ----
+  // --- MOD-005: a macro workbook is refused whole, named, with its remedy ----
   await openUpload(page);
-  await choose(page, WORKBOOK_XLSX);
+  await choose(page, MACRO_WORKBOOK);
   await expect(screen(page, "SCR-021")).toBeVisible({
     timeout: PARSE_TIMEOUT_MS,
   });
+  const notice = page.getByRole("dialog");
+  await expect(notice).toContainText("“payroll.xlsm” contains macros");
+  await notice.getByRole("button", { name: "Close" }).click();
 
   const refused = screen(page, "SCR-021");
   await expect(refused).toContainText("This file cannot become a Sheaf app.");
   await expect(refused).toContainText(
     "The refusal is whole-file. Nothing partial was added to the library.",
   );
-  await expect(refused).toContainText("an Excel workbook (.xlsx)");
-  await expect(refused).toContainText(
-    "Export the sheet you need as CSV or TSV.",
-  );
-  await expect(refused).toContainText(
-    "This release reads CSV and TSV. Workbook formats arrive in a later release.",
-  );
+  await expect(refused).toContainText("Macro-enabled workbook");
+  await expect(refused).toContainText("Choose that macro-free copy here.");
 
   // FR-2: the library is exactly as it was — still empty, still SCR-011.
   await page.getByRole("button", { name: "Return to library" }).click();
@@ -236,7 +245,7 @@ test("workbook and PDF files are refused whole, and the library is unchanged", a
   await expect(screen(page, "SCR-021")).toContainText(
     "Return to the spreadsheet that produced the PDF and export XLSX or delimited text.",
   );
-  await expect(screen(page, "SCR-021")).not.toContainText("Excel workbook (.xlsx)");
+  await expect(screen(page, "SCR-021")).not.toContainText("Macro-enabled workbook");
 
   await page.getByRole("button", { name: "Return to library" }).click();
   await expect(screen(page, "SCR-011")).toBeVisible();

@@ -79,7 +79,7 @@ function FailureFacts({ detail }: { readonly detail: ImportFailureDetailVm }): R
       )}
       <dt>Diagnostic</dt>
       <dd>
-        <code>{detail.diagnostic}</code>
+        <code className={cx(styles["code"])}>{detail.diagnostic}</code>
       </dd>
     </>
   );

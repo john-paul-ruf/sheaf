@@ -607,14 +607,19 @@ function ImportArea({
     if (runIsOver && !onImportPath) onRunEnded();
   }, [runIsOver, onImportPath, onRunEnded]);
 
-  // The app exists. S08 serves `#/app/:appId`; until it does, CA-07's
-  // unknown-route rule lands this on the library, where the new tile is.
-  const doneAppId =
-    vm.screen === "SCR-023" && vm.step === "done" ? vm.appId : undefined;
+  // The app exists: a new app lands on its home, and a table added to an
+  // app lands on that table (CAP-23, CAP-26).
+  const landing = vm.screen === "SCR-023" && vm.step === "done" ? vm.landing : undefined;
+  const landingPath =
+    landing === undefined
+      ? undefined
+      : landing.kind === "appended-table"
+        ? tablePath(landing.appId, landing.tableId)
+        : appPath(landing.appId);
   useEffect(() => {
-    if (doneAppId === undefined) return;
-    void navigate(appPath(doneAppId));
-  }, [doneAppId, navigate]);
+    if (landingPath === undefined) return;
+    void navigate(landingPath);
+  }, [landingPath, navigate]);
 
   const chooseFile = useCallback(
     (files: FileList | null) => {

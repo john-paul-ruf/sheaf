@@ -21,6 +21,14 @@
  *
  * The demo is run at the compact phone class, because that is the class the
  * design is written for and the one where a surface fails first.
+ *
+ * **F03 adaptation (workbook-fidelity SESSION-07).** The script's last leg —
+ * "upload an .xlsx → approved refusal surface" — was F02's truth while
+ * workbook formats were refused as a later release (D19). F03 reads workbooks
+ * (D48), so that leg now uses `unsafe/payroll.xlsm`, which keeps its
+ * behavioural claim: a file Sheaf will not turn into an app routes to the
+ * approved refusal surface (MOD-005 + SCR-021), and the library is unchanged.
+ * Every other F02 assertion is unchanged.
  */
 
 import { execSync } from "node:child_process";
@@ -44,9 +52,9 @@ import { resolve } from "node:path";
 /** The revision this run is demonstrating. */
 const headRevision = execSync("git rev-parse HEAD").toString().trim();
 
-const WORKBOOK_XLSX = resolve(
+const MACRO_WORKBOOK = resolve(
   process.cwd(),
-  "tests/fixtures/workbooks/refusals/fieldwork.xlsx",
+  "tests/fixtures/workbooks/unsafe/payroll.xlsm",
 );
 
 const TABLE = "Visits";
@@ -209,19 +217,19 @@ test("GATE-F02 demo: a messy CSV becomes an app that survives a reload", async (
     "since this app was last checkpointed",
   );
 
-  // --- upload an .xlsx → the approved refusal (truthful: F03) --------------
+  // --- upload a macro workbook → the approved refusal (F03: MOD-005) -------
   await followHash(page, "#/upload");
   await expect(screen(page, "SCR-016")).toBeVisible();
-  await page.setInputFiles('input[type="file"]', WORKBOOK_XLSX);
+  await page.setInputFiles('input[type="file"]', MACRO_WORKBOOK);
   await expect(screen(page, "SCR-021")).toBeVisible({
     timeout: PARSE_TIMEOUT_MS,
   });
+  const notice = page.getByRole("dialog");
+  await expect(notice).toContainText("“payroll.xlsm” contains macros");
+  await notice.getByRole("button", { name: "Close" }).click();
   const refused = screen(page, "SCR-021");
   await expect(refused).toContainText("This file cannot become a Sheaf app.");
-  await expect(refused).toContainText("an Excel workbook (.xlsx)");
-  await expect(refused).toContainText(
-    "This release reads CSV and TSV. Workbook formats arrive in a later release.",
-  );
+  await expect(refused).toContainText("Macro-enabled workbook");
   await expect(refused).toContainText(
     "The refusal is whole-file. Nothing partial was added to the library.",
   );

@@ -22,6 +22,7 @@ import {
   type ImportEventListener,
 } from "../../workers/protocol/import-client.js";
 import type {
+  ImportFlowV1,
   ImportWorkerEventV1,
 } from "../../workers/protocol/import-messages.js";
 import type {
@@ -121,6 +122,14 @@ export interface ImportServices {
   readonly terminate: () => void;
 }
 
+/**
+ * The flows this page renders (D48): F02's delimited target and F03's
+ * workbook pre-flight, review and create. Declaring `workbook` is what makes
+ * the worker answer a workbook with `workbook-preflight` instead of D19's
+ * later-release refusal.
+ */
+export const ACCEPTED_FLOWS: readonly ImportFlowV1[] = Object.freeze(["delimited", "workbook"]);
+
 export function createImportServices(
   options: ImportServicesOptions,
 ): ImportServices {
@@ -161,7 +170,10 @@ export function createImportServices(
 
       const channel = new MessageChannel();
       stagePort = channel.port2;
-      fresh.send({ kind: "startImport", file, fileName }, [channel.port1]);
+      fresh.send(
+        { kind: "startImport", file, fileName, acceptedFlows: ACCEPTED_FLOWS },
+        [channel.port1],
+      );
     },
 
     beginStage(input) {

@@ -269,6 +269,17 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * Formula text and diagnostic tokens are file content with no spaces to break
+ * at ("VLOOKUP(B2,Customers!A:B,2,FALSE)"); they wrap anywhere rather than
+ * push a 320px page sideways.
+ */
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-supporting);
+  overflow-wrap: anywhere;
+}
+
 /* The handoff text, shown when the browser would not copy it. */
 .instructions {
   margin: 0;
@@ -340,6 +351,7 @@
 
 .statementText {
   font-size: var(--text-body);
+  overflow-wrap: anywhere;
 }
 
 .statementMeta {
@@ -374,6 +386,7 @@
   display: grid;
   gap: var(--space-8);
   justify-items: start;
+  overflow-wrap: anywhere;
 }
 
 .examples {

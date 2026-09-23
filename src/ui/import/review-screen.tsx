@@ -619,7 +619,7 @@ export function ReviewScreen({
                 </h3>
                 <p className={cx(styles["lede"])}>
                   Its imported results are kept as values, and the original formula{" "}
-                  <code>{calculation.formulaText}</code> is preserved. Sheaf does not
+                  <code className={cx(styles["code"])}>{calculation.formulaText}</code> is preserved. Sheaf does not
                   recalculate it yet.
                 </p>
                 <div className={cx(styles["statementMeta"])}>
