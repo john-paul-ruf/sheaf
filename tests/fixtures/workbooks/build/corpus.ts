@@ -8,6 +8,7 @@
  * with `SHEAF_WRITE_FIXTURES=1`.
  */
 
+import { buildDemoWorkbook } from "../ooxml/build-demo.js";
 import { FIDELITY_WORKBOOKS } from "../ooxml/build-fidelity.js";
 import { writeCfb } from "./cfb-writer.js";
 import { buildOoxml, CONTENT_TYPES, ooxmlEntries, type WorkbookSpec } from "./ooxml-builder.js";
@@ -150,4 +151,5 @@ export const CORPUS: ReadonlyMap<string, () => Uint8Array> = new Map([
     ([name, spec]) => [`ooxml/${name}`, () => buildOoxml(spec)] as [string, () => Uint8Array],
   ),
   ["ooxml/contradiction.xls", () => buildOoxml(PAYROLL)],
+  ["ooxml/fieldwork-q3.xlsx", buildDemoWorkbook],
 ]);
