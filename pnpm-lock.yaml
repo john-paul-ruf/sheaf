@@ -42,9 +42,6 @@ importers:
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
-      '@types/libsodium-wrappers-sumo':
-        specifier: 0.8.2
-        version: 0.8.2
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -360,10 +357,6 @@ packages:
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
-
-  '@types/libsodium-wrappers-sumo@0.8.2':
-    resolution: {integrity: sha512-uFOBpg/r21hExVlh2ty8YpDfSR+Yy3Jn8XS4+SSjitbhTxdYq+pBz/49XRxyUFe8SzqujHf/Wu0/O4d+FUtNfQ==}
-    deprecated: This is a stub types definition. libsodium-wrappers-sumo provides its own type definitions, so you do not need this installed.
 
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
@@ -1405,10 +1398,6 @@ snapshots:
   '@types/estree@1.0.9': {}
 
   '@types/json-schema@7.0.15': {}
-
-  '@types/libsodium-wrappers-sumo@0.8.2':
-    dependencies:
-      libsodium-wrappers-sumo: 0.8.4
 
   '@types/node@24.13.3':
     dependencies:
