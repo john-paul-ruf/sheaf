@@ -171,3 +171,25 @@ nothing else. No `src/crypto/`, no `src/persistence/envelope-store/`, no
 - `events.ts`: `appCreated` carries `relationships`; `tableCreated({table, sourceSheet})` writes the F03 form (with `sourceSheet`); `inferenceDecision` takes a `WorkbookStatementV1` (statement = workbook statement CBOR, evidence = encoded evidence list); `importAccepted` evidence ledger lists every sheet with its snapshot manifest id. `decisionStatement`/`decisionEvidence` exported (the checkpoint's decision list repeats them).
 - `roots.ts`: `encodeRelationship`, `encodeValidationRule` exported. F03 roots stay optional on `CheckpointManifestV1` (the F02 decode branch needs it).
 - `proposal-codec.ts`: F02 diagnostic decode bound to `IMPORT_DIAGNOSTIC_CODES_V1` (unchanged behaviour).
+
+<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
+### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
+
+**M23 Staging**
+- Promotion writes the original-import baseline as **one or more** `BaselinePageV1`
+  pages, each at most 512 KiB of decoded CBOR, in record-page key order
+  (`paginateBaseline(scopeId, entries)`, exported). `AppHeadV1.baselinePages` lists
+  every page. `import.accepted.originalBaselineStorageId` (an M01 single-id field)
+  names the **first** page. Before this fix it was always one page, and it threw
+  `CodecError` once a promotion's rows went over the cap (demo with Archive 2018).
+- `paginate(records)` is now linear. It measures each record once, using
+  `recordPageEntryByteLength`. A page's size = empty page − 1 + canonical array
+  head(n) + Σ item bytes. The caps are unchanged (1,024 records / 512 KiB).
+  `encodeRecordPage`/`encodeBaselinePage` still enforce the caps when pages are
+  sealed. Pages are greedy-maximal.
+- Rejections share `PromotionRejectedV1 { kind, reason, report, columnKeys }`,
+  built by `rejectedPromotion(reason, report?, schema?)`. `columnKeys` maps
+  `encodeDomainId(fieldId)` → the reviewed `columnKey` the field was allocated
+  for (empty when there is no schema). `AppendResultV1`'s rejection is the same type.
+- roots.ts exports `recordPageEntryByteLength` and `baselinePageEntryByteLength`
+  (one item's canonical encoding length, as it sits inside its page's array).

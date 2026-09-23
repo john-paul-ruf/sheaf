@@ -170,3 +170,11 @@ exactly one consumer and depends on the fact beside it, so it lives on its VM
 - New `WorkbookPreflightVm` (SCR-018 `workbookFits`, SCR-019 `workbookSubset|workbookHandoff`): `sheets[] {shape: declared-table|table-region|charts-and-summary, badge: use|inspect|dashboard|excluded, rows/cells: SheetEstimateVm, isHidden}`, `selection {selectedCount, sheetCount, estimatedRows, estimatedCells, maxEstimatedCells, blocker}`, `drawingNotices`, `contradiction {declaredExtension, detectedFormat}`, `declaredExtension`, `handoff {instructions, copy}`. **Type-held:** `SheetEstimateVm = {estimated, value} | {not-declared}` — no exact member, no number on not-declared. `handoffInstructions(fileName)` composes import-large.html's sentences.
 - SCR-020 `sheet`; SCR-021 `unreadableDetail` (D42 token), `RefusalCopyTokenV1` no longer includes `workbook-format-later-release` (`laterReleaseFormat` removed); SCR-022 `detail {stage, diagnostic, sheet}`; done `landing: app-home | appended-table{tableId}`.
 - SCR-023 `ImportReviewVm` is multi-table: `tables[] {tableKey, sheetName, declaredTableName, rowCount (exact, joined regions summed), joined[], keyFieldName, labelFieldName, statements, fields[]}`, `connections[]`, `calculations[]`, `formulaRegionCount`, `sheets[] {classification, statements, inertItems}`, `appStatements`, `brokenReferenceCount`, `isExcelWorkbook`, `promotionIssues: PromotionIssueGroupVm[]` (grouped by field + token via records `toIssueVm`), `confirm {kind: create-app|add-table, appName, tableName}`. Statements attach to owners by their own `targetKey` (never re-derived). `REVIEW_EDIT_REJECTION_TOKENS` ≡ S02 `WORKBOOK_REVIEW_EDIT_REJECTIONS` (test-pinned).
+
+<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
+### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
+
+**M37 View models**
+- `PromotionIssueGroupVm` gains `columnKey`, `fieldName` and `tableName`, mapped
+  through the current (reviewed) proposal's tables. They are `null` when the
+  issue has no column or the review no longer has that column.

@@ -176,3 +176,10 @@ a single `local.catalog` scope.
 - `import.worker.ts`: reads `acceptedFlows`, emits `workbook-preflight`, validates `proceed.selectedSheets` (malformed-request otherwise), refuses `selectedSheets` for delimited.
 - `data/import-handlers.ts`: workbook stages (inventory + selection validated, D31 budget), existing-app destination for delimited; `runInference` → `inferWorkbook` (delimited via `delimitedStream`, append gets `existingApp.tableNames` + rejection memory); staged facts re-read from the fact chunks (digest-checked) when the channel's copy is incomplete; `applyReviewEdit` → workbook edits; promotion → `promoteImport`, append → `appendTable` then the app session is closed; exports `proposalWire`, `rejectionMemoryOf`, `tailDecisionsOf`, `ImportAppAccessV1`, `RecordedDecisionV1`. `SessionCatalogPort.sealWithAppendedApp`.
 - `data/record-handlers.ts`: `appSession(appId)`, `closeAppSession(appId)`; `data/handlers.ts` hands them to the import handlers.
+
+<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
+### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
+
+**M33 Workers**
+- `src/workers/data/import-handlers.ts` exports `rejectedPromotionResponse(result)`.
+  Promote and append both use it, so the page always receives `columnKey`.

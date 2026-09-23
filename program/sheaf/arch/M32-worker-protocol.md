@@ -150,3 +150,11 @@ unrecognised becomes `internal`.
 - `import-messages.ts` (CA-24, additive, `IMPORT_PROTOCOL_VERSION` still 1): `IMPORT_FLOWS_V1`/`ImportFlowV1`; `StartImportRequestV1.acceptedFlows?`; `ProceedImportRequestV1.selectedSheets?`; `ImportProgressEventV1.sheetOrdinal?/sheetCount?/sheetName?`; `ImportWorkbookPreflightEventV1`; `ImportFailedEventV1.detail?: ImportFailureDetailV1 {stage: container|sheet-stream|stage, sheetOrdinal|null, diagnostic: UnreadableDetailV1|"parse-failed"}`, `IMPORT_FAILURE_STAGES_V1`.
 - `stage-channel.ts`: batches are `WorkbookFactStreamItemV2`.
 - `messages.ts` (still import-free, byte-free): `BeginImportStageRequestV1.detected: DetectedDelimitedV1 | DetectedWorkbookV1`, `.preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1`, `.destination?: ImportDestinationWireV1`; `WorkbookFormatWireV1`, `WorkbookSheetSummaryWireV1`; the CA-19 wire `ProposedWorkbookWireV1` (+ `ProposedSheetWireV1`, `ProposedTableWireV2`, `ProposedWorkbookFieldWireV1`, `ProposedRelationshipWireV1`, `ProposedRecordRuleWireV1`, `RuleValueWireV1`, `ProposedInertItemWireV1`, `WorkbookStatementWireV1`, `WorkbookEvidenceWireV1`, `WorkbookSourceValueFormatWireV1`, `ImportDiagnosticWireV2`, `RangeWireV1`, `PreservedPartKindWireV1`, `PreservedReasonKeyWireV1`, subject/edit-kind supersets) and `WorkbookReviewEditWireV1`; `RunInferenceResponseV1.proposal` and `ApplyReviewEditResponseV1.proposal` are the workbook wire; `ApplyReviewEditRequestV1.edit` is `WorkbookReviewEditWireV1`. F02's `ProposedAppWireV1`/`ReviewEditWireV1` remain (the page's one-table view).
+
+<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
+### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
+
+**M32 Worker protocol (additive)**
+- `PromoteImportResponseV1` rejected `issues[]` gain `columnKey?: string | null`:
+  the reviewed column, `null` for a record-level issue, absent from an F02-era
+  producer. No new error kind or `RefusalV1` kind (D42).

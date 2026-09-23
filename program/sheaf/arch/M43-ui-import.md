@@ -114,3 +114,10 @@ two dense halves; one file would have been unreadable).
 
 **M43 UI import**
 - New `workbook-preflight-screen.tsx` (SCR-018/019 workbook, MOD-004 dialog, handoff card). Upload (SCR-016) per upload.html with a CSV/TSV picker for "table targeting"; SCR-017 live destination + "Which app" radio list; SCR-021 macro card + MOD-005 dialog, unsafe-container headings/sentences per detail token (`UNREADABLE_DETAIL_SENTENCE`, shared with SCR-022); D19 card and `RELEASE_SCOPE` removed; SCR-020 "Sheet k of n · name" (also in the progress region's name); SCR-022/MOD-008 failed stage/sheet/raw diagnostic. Review rewritten for multi-table (connections with Change connection → reject/restore/retarget, Live calculations as preserved-not-live, Sheets & snapshots with STA-012 inert items, excluded sheets). `ReviewEditIntentV1` is now the structural twin of `WorkbookReviewEditWireV1`.
+
+<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
+### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
+
+**M43 UI import**
+- SCR-023's promotion-issue rows read `“<field>” in “<table>”, N values: <sentence>`.
+  They fall back to `One field, …` when the name is unknown. Copy only; no layout change.
