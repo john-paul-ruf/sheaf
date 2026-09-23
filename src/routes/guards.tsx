@@ -138,6 +138,26 @@ export function snapshotPath(appId: string, sheetId: string): string {
   return `${appSnapshotsPath(appId)}/${encodeURIComponent(sheetId)}`;
 }
 
+/** The app's Charts destination, SCR-053 (CA-07 amendment 4, D63). */
+export function chartsPath(appId: string): string {
+  return `${appPath(appId)}/charts`;
+}
+
+/** SCR-034 for a new chart. A chart id is never the word "new". */
+export function newChartPath(appId: string): string {
+  return `${chartsPath(appId)}/new`;
+}
+
+/** SCR-033. */
+export function chartPath(appId: string, chartId: string): string {
+  return `${chartsPath(appId)}/${encodeURIComponent(chartId)}`;
+}
+
+/** SCR-034 on an existing chart. */
+export function editChartPath(appId: string, chartId: string): string {
+  return `${chartPath(appId, chartId)}/edit`;
+}
+
 export function tablePath(appId: string, tableId: string): string {
   return `${appPath(appId)}/t/${encodeURIComponent(tableId)}`;
 }
@@ -172,12 +192,13 @@ export function appHref(appId: string): string {
 }
 
 /**
- * The eight app-area shapes, as one expression. An id may be any non-empty run
- * of characters that is not a separator, so a path with an extra segment is
- * *not* an app path and falls to the phase's fallback exactly as before.
+ * The twelve app-area shapes, as one expression. An id may be any non-empty
+ * run of characters that is not a separator, so a path with an extra segment
+ * is *not* an app path and falls to the phase's fallback exactly as before.
+ * CA-07 amendment 4 adds the four chart paths (D63).
  */
 const APP_AREA_PATH =
-  /^\/app\/[^/]+(?:\/history|\/snapshots(?:\/[^/]+)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
+  /^\/app\/[^/]+(?:\/history|\/snapshots(?:\/[^/]+)?|\/charts(?:\/[^/]+(?:\/edit)?)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
 
 export function isAppAreaPath(path: string): boolean {
   return APP_AREA_PATH.test(path);

@@ -10,7 +10,8 @@
  * F03 adds the relationship, reference, deleted-record, table and snapshot
  * reads S03 landed (CA-21, CA-22), bound to their wire names verbatim. F04
  * adds the records query's filters and sort (CA-29), the app's structure, and
- * its metrics.
+ * its metrics; and, as their own `ChartServices` over the same port, the
+ * charts column's datasets, saves, pins and drafts (CA-30, D61).
  *
  * The adapters add no logic — they name a request, send it, and return the
  * typed response. Every refusal that is a *result* (a validation rejection, an
@@ -20,6 +21,18 @@
 
 import type {
   AuthoredCellWireEntryV1,
+  ChartDefinitionWireV1,
+  ChartDraftViewV1,
+  DeleteChartResponseV1,
+  DiscardChartDraftResponseV1,
+  GetChartDatasetRequestV1,
+  GetChartDatasetResponseV1,
+  GetChartDraftResponseV1,
+  GetChartResponseV1,
+  ListChartsResponseV1,
+  SaveChartDraftResponseV1,
+  SaveChartResponseV1,
+  SetChartPinResponseV1,
   ChangeHistoryCursorWireV1,
   CloseAppResponseV1,
   CreateRecordResponseV1,
@@ -214,5 +227,61 @@ export function createRecordsServices(
       port.send({ kind: "listInertItems", appId, sheetId }),
     getAppStructure: ({ appId }) => port.send({ kind: "getAppStructure", appId }),
     getAppMetrics: ({ appId }) => port.send({ kind: "getAppMetrics", appId }),
+  };
+}
+
+// --- the charts column (CA-30, D61) -----------------------------------------
+
+/**
+ * The machine-facing edge of the charts column. Like the records adapters
+ * above, there is no machine: every chart request is a short request/response
+ * pair, and a refusal (`stale-chart`, `refused`, an unknown chart) stays a
+ * result for the view model to say, never an exception.
+ */
+export interface ChartServices {
+  /** Every chart of the app, in display order; null for an unknown app. */
+  readonly listCharts: (input: { readonly appId: string }) => Promise<ListChartsResponseV1>;
+  readonly getChart: (input: { readonly appId: string; readonly chartId: string }) => Promise<GetChartResponseV1>;
+  /** A saved chart's dataset, or a draft's for the live preview (CA-30). */
+  readonly getChartDataset: (input: {
+    readonly appId: string;
+    readonly source: GetChartDatasetRequestV1["source"];
+    readonly tableOffset?: number;
+  }) => Promise<GetChartDatasetResponseV1>;
+  /** A new chart names no `chartId`; an edit names the revision it opened. */
+  readonly saveChart: (input: {
+    readonly appId: string;
+    readonly chartId: string | null;
+    readonly expectedRevision: number | null;
+    readonly definition: ChartDefinitionWireV1;
+  }) => Promise<SaveChartResponseV1>;
+  readonly setChartPin: (input: {
+    readonly appId: string;
+    readonly chartId: string;
+    readonly expectedRevision: number;
+    readonly pinned: boolean;
+  }) => Promise<SetChartPinResponseV1>;
+  readonly deleteChart: (input: {
+    readonly appId: string;
+    readonly chartId: string;
+    readonly expectedRevision: number;
+  }) => Promise<DeleteChartResponseV1>;
+  /** D61: operational state, never an event. */
+  readonly getChartDraft: (input: { readonly appId: string }) => Promise<GetChartDraftResponseV1>;
+  readonly saveChartDraft: (input: { readonly appId: string; readonly draft: ChartDraftViewV1 }) => Promise<SaveChartDraftResponseV1>;
+  readonly discardChartDraft: (input: { readonly appId: string }) => Promise<DiscardChartDraftResponseV1>;
+}
+
+export function createChartServices(port: RecordsWorkerPort): ChartServices {
+  return {
+    listCharts: ({ appId }) => port.send({ kind: "listCharts", appId }),
+    getChart: ({ appId, chartId }) => port.send({ kind: "getChart", appId, chartId }),
+    getChartDataset: (input) => port.send({ kind: "getChartDataset", ...input }),
+    saveChart: (input) => port.send({ kind: "saveChart", ...input }),
+    setChartPin: (input) => port.send({ kind: "setChartPin", ...input }),
+    deleteChart: (input) => port.send({ kind: "deleteChart", ...input }),
+    getChartDraft: ({ appId }) => port.send({ kind: "getChartDraft", appId }),
+    saveChartDraft: ({ appId, draft }) => port.send({ kind: "saveChartDraft", appId, draft }),
+    discardChartDraft: ({ appId }) => port.send({ kind: "discardChartDraft", appId }),
   };
 }

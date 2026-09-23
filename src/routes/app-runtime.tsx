@@ -26,7 +26,9 @@ import {
   type SecurityServices,
 } from "../application/workflows/services.js";
 import {
+  createChartServices,
   createRecordsServices,
+  type ChartServices,
   type RecordsServices,
 } from "../application/workflows/records-services.js";
 import type { SessionPhase } from "./guards.js";
@@ -68,6 +70,8 @@ export interface SecurityWiring {
   readonly services: SecurityServices;
   /** Library, app and record reads. No lifecycle: request in, response out. */
   readonly records: RecordsServices;
+  /** Charts: datasets, saves, pins and drafts (CA-30, D61). */
+  readonly charts: ChartServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
   readonly clock: ClockPort;
@@ -113,6 +117,7 @@ export function useSheafRuntime(): SheafRuntime {
     const wiring: SecurityWiring = {
       services: createSecurityServices(app.client),
       records: createRecordsServices(app.client),
+      charts: createChartServices(app.client),
       policy: passphrasePolicy,
       codeFormat: recoveryCodeFormat,
       clock,

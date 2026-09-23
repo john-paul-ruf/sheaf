@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { selectAppHomeVm } from "../../../../src/application/view-models/records.js";
+import { describe, expect, it, vi } from "vitest";
+import { selectAppHomeVm, selectChartDetailVm } from "../../../../src/application/view-models/records.js";
+import { dataset } from "../charts/fixtures.js";
 import { AppHomeScreen } from "../../../../src/ui/records/app-home-screen.js";
 import type { AppNavigation } from "../../../../src/ui/records/app-frame.js";
 import "../../../../src/ui/theme/base.css";
-import { query, queryAll, render } from "../render.js";
+import { interact, query, queryAll, render } from "../render.js";
+
+// Chart.js draws nothing in jsdom; the pinned chart's words and marks are Sheaf's.
+vi.mock("../../../../src/ui/charts/chart-canvas.js", () => ({ ChartCanvas: () => null }));
 import { APP_ID, TABLE_ID, session, table } from "./fixtures.js";
 
 /**
@@ -152,5 +156,52 @@ describe("SCR-024 — the app becomes a place", () => {
       ),
     );
     expect(hrefs[0]).toEqual(hrefs[1]);
+  });
+});
+
+describe("SCR-024 — the pinned chart (CAP-32)", () => {
+  const pinned = selectChartDetailVm(dataset(), [table()]);
+
+  it("draws each pinned chart with its name, scope, marks and a way to its table", async () => {
+    await render(
+      <AppHomeScreen
+        chartHref={(chartId) => `#/app/${APP_ID}/charts/${chartId}`}
+        nav={nav}
+        newRecordHref={newRecordHref}
+        tableHref={tableHref}
+        vm={selectAppHomeVm(session(), [], [pinned])}
+      />,
+    );
+    const section = query('[data-pinned-chart="chart-quoted-by-site"]');
+    expect(section.textContent).toContain("Pinned chart");
+    expect(query("h2#pinned-chart-quoted-by-site").textContent).toBe("Quoted by site");
+    expect(section.textContent).toContain("Tap a bar to filter the list");
+    expect(section.textContent).toContain("Showing all 8 local rows");
+    const link = queryAll<HTMLAnchorElement>("a").find((anchor) => anchor.textContent === "View data table");
+    expect(link?.getAttribute("href")).toBe(`#/app/${APP_ID}/charts/chart-quoted-by-site`);
+    // The F02 absence card is not drawn once a computed surface exists.
+    expect(query('[data-screen="SCR-024"]').textContent).not.toContain("computed surfaces");
+  });
+
+  it("filters the list by exactly a tapped mark, and a mark with no filter does nothing", async () => {
+    const onApplyMark = vi.fn();
+    await render(
+      <AppHomeScreen
+        nav={nav}
+        newRecordHref={newRecordHref}
+        onApplyMark={onApplyMark}
+        tableHref={tableHref}
+        vm={selectAppHomeVm(session(), [], [pinned])}
+      />,
+    );
+    const marks = queryAll<HTMLButtonElement>("[data-mark]");
+    expect(marks[0]?.getAttribute("aria-label")).toBe("Filter by Ridgeway Depot, $1,850.00");
+    expect(marks[3]?.getAttribute("aria-label")).toBe("Needs attention, Not given");
+    await interact(() => {
+      marks[0]?.click();
+      marks[3]?.click();
+    });
+    expect(onApplyMark).toHaveBeenCalledTimes(1);
+    expect(onApplyMark.mock.calls[0]?.[1]).toMatchObject({ index: 0 });
   });
 });

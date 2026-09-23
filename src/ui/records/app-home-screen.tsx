@@ -1,8 +1,12 @@
 import type { ReactNode } from "react";
 import type {
   AppHomeVm,
+  ChartDetailVm,
+  ChartMarkVm,
   TableSwitcherVm,
 } from "../../application/view-models/records.js";
+import { ChartFigure, ChartScope } from "../charts/chart-figure.js";
+import chartStyles from "../charts/charts.module.css";
 import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
@@ -25,9 +29,12 @@ import styles from "./records.module.css";
  * the metrics and dashboard values the app actually has, each with its live
  * value or, when there is none, the reason in words; an app with none draws
  * no section, and the mock's narrative line ("Four jobs need you today") is
- * sample data, never composed here. The pinned chart is S05's; until an app
- * has metrics, the absence of computed surfaces is *stated* rather than left
- * as a hole (STA-025).
+ * sample data, never composed here. Each pinned chart is drawn from its own
+ * worker dataset (CA-30): tapping a mark opens the records list filtered to
+ * exactly that mark's rows (D63), and "View data table" opens the chart's
+ * detail, where SHT-017 is. Until an app has metrics or a pinned chart, the
+ * absence of computed surfaces is *stated* rather than left as a hole
+ * (STA-025).
  *
  * **The scratch fact is a status line, not a reminder.** D26 defers MOD-001/
  * MOD-002 and their durable-home chooser to F05, so the app says where it
@@ -51,6 +58,12 @@ export interface AppHomeScreenProps {
   /** SHT-003 and anything else the route composed. */
   readonly overlays?: ReactNode;
   readonly topBarActions?: ReactNode;
+  /** A pinned chart's detail (SCR-033), where its data table is. */
+  readonly chartHref?: (chartId: string) => string;
+  /** A pinned chart's builder (SCR-034), once its route exists. */
+  readonly chartEditHref?: (chartId: string) => string;
+  /** Opens the records list filtered to exactly a tapped mark's rows. */
+  readonly onApplyMark?: (chart: ChartDetailVm, mark: Extract<ChartMarkVm, { kind: "group" }>) => void;
 }
 
 export function AppHomeScreen({
@@ -62,6 +75,9 @@ export function AppHomeScreen({
   onOpenTableSwitcher,
   overlays,
   topBarActions,
+  chartHref,
+  chartEditHref,
+  onApplyMark,
 }: AppHomeScreenProps): ReactNode {
   // With exactly one table there is one truthful place for "add a record" to
   // go. With several, the choice belongs to the person, on the table itself.
@@ -166,6 +182,17 @@ export function AppHomeScreen({
           </section>
         )}
 
+        {vm.pinnedCharts.map((chart) => (
+          <PinnedChart
+            chart={chart}
+            fullDataHref={tableHref(chart.tableId)}
+            key={chart.chartId}
+            {...(chartHref === undefined || chart.chartId === null ? {} : { href: chartHref(chart.chartId) })}
+            {...(chartEditHref === undefined || chart.chartId === null ? {} : { editHref: chartEditHref(chart.chartId) })}
+            {...(onApplyMark === undefined ? {} : { onApplyMark })}
+          />
+        ))}
+
         <section aria-labelledby="app-tables">
           <div className={cx(styles["sectionHead"])}>
             <h2 className={cx(styles["sectionTitle"])} id="app-tables">
@@ -226,7 +253,7 @@ export function AppHomeScreen({
           </ul>
         </section>
 
-        {vm.metrics.length === 0 && (
+        {vm.metrics.length === 0 && vm.pinnedCharts.length === 0 && (
         <section className={cx(styles["card"])}>
           <h2 className={cx(styles["cardTitle"])}>
             This app shows the data it holds.
@@ -241,5 +268,61 @@ export function AppHomeScreen({
       </div>
       {overlays}
     </AppFrame>
+  );
+}
+
+/**
+ * app-home.html's pinned chart: "Pinned chart", its name, "Tap a bar to
+ * filter the list", its scope, and "View data table". Each mark filters the
+ * list directly; the chart detail is one link away for the table and summary.
+ */
+function PinnedChart({
+  chart,
+  href,
+  editHref,
+  fullDataHref,
+  onApplyMark,
+}: {
+  readonly chart: ChartDetailVm;
+  readonly href?: string;
+  readonly editHref?: string;
+  readonly fullDataHref: string;
+  readonly onApplyMark?: (chart: ChartDetailVm, mark: Extract<ChartMarkVm, { kind: "group" }>) => void;
+}): ReactNode {
+  const headingId = `pinned-${chart.chartId ?? "draft"}`;
+  const noun = chart.type === "pie" ? "slice" : chart.type === "line" ? "point" : "bar";
+  return (
+    <section aria-labelledby={headingId} className={cx(chartStyles["pinned"])} data-pinned-chart={chart.chartId}>
+      <div className={cx(chartStyles["pinnedHead"])}>
+        <div>
+          <span className={cx(styles["eyebrow"])}>Pinned chart</span>
+          <h2 className={cx(styles["sectionTitle"])} id={headingId}>
+            {chart.name}
+          </h2>
+        </div>
+        {editHref !== undefined && <InlineLink target={{ kind: "internal", href: editHref }}>Edit chart</InlineLink>}
+      </div>
+      <div className={cx(chartStyles["panel"])}>
+        <div className={cx(chartStyles["panelHead"])}>
+          {chart.type !== "scatter" && <span className={cx(styles["note"])}>{`Tap a ${noun} to filter the list`}</span>}
+          <ChartScope fullDataHref={fullDataHref} vm={chart} />
+        </div>
+        <ChartFigure
+          markLabel={(mark, text) =>
+            mark.kind === "group" && mark.filterIntent !== null ? `Filter by ${text}` : text
+          }
+          onSelectMark={(mark) => {
+            if (mark.kind === "group" && mark.filterIntent !== null) onApplyMark?.(chart, mark);
+          }}
+          selectedMark={null}
+          vm={chart}
+        />
+        {href !== undefined && (
+          <div className={cx(chartStyles["actions"])}>
+            <InlineLink target={{ kind: "internal", href }}>View data table</InlineLink>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

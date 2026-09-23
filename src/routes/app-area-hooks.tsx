@@ -13,7 +13,7 @@ import {
   type ReferencePickerVm,
   type TableSwitcherVm,
 } from "../application/view-models/records.js";
-import type { RecordsServices } from "../application/workflows/records-services.js";
+import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
 import type { AppIdentity, AppNavigation } from "../ui/records/app-frame.js";
 import type {
   AppSessionViewV1,
@@ -34,6 +34,8 @@ export interface AppAreaWiring {
   readonly identity: AppIdentity;
   readonly nav: AppNavigation;
   readonly records: RecordsServices;
+  /** The charts column's worker edge (CA-30). */
+  readonly charts: ChartServices;
   readonly session: AppSessionViewV1;
   readonly topBarActions: ReactNode;
   /**

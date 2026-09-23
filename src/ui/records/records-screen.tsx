@@ -126,7 +126,10 @@ export function RecordsScreen({
     >
       <div className={cx(styles["stack"])} data-screen={vm.screen}>
         <div className={cx(styles["intro"])}>
-          <span className={cx(styles["eyebrow"])}>Working list</span>
+          {/* A chart mark's filter names its chart here and in the announcement (design.md § Accessibility Contract). */}
+          <span className={cx(styles["eyebrow"])} data-chart-origin={vm.chartOrigin ?? undefined}>
+            {vm.chartOrigin === null ? "Working list" : `Selected mark · ${vm.chartOrigin}`}
+          </span>
           <h1 className={cx(styles["title"])}>{vm.tableName}</h1>
         </div>
 

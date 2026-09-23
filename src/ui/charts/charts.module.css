@@ -1,0 +1,251 @@
+/*
+ * M45 — the charts surfaces (chart-detail.html, chart-builder.html,
+ * charts.html, app-home.html's pinned chart; SHT-012, SHT-017, STA-015).
+ *
+ * Unlayered by the layer contract: `tokens.css` and `base.css` own the cascade
+ * layers. Every colour, space and radius is a token; the chart's own colours
+ * are read from the same custom properties by `chart-canvas.tsx`.
+ *
+ * The canvas is one presentation of the marks; the mark list is the other,
+ * and the one a keyboard reaches (CTL-075: idle, hover, selected/filtering,
+ * keyboard focus). Both are always present, so a chart is never
+ * pointer-only.
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-24);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.eyebrow {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-16);
+  background: var(--app-surface, var(--color-surface));
+  box-shadow: var(--shadow-level-1);
+}
+
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.scopeBadge {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-info-tint);
+  color: var(--color-info-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.figure {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+  margin: 0;
+}
+
+.canvasBox {
+  position: relative;
+  min-width: 0;
+  height: 16rem;
+}
+
+.summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  line-height: var(--line-height-body);
+}
+
+/* ---- CTL-075 marks: the keyboard's way to every mark --------------------- */
+
+.markList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mark {
+  display: grid;
+  gap: var(--space-4);
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-supporting);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-control) var(--easing-standard);
+}
+
+.mark:hover {
+  border-color: var(--app-accent, var(--color-accent));
+}
+
+.mark:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Selected/filtering is said in text and by a thicker edge, never by hue alone. */
+.mark[aria-pressed="true"] {
+  border-width: 3px;
+  border-color: var(--app-ink, var(--color-text));
+  font-weight: var(--weight-control);
+}
+
+.markName {
+  font-weight: var(--weight-control);
+}
+
+.markValue {
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+/* ---- SHT-012 / SHT-017 ---------------------------------------------------- */
+
+.sheetBody {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.markHeading {
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+  line-height: var(--line-height-heading);
+}
+
+.chip {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-panel);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+}
+
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.tableScroll:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-supporting);
+}
+
+.dataTable caption {
+  padding: var(--space-8) var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  text-align: left;
+}
+
+.dataTable th,
+.dataTable td {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-8) var(--space-12);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.dataTable thead th {
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-control);
+}
+
+.dataTable td[data-kind="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- SCR-024's pinned chart ---------------------------------------------- */
+
+.pinned {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.pinnedHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .canvasBox {
+    height: 20rem;
+  }
+}

@@ -53,7 +53,7 @@ export interface AppNavigation {
 }
 
 /** Which destination the current surface belongs to. */
-export type AppArea = "home" | "records" | "snapshots" | "history";
+export type AppArea = "home" | "records" | "snapshots" | "history" | "charts";
 
 /**
  * Who the app is. Every app-area surface renders inside one identity, and

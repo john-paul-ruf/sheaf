@@ -89,7 +89,7 @@ import type {
   RelatedRecordsViewV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
-import type { RecordsServices } from "../application/workflows/records-services.js";
+import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
 import { toSecurityError } from "../application/workflows/services.js";
 import { DelimitedTargetScreen } from "../ui/import/delimited-target-screen.js";
 import { ImportFailedScreen } from "../ui/import/import-failed-screen.js";
@@ -133,7 +133,8 @@ import {
   type AppAreaWiring,
 } from "./app-area-hooks.js";
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
-import { readFilterIntent } from "./filter-intent.js";
+import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
+import { ChartDetailRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -162,6 +163,7 @@ import {
   appHref,
   appPath,
   appSnapshotsPath,
+  chartPath,
   editRecordPath,
   fallbackRoute,
   guardRoute,
@@ -486,7 +488,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
-      <AppArea records={wiring.records} topBarActions={lockAction}>
+      <AppArea charts={wiring.charts} records={wiring.records} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -892,10 +894,12 @@ function ImportStageScreens({
  */
 function AppArea({
   records,
+  charts,
   topBarActions,
   children,
 }: {
   readonly records: RecordsServices;
+  readonly charts: ChartServices;
   readonly topBarActions: ReactNode;
   /** The rest of the unlocked area, rendered when no app path is current. */
   readonly children: ReactNode;
@@ -911,6 +915,7 @@ function AppArea({
   return (
     <OpenedApp
       appId={appId}
+      charts={charts}
       key={appId}
       records={records}
       topBarActions={topBarActions}
@@ -928,10 +933,12 @@ type OpenedAppState =
 function OpenedApp({
   appId,
   records,
+  charts,
   topBarActions,
 }: {
   readonly appId: string;
   readonly records: RecordsServices;
+  readonly charts: ChartServices;
   readonly topBarActions: ReactNode;
 }): ReactNode {
   const [state, setState] = useState<OpenedAppState>({ kind: "opening" });
@@ -1055,6 +1062,7 @@ function OpenedApp({
     identity,
     nav,
     records,
+    charts,
     session,
     topBarActions,
     announce,
@@ -1096,6 +1104,7 @@ function OpenedApp({
         path="/app/:appId/history"
       />
       <Route element={<SnapshotsRoute area={area} />} path="/app/:appId/snapshots" />
+      <Route element={<ChartDetailRoute area={area} />} path="/app/:appId/charts/:chartId" />
       <Route
         element={<SnapshotViewerRoute area={area} />}
         path="/app/:appId/snapshots/:sheetId"
@@ -1109,6 +1118,8 @@ function OpenedApp({
 function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   const { identity, nav, records, session, topBarActions } = area;
   const appId = identity.appId;
+  const navigate = useNavigate();
+  const pinnedCharts = usePinnedCharts(area);
   // SCR-024 "At a glance" (CAP-29): read on arrival; none drawn until read.
   const [metrics, setMetrics] = useState<AppMetricsViewV1 | null>(null);
   useEffect(() => {
@@ -1133,12 +1144,16 @@ function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   });
   return (
     <AppHomeScreen
+      chartHref={(chartId) => hashHref(chartPath(appId, chartId))}
       nav={nav}
       newRecordHref={(tableId) => hashHref(newRecordPath(appId, tableId))}
+      onApplyMark={(chart, mark) => {
+        openMarkRecords(navigate, appId, chart, mark);
+      }}
       overlays={switcher.overlay}
       tableHref={(tableId) => hashHref(tablePath(appId, tableId))}
       topBarActions={topBarActions}
-      vm={selectAppHomeVm(session, selectMetricsVm(metrics, session.tables, area.structure))}
+      vm={selectAppHomeVm(session, selectMetricsVm(metrics, session.tables, area.structure), pinnedCharts)}
       {...(switcher.vm === undefined || switcher.open === undefined
         ? {}
         : { tableSwitcher: switcher.vm, onOpenTableSwitcher: switcher.open })}
@@ -1208,15 +1223,30 @@ function AppUnavailable({
  */
 function RecordsRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   const location = useLocation();
-  return <RecordsQueryRoute area={area} initialFilters={readFilterIntent(location.state)} key={location.key} />;
+  const origin = readFilterOrigin(location.state);
+  return (
+    <RecordsQueryRoute
+      area={area}
+      chartOrigin={origin?.chartName ?? null}
+      initialFilters={readFilterIntent(location.state)}
+      initialLabels={new Map(Object.entries(origin?.recordLabels ?? {}))}
+      key={location.key}
+    />
+  );
 }
 
 function RecordsQueryRoute({
   area,
   initialFilters,
+  initialLabels,
+  chartOrigin,
 }: {
   readonly area: AppAreaWiring;
   readonly initialFilters: readonly RecordsFilterV1[];
+  /** Labels of the records a chart mark's reference filter names. */
+  readonly initialLabels: ReadonlyMap<string, string>;
+  /** The chart a mark's filter came from (D63), named while a filter stands. */
+  readonly chartOrigin: string | null;
 }): ReactNode {
   const { identity, nav, records, session, topBarActions } = area;
   const { tableId = "" } = useParams();
@@ -1228,7 +1258,7 @@ function RecordsQueryRoute({
   const [filters, setFilters] = useState<readonly RecordsFilterV1[]>(initialFilters);
   const [sort, setSort] = useState<RecordsSortV1 | null>(null);
   /** Labels of records a reference filter names, as SHT-008 showed them. */
-  const [recordLabels, setRecordLabels] = useState<ReadonlyMap<string, string>>(new Map());
+  const [recordLabels, setRecordLabels] = useState<ReadonlyMap<string, string>>(initialLabels);
   const [pages, setPages] = useState<readonly RecordPageViewV1[] | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -1313,7 +1343,7 @@ function RecordsQueryRoute({
     );
   }
 
-  const vm = selectRecordsListVm(table, merged, references, { filters, sort, recordLabels });
+  const vm = selectRecordsListVm(table, merged, references, { filters, sort, recordLabels, chartOrigin });
   const filteringField = vm.filterableFields.find((field) => field.fieldId === filtering);
   const applyFilter = (fieldId: string, filter: RecordsFilterV1 | null, labels?: ReadonlyMap<string, string>): void => {
     // One filter per column from a sheet: it replaces what that column had.

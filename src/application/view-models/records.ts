@@ -47,6 +47,11 @@
 import type {
   AppFieldViewV1,
   AppMetricsViewV1,
+  ChartDatasetViewV1,
+  ChartDefinitionWireV1,
+  ChartGroupingWireV1,
+  ChartKeyWireV1,
+  ChartMarkWireV1,
   AppSessionViewV1,
   AppStructureViewV1,
   AppTableViewV1,
@@ -513,6 +518,8 @@ export interface AppHomeVm {
   readonly createdAtEpochMs: number;
   readonly lastOpenedAtEpochMs: number | null;
   readonly metrics: readonly MetricVm[];
+  /** SCR-024's pinned charts, in display order; none until they are read. */
+  readonly pinnedCharts: readonly ChartDetailVm[];
   readonly announcement: string;
 }
 
@@ -567,6 +574,7 @@ export function selectMetricsVm(
 export function selectAppHomeVm(
   session: AppSessionViewV1,
   metrics: readonly MetricVm[] = [],
+  pinnedCharts: readonly ChartDetailVm[] = [],
 ): AppHomeVm {
   return {
     screen: "SCR-024",
@@ -585,6 +593,7 @@ export function selectAppHomeVm(
     createdAtEpochMs: session.createdAtEpochMs,
     lastOpenedAtEpochMs: session.lastOpenedAtEpochMs,
     metrics,
+    pinnedCharts,
     // app-home.html's status line, composed from the two facts F02 holds.
     announcement: session.isScratch
       ? `${session.displayName} is on this device only. ${
@@ -743,6 +752,11 @@ export interface RecordsListVm {
   /** SHT-009 lists every column. */
   readonly sortableFields: readonly { readonly fieldId: string; readonly fieldName: string }[];
   readonly emptiness: RecordsEmptinessV1 | null;
+  /**
+   * The chart whose tapped mark set these filters (D63), named in the list
+   * heading and its announcement; null for filters chosen here.
+   */
+  readonly chartOrigin: string | null;
   readonly announcement: string;
 }
 
@@ -752,6 +766,8 @@ export interface RecordsQueryVmInput {
   readonly sort: SortWireV1 | null;
   /** Labels of records a reference filter names, as the picker showed them. */
   readonly recordLabels?: ReadonlyMap<string, string>;
+  /** The chart a mark's filter came from, while any filter is applied. */
+  readonly chartOrigin?: string | null;
 }
 
 function fieldsInOrder(table: AppTableViewV1): readonly AppFieldViewV1[] {
@@ -942,7 +958,9 @@ export function selectRecordsListVm(
           },
     sortableFields: fields.map((field) => ({ fieldId: field.fieldId, fieldName: field.displayName })),
     emptiness,
+    chartOrigin: filters.length === 0 ? null : (query.chartOrigin ?? null),
     announcement: announceList({
+      chartOrigin: filters.length === 0 ? null : (query.chartOrigin ?? null),
       tableName: table.displayName,
       tableRecordCount: page.totalCount,
       emptiness,
@@ -987,6 +1005,7 @@ export function describeActiveFilters(count: number): string {
 }
 
 function announceList(input: {
+  readonly chartOrigin: string | null;
   readonly tableName: string;
   readonly tableRecordCount: number;
   readonly emptiness: RecordsEmptinessV1 | null;
@@ -995,7 +1014,9 @@ function announceList(input: {
   readonly matchCount: number | null;
   readonly partial: RecordsPartialVm | null;
 }): string {
-  const { tableName, tableRecordCount, emptiness, search, filterCount, matchCount, partial } = input;
+  const { chartOrigin, tableName, tableRecordCount, emptiness, search, filterCount, matchCount, partial } = input;
+  // design.md: selecting a mark announces the filter and updates the heading.
+  const origin = chartOrigin === null ? "" : `Selected mark · ${chartOrigin}. `;
   const table = `The table contains ${String(tableRecordCount)} records.`;
   if (emptiness === "empty-table") {
     // records-empty.html: "This table contains zero records."
@@ -1010,7 +1031,7 @@ function announceList(input: {
       // records-empty.html keeps the count of the table, not of the search.
       return `No record in ${tableName} matches “${search?.text ?? ""}”. ${table}${partialLine}`;
     }
-    return `No record in ${tableName} matches ${search === null ? "these filters" : `“${search.text}” with these filters`}. ${table} ${describeActiveFilters(
+    return `${origin}No record in ${tableName} matches ${search === null ? "these filters" : `“${search.text}” with these filters`}. ${table} ${describeActiveFilters(
       filterCount,
     )} all of them.${partialLine}`;
   }
@@ -1022,7 +1043,7 @@ function announceList(input: {
     search === null
       ? `Showing records in ${tableName} that match the filters.`
       : `Showing records in ${tableName} matching “${search.text}”${filterCount === 0 ? "" : " and the filters"}.`;
-  return `${what}${matched} ${table}${partialLine}`;
+  return `${origin}${what}${matched} ${table}${partialLine}`;
 }
 
 // --- SHT-003 the table switcher (CTL-059) ----------------------------------
@@ -2427,5 +2448,275 @@ export function selectSnapshotOptionsVm(input: {
         disabledReason: EXPORT_SHEET_LATER,
       },
     ],
+  };
+}
+
+// --- SCR-033 / SHT-012 / SHT-017 / SCR-024 pinned charts (CA-30) -------------
+
+/**
+ * The charts column's view models (M37; SCR-033, SHT-012, SHT-017, STA-015,
+ * SCR-024's pinned charts; CA-30).
+ *
+ * A dataset arrives as facts; this section turns them into what a surface
+ * shows, and nothing more:
+ *
+ * - **Every category is named in words.** An option by its label, a
+ *   referenced record by its label (design.md's "Missing related record" when
+ *   it has none), a date bucket by its day, month or year, and the two
+ *   absent buckets by the records surface's own words: "Not given" for no
+ *   value, "Needs attention" for a value imported exactly as written.
+ * - **Scope is a fact, never a guess (STA-015, D53).** `scope` says whether
+ *   every matching row was read or the newest were sampled, and how many
+ *   categories or points were left undrawn; the data table still lists every
+ *   category the dataset aggregated.
+ * - **A mark carries its own filter.** The intent the worker computed is
+ *   handed on verbatim (D63, CA-29); a mark whose rows no filter can name
+ *   says so, and its detail offers nothing to apply.
+ *
+ * Numbers stay canonical decimal text and dates stay epoch days: a view model
+ * holds no locale, so the surface formats them.
+ */
+
+/** A field's type as a chart surface formats its numbers. */
+export type ChartFieldTypeVm = FieldTypeWireV1;
+
+/** A category or series, ready for words. */
+export type ChartCategoryVm =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "boolean"; readonly value: boolean }
+  | { readonly kind: "date"; readonly epochDay: number; readonly unit: "day" | "month" | "year" }
+  /** No value (for a relationship grouping: none on the related record either). */
+  | { readonly kind: "absent" }
+  /** A value imported exactly as written, which no filter can name. */
+  | { readonly kind: "unreadable" };
+
+export type ChartMarkVm =
+  | {
+      readonly kind: "group";
+      /** Position in `marks`; the canvas reports a tapped mark by it. */
+      readonly index: number;
+      readonly category: ChartCategoryVm;
+      readonly series: ChartCategoryVm | null;
+      /** Canonical decimal; null when no counted record carried the measured field. */
+      readonly value: string | null;
+      readonly records: number;
+      /** Hand to the records route verbatim (D63); null when no filter names the rows. */
+      readonly filterIntent: readonly FilterWireV1[] | null;
+      /** Labels for a reference filter's records, so its chip reads as a name. */
+      readonly recordLabels: ReadonlyMap<string, string>;
+    }
+  | { readonly kind: "point"; readonly index: number; readonly recordId: string; readonly x: string; readonly y: string };
+
+export type ChartMeasureVm =
+  | { readonly kind: "count" }
+  | { readonly kind: "sum" | "average" | "min" | "max"; readonly fieldName: string; readonly fieldType: FieldTypeWireV1 | null };
+
+/** STA-015: exactly what the chart read and drew. */
+export interface ChartScopeVm {
+  /** `all`: every matching row. `sample`: the newest `rows` of `total` (D53). */
+  readonly kind: "all" | "sample";
+  readonly rows: number;
+  readonly total: number;
+  /** Categories (or points) the dataset holds, and how many of them are drawn. */
+  readonly categories: number;
+  readonly drawn: number;
+  /** Scatter: rows read that lack one of the axes. */
+  readonly unplotted: number;
+  readonly isPartial: boolean;
+}
+
+export interface ChartSummaryVm {
+  readonly highest: ChartMarkVm | null;
+  readonly lowest: ChartMarkVm | null;
+  readonly total: string | null;
+  readonly count: number;
+}
+
+export interface ChartDetailVm {
+  readonly screen: "SCR-033";
+  /** Null for a builder's draft. */
+  readonly chartId: string | null;
+  readonly chartRevision: number | null;
+  readonly name: string;
+  readonly type: ChartDefinitionWireV1["type"];
+  readonly pinned: boolean;
+  readonly provenance: "imported" | "user" | null;
+  readonly tableId: string;
+  readonly tableName: string;
+  /** The grouping's field name (the data table's first column); null for scatter. */
+  readonly groupName: string | null;
+  readonly seriesName: string | null;
+  readonly measure: ChartMeasureVm;
+  /** Scatter's axes. */
+  readonly axes: { readonly x: string; readonly xType: FieldTypeWireV1 | null; readonly y: string; readonly yType: FieldTypeWireV1 | null } | null;
+  readonly scope: ChartScopeVm;
+  /** The drawn marks, in the chart's order. */
+  readonly marks: readonly ChartMarkVm[];
+  readonly summary: ChartSummaryVm;
+  /** SHT-017's table: one page of every category (or point). */
+  readonly table: {
+    readonly rows: readonly ChartMarkVm[];
+    readonly offset: number;
+    readonly total: number;
+    readonly hasMore: boolean;
+  };
+}
+
+const MISSING_OPTION = "A choice that is no longer in this field's list";
+const MISSING_RECORD = "Missing related record";
+
+function fieldNamed(tables: readonly AppTableViewV1[], fieldId: string): AppFieldViewV1 | undefined {
+  for (const table of tables) {
+    const field = table.fields.find((candidate) => candidate.fieldId === fieldId);
+    if (field !== undefined) return field;
+  }
+  return undefined;
+}
+
+const UNKNOWN_FIELD = "A column that is no longer in this app";
+
+function valueCategory(value: CellWireValueV1, label: string | null, unit: "day" | "month" | "year" | null): ChartCategoryVm {
+  switch (value.kind) {
+    case "option":
+      return { kind: "text", text: label ?? MISSING_OPTION };
+    case "reference":
+      return { kind: "text", text: label ?? MISSING_RECORD };
+    case "text":
+      return { kind: "text", text: value.text };
+    case "boolean":
+      return { kind: "boolean", value: value.boolean };
+    case "date":
+      return { kind: "date", epochDay: value.epochDay, unit: unit ?? "day" };
+    case "number":
+      return { kind: "text", text: value.decimal };
+    case "invalid":
+      return { kind: "unreadable" };
+    case "blank":
+    case "missing":
+      return { kind: "absent" };
+    default: {
+      const unreachable: never = value;
+      return unreachable;
+    }
+  }
+}
+
+function categoryOf(key: ChartKeyWireV1, grouping: ChartGroupingWireV1 | null): ChartCategoryVm {
+  switch (key.kind) {
+    case "empty":
+    case "empty-parent":
+      return { kind: "absent" };
+    case "unreadable":
+      return { kind: "unreadable" };
+    case "value":
+      return valueCategory(key.value, key.label, grouping?.kind === "date" ? grouping.unit : null);
+    default: {
+      const unreachable: never = key;
+      return unreachable;
+    }
+  }
+}
+
+function toMarkVm(mark: ChartMarkWireV1, index: number, definition: ChartDefinitionWireV1): ChartMarkVm {
+  if (mark.kind === "point") return { ...mark, index };
+  const groupBy = definition.type === "scatter" ? null : definition.groupBy;
+  const seriesBy = definition.type === "scatter" ? null : definition.seriesBy;
+  // A reference grouping's intent names one record; its chip reads as the category's label.
+  const recordLabels = new Map<string, string>();
+  if (mark.category.kind === "value" && mark.category.value.kind === "reference" && mark.category.label !== null) {
+    recordLabels.set(mark.category.value.recordId, mark.category.label);
+  }
+  return {
+    kind: "group",
+    index,
+    category: categoryOf(mark.category, groupBy),
+    series: mark.series === null ? null : categoryOf(mark.series, seriesBy),
+    value: mark.value,
+    records: mark.records,
+    filterIntent: mark.filterIntent,
+    recordLabels,
+  };
+}
+
+function groupingName(grouping: ChartGroupingWireV1, tables: readonly AppTableViewV1[]): string {
+  return fieldNamed(tables, grouping.fieldId)?.displayName ?? UNKNOWN_FIELD;
+}
+
+/**
+ * SCR-033 (and a pinned chart, and the builder's preview): the dataset in
+ * words. `tables` are the open app's, so a related grouping's parent field is
+ * named too.
+ */
+export function selectChartDetailVm(dataset: ChartDatasetViewV1, tables: readonly AppTableViewV1[]): ChartDetailVm {
+  const { definition } = dataset;
+  const table = tables.find((candidate) => candidate.tableId === definition.tableId);
+  const field = (fieldId: string) => fieldNamed(tables, fieldId);
+  const marks = dataset.marks.map((mark, index) => toMarkVm(mark, index, definition));
+  const rows = dataset.tablePage.rows.map((mark, index) => toMarkVm(mark, dataset.tablePage.offset + index, definition));
+  const at = (mark: ChartMarkWireV1 | null): ChartMarkVm | null => (mark === null ? null : toMarkVm(mark, -1, definition));
+  const isScatter = definition.type === "scatter";
+  return {
+    screen: "SCR-033",
+    chartId: dataset.chart?.chartId ?? null,
+    chartRevision: dataset.chart?.chartRevision ?? null,
+    name: definition.name,
+    type: definition.type,
+    pinned: definition.pinned,
+    provenance: dataset.chart?.provenance ?? null,
+    tableId: definition.tableId,
+    tableName: table?.displayName ?? UNKNOWN_FIELD,
+    groupName: isScatter ? null : groupingName(definition.groupBy, tables),
+    seriesName: isScatter || definition.seriesBy === null ? null : groupingName(definition.seriesBy, tables),
+    measure:
+      isScatter || definition.measure.kind === "count"
+        ? { kind: "count" }
+        : {
+            kind: definition.measure.kind,
+            fieldName: field(definition.measure.fieldId)?.displayName ?? UNKNOWN_FIELD,
+            fieldType: field(definition.measure.fieldId)?.type ?? null,
+          },
+    axes: isScatter
+      ? {
+          x: field(definition.x)?.displayName ?? UNKNOWN_FIELD,
+          xType: field(definition.x)?.type ?? null,
+          y: field(definition.y)?.displayName ?? UNKNOWN_FIELD,
+          yType: field(definition.y)?.type ?? null,
+        }
+      : null,
+    scope: {
+      kind: dataset.sample === null ? "all" : "sample",
+      rows: dataset.sourceRowsConsidered,
+      total: dataset.matchingRows,
+      categories: dataset.tablePage.total,
+      drawn: dataset.marks.length,
+      unplotted: dataset.unplottedRows,
+      isPartial: dataset.sample !== null || dataset.omittedCategories > 0 || dataset.unplottedRows > 0,
+    },
+    marks,
+    summary: {
+      highest: at(dataset.summary.highest),
+      lowest: at(dataset.summary.lowest),
+      total: dataset.summary.total,
+      count: dataset.summary.count,
+    },
+    table: {
+      rows,
+      offset: dataset.tablePage.offset,
+      total: dataset.tablePage.total,
+      hasMore: dataset.tablePage.offset + dataset.tablePage.rows.length < dataset.tablePage.total,
+    },
+  };
+}
+
+/** The next table page appended to the one a sheet already shows (SHT-017's paging). */
+export function appendTablePage(current: ChartDetailVm, next: ChartDetailVm): ChartDetailVm {
+  return {
+    ...current,
+    table: {
+      rows: [...current.table.rows, ...next.table.rows],
+      offset: current.table.offset,
+      total: next.table.total,
+      hasMore: next.table.hasMore,
+    },
   };
 }
