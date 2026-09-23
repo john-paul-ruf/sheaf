@@ -43,3 +43,12 @@ refusal subjects in F02; their fidelity corpora arrive with F03's adapters.
 
 **M58 — Workbook fixtures — extended**
 - `tests/fixtures/workbooks/build/` (`zip-writer.ts` with a deterministic LZ77+fixed-Huffman deflate, `cfb-writer.ts`, `ooxml-builder.ts`, `corpus.ts` — the generator map, `oversized.ts` — test-time only), `ooxml/` (12 fidelity workbooks from `build-fidelity.ts`, the pinned demo `fieldwork-q3.xlsx` from `build-demo.ts`, `demo-counts.ts`), `unsafe/` (19 refusal fixtures). `tests/unit/import/containers/corpus.test.ts` pins every committed byte to its generator; `SHEAF_WRITE_FIXTURES=1` regenerates.
+
+<!-- workbook-fidelity SESSION-04 -->
+### workbook-fidelity SESSION-04 (2026-09-22, commits 4805e2c..5e92124)
+
+**M58 — Workbook fixtures (`tests/fixtures/workbooks/{biff,xlsb}/`) — grown**
+
+- Builders: `biff/build-biff.ts` (BIFF8/BIFF5 over S01's `writeCfb`: SST split across `CONTINUE`, RK/MULRK/NUMBER/MULBLANK choice, FORMULA + SHRFMLA/ARRAY/TABLE/STRING, names, SUPBOOK/EXTERNSHEET, DV, MERGEDCELLS, HLINK, NOTE, OBJ, chart substreams, CONDFMT; `poisonCells: true | number[]`), `biff/ptg-writer.ts` (token streams for both widths), `biff/build-fidelity.ts`, `xlsb/build-xlsb.ts` (BIFF12 parts over S01's `writeZip`, incl. drawings/comments/hyperlinks), `xlsb/build-fidelity.ts` (incl. `FIELDWORK_JOBS`, converted from S01's `DEMO_WORKBOOK`). Corpus maps `biff/corpus.ts` (`BIFF_CORPUS`, 19 files) and `xlsb/corpus.ts` (`XLSB_CORPUS`, 14 files), reproduced byte for byte by `tests/unit/import/{biff,xlsb}/corpus.test.ts` (`SHEAF_WRITE_FIXTURES=1` rewrites).
+- `xlsb/fieldwork-jobs.xlsb` is the XLSB version of the demo's Jobs + Customers (+ Materials) — its facts equal the OOXML adapter's facts for sheets [0,1,4] of `ooxml/fieldwork-q3.xlsx` (sheet indexes and part paths aside) and its per-sheet counts equal `DEMO_FACT_COUNTS`.
+- Host hazard: a BIFF fixture holding a picture, a checkbox and a shape `OBJ` on one sheet was quarantined by this host's endpoint security on write (EPERM on every later open); the corpus splits them (`annotations.xls`, `controls.xls`).
