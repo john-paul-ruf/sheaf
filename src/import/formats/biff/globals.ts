@@ -350,13 +350,14 @@ function readName(body: Uint8Array): BiffNameV1 {
 }
 
 /** The `Ptg` decoding context of a BIFF8 workbook, for a formula at `cell`. */
-export const ptgContextOf = (globals: BiffGlobalsV1, cell: PtgCellV1 | null): PtgContextV1 => ({
+export const ptgContextOf = (globals: BiffGlobalsV1, cell: PtgCellV1 | null, isSharedFormula = false): PtgContextV1 => ({
   format: "biff8",
   sheetNames: globals.sheets.map((sheet) => sheet.name),
   supbooks: globals.supbooks,
   externSheets: globals.externSheets,
   definedNames: globals.names.map((name) => name.name),
   cell,
+  isSharedFormula,
 });
 
 /**

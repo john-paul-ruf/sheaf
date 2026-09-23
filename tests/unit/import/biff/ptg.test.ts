@@ -45,6 +45,19 @@ describe("every decoded text parses with M03 (S02's parser)", () => {
   }
 });
 
+describe("shared formulas", () => {
+  it("a 3-D reference's relative parts are offsets from the member's cell", () => {
+    for (const format of ["biff8", "biff12"] as const) {
+      const lastRow = format === "biff8" ? 65_535 : 1_048_575;
+      const minusTwo = format === "biff8" ? 0xfe : 0x3ffe;
+      const minusOne = format === "biff8" ? 0xff : 0x3fff;
+      const writer = ptg(format).refN(0, -1).area3d(0, 0, minusTwo, lastRow, minusOne, { rowAbsolute: true }).int(2).bool(false).funcVar(102, 4);
+      const context = { ...contextFor(format, { row: 9, column: 2 }), isSharedFormula: true };
+      expect(decodePtgFormula(writer.rgce, context), format).toEqual({ text: "VLOOKUP(B10,Customers!A:B,2,FALSE)" });
+    }
+  });
+});
+
 describe("the function table", () => {
   it("pins the lookup functions by id (MS-XLS Ftab)", () => {
     expect(FUNCTION_NAMES[102]).toBe("VLOOKUP");

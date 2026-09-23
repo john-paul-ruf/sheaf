@@ -19,9 +19,36 @@ import { writeCfb, type CfbStreamSpec, type CfbWriteOptions } from "../build/cfb
 
 export type BiffCellInput = number | string | boolean | null | { readonly error: number };
 
+/** Range as `[firstRow, lastRow, firstColumn, lastColumn]`. */
+export type BiffRange = readonly [number, number, number, number];
+
+export type BiffFormulaSpec =
+  | { readonly tokens: Uint8Array; readonly extra?: Uint8Array }
+  /** A shared formula's master; `tokens` use `PtgRefN`/`PtgAreaN` relative to each member. */
+  | { readonly shared: { readonly range: BiffRange; readonly tokens: Uint8Array } }
+  /** A shared- or array-formula member: `PtgExp` pointing at its master. */
+  | { readonly member: readonly [number, number] }
+  | { readonly array: { readonly range: BiffRange; readonly tokens: Uint8Array; readonly extra?: Uint8Array } }
+  /** A data-table cell (`PtgTbl` + `TABLE`). */
+  | { readonly table: true };
+
 export interface BiffCellSpec {
+  /** For a formula cell: the cached result. */
   readonly value?: BiffCellInput;
   readonly style?: number;
+  readonly formula?: BiffFormulaSpec;
+}
+
+export interface BiffValidationSpec {
+  /** `valType` (MS-XLS §2.4.117): 1 whole, 2 decimal, 3 list, 4 date, 5 time, 6 text length, 7 custom. */
+  readonly type: number;
+  /** `typOperator`: 0 between … 7 less-than-or-equal. */
+  readonly operator?: number;
+  /** A list written as one `PtgStr` of NUL-separated values. */
+  readonly isStringList?: boolean;
+  readonly formula1: Uint8Array;
+  readonly formula2?: Uint8Array;
+  readonly ranges: readonly BiffRange[];
 }
 
 export type BiffRowSpec = readonly (BiffCellSpec | BiffCellInput | undefined)[];
@@ -33,6 +60,16 @@ export interface BiffSheetSpec {
   /** `[firstRow, lastRow, firstColumn, lastColumn]`; defaults to the populated extent. */
   readonly dimension?: readonly [number, number, number, number] | "empty" | null;
   readonly rows?: readonly (BiffRowSpec | undefined)[];
+  readonly merges?: readonly BiffRange[];
+  readonly validations?: readonly BiffValidationSpec[];
+  readonly hyperlinks?: readonly BiffRange[];
+  /** Cells that carry a note (`NOTE` + its `OBJ`). */
+  readonly notes?: readonly (readonly [number, number])[];
+  /** `OBJ` records by object type (`ftCmo.ot`): 8 picture, 0x0b checkbox, 2 rectangle … */
+  readonly objects?: readonly number[];
+  /** Embedded chart substreams. */
+  readonly charts?: number;
+  readonly conditionalFormats?: number;
 }
 
 export interface BiffNameSpec {
@@ -65,7 +102,8 @@ export interface BiffWorkbookSpec {
 }
 
 export interface BiffBuildOptions {
-  readonly poisonCells?: boolean;
+  /** Every sheet, or only the sheets at these indexes. */
+  readonly poisonCells?: boolean | readonly number[];
   /** Passed to `writeCfb` — a directory loop, a lying size. */
   readonly cfb?: CfbWriteOptions;
 }
@@ -75,6 +113,17 @@ const MAX_BODY = 8224;
 const RT = {
   FORMULA: 0x0006,
   EOF: 0x000a,
+  NOTE: 0x001c,
+  OBJ: 0x005d,
+  MERGEDCELLS: 0x00e5,
+  CONDFMT: 0x01b0,
+  DVAL: 0x01b2,
+  HLINK: 0x01b8,
+  DV: 0x01be,
+  STRING: 0x0207,
+  ARRAY: 0x0221,
+  TABLE: 0x0236,
+  SHRFMLA: 0x04bc,
   DATEMODE: 0x0022,
   FILEPASS: 0x002f,
   CONTINUE: 0x003c,
@@ -275,6 +324,104 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
         : new Bytes().u16(0x0500).u16(dt).u16(0x0dbb).u16(0x07cc).finish(),
     );
 
+  const formulaRecords = (row: number, column: number, style: number, cached: BiffCellInput, formula: BiffFormulaSpec): number[] => {
+    const result = new Bytes();
+    if (typeof cached === "number") result.f64(cached);
+    else if (typeof cached === "string") result.raw([0x00, 0, 0, 0, 0, 0, 0xff, 0xff]);
+    else if (typeof cached === "boolean") result.raw([0x01, 0, cached ? 1 : 0, 0, 0, 0, 0xff, 0xff]);
+    else if (cached === null) result.raw([0x03, 0, 0, 0, 0, 0, 0xff, 0xff]);
+    else result.raw([0x02, 0, cached.error, 0, 0, 0, 0xff, 0xff]);
+    const exp = (masterRow: number, masterColumn: number): number[] => [...new Bytes().u8(0x01).u16(masterRow).u16(masterColumn).finish()];
+    let tokens: number[];
+    let extra: number[] = [];
+    const following: number[] = [];
+    if ("tokens" in formula) {
+      tokens = [...formula.tokens];
+      extra = [...(formula.extra ?? [])];
+    } else if ("shared" in formula) {
+      tokens = exp(row, column);
+      const [r1, r2, c1, c2] = formula.shared.range;
+      following.push(
+        ...record(RT.SHRFMLA, [...new Bytes().u16(r1).u16(r2).u8(c1).u8(c2).u8(0).u8((r2 - r1 + 1) * (c2 - c1 + 1)).u16(formula.shared.tokens.length).finish(), ...formula.shared.tokens]),
+      );
+    } else if ("member" in formula) {
+      tokens = exp(formula.member[0], formula.member[1]);
+    } else if ("array" in formula) {
+      tokens = exp(row, column);
+      const [r1, r2, c1, c2] = formula.array.range;
+      following.push(
+        ...record(RT.ARRAY, [
+          ...new Bytes().u16(r1).u16(r2).u8(c1).u8(c2).u16(0).u32(0).u16(formula.array.tokens.length).finish(),
+          ...formula.array.tokens,
+          ...(formula.array.extra ?? []),
+        ]),
+      );
+    } else {
+      tokens = [...new Bytes().u8(0x02).u16(row).u16(column).finish()];
+      following.push(...record(RT.TABLE, new Bytes().u16(row).u16(row).u8(column).u8(column).u16(0).u16(0).u16(0).u16(0).u16(0).finish()));
+    }
+    const grbit = "shared" in formula || "member" in formula ? 0x0008 : 0;
+    const out = record(RT.FORMULA, [
+      ...new Bytes().u16(row).u16(column).u16(style).finish(),
+      ...result.finish(),
+      ...new Bytes().u16(grbit).u32(0).u16(tokens.length).finish(),
+      ...tokens,
+      ...extra,
+    ]);
+    out.push(...following);
+    if (typeof cached === "string") {
+      out.push(...record(RT.STRING, isBiff8 ? xlUnicodeString(cached) : [...new Bytes().u16(cached.length).finish(), ...windows1252(cached)]));
+    }
+    return out;
+  };
+
+  const structureRecords = (sheet: BiffSheetSpec): number[] => {
+    const out: number[] = [];
+    const ref8 = ([r1, r2, c1, c2]: BiffRange): number[] => [...new Bytes().u16(r1).u16(r2).u16(c1).u16(c2).finish()];
+    const obj = (ot: number, id: number): number[] =>
+      record(RT.OBJ, [...new Bytes().u16(0x15).u16(0x12).u16(ot).u16(id).u16(0x6011).finish(), ...new Array<number>(12).fill(0), 0, 0, 0, 0]);
+    let objectId = 1;
+    for (const ot of sheet.objects ?? []) out.push(...obj(ot, objectId++));
+    for (let index = 0; index < (sheet.charts ?? 0); index += 1) {
+      out.push(...obj(0x05, objectId++), ...bof(0x0020), ...record(0x1001, [0, 0]), ...record(RT.EOF));
+    }
+    for (const [row, column] of sheet.notes ?? []) {
+      const id = objectId++;
+      out.push(...obj(0x19, id));
+      out.push(...record(RT.NOTE, [...new Bytes().u16(row).u16(column).u16(0).u16(id).finish(), ...xlUnicodeString("Sheaf"), 0]));
+    }
+    if ((sheet.merges ?? []).length > 0) {
+      out.push(...record(RT.MERGEDCELLS, [...new Bytes().u16((sheet.merges ?? []).length).finish(), ...(sheet.merges ?? []).flatMap(ref8)]));
+    }
+    for (let index = 0; index < (sheet.conditionalFormats ?? 0); index += 1) {
+      out.push(...record(RT.CONDFMT, [...new Bytes().u16(1).u16(0).finish(), ...ref8([0, 0, 0, 0]), 1, 0, ...ref8([0, 0, 0, 0])]));
+    }
+    for (const range of sheet.hyperlinks ?? []) {
+      out.push(...record(RT.HLINK, [...ref8(range), ...new Array<number>(16).fill(0xd0), 2, 0, 0, 0, 0, 0, 0, 0]));
+    }
+    const validations = sheet.validations ?? [];
+    if (validations.length > 0) {
+      out.push(...record(RT.DVAL, new Bytes().u16(0).u32(0).u32(0).u32(0xffffffff).u32(validations.length).finish()));
+      for (const validation of validations) {
+        const flags = validation.type | (validation.isStringList === true ? 0x80 : 0) | 0x100 | ((validation.operator ?? 0) << 20);
+        const formula2 = validation.formula2 ?? new Uint8Array(0);
+        out.push(
+          ...record(RT.DV, [
+            ...new Bytes().u32(flags).finish(),
+            ...[0, 1, 2, 3].flatMap(() => [1, 0, 0, 0]),
+            ...new Bytes().u16(validation.formula1.length).u16(0).finish(),
+            ...validation.formula1,
+            ...new Bytes().u16(formula2.length).u16(0).finish(),
+            ...formula2,
+            ...new Bytes().u16(validation.ranges.length).finish(),
+            ...validation.ranges.flatMap(ref8),
+          ]),
+        );
+      }
+    }
+    return out;
+  };
+
   const cellRecords = (rowIndex: number, row: BiffRowSpec): number[] => {
     const cells = row.map(cellOf);
     const out: number[] = [];
@@ -287,13 +434,18 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
       }
       const style = cell.style ?? 0;
       const value = cell.value ?? null;
+      if (cell.formula !== undefined) {
+        out.push(...formulaRecords(rowIndex, column, style, value, cell.formula));
+        column += 1;
+        continue;
+      }
       const runOf = (test: (candidate: BiffCellSpec | undefined) => boolean): number => {
         let end = column;
         while (end < cells.length && test(cells[end])) end += 1;
         return end - column;
       };
       if (value === null) {
-        const run = runOf((candidate) => candidate !== undefined && (candidate.value ?? null) === null);
+        const run = runOf((candidate) => candidate !== undefined && candidate.formula === undefined && (candidate.value ?? null) === null);
         if (run >= 2) {
           const body = new Bytes().u16(rowIndex).u16(column);
           for (let offset = 0; offset < run; offset += 1) body.u16(cells[column + offset]?.style ?? 0);
@@ -304,7 +456,8 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
         out.push(...record(RT.BLANK, new Bytes().u16(rowIndex).u16(column).u16(style).finish()));
       } else if (typeof value === "number") {
         const run = runOf(
-          (candidate) => candidate !== undefined && typeof candidate.value === "number" && rkOf(candidate.value) !== null,
+          (candidate) =>
+            candidate !== undefined && candidate.formula === undefined && typeof candidate.value === "number" && rkOf(candidate.value) !== null,
         );
         if (run >= 2) {
           const body = new Bytes().u16(rowIndex).u16(column);
@@ -377,6 +530,7 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
     (sheet.rows ?? []).forEach((row, rowIndex) => {
       if (row !== undefined) out.push(...cellRecords(rowIndex, row));
     });
+    out.push(...structureRecords(sheet));
     const cellsEnd = out.length;
     out.push(...record(RT.EOF));
     return { bytes: out, poison: dimension === null ? null : [cellsStart, cellsEnd] };
@@ -456,7 +610,8 @@ export const buildBiffWorkbook = (spec: BiffWorkbookSpec, options: BiffBuildOpti
   sheets.forEach((sheet, index) => {
     const start = stream.length;
     stream.push(...sheet.bytes);
-    if (options.poisonCells === true && sheet.poison !== null) {
+    const poison = options.poisonCells;
+    if ((poison === true || (Array.isArray(poison) && poison.includes(index))) && sheet.poison !== null) {
       stream.fill(0xff, start + sheet.poison[0], start + sheet.poison[1]);
     }
     if (start !== offsets[index]) throw new Error("sheet offset drifted");

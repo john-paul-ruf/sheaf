@@ -5,6 +5,7 @@
  */
 
 import { buildBiffWorkbook, type BiffBuildOptions, type BiffWorkbookSpec } from "./build-biff.js";
+import { BIFF_FIDELITY } from "./build-fidelity.js";
 
 /** Error codes as BIFF stores them (MS-XLS §2.5.10). */
 export const ERR = Object.freeze({ NA: 0x2a, VALUE: 0x0f, DIV0: 0x07, REF: 0x17 });
@@ -73,4 +74,5 @@ export const BIFF_CORPUS: ReadonlyMap<string, () => Uint8Array> = new Map<string
         ],
       }),
   ],
+  ...[...BIFF_FIDELITY].map(([name, spec]): [string, () => Uint8Array] => [`biff/${name}`, () => buildBiffWorkbook(spec)]),
 ]);

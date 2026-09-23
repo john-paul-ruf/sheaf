@@ -25,6 +25,7 @@ export const contextFor = (format: PtgFormatV1, cell: PtgContextV1["cell"] = { r
   ],
   definedNames: ["MaterialList", "Rate"],
   cell,
+  isSharedFormula: false,
 });
 
 const LAST_ROW = { biff8: 65_535, biff12: 1_048_575 } as const;
@@ -94,4 +95,5 @@ export const CASES: readonly [string, (format: PtgFormatV1) => PtgWriter, string
   ["quotes inside a string", (f) => ptg(f).str('say "hi"'), '"say ""hi"""'],
   ["error, integer and decimal literals", (f) => ptg(f).err(0x2a).int(7).num(0.1).funcVar(4, 2).funcVar(4, 2), "SUM(#N/A,SUM(7,0.1))"],
   ["a zero-argument function", (f) => ptg(f).func(221), "TODAY()"],
+  ["PtgRef3d outside a shared formula is absolute", (f) => ptg(f).ref3d(0, 1, 1), "Customers!B2"],
 ];

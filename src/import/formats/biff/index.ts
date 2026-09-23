@@ -1,6 +1,7 @@
-/** M17's public surface: the BIFF (`.xls`) inventory reader and the shared `Ptg` decoder. */
+/** M17's public surface: the BIFF (`.xls`) inventory reader and adapter, and the shared `Ptg` decoder. */
 
 export { readBiffInventory } from "./inventory.js";
+export { biffAdapter } from "./parse.js";
 export {
   decodePtgFormula,
   ERROR_TEXT,

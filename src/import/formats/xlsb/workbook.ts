@@ -176,13 +176,14 @@ export async function readXlsbWorkbook(zip: ZipContainerHandleV1): Promise<XlsbW
 }
 
 /** The `Ptg` decoding context of an XLSB workbook, for a formula at `cell`. */
-export const ptgContextOf = (workbook: XlsbWorkbookV1, cell: PtgCellV1 | null): PtgContextV1 => ({
+export const ptgContextOf = (workbook: XlsbWorkbookV1, cell: PtgCellV1 | null, isSharedFormula = false): PtgContextV1 => ({
   format: "biff12",
   sheetNames: workbook.sheets.map((sheet) => sheet.name),
   supbooks: workbook.supbooks,
   externSheets: workbook.externSheets,
   definedNames: workbook.names.map((name) => name.name),
   cell,
+  isSharedFormula,
 });
 
 /**

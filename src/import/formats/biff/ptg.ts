@@ -63,6 +63,11 @@ export interface PtgContextV1 {
   readonly definedNames: readonly string[];
   /** The formula's own cell, for relative `PtgRefN`/`PtgAreaN`; `null` outside a cell. */
   readonly cell: PtgCellV1 | null;
+  /**
+   * True for a shared formula's tokens (`SHRFMLA`, `BrtShrFmla`), where a 3-D
+   * reference's relative parts are offsets from `cell`, as `PtgRefN`'s are.
+   */
+  readonly isSharedFormula: boolean;
 }
 
 export const PTG_UNDECODABLE_REASONS = Object.freeze([
@@ -602,13 +607,13 @@ function decode(rgce: Uint8Array, ctx: PtgContextV1, rgcb: Uint8Array): string {
       }
       case 0x1a: {
         const prefix = sheetPrefix(tokens.u16());
-        const operand = refOperand(false);
+        const operand = refOperand(ctx.isSharedFormula);
         stack.push(prefix === null ? "#REF!" : `${prefix}${operand}`);
         break;
       }
       case 0x1b: {
         const prefix = sheetPrefix(tokens.u16());
-        const operand = areaOperand(false);
+        const operand = areaOperand(ctx.isSharedFormula);
         stack.push(prefix === null ? "#REF!" : `${prefix}${operand}`);
         break;
       }
