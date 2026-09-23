@@ -16,6 +16,7 @@ import {
 } from "./app-frame.js";
 import { EnumPickerSheet } from "./enum-picker-sheet.js";
 import {
+  describeValue,
   epochDayToIsoDate,
   isCanonicalDecimalText,
   isoDateToEpochDay,
@@ -397,10 +398,9 @@ function FormField({
         {field.isRequired && " (required)"}
       </label>
 
-      {input.kind === "unsupported" ? (
+      {input.kind === "reference" ? (
         <p className={cx(styles["readOnly"])} id={inputId}>
-          This field holds a link to another record. Editing one arrives in a
-          later release, so its value is shown here and left as it is.
+          {field.value === null ? "Not given" : describeValue(field.value, undefined)}
         </p>
       ) : input.kind === "enum" ? (
         <button

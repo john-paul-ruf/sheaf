@@ -7,6 +7,9 @@
  * promise does not already model. The long-running flow F02 adds is the import
  * (`import.machine.ts`), and that is the only one.
  *
+ * F03 adds the relationship, reference, deleted-record, table and snapshot
+ * reads S03 landed (CA-21, CA-22), bound to their wire names verbatim.
+ *
  * The adapters add no logic — they name a request, send it, and return the
  * typed response. Every refusal that is a *result* (a validation rejection, an
  * unknown subject, a `null` page) stays a result: it is the view model's job to
@@ -20,15 +23,24 @@ import type {
   CreateRecordResponseV1,
   DataWorkerRequestV1,
   DeleteRecordResponseV1,
+  FindInSnapshotResponseV1,
   GetChangeHistoryResponseV1,
+  GetDeletedRecordResponseV1,
   GetRecordResponseV1,
+  GetRelatedChildrenResponseV1,
+  GetRelatedRecordsResponseV1,
+  GetSnapshotPageResponseV1,
+  ListInertItemsResponseV1,
   ListLibraryResponseV1,
+  ListSheetSnapshotsResponseV1,
+  ListTablesResponseV1,
   NoteAppOpenedResponseV1,
   OpenAppResponseV1,
   PatchRecordResponseV1,
   QueryRecordsResponseV1,
   ResponseForV1,
   RestoreRecordResponseV1,
+  SearchReferenceCandidatesResponseV1,
 } from "../../workers/protocol/messages.js";
 
 /** Structural, so a test double is a two-line object (the F01 pattern). */
@@ -89,6 +101,58 @@ export interface RecordsServices {
     readonly cursor?: ChangeHistoryCursorWireV1 | null;
     readonly limit?: number;
   }) => Promise<GetChangeHistoryResponseV1>;
+  /** A record's parents (resolved or broken) and, per relationship, its children. */
+  readonly getRelatedRecords: (input: {
+    readonly appId: string;
+    readonly recordId: string;
+  }) => Promise<GetRelatedRecordsResponseV1>;
+  /** `after` is the previous page's `nextCursor` — a row key, never an offset. */
+  readonly getRelatedChildren: (input: {
+    readonly appId: string;
+    readonly relationshipId: string;
+    readonly parentRecordId: string;
+    readonly after?: number | null;
+    readonly limit?: number;
+  }) => Promise<GetRelatedChildrenResponseV1>;
+  /** SHT-002: blank text browses the related table. */
+  readonly searchReferenceCandidates: (input: {
+    readonly appId: string;
+    readonly fieldId: string;
+    readonly text: string;
+    readonly limit?: number;
+  }) => Promise<SearchReferenceCandidatesResponseV1>;
+  /** MOD-010: the values the latest delete preserved; null while it is live. */
+  readonly getDeletedRecord: (input: {
+    readonly appId: string;
+    readonly recordId: string;
+  }) => Promise<GetDeletedRecordResponseV1>;
+  /** SHT-003: the open app's tables with exact counts, read now. */
+  readonly listTables: (input: {
+    readonly appId: string;
+  }) => Promise<ListTablesResponseV1>;
+  /** SCR-030. */
+  readonly listSheetSnapshots: (input: {
+    readonly appId: string;
+  }) => Promise<ListSheetSnapshotsResponseV1>;
+  /** SCR-031: at most 1,000 rows per page (CA-22). */
+  readonly getSnapshotPage: (input: {
+    readonly appId: string;
+    readonly sheetId: string;
+    readonly firstRow: number;
+    readonly rowCount: number;
+  }) => Promise<GetSnapshotPageResponseV1>;
+  /** The next cell after `afterRow` holding `text`; null searches from the top. */
+  readonly findInSnapshot: (input: {
+    readonly appId: string;
+    readonly sheetId: string;
+    readonly text: string;
+    readonly afterRow: number | null;
+  }) => Promise<FindInSnapshotResponseV1>;
+  /** STA-012: one sheet's inert inventory, or the whole app's when null. */
+  readonly listInertItems: (input: {
+    readonly appId: string;
+    readonly sheetId: string | null;
+  }) => Promise<ListInertItemsResponseV1>;
 }
 
 export function createRecordsServices(
@@ -112,5 +176,21 @@ export function createRecordsServices(
       port.send({ kind: "restoreRecord", appId, recordId }),
     getChangeHistory: (input) =>
       port.send({ kind: "getChangeHistory", ...input }),
+    getRelatedRecords: ({ appId, recordId }) =>
+      port.send({ kind: "getRelatedRecords", appId, recordId }),
+    getRelatedChildren: (input) =>
+      port.send({ kind: "getRelatedChildren", ...input }),
+    searchReferenceCandidates: (input) =>
+      port.send({ kind: "searchReferenceCandidates", ...input }),
+    getDeletedRecord: ({ appId, recordId }) =>
+      port.send({ kind: "getDeletedRecord", appId, recordId }),
+    listTables: ({ appId }) => port.send({ kind: "listTables", appId }),
+    listSheetSnapshots: ({ appId }) =>
+      port.send({ kind: "listSheetSnapshots", appId }),
+    getSnapshotPage: (input) =>
+      port.send({ kind: "getSnapshotPage", ...input }),
+    findInSnapshot: (input) => port.send({ kind: "findInSnapshot", ...input }),
+    listInertItems: ({ appId, sheetId }) =>
+      port.send({ kind: "listInertItems", appId, sheetId }),
   };
 }

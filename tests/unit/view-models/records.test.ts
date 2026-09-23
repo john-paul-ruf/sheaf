@@ -19,12 +19,18 @@ import {
   selectRecordDetailVm,
   selectRecordFormVm,
   selectRecordsListVm,
+  selectHasManyVm,
+  selectReferencePickerVm,
   selectRestoreRecordDialogVm,
+  selectTableSwitcherVm,
   toCommandOutcomeVm,
   toIssueVm,
+  toRecordLabel,
+  UNLABELLED_RECORD,
   type AppHomeVm,
   type RecordDetailVm,
   type RecordsListVm,
+  type ReferenceCellVm,
 } from "../../../src/application/view-models/records.js";
 import type {
   AppFieldViewV1,
@@ -338,14 +344,30 @@ describe("the record detail (SCR-027)", () => {
     expect(amount?.issues[0]?.token).toBe("preserved-invalid");
   });
 
-  it("has no relationships section to fill (D25)", () => {
-    type ForbiddenKey = Extract<
-      keyof RecordDetailVm,
-      "relationships" | "relatedRecords" | "belongsTo" | "hasMany"
-    >;
-    const noForbiddenKeys: ForbiddenKey extends never ? true : false = true;
-    expect(noForbiddenKeys).toBe(true);
+  it("draws no relationship section for a value-only table (STA-025)", () => {
+    const vm = selectRecordDetailVm(
+      tableView(fields),
+      detail([{ fieldId: "f-title", value: { kind: "text", text: "Patio" } }]),
+    );
+    expect(vm.belongsTo).toEqual([]);
+    expect(vm.hasMany).toEqual([]);
+    expect(vm.missing).toEqual([]);
   });
+
+  it.each([
+    [0, 0, "One record in Jobs."],
+    [0, 1, "One record in Jobs. 1 value needs attention."],
+    [1, 1, "One record in Jobs. 2 values need attention."],
+  ])(
+    "announces %i blocking + %i warning in agreeing words (M37 plural fix)",
+    (blocking, warning, expected) => {
+      const vm = selectRecordDetailVm(
+        tableView(fields),
+        detail([], { blockingIssueCount: blocking, warningIssueCount: warning }),
+      );
+      expect(vm.announcement).toBe(expected);
+    },
+  );
 
   it("marks which fields the projection could index", () => {
     const vm = selectRecordDetailVm(
@@ -437,11 +459,10 @@ describe("the per-type input mapping (FR-12)", () => {
     });
   });
 
-  it("shows a reference read-only rather than offering a picker (D25)", () => {
+  it("offers a reference as SHT-002's picker (CA-21 made it authorable)", () => {
     expect(inputForField(fieldView({ type: { kind: "reference" } }))).toEqual({
-      kind: "unsupported",
-      control: "read-only",
-      reason: "reference-fields-arrive-in-a-later-release",
+      kind: "reference",
+      control: "reference-picker",
     });
   });
 });
@@ -480,7 +501,7 @@ describe("the record form (SCR-028 / SCR-029)", () => {
       "This field needs a value before the record can be saved.",
     );
     expect(vm.announcement).toBe(
-      "1 fields must be corrected before this can be saved.",
+      "1 field must be corrected before this can be saved.",
     );
   });
 
@@ -593,6 +614,65 @@ describe("the change history (SCR-032)", () => {
     return { entries: [], hasMore: false, nextCursor: null, ...overrides };
   }
 
+  it.each([
+    [1, "1 change since this app was last checkpointed."],
+    [2, "2 changes since this app was last checkpointed."],
+  ])("announces %i entries in agreeing words (M37 plural fix)", (count, expected) => {
+    const entries = Array.from({ length: count }, (_, index) => ({
+      eventId: `e-${String(index)}`,
+      commitId: "c-1",
+      eventKind: "record.patched",
+      subjectKind: "record",
+      subjectId: "r-1",
+      wallTimeMs: 1,
+      logicalCounter: index,
+      recordRevision: 2,
+      changedFieldIds: [],
+      isRestorable: false,
+    }));
+    expect(selectChangeHistoryVm(historyPage({ entries })).announcement).toBe(expected);
+  });
+
+  it("names each entry's table, and says nothing for an app-level event", () => {
+    const vm = selectChangeHistoryVm(
+      historyPage({
+        entries: [
+          {
+            eventId: "e-1",
+            commitId: "c-1",
+            eventKind: "record.created",
+            subjectKind: "record",
+            subjectId: "r-1",
+            wallTimeMs: 1,
+            logicalCounter: 1,
+            recordRevision: 1,
+            changedFieldIds: [],
+            isRestorable: false,
+            tableId: "t-jobs",
+          },
+          {
+            eventId: "e-2",
+            commitId: "c-2",
+            eventKind: "theme.changed",
+            subjectKind: "app",
+            subjectId: "a-1",
+            wallTimeMs: 2,
+            logicalCounter: 2,
+            recordRevision: null,
+            changedFieldIds: [],
+            isRestorable: false,
+            tableId: null,
+          },
+        ],
+      }),
+      [tableView([])],
+    );
+    expect(vm.entries.map((entry) => [entry.tableId, entry.tableName])).toEqual([
+      ["t-jobs", "Jobs"],
+      [null, null],
+    ]);
+  });
+
   it("states its scope so a fresh app's empty log reads truthfully", () => {
     const vm = selectChangeHistoryVm(historyPage());
     expect(vm.scope).toBe("since-last-checkpoint");
@@ -628,6 +708,9 @@ describe("the change history (SCR-032)", () => {
       dialog: "MOD-010",
       recordId: "r-9",
       deletedAtEpochMs: 1_700_000_000_000,
+      tableName: null,
+      original: { kind: "reading" },
+      validation: { kind: "checked-on-restore" },
       assurance:
         "Restore validates against the current schema before writing a new append-only event.",
       busy: false,
@@ -662,5 +745,437 @@ describe("the delete dialog (MOD-009)", () => {
       assurance: "Deletes remain recoverable in change history.",
       busy: false,
     });
+  });
+});
+
+// --- F03: relationships, references, switcher, MOD-010 (CAP-24, CA-21) -----
+
+describe("reference cells (CA-21, D36, STA-011)", () => {
+  const jobs: AppTableViewV1 = {
+    ...tableView([
+      fieldView({ fieldId: "f-job", displayName: "Job ID", fieldOrdinal: 0 }),
+      fieldView({
+        fieldId: "f-customer",
+        displayName: "Customer ID",
+        fieldOrdinal: 1,
+        type: { kind: "reference" },
+      }),
+    ]),
+  };
+  const customers: AppTableViewV1 = {
+    ...tableView([]),
+    tableId: "t-customers",
+    displayName: "Customers",
+  };
+
+  function jobDetail(
+    customer: CellWireEntryV1["value"],
+    references?: RecordDetailViewV1["references"],
+  ): RecordDetailViewV1 {
+    return {
+      ...summary([
+        { fieldId: "f-job", value: { kind: "text", text: "J-1016" } },
+        { fieldId: "f-customer", value: customer },
+      ]),
+      createdCommitId: "c-1",
+      updatedCommitId: "c-1",
+      issues: [],
+      indexedFieldIds: [],
+      ...(references === undefined ? {} : { references }),
+    };
+  }
+
+  it("reads a resolved reference as its parent's label, and names the parent's table", () => {
+    const vm = selectRecordDetailVm(
+      jobs,
+      jobDetail({ kind: "reference", recordId: "r-c8" }),
+      {
+        tables: [jobs, customers],
+        related: {
+          parents: [
+            {
+              fieldId: "f-customer",
+              relationshipId: "rel-1",
+              status: "resolved",
+              recordId: "r-c8",
+              tableId: "t-customers",
+              label: "Harbor View Inn",
+            },
+          ],
+          children: [],
+        },
+      },
+    );
+    const customer = vm.fields.find((field) => field.fieldId === "f-customer");
+    expect(customer?.value).toEqual({
+      kind: "reference",
+      reference: {
+        kind: "resolved",
+        recordId: "r-c8",
+        tableId: "t-customers",
+        label: "Harbor View Inn",
+      },
+    });
+    expect(vm.belongsTo).toEqual([
+      {
+        fieldId: "f-customer",
+        fieldName: "Customer ID",
+        relationshipId: "rel-1",
+        recordId: "r-c8",
+        tableId: "t-customers",
+        tableName: "Customers",
+        label: "Harbor View Inn",
+      },
+    ]);
+    expect(vm.missing).toEqual([]);
+  });
+
+  it("keeps an imported key that matched nothing as a broken reference with that key", () => {
+    const vm = selectRecordDetailVm(
+      jobs,
+      jobDetail({ kind: "invalid", sourceText: "C-013" }, [
+        {
+          fieldId: "f-customer",
+          relationshipId: "rel-1",
+          status: "broken",
+          originalKey: "C-013",
+        },
+      ]),
+    );
+    expect(vm.missing).toEqual([
+      {
+        kind: "broken",
+        originalKey: "C-013",
+        relationName: "Customer ID",
+        fieldId: "f-customer",
+        relationshipId: "rel-1",
+      },
+    ]);
+    expect(vm.fields[1]?.value).toEqual({
+      kind: "reference",
+      reference: { kind: "broken", originalKey: "C-013", relationName: "Customer ID" },
+    });
+  });
+
+  it("reads a deleted parent's key from the worker, and the authored text when the worker has none", () => {
+    const deletedParent = selectRecordDetailVm(
+      jobs,
+      jobDetail({ kind: "reference", recordId: "r-gone" }, [
+        { fieldId: "f-customer", relationshipId: "rel-1", status: "broken", originalKey: "C-008" },
+      ]),
+    );
+    expect(deletedParent.missing[0]).toMatchObject({ kind: "broken", originalKey: "C-008" });
+
+    const authoredOnly = selectRecordDetailVm(
+      jobs,
+      jobDetail({ kind: "invalid", sourceText: "C-099" }, [
+        { fieldId: "f-customer", relationshipId: "rel-1", status: "broken", originalKey: null },
+      ]),
+    );
+    expect(authoredOnly.missing[0]).toMatchObject({ kind: "broken", originalKey: "C-099" });
+
+    const unkeyed = selectRecordDetailVm(
+      jobs,
+      jobDetail({ kind: "reference", recordId: "r-gone" }, [
+        { fieldId: "f-customer", relationshipId: "rel-1", status: "broken", originalKey: null },
+      ]),
+    );
+    expect(unkeyed.missing[0]).toMatchObject({ kind: "broken-unkeyed", relationName: "Customer ID" });
+  });
+
+  it("never takes the key from an issue parameter", () => {
+    const vm = selectRecordDetailVm(
+      jobs,
+      {
+        ...jobDetail({ kind: "invalid", sourceText: "C-013" }),
+        issues: [
+          {
+            fieldId: "f-customer",
+            kind: "reference",
+            severity: "warning",
+            messageKey: "validation.broken-reference",
+            messageParameters: { key: "FROM-ISSUE" },
+          },
+        ],
+      },
+    );
+    expect(JSON.stringify(vm.fields[1]?.value)).not.toContain("FROM-ISSUE");
+    expect(vm.fields[1]?.value).toMatchObject({ reference: { originalKey: "C-013" } });
+  });
+
+  it("shows an unread reference as pending, never as a blank", () => {
+    const list = selectRecordsListVm(
+      jobs,
+      {
+        tableId: "t-jobs",
+        scope: { kind: "table" },
+        records: [
+          summary([
+            { fieldId: "f-job", value: { kind: "text", text: "J-1001" } },
+            { fieldId: "f-customer", value: { kind: "reference", recordId: "r-c8" } },
+          ]),
+        ],
+        hasMore: false,
+        nextCursor: null,
+        totalCount: 1,
+        isTotalExact: true,
+      },
+    );
+    expect(list.cards[0]?.facts[0]?.value).toEqual({
+      kind: "reference",
+      reference: { kind: "pending", recordId: "r-c8" },
+    });
+  });
+
+  it("labels list references from the page's related reads", () => {
+    const list = selectRecordsListVm(
+      jobs,
+      {
+        tableId: "t-jobs",
+        scope: { kind: "table" },
+        records: [
+          summary([
+            { fieldId: "f-job", value: { kind: "text", text: "J-1001" } },
+            { fieldId: "f-customer", value: { kind: "reference", recordId: "r-c8" } },
+          ]),
+        ],
+        hasMore: false,
+        nextCursor: null,
+        totalCount: 1,
+        isTotalExact: true,
+      },
+      new Map([
+        [
+          "r-1",
+          [
+            {
+              fieldId: "f-customer",
+              relationshipId: "rel-1",
+              status: "resolved" as const,
+              recordId: "r-c8",
+              tableId: "t-customers",
+              label: "Harbor View Inn",
+            },
+          ],
+        ],
+      ]),
+    );
+    expect(list.cards[0]?.facts[0]?.value).toMatchObject({
+      reference: { kind: "resolved", label: "Harbor View Inn" },
+    });
+  });
+
+  it("states an empty label in words (CTL-070)", () => {
+    expect(toRecordLabel("  ")).toBe(UNLABELLED_RECORD);
+    expect(toRecordLabel("Harbor View Inn")).toBe("Harbor View Inn");
+  });
+
+  it("holds both must-nots in the type", () => {
+    // A broken reference cannot be built without its original key.
+    // @ts-expect-error — `originalKey` is required on `broken`.
+    const noKey: ReferenceCellVm = { kind: "broken", relationName: "Customer ID" };
+    // @ts-expect-error — nor may it be null; the unkeyed case is its own member.
+    const nullKey: ReferenceCellVm = { kind: "broken", originalKey: null, relationName: "x" };
+    // An unresolved label cannot be a bare (possibly blank) string.
+    const blank: ReferenceCellVm = {
+      kind: "resolved",
+      recordId: "r",
+      tableId: "t",
+      // @ts-expect-error — only `toRecordLabel` makes a `RecordLabelV1`.
+      label: "",
+    };
+    expect([noKey, nullKey, blank]).toHaveLength(3);
+
+    type BrokenKey = Extract<ReferenceCellVm, { kind: "broken" }>["originalKey"];
+    const keyIsString: BrokenKey extends string ? (null extends BrokenKey ? false : true) : false =
+      true;
+    expect(keyIsString).toBe(true);
+  });
+});
+
+describe("has many (record-detail.html)", () => {
+  const group = {
+    relationshipId: "rel-1",
+    tableId: "t-jobs",
+    tableName: "Jobs",
+    count: 7,
+    first: [
+      { recordId: "r-1", label: "J-1001" },
+      { recordId: "r-2", label: "" },
+    ],
+  };
+
+  it("previews the first children with the exact count", () => {
+    const vm = selectHasManyVm(group);
+    expect(vm).toMatchObject({ count: 7, isExpanded: false, hasMore: true, nextCursor: null });
+    expect(vm.shown.map((child) => child.label)).toEqual(["J-1001", UNLABELLED_RECORD]);
+  });
+
+  it("pages through every child once expanded", () => {
+    const vm = selectHasManyVm(group, [
+      {
+        children: [
+          { recordId: "r-1", label: "J-1001", cursor: 1 },
+          { recordId: "r-2", label: "J-1002", cursor: 2 },
+        ],
+        hasMore: true,
+        nextCursor: 2,
+      },
+      { children: [{ recordId: "r-3", label: "J-1003", cursor: 3 }], hasMore: false, nextCursor: null },
+    ]);
+    expect(vm.shown.map((child) => child.recordId)).toEqual(["r-1", "r-2", "r-3"]);
+    expect(vm).toMatchObject({ isExpanded: true, hasMore: false, nextCursor: null });
+  });
+});
+
+describe("the reference picker (SHT-002)", () => {
+  const current: ReferenceCellVm = {
+    kind: "resolved",
+    recordId: "r-c8",
+    tableId: "t-customers",
+    label: toRecordLabel("Harbor View Inn"),
+  };
+
+  it("marks the current choice among the candidates", () => {
+    const vm = selectReferencePickerVm({
+      fieldName: "Customer ID",
+      query: "",
+      current,
+      candidates: [
+        { recordId: "r-c1", label: "Alder Court HOA" },
+        { recordId: "r-c8", label: "Harbor View Inn" },
+      ],
+    });
+    expect(vm.candidates.map((candidate) => candidate.isCurrent)).toEqual([false, true]);
+    expect(vm.emptiness).toBeNull();
+  });
+
+  it("keeps its three empties distinct", () => {
+    const base = { fieldName: "Customer ID", current: null };
+    expect(selectReferencePickerVm({ ...base, query: "", candidates: [] }).emptiness).toBe(
+      "no-candidates",
+    );
+    expect(selectReferencePickerVm({ ...base, query: "zzz", candidates: [] }).emptiness).toBe(
+      "no-results",
+    );
+    expect(selectReferencePickerVm({ ...base, query: "", candidates: null }).emptiness).toBe(
+      "not-a-relationship",
+    );
+  });
+});
+
+describe("the table switcher (SHT-003)", () => {
+  it("lists tables in order with exact counts and marks the current one", () => {
+    const jobs = { ...tableView([]), recordCount: 60 };
+    const customers = {
+      ...tableView([]),
+      tableId: "t-customers",
+      displayName: "Customers",
+      tableOrdinal: 1,
+      recordCount: 12,
+    };
+    const vm = selectTableSwitcherVm([customers, jobs], "t-customers");
+    expect(vm.tables.map((table) => [table.displayName, table.recordCount, table.isCurrent])).toEqual([
+      ["Jobs", 60, false],
+      ["Customers", 12, true],
+    ]);
+    expect(vm.current?.tableId).toBe("t-customers");
+    expect(selectTableSwitcherVm([jobs], null).current).toBeNull();
+  });
+});
+
+describe("MOD-010 with the deleted record's own values", () => {
+  const table = tableView([
+    fieldView({ fieldId: "f-title", displayName: "Job", fieldOrdinal: 0 }),
+    fieldView({ fieldId: "f-status", displayName: "Status", fieldOrdinal: 1 }),
+  ]);
+  const entry = {
+    eventId: "e-1",
+    commitId: "c-1",
+    eventKind: "record.deleted",
+    subjectKind: "record",
+    subjectId: "r-9",
+    wallTimeMs: 1_700_000_000_000,
+    logicalCounter: 1,
+    recordRevision: 2,
+    changedFieldIds: [],
+    isRestorable: true,
+    tableId: "t-jobs",
+    tableName: "Jobs",
+  };
+
+  it("shows the original values in field order, and the delete's own time", () => {
+    const vm = selectRestoreRecordDialogVm(entry, {
+      table,
+      deleted: {
+        recordId: "r-9",
+        tableId: "t-jobs",
+        values: [
+          { fieldId: "f-status", value: { kind: "text", text: "Complete" } },
+          { fieldId: "f-title", value: { kind: "text", text: "Patio" } },
+        ],
+        deletedEventId: "e-1",
+        deletedAtEpochMs: 1_700_000_000_500,
+        keyValue: null,
+      },
+    });
+    expect(vm.deletedAtEpochMs).toBe(1_700_000_000_500);
+    expect(vm.tableName).toBe("Jobs");
+    expect(vm.original).toEqual({
+      kind: "values",
+      facts: [
+        { fieldId: "f-title", displayName: "Job", value: { kind: "text", text: "Patio" } },
+        { fieldId: "f-status", displayName: "Status", value: { kind: "text", text: "Complete" } },
+      ],
+    });
+    expect(vm.validation).toEqual({ kind: "checked-on-restore" });
+  });
+
+  it("says when there is nothing to show, and carries a refusal as its issues", () => {
+    const vm = selectRestoreRecordDialogVm(entry, {
+      table,
+      deleted: null,
+      rejection: [
+        {
+          fieldId: "f-status",
+          kind: "value",
+          severity: "blocking",
+          messageKey: "validation.required",
+          messageParameters: {},
+        },
+      ],
+    });
+    expect(vm.original).toEqual({ kind: "unavailable" });
+    expect(vm.validation).toMatchObject({ kind: "rejected", issues: [{ token: "required" }] });
+  });
+});
+
+describe("the app home announcement (M37 plural fix)", () => {
+  it.each([
+    [1, "Field Log is on this device only. 1 change has no durable copy."],
+    [3, "Field Log is on this device only. 3 changes have no durable copy."],
+  ])("with %i device-only changes", (count, expected) => {
+    const session: AppSessionViewV1 = {
+      appId: "a-1",
+      displayName: "Field Log",
+      theme: {
+        themeKey: "k",
+        tokens: {
+          "app-ink": "#000",
+          "app-canvas": "#fff",
+          "app-surface": "#fff",
+          "app-primary": "#000",
+          "app-accent": "#000",
+          "app-muted": "#eee",
+        },
+      },
+      schemaRevision: 1,
+      createdAtEpochMs: 1,
+      lastOpenedAtEpochMs: null,
+      isScratch: true,
+      deviceOnlyChangeCount: count,
+      tables: [],
+    };
+    expect(selectAppHomeVm(session).announcement).toBe(expected);
   });
 });

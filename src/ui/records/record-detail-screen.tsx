@@ -47,12 +47,9 @@ export function mapsHref(query: string): string {
 }
 
 /**
- * How many values need looking at, in words that agree with the number.
- *
- * M37's `announcement` says "1 values need attention" — a plural for a count
- * of one. It is still what the live region announces (that copy is M37's to
- * fix, and it is reported), but the sentence a person *reads* is composed here
- * from the same two counts.
+ * How many values need looking at, in words that agree with the number: the
+ * visible sentence names the two severities apart, where M37's live-region
+ * announcement gives their total.
  */
 export function describeIssueCounts(vm: RecordDetailVm): string {
   const parts: string[] = [];

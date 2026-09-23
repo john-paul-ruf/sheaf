@@ -1,6 +1,7 @@
 import type {
   RecordDetailVm,
   RecordValueVm,
+  ReferenceCellVm,
 } from "../../application/view-models/records.js";
 
 /**
@@ -133,8 +134,24 @@ export function describeValue(
     case "invalid-preserved":
       return value.sourceText;
     case "reference":
-      // No F02 producer (D25); the member exists because the wire has one.
-      return "A related record";
+      return describeReference(value.reference);
+  }
+}
+
+/**
+ * A reference in one line (CTL-070/071): the parent's human label, or
+ * design.md's "Missing related record" with the original key — never blank.
+ */
+export function describeReference(reference: ReferenceCellVm): string {
+  switch (reference.kind) {
+    case "resolved":
+      return reference.label;
+    case "broken":
+      return `Missing related record · original key ${reference.originalKey}`;
+    case "broken-unkeyed":
+      return "Missing related record · no original key was recorded";
+    case "pending":
+      return "Reading the related record…";
   }
 }
 

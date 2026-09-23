@@ -195,8 +195,9 @@ describe("MOD-010 — restore, with what is actually known", () => {
           isRestorable: true,
         }),
         changedFieldIds: [FIELD_IDS.status],
+        tableId: null,
+        tableName: null,
       },
-      false,
     );
     await render(
       <RestoreRecordDialog
@@ -222,7 +223,10 @@ describe("MOD-010 — restore, with what is actually known", () => {
         isOpen
         onCancel={vi.fn()}
         onConfirm={onConfirm}
-        vm={selectRestoreRecordDialogVm(historyEntry(), true)}
+        vm={selectRestoreRecordDialogVm(
+          { ...historyEntry(), tableId: null, tableName: null },
+          { busy: true },
+        )}
       />,
     );
 

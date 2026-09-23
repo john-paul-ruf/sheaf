@@ -1635,7 +1635,7 @@ function ChangeHistoryRoute({
               setRestoring(null);
             }}
             onConfirm={confirmRestore}
-            vm={selectRestoreRecordDialogVm(restoring, busy)}
+            vm={selectRestoreRecordDialogVm(restoring, { busy })}
           />
         )
       }
