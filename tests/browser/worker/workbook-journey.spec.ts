@@ -296,15 +296,17 @@ async function unlockedPage(page: Page): Promise<void> {
   expect((await command(page, { kind: "setup", passphrase: PASSPHRASE })).ok).toBe(true);
 }
 
-for (const [path, fileName] of [
-  ["xlsb/fieldwork-jobs.xlsb", "fieldwork-jobs.xlsb"],
-  ["ods/fieldwork-jobs-customers.ods", "fieldwork-jobs-customers.ods"],
+for (const [path, fileName, recordCounts] of [
+  ["xlsb/fieldwork-jobs.xlsb", "fieldwork-jobs.xlsb", null],
+  // Each sheet's database range is declared before its rows: one table per sheet, every row in it.
+  ["ods/fieldwork-jobs-customers.ods", "fieldwork-jobs-customers.ods", [60, 12]],
 ] as const) {
   test(`CAP-27: the ${fileName} demo pair keeps its lookup-formula relationship through the real workers`, async ({ page }) => {
     test.setTimeout(JOURNEY_TIMEOUT_MS);
     await unlockedPage(page);
     const result = await importAndPromote(page, path, fileName);
 
+    if (recordCounts !== null) expect(result.tables.map((table) => table.count)).toEqual(recordCounts);
     expect(result.proposal.relationships.some((relationship) => relationship.detectionSource === "lookup-formula")).toBe(true);
     expect(result.tables.some((table) => table.fields.includes("Customer ID:reference"))).toBe(true);
     const roots = await readWorkbookRoots(page, PASSPHRASE);

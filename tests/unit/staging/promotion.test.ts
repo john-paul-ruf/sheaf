@@ -408,10 +408,11 @@ describe("the row plan (CA-19)", () => {
     expect(planned).toBeGreaterThan(40);
   });
 
-  it("follows the stream: a table declared after its rows takes only the rows after it, as inference did", async () => {
-    // S05's ODS pair states each sheet's table after the sheet's rows; the
-    // review proposed a one-row declared table beside a region, and the app
-    // must be that proposal — not a second reading of the rows.
+  it("follows the stream: the ODS pair's tables, declared before their rows, take every row, as inference did", async () => {
+    // The ODS adapter states each sheet's database range before the sheet's
+    // rows (S02's ordering rule), so the review proposes one declared table
+    // per sheet holding all its data rows, and the app must be that proposal —
+    // not a second reading of the rows.
     const stream = await streamWorkbookFixture("ods/fieldwork-jobs-customers.ods");
     if (stream === null) throw new Error("the ODS pair did not size");
     const proposal = inferWorkbook(stream.items, {
@@ -422,10 +423,8 @@ describe("the row plan (CA-19)", () => {
       existingApp: null,
     });
     expect(proposal.tables.map((table) => `${table.tableKey}:${String(table.rowCount)}`)).toEqual([
-      "s0.t0:1",
-      "s0.r0:59",
-      "s1.t0:1",
-      "s1.r0:11",
+      "s0.t0:60",
+      "s1.t0:12",
     ]);
     const entropy = new SequenceEntropy();
     const built = await buildRecords(entropy, proposal, allocateSchema(entropy, proposal), stream.items);

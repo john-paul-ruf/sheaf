@@ -4,11 +4,17 @@
  *
  * Per selected table it emits the `sheet` fact (the first also carries the
  * workbook-wide facts: defined names, document scripts, DDE connections),
- * then each row — a `row` fact and, per cell in column order, an optional
- * `cell-format`, `formula` and `value` fact — with the structure the row
- * declares (merges, annotations, frames, links) after it, and at the end the
- * sheet's validations, declared tables (database ranges) and one
+ * the sheet's declared tables (database ranges), then each row — a `row` fact
+ * and, per cell in column order, an optional `cell-format`, `formula` and
+ * `value` fact — with the structure the row declares (merges, annotations,
+ * frames, links) after it, and at the end the sheet's validations and one
  * conditional-formatting / cell-styling part when used.
+ *
+ * **Declared tables precede the rows**, as in OOXML: inference reads rows
+ * before any later declared table as regions (M21). ODS names a database
+ * range's columns only in its header row's cells, so those header rows are
+ * read first, in a pass of their own through the same sheet reader that
+ * stops at the last header row it needs.
  *
  * **Repeats are expanded sparsely.** `table:number-rows-repeated` and
  * `table:number-columns-repeated` over empty cells only move the row index or
@@ -298,6 +304,15 @@ class SheetReader {
     private readonly repeatBudget: { used: number },
   ) {
     for (const table of tables) this.headers.set(table, []);
+  }
+
+  /** The header cells read so far of a range this reader was given. */
+  headerNamesOf(table: DatabaseRangeV1): readonly string[] {
+    return this.headers.get(table) ?? [];
+  }
+
+  hasReadPast(rowIndex: number): boolean {
+    return this.rowIndex > rowIndex;
   }
 
   /** Consumes one event inside the table; yields after every emitted row. */
@@ -695,22 +710,94 @@ class SheetReader {
         });
       }
     }
-    for (const table of this.tables) {
-      const names = this.headers.get(table) as string[];
-      const width = table.range.lastColumn - table.range.firstColumn + 1;
-      push({
-        kind: "declared-table",
-        name: table.name,
-        range: table.range,
-        headerRowCount: table.headerRowCount,
-        totalsRowCount: 0,
-        columns: Array.from({ length: width }, (_, index) => names[index] ?? ""),
-      });
-    }
     for (let index = 0; index < this.scripts; index += 1) push(part("script", this.name, null, null));
     if (this.hasConditionalFormats) push(part("conditional-formatting", this.name, null, null));
     if (this.isStyled) push(part("cell-styling", this.name, null, null));
   }
+}
+
+const declaredTableOf = (table: DatabaseRangeV1, names: readonly string[]): WorkbookFactV2 => ({
+  kind: "declared-table",
+  name: table.name,
+  range: table.range,
+  headerRowCount: table.headerRowCount,
+  totalsRowCount: 0,
+  columns: Array.from({ length: table.range.lastColumn - table.range.firstColumn + 1 }, (_, index) => names[index] ?? ""),
+});
+
+/** `content.xml`'s top-level tables, in order: each opens, streams its inner events, closes. */
+async function* tableEvents(
+  zip: ZipContainerHandleV1,
+): AsyncGenerator<{ readonly tableIndex: number; readonly event: XmlEventV1 | "open" | "close" }, void, undefined> {
+  let spreadsheetDepth: number | null = null;
+  let tableIndex = -1;
+  let depth = 0;
+  let tableDepth: number | null = null;
+  for await (const event of tokenizeXml(zip.streamEntry(CONTENT_PART))) {
+    if (event.kind === "start") depth += 1;
+    if (spreadsheetDepth === null) {
+      if (event.kind === "start" && event.uri === OFFICE_NS && event.local === "spreadsheet") spreadsheetDepth = depth;
+    } else if (tableDepth === null) {
+      if (event.kind === "start" && event.uri === TABLE_NS && event.local === "table" && depth === spreadsheetDepth + 1) {
+        tableIndex += 1;
+        tableDepth = depth;
+        yield { tableIndex, event: "open" };
+      }
+    } else if (event.kind === "end" && depth === tableDepth) {
+      tableDepth = null;
+      yield { tableIndex, event: "close" };
+    } else {
+      yield { tableIndex, event };
+    }
+    if (event.kind === "end") depth -= 1;
+  }
+}
+
+/**
+ * The header cells of the given database ranges, per range: each sheet is
+ * read only as far as its last header row, and the pass ends after the last
+ * sheet that has one. Its facts are discarded.
+ */
+async function readHeaderNames(
+  zip: ZipContainerHandleV1,
+  declarations: OdsDeclarationsV1,
+  manifest: readonly ManifestEntryV1[],
+  rangesBySheet: ReadonlyMap<number, readonly DatabaseRangeV1[]>,
+): Promise<Map<DatabaseRangeV1, readonly string[]>> {
+  const names = new Map<DatabaseRangeV1, readonly string[]>();
+  const pending = new Map<number, DatabaseRangeV1[]>();
+  for (const [tableIndex, ranges] of rangesBySheet) {
+    const headed = ranges.filter((range) => range.headerRowCount === 1);
+    if (headed.length > 0) pending.set(tableIndex, headed);
+  }
+  if (pending.size === 0) return names;
+  const scratch = createEmitter(1);
+  const repeatBudget = { used: 0 };
+  let reader: SheetReader | null = null;
+  let lastHeaderRow = 0;
+  const collect = (tableIndex: number, ranges: readonly DatabaseRangeV1[]): void => {
+    for (const range of ranges) names.set(range, reader?.headerNamesOf(range) ?? []);
+    reader = null;
+    pending.delete(tableIndex);
+  };
+  for await (const { tableIndex, event } of tableEvents(zip)) {
+    const ranges = pending.get(tableIndex);
+    const table = declarations.tables[tableIndex];
+    if (ranges === undefined || table === undefined) continue;
+    if (event === "open") {
+      reader = new SheetReader(table.name, declarations, manifest, zip, scratch, ranges, repeatBudget);
+      lastHeaderRow = Math.max(...ranges.map((range) => range.range.firstRow));
+    } else if (event === "close") {
+      collect(tableIndex, ranges);
+    } else if (reader !== null) {
+      const steps = reader.accept(event);
+      for (let step = steps.next(); step.done !== true; step = steps.next()) scratch.ready.length = 0;
+      scratch.ready.length = 0;
+      if (reader.hasReadPast(lastHeaderRow)) collect(tableIndex, ranges);
+    }
+    if (pending.size === 0) break;
+  }
+  return names;
 }
 
 async function* parseSheets(
@@ -734,6 +821,15 @@ async function* parseSheets(
   const { isKnown } = await readSheetList(zip);
   const isSelected = (sheetIndex: number): boolean =>
     isKnown ? selection.includes(sheetIndex) : selection.length > 0;
+  const rangesBySheet = new Map<number, DatabaseRangeV1[]>();
+  for (const range of declarations.databaseRanges) {
+    const tableIndex = declarations.tables.findIndex((each) => each.name === range.sheetName);
+    if (tableIndex === -1 || !isSelected(tableIndex)) continue;
+    const ranges = rangesBySheet.get(tableIndex) ?? [];
+    ranges.push(range);
+    rangesBySheet.set(tableIndex, ranges);
+  }
+  const headerNames = await readHeaderNames(zip, declarations, manifest, rangesBySheet);
 
   const emitter = createEmitter(factsPerBatch);
   const repeatBudget = { used: 0 };
@@ -746,59 +842,46 @@ async function* parseSheets(
     return true;
   }
 
-  let spreadsheetDepth: number | null = null;
-  let tableIndex = -1;
-  let depth = 0;
-  let tableDepth: number | null = null;
   let hasOpenedSheet = false;
   let reader: SheetReader | null = null;
 
-  for await (const event of tokenizeXml(zip.streamEntry(CONTENT_PART))) {
-    if (event.kind === "start") depth += 1;
-    if (spreadsheetDepth === null) {
-      if (event.kind === "start" && event.uri === OFFICE_NS && event.local === "spreadsheet") spreadsheetDepth = depth;
-    } else if (tableDepth === null) {
-      if (event.kind === "start" && event.uri === TABLE_NS && event.local === "table" && depth === spreadsheetDepth + 1) {
-        tableIndex += 1;
-        tableDepth = depth;
-        const table = declarations.tables[tableIndex];
-        if (table !== undefined && isSelected(tableIndex)) {
-          emitter.push({
-            kind: "sheet",
-            sheetIndex: tableIndex,
-            name: table.name,
-            sheetKind: "worksheet",
-            visibility: table.isHidden ? "hidden" : "visible",
-            declaredRange: null,
-            dateSystem: "1900",
-          });
-          if (!hasOpenedSheet) {
-            hasOpenedSheet = true;
-            for (const name of declarations.definedNames) emitter.push({ kind: "defined-name", ...name });
-            for (let index = 0; index < declarations.documentScripts; index += 1) {
-              emitter.push(part("script", WORKBOOK_LOCATION, null, null));
-            }
-            for (let index = 0; index < declarations.documentConnections; index += 1) {
-              emitter.push(part("data-connection", WORKBOOK_LOCATION, null, null));
-            }
+  for await (const { tableIndex, event } of tableEvents(zip)) {
+    if (event === "open") {
+      const table = declarations.tables[tableIndex];
+      if (table !== undefined && isSelected(tableIndex)) {
+        emitter.push({
+          kind: "sheet",
+          sheetIndex: tableIndex,
+          name: table.name,
+          sheetKind: "worksheet",
+          visibility: table.isHidden ? "hidden" : "visible",
+          declaredRange: null,
+          dateSystem: "1900",
+        });
+        if (!hasOpenedSheet) {
+          hasOpenedSheet = true;
+          for (const name of declarations.definedNames) emitter.push({ kind: "defined-name", ...name });
+          for (let index = 0; index < declarations.documentScripts; index += 1) {
+            emitter.push(part("script", WORKBOOK_LOCATION, null, null));
           }
-          const tables = declarations.databaseRanges.filter(
-            (range) => declarations.tables.findIndex((each) => each.name === range.sheetName) === tableIndex,
-          );
-          reader = new SheetReader(table.name, declarations, manifest, zip, emitter, tables, repeatBudget);
+          for (let index = 0; index < declarations.documentConnections; index += 1) {
+            emitter.push(part("data-connection", WORKBOOK_LOCATION, null, null));
+          }
         }
+        for (const range of rangesBySheet.get(tableIndex) ?? []) {
+          emitter.push(declaredTableOf(range, headerNames.get(range) ?? []));
+        }
+        reader = new SheetReader(table.name, declarations, manifest, zip, emitter, [], repeatBudget);
       }
-    } else if (event.kind === "end" && depth === tableDepth) {
+    } else if (event === "close") {
       reader?.finish();
       reader = null;
-      tableDepth = null;
     } else if (reader !== null) {
       const steps = reader.accept(event);
       for (let step = steps.next(); step.done !== true; step = steps.next()) {
         if (!(yield* drain())) return;
       }
     }
-    if (event.kind === "end") depth -= 1;
     if (!(yield* drain())) return;
   }
   emitter.cut();

@@ -97,6 +97,20 @@ describe("ODS fact stream (CA-17)", () => {
     }
   });
 
+  it("declares each sheet's tables before the sheet's first row, as OOXML does (S02's ordering rule)", async () => {
+    for (const name of Object.keys(PINNED)) {
+      let isAfterRow = false;
+      for (const fact of await fixture(name)) {
+        if (fact.kind === "sheet") isAfterRow = false;
+        if (fact.kind === "row") isAfterRow = true;
+        if (fact.kind === "declared-table") expect(isAfterRow, `${name}: ${fact.name}`).toBe(false);
+      }
+    }
+    const heads = (facts: readonly WorkbookFactV2[]) =>
+      facts.filter((fact) => fact.kind === "sheet" || fact.kind === "declared-table" || fact.kind === "row").slice(0, 3).map((fact) => fact.kind);
+    expect(heads(await fixture("fieldwork-jobs-customers.ods", [1]))).toEqual(["sheet", "declared-table", "row"]);
+  });
+
   it("reads F02's site-plan.ods as a workbook with no sheets: a summary and nothing else", async () => {
     expect(await parse(await fixtureBytes("refusals/site-plan.ods"))).toEqual([
       { kind: "summary", rowCount: 0, columnCount: 0, valueCount: 0, batchCount: 0, diagnostics: [] },
