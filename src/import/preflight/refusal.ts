@@ -12,6 +12,7 @@
  * `mocks/import-large.html`; the wording itself belongs to the view models.
  */
 
+import type { UnreadableDetailV1 } from "../source/bounds.js";
 import type { DetectedFormatV1, SniffResultV1 } from "../source/sniff.js";
 
 export const REFUSAL_KINDS = Object.freeze([
@@ -82,6 +83,13 @@ export type RefusalV1 =
       readonly kind: "binary-unreadable";
       readonly fileName: string;
       readonly remedy: "choose-another-file";
+      /**
+       * Which class of problem made the file unreadable (D42): a closed token,
+       * never file content. Every M14 producer sets it. It is optional only
+       * until S06 migrates the one F02 producer outside M14
+       * (`workers/import/parse-session.ts`), which cannot set it before then.
+       */
+      readonly detail?: UnreadableDetailV1;
     };
 
 /**
@@ -90,7 +98,7 @@ export type RefusalV1 =
  * two refusals differ solely in their instructions, so the worst outcome of a
  * misnamed iWork file is the wrong export recipe, never a wrong parse.
  */
-const iworkRefusal = (
+export const iworkRefusal = (
   fileName: string,
   declaredExtension: string | null,
 ): RefusalV1 =>
@@ -98,7 +106,7 @@ const iworkRefusal = (
     ? { kind: "pages-file", fileName, remedy: "pages-copy-into-spreadsheet" }
     : { kind: "numbers-file", fileName, remedy: "numbers-export-xlsx" };
 
-const laterRelease = (
+export const laterRelease = (
   fileName: string,
   format: LaterReleaseFormatV1,
 ): RefusalV1 => ({
@@ -106,6 +114,17 @@ const laterRelease = (
   fileName,
   remedy: "await-later-release",
   format,
+});
+
+/** The refusal for a file no reader can read, naming why by closed token. */
+export const unreadable = (
+  fileName: string,
+  detail: UnreadableDetailV1,
+): RefusalV1 => ({
+  kind: "binary-unreadable",
+  fileName,
+  remedy: "choose-another-file",
+  detail,
 });
 
 /**
@@ -132,11 +151,7 @@ export function classifyRefusal(sniff: SniffResultV1): RefusalV1 | null {
     case "pdf":
       return { kind: "pdf-file", fileName, remedy: "pdf-export-from-source" };
     case "binary":
-      return {
-        kind: "binary-unreadable",
-        fileName,
-        remedy: "choose-another-file",
-      };
+      return unreadable(fileName, "unrecognized-content");
     case "cfb":
       return laterRelease(fileName, "xls");
     case "html-table":
@@ -150,11 +165,7 @@ export function classifyRefusal(sniff: SniffResultV1): RefusalV1 | null {
         case "ooxml":
           return laterRelease(fileName, ooxmlFormat(sniff.declaredExtension));
         case "unknown":
-          return {
-            kind: "binary-unreadable",
-            fileName,
-            remedy: "choose-another-file",
-          };
+          return unreadable(fileName, "unrecognized-content");
         default: {
           const unreachable: never = format.container;
           return unreachable;

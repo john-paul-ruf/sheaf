@@ -25,13 +25,14 @@ import type {
   TextEncodingV1,
 } from "../source/sniff.js";
 import { bytesSource, type RandomAccessSource } from "../source/source.js";
+import { IMPORT_BUDGET_V1 } from "./budgets.js";
 import type { RefusalV1 } from "./refusal.js";
 
-/** D20: the fixed F02 source ceiling — 50 MiB. */
-export const F02_IMPORT_MAX_SOURCE_BYTES = 52_428_800;
+/** D20: the fixed F02 source ceiling — 50 MiB, shared with D31's workbook budget. */
+export const F02_IMPORT_MAX_SOURCE_BYTES = IMPORT_BUDGET_V1.maxSourceBytes;
 
-/** D20: the fixed F02 cell ceiling — 250,000 estimated cells. */
-export const F02_IMPORT_MAX_ESTIMATED_CELLS = 250_000;
+/** D20: the fixed F02 cell ceiling — 250,000 estimated cells, shared with D31. */
+export const F02_IMPORT_MAX_ESTIMATED_CELLS = IMPORT_BUDGET_V1.maxEstimatedCells;
 
 /** The one window pre-flight may read: 64 KiB. */
 export const PREFLIGHT_SAMPLE_BYTES = 65_536;

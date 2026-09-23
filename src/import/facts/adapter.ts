@@ -53,7 +53,14 @@ export interface MacroSignalV1 {
   readonly partPath: string;
 }
 
-/** One count per kind; zero is an exact count, not an unknown. */
+/**
+ * One count per kind, of the parts the format's metadata declares separately
+ * (drawings, charts, images, comments, pivot tables, embedded objects,
+ * controls, external links, connections). Kinds declared only inside a sheet's
+ * cell body — conditional formatting, sparklines, cell styling, in-sheet
+ * hyperlinks — are not visible before the parse and count zero here; the
+ * parsed stream's `preserved-part` facts are the complete list.
+ */
 export type PreservedPartCountsV1 = Readonly<Record<PreservedPartKindV1, number>>;
 
 export interface DeclaredTableSummaryV1 {

@@ -8,8 +8,9 @@
  * with `SHEAF_WRITE_FIXTURES=1`.
  */
 
+import { FIDELITY_WORKBOOKS } from "../ooxml/build-fidelity.js";
 import { writeCfb } from "./cfb-writer.js";
-import { buildOoxml, ooxmlEntries, type WorkbookSpec } from "./ooxml-builder.js";
+import { buildOoxml, CONTENT_TYPES, ooxmlEntries, type WorkbookSpec } from "./ooxml-builder.js";
 import { bytesOf, writeZip, type ZipEntrySpec } from "./zip-writer.js";
 
 /** The small, ordinary workbook each unsafe fixture corrupts one way. */
@@ -123,4 +124,30 @@ export const CORPUS: ReadonlyMap<string, () => Uint8Array> = new Map([
     () => writeCfb(legacyStreams, { declaredSizes: { Workbook: 4500 } }),
   ],
   ["unsafe/cfb-truncated.xls", () => writeCfb(legacyStreams).slice(0, 2000)],
+  ["unsafe/payroll.xlsm", () => buildOoxml({ ...PAYROLL, vbaProject: true })],
+  [
+    "unsafe/renamed-macro.xlsx",
+    () => buildOoxml({ ...PAYROLL, workbookContentType: CONTENT_TYPES.macroWorkbook }),
+  ],
+  [
+    "unsafe/xlm-macrosheet.xlsx",
+    () =>
+      buildOoxml({
+        sheets: [
+          ...PAYROLL.sheets,
+          { name: "Macro1", kind: "macrosheet", rows: [[{ formula: { text: "HALT()" } }]] },
+        ],
+      }),
+  ],
+  [
+    "unsafe/far-corner.xlsx",
+    () =>
+      buildOoxml({
+        sheets: [{ ...(PAYROLL.sheets[0] as WorkbookSpec["sheets"][number]), dimension: "A1:XFE1048577" }],
+      }),
+  ],
+  ...[...FIDELITY_WORKBOOKS].map(
+    ([name, spec]) => [`ooxml/${name}`, () => buildOoxml(spec)] as [string, () => Uint8Array],
+  ),
+  ["ooxml/contradiction.xls", () => buildOoxml(PAYROLL)],
 ]);
