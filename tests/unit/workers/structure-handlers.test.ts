@@ -96,6 +96,16 @@ const records = async (tableId: string) => {
   return page.records;
 };
 
+type RecordRow = Awaited<ReturnType<typeof records>>[number];
+
+/** A number or currency cell's amount; null for anything else (a kept `TBD`, an empty cell). */
+const amountOf = (record: RecordRow, fieldId: string): number | null => {
+  const value = record.values.find((entry) => entry.fieldId === fieldId)?.value;
+  return value?.kind === "number" ? Number(value.decimal) : null;
+};
+
+const warnings = (rows: readonly RecordRow[]): number => rows.reduce((sum, record) => sum + record.warningIssueCount, 0);
+
 describe("every D59 change, previewed and applied at one revision (CA-28)", () => {
   it(
     "renames the app, a table, and sets a table's label and key",
@@ -249,24 +259,96 @@ describe("every D59 change, previewed and applied at one revision (CA-28)", () =
   );
 
   it(
-    "saves a cross-field rule that flags failing records, then removes it (CA-27)",
+    "saves a cross-field rule that flags exactly the failing records, then removes it (CA-27)",
     async () => {
       const jobs = tableNamed(await structure(), "Jobs");
+      const paid = fieldNamed(jobs, "Paid").fieldId;
+      const quoted = fieldNamed(jobs, "Quoted amount").fieldId;
+      const before = await records(jobs.tableId);
+      // Counted here from the rows themselves, independently of M02: a job fails
+      // when both amounts are numbers and less was paid than quoted.
+      const underpaid = before.filter((record) => {
+        const paidAmount = amountOf(record, paid);
+        const quotedAmount = amountOf(record, quoted);
+        return paidAmount !== null && quotedAmount !== null && paidAmount < quotedAmount;
+      }).length;
+      expect(underpaid).toBeGreaterThan(0);
       const saved = await change({
         kind: "save-rule",
         ruleId: null,
         tableId: jobs.tableId,
-        displayName: "Paid within quote",
-        condition: { kind: "compare", left: fieldNamed(jobs, "Paid").fieldId, op: "le", right: { field: fieldNamed(jobs, "Quoted amount").fieldId } },
+        displayName: "Paid in full",
+        condition: { kind: "compare", left: paid, op: "ge", right: { field: quoted } },
         severity: "warning",
       });
+      expect(saved.impact.failingRule).toBe(underpaid);
       const listed = tableNamed(await structure(), "Jobs").rules[0];
-      expect(listed).toMatchObject({ displayName: "Paid within quote", irVersion: 2, condition: { kind: "compare", op: "le" } });
-      const warned = (await records(jobs.tableId)).filter((record) => record.warningIssueCount > 0).length;
-      expect(warned).toBeGreaterThanOrEqual(saved.impact.failingRule);
+      expect(listed).toMatchObject({ displayName: "Paid in full", irVersion: 2, condition: { kind: "compare", op: "ge" } });
+      expect(warnings(await records(jobs.tableId)) - warnings(before)).toBe(underpaid);
       const removed = await change({ kind: "remove-rule", ruleId: listed!.ruleId });
-      expect(removed.impact.failingRule).toBe(saved.impact.failingRule);
+      expect(removed.impact.failingRule).toBe(underpaid);
       expect(tableNamed(await structure(), "Jobs").rules).toEqual([]);
+      expect(warnings(await records(jobs.tableId))).toBe(warnings(before));
+    },
+    SLOW,
+  );
+
+  it(
+    "counts a has-a-value rule over exactly the jobs with no quote (CA-27)",
+    async () => {
+      const jobs = tableNamed(await structure(), "Jobs");
+      const quoted = fieldNamed(jobs, "Quoted amount").fieldId;
+      const unquoted = (await records(jobs.tableId)).filter((record) => {
+        const kind = record.values.find((entry) => entry.fieldId === quoted)?.value.kind;
+        return kind === undefined || kind === "missing" || kind === "blank";
+      }).length;
+      const preview = (
+        await ask(handler, {
+          kind: "previewSchemaChange",
+          appId,
+          change: { kind: "save-rule", ruleId: null, tableId: jobs.tableId, displayName: "Quoted", condition: { kind: "field-present", fieldId: quoted }, severity: "warning" },
+        })
+      ).preview;
+      expect(preview?.impact).toMatchObject({ total: 60, failingRule: unquoted });
+      expect(unquoted).toBeLessThan(60);
+    },
+    SLOW,
+  );
+
+  it(
+    "refuses an authored save that breaks a saved blocking rule, committing nothing (CA-27, invariant 5)",
+    async () => {
+      const jobs = tableNamed(await structure(), "Jobs");
+      const paid = fieldNamed(jobs, "Paid").fieldId;
+      const quoted = fieldNamed(jobs, "Quoted amount").fieldId;
+      await change({
+        kind: "save-rule",
+        ruleId: null,
+        tableId: jobs.tableId,
+        displayName: "Paid within quote",
+        condition: { kind: "compare", left: paid, op: "le", right: { field: quoted } },
+        severity: "blocking",
+      });
+      const job = (await records(jobs.tableId)).find((record) => amountOf(record, quoted) !== null && amountOf(record, paid) !== null)!;
+      const paidBefore = job.values.find((entry) => entry.fieldId === paid)?.value;
+      const rows = await countEnvelopeRows();
+      const refused = await handler.handle({
+        kind: "patchRecord",
+        appId,
+        recordId: job.recordId,
+        changes: [{ fieldId: paid, value: { kind: "number", decimal: String(amountOf(job, quoted)! + 1) } }],
+      });
+      if (refused.kind !== "patchRecord") throw new Error(refused.kind);
+      expect(refused.outcome).toBe("rejected");
+      expect(refused.outcome === "rejected" && refused.report.issues.map((issue) => `${issue.kind}:${issue.severity}`)).toEqual([
+        "record-rule:blocking",
+      ]);
+      expect(await countEnvelopeRows()).toBe(rows);
+      const detail = (await ask(handler, { kind: "getRecord", appId, recordId: job.recordId })).record;
+      expect(detail?.values.find((entry) => entry.fieldId === paid)?.value).toEqual(paidBefore);
+
+      const rule = tableNamed(await structure(), "Jobs").rules[0];
+      await change({ kind: "remove-rule", ruleId: rule!.ruleId });
     },
     SLOW,
   );

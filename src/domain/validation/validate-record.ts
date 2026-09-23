@@ -50,7 +50,7 @@
  */
 
 import type { RecordId, TableId } from "../model/ids.js";
-import { encodeDomainId, type FieldId } from "../model/ids.js";
+import { compareDomainIds, encodeDomainId, type FieldId } from "../model/ids.js";
 import type { ValueProvenanceV1 } from "../model/provenance.js";
 import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../model/schema.js";
 import { expectedCellKindForFieldType, isComputedField } from "../model/schema.js";
@@ -116,10 +116,24 @@ export interface RecordUnderValidationV1 {
   readonly provenance?: ReadonlyMap<FieldId, ValueProvenanceV1>;
 }
 
+/**
+ * The entry for `fieldId` by **value**. A rule, a table or an option map is
+ * decoded apart from the record it judges (wire, checkpoint, projection), so
+ * its ids are equal bytes, never the same objects as the record's keys.
+ */
+const entryOf = <V>(map: ReadonlyMap<FieldId, V>, fieldId: FieldId): V | undefined => {
+  const shared = map.get(fieldId);
+  if (shared !== undefined) return shared;
+  for (const [key, value] of map) {
+    if (compareDomainIds(key, fieldId) === 0) return value;
+  }
+  return undefined;
+};
+
 const valueOf = (
   record: RecordUnderValidationV1,
   fieldId: FieldId,
-): CellValueV1 => record.values.get(fieldId) ?? MISSING_VALUE;
+): CellValueV1 => entryOf(record.values, fieldId) ?? MISSING_VALUE;
 
 const fieldIssue = (
   field: FieldDefV1,
@@ -157,9 +171,7 @@ const provenanceNow = (
   record: RecordUnderValidationV1,
   field: FieldDefV1,
 ): ValueProvenanceV1 | undefined =>
-  [...(record.provenance ?? [])].find(
-    ([fieldId]) => encodeDomainId(fieldId) === encodeDomainId(field.fieldId),
-  )?.[1];
+  record.provenance === undefined ? undefined : entryOf(record.provenance, field.fieldId);
 
 const isAuthoredNow = (
   record: RecordUnderValidationV1,
@@ -216,7 +228,7 @@ function checkField(
   }
 
   if (value.kind === "enum") {
-    const options = context.enumOptions.get(field.fieldId) ?? [];
+    const options = entryOf(context.enumOptions, field.fieldId) ?? [];
     const member = options.find(
       (option) => encodeDomainId(option.optionId) === encodeDomainId(value.optionId),
     );
