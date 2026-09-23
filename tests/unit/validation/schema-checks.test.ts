@@ -4,6 +4,7 @@ import type {
   EnumOptionDefV1,
   FieldDefV1,
   FieldTypeV1,
+  RelationshipDefV1,
   TableDefV1,
 } from "../../../src/domain/model/schema.js";
 import { validateSchema } from "../../../src/domain/validation/schema-checks.js";
@@ -210,5 +211,106 @@ describe("validateSchema", () => {
       expect(issue.kind).toBe("schema");
       expect(issue.severity).toBe("blocking");
     }
+  });
+});
+
+describe("validateSchema — relationships (migration 005's endpoint trigger)", () => {
+  const CODE = fieldId(30);
+  const LABEL = fieldId(31);
+  const SUPPLIER = fieldId(32);
+
+  const parent = (): TableDefV1 => ({
+    tableId: otherTableId,
+    displayName: "Suppliers",
+    tableOrdinal: 1,
+    fields: [
+      field(CODE, { kind: "text" }, 0, { tableId: otherTableId }),
+      field(LABEL, { kind: "text" }, 1, { tableId: otherTableId }),
+    ],
+    keyFieldId: CODE,
+    labelFieldId: LABEL,
+    sourceSheetId: null,
+    isActive: true,
+    schemaRevision: 1n,
+  });
+
+  const child = (supplierType: FieldTypeV1 = { kind: "reference" }): TableDefV1 =>
+    table({
+      fields: [
+        field(NAME, { kind: "text" }, 0),
+        field(STATUS, { kind: "enum" }, 1),
+        field(SUPPLIER, supplierType, 2),
+      ],
+    });
+
+  const relationship = (
+    overrides: Partial<RelationshipDefV1> = {},
+  ): RelationshipDefV1 => ({
+    relationshipId: asDomainId("relationship", new Uint8Array(16).fill(40)),
+    fromTableId: tableId,
+    fromFieldId: SUPPLIER,
+    toTableId: otherTableId,
+    toKeyFieldId: CODE,
+    detectionSource: "lookup-formula",
+    isActive: true,
+    schemaRevision: 1n,
+    ...overrides,
+  });
+
+  it("accepts a reference field pointing at the parent's key", () => {
+    expect(
+      validateSchema([child(), parent()], [option(20, 0)], [relationship()]).issues,
+    ).toEqual([]);
+  });
+
+  it("refuses a relationship to a field that is not the target table's key", () => {
+    expect(
+      keys(
+        validateSchema([child(), parent()], [option(20, 0)], [
+          relationship({ toKeyFieldId: LABEL }),
+        ]),
+      ),
+    ).toEqual(["schema.relationship-target-not-key"]);
+    // A target table with no key at all is refused the same way.
+    expect(
+      keys(
+        validateSchema([child(), { ...parent(), keyFieldId: null }], [option(20, 0)], [
+          relationship(),
+        ]),
+      ),
+    ).toEqual(["schema.relationship-target-not-key"]);
+  });
+
+  it("refuses a source field that is not a reference", () => {
+    expect(
+      keys(
+        validateSchema([child({ kind: "text" }), parent()], [option(20, 0)], [
+          relationship(),
+        ]),
+      ),
+    ).toEqual(["schema.relationship-source-not-reference"]);
+  });
+
+  it("refuses a source field that belongs to another table", () => {
+    expect(
+      keys(
+        validateSchema([child(), parent()], [option(20, 0)], [
+          relationship({ fromFieldId: LABEL }),
+        ]),
+      ),
+    ).toEqual(["schema.relationship-source-not-in-table"]);
+  });
+
+  it("refuses two relationships from one reference field", () => {
+    expect(
+      keys(
+        validateSchema([child(), parent()], [option(20, 0)], [
+          relationship(),
+          relationship({
+            relationshipId: asDomainId("relationship", new Uint8Array(16).fill(41)),
+          }),
+        ]),
+      ),
+    ).toEqual(["schema.duplicate-relationship-source"]);
   });
 });

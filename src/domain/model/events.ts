@@ -31,7 +31,13 @@ import type {
   TableId,
 } from "./ids.js";
 import type { StorageId16 } from "./bytes.js";
-import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "./schema.js";
+import type {
+  EnumOptionDefV1,
+  FieldDefV1,
+  RelationshipDefV1,
+  TableDefV1,
+} from "./schema.js";
+import type { SheetDescriptorV1 } from "./snapshots.js";
 import type { ValueProvenanceV1 } from "./provenance.js";
 import type { CellValueV1 } from "./values.js";
 
@@ -97,6 +103,8 @@ export interface AppCreatedPayloadV1 {
   /** The initial schema: complete table definitions with their fields. */
   readonly tables: readonly TableDefV1[];
   readonly enumOptions: readonly EnumOptionDefV1[];
+  /** Empty for a delimited app, which detects none (the F02 payload). */
+  readonly relationships: readonly RelationshipDefV1[];
   readonly theme: AppThemeV1;
   /** The import this app was accepted from; null for an authored app. */
   readonly importLineageId: LineageId | null;
@@ -107,6 +115,13 @@ export interface TableCreatedPayloadV1 {
   readonly table: TableDefV1;
   /** The imported sheet this table came from, or null when authored. */
   readonly sourceSheetId: SheetId | null;
+  /**
+   * database.md's "source provenance": the whole sheet descriptor, so a table
+   * appended in a tail commit (D38) can build its `sheet_snapshots` row
+   * without a checkpoint. Null when authored, and for an F02 payload, which
+   * never carried it (the initial import's table lives in the checkpoint).
+   */
+  readonly sourceSheet: SheetDescriptorV1 | null;
 }
 
 export interface FieldCreatedPayloadV1 {

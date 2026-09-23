@@ -20,6 +20,16 @@
  * **The theme is a root, not a default.** `app_state.theme_cbor` is NOT NULL
  * in migration 005, so hydration structurally requires the fact; a projection
  * that invented a palette would be showing a colour nobody authored (D29).
+ *
+ * **The checkpoint manifest has two readable shapes (D37).** F03 added the
+ * workbook roots — relationships, validation rules, inert items, inference
+ * decisions, import lineages, and each sheet's classification and snapshot
+ * revision — as payload evolution inside the encrypted envelope, not as a new
+ * version. The encoder always writes the F03 key set. The decoder accepts
+ * exactly the F02 key set (and fills the F02-true defaults: every list empty,
+ * each sheet `["table"]` at the manifest's schema revision) or exactly the F03
+ * key set; any other key set is a `CodecError`. So every GATE-F02 app keeps
+ * opening, and a manifest with a stray or missing key still does not.
  */
 
 import { CodecError } from "../../domain/model/errors.js";
@@ -33,7 +43,41 @@ import type {
   TableId,
 } from "../../domain/model/ids.js";
 import type { AppThemeV1 } from "../../domain/model/events.js";
-import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../../domain/model/schema.js";
+import { INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
+import type {
+  CommitId,
+  DecisionId,
+  EventId,
+  InertItemId,
+  LineageId,
+  RelationshipId,
+  RuleId,
+} from "../../domain/model/ids.js";
+import {
+  RELATIONSHIP_DETECTION_SOURCES,
+  type EnumOptionDefV1,
+  type FieldDefV1,
+  type RelationshipDefV1,
+  type TableDefV1,
+} from "../../domain/model/schema.js";
+import {
+  DECISION_KINDS,
+  IMPORT_KINDS,
+  INERT_ITEM_KINDS,
+  INERT_REASON_KEYS,
+  SHEET_CLASSIFICATIONS,
+  type CellRangeV1,
+  type ImportLineageV1,
+  type InertItemV1,
+  type InferenceDecisionRecordV1,
+  type SheetDescriptorV1,
+} from "../../domain/model/snapshots.js";
+import {
+  VALIDATION_SEVERITIES,
+  type MessageParameterV1,
+  type RuleConditionV1,
+  type ValidationRuleIR,
+} from "../../domain/validation/rules.js";
 import {
   MAX_EPOCH_DAY,
   MIN_EPOCH_DAY,
@@ -44,6 +88,7 @@ import {
   decodeCanonical,
   encodeCanonical,
   type CborValue,
+  type DecodedKey,
   type DecodedValue,
 } from "../../persistence/codecs/canonical-cbor.js";
 import {
@@ -53,6 +98,7 @@ import {
   cborMap,
   count,
   exactKeys,
+  optionalText,
   field,
   integer,
   integerOrNull,
@@ -694,6 +740,33 @@ export interface PageRefV1 {
   readonly semanticSha256: Uint8Array;
 }
 
+/** One sheet as a checkpoint lists it; the F03 fields are defaulted for F02. */
+export type CheckpointSheetV1 = Omit<
+  SheetDescriptorV1,
+  "classification" | "snapshotRevision"
+> & {
+  readonly classification?: SheetDescriptorV1["classification"];
+  readonly snapshotRevision?: bigint;
+};
+
+/**
+ * A table's record-level rule, as the checkpoint carries it and the
+ * projection's `validation_rules` row holds it.
+ */
+export interface CheckpointValidationRuleV1 {
+  readonly tableId: TableId;
+  readonly displayName: string;
+  readonly rule: ValidationRuleIR;
+  readonly isActive: boolean;
+  readonly schemaRevision: bigint;
+}
+
+/**
+ * The checkpoint manifest. The F03 roots are optional **only for a writer** that
+ * predates them (F02 promotion): the encoder writes each absent one as its
+ * F02-true default, and {@link decodeCheckpointManifest} always returns every
+ * one of them — see {@link ResolvedCheckpointManifestV1}.
+ */
 export interface CheckpointManifestV1 {
   readonly manifestVersion: typeof VERSION;
   readonly appId: AppId;
@@ -702,16 +775,50 @@ export interface CheckpointManifestV1 {
   readonly appState: AppStateRootV1;
   readonly tables: readonly TableDefV1[];
   readonly enumOptions: readonly EnumOptionDefV1[];
-  readonly sheetSnapshots: readonly {
-    readonly sheetId: SheetId;
-    readonly displayName: string;
-    readonly sheetOrdinal: number;
-    readonly snapshotManifestStorageId: string;
-    readonly declaredRowCount: number | null;
-    readonly declaredColumnCount: number | null;
-  }[];
+  readonly sheetSnapshots: readonly CheckpointSheetV1[];
+  readonly relationships?: readonly RelationshipDefV1[];
+  readonly validationRules?: readonly CheckpointValidationRuleV1[];
+  readonly inertItems?: readonly InertItemV1[];
+  readonly inferenceDecisions?: readonly InferenceDecisionRecordV1[];
+  readonly importLineages?: readonly ImportLineageV1[];
   readonly recordPages: readonly PageRefV1[];
   readonly semanticSha256: Uint8Array;
+}
+
+/** A manifest with every root present; what the decoder returns. */
+export interface ResolvedCheckpointManifestV1 extends CheckpointManifestV1 {
+  readonly sheetSnapshots: readonly SheetDescriptorV1[];
+  readonly relationships: readonly RelationshipDefV1[];
+  readonly validationRules: readonly CheckpointValidationRuleV1[];
+  readonly inertItems: readonly InertItemV1[];
+  readonly inferenceDecisions: readonly InferenceDecisionRecordV1[];
+  readonly importLineages: readonly ImportLineageV1[];
+}
+
+/**
+ * Fills the F03 roots a manifest does not state with their F02-true defaults:
+ * no relationships, rules, inert items, decisions, or lineages, and each sheet
+ * a single `table` at the manifest's schema revision — which is exactly what a
+ * delimited import is. The one place those defaults are written down.
+ */
+export function resolveCheckpointManifest<
+  M extends Omit<CheckpointManifestV1, "semanticSha256">,
+>(
+  manifest: M,
+): M & Omit<ResolvedCheckpointManifestV1, "semanticSha256"> {
+  return {
+    ...manifest,
+    sheetSnapshots: manifest.sheetSnapshots.map((sheet) => ({
+      ...sheet,
+      classification: sheet.classification ?? ["table"],
+      snapshotRevision: sheet.snapshotRevision ?? manifest.schemaRevision,
+    })),
+    relationships: manifest.relationships ?? [],
+    validationRules: manifest.validationRules ?? [],
+    inertItems: manifest.inertItems ?? [],
+    inferenceDecisions: manifest.inferenceDecisions ?? [],
+    importLineages: manifest.importLineages ?? [],
+  };
 }
 
 const encodePageRef = (page: PageRefV1): CborValue =>
@@ -774,33 +881,496 @@ const decodeFrontier = (value: DecodedValue): readonly FrontierEntryV1[] =>
     };
   });
 
-/** The exact bytes `semanticSha256` is computed over: the manifest sans hash. */
+// ----------------------------------------------------- workbook roots (D37) --
+
+export const encodeCellRange = (range: CellRangeV1): CborValue =>
+  cborMap([
+    ["firstRow", range.firstRow],
+    ["firstColumn", range.firstColumn],
+    ["lastRow", range.lastRow],
+    ["lastColumn", range.lastColumn],
+  ]);
+
+/** A range whose last corner precedes its first is refused, not reordered. */
+export const decodeCellRange = (value: DecodedValue): CellRangeV1 => {
+  const map = exactKeys(
+    asMap(value, "a cell range"),
+    ["firstRow", "firstColumn", "lastRow", "lastColumn"],
+    "a cell range",
+  );
+  const range = {
+    firstRow: count(field(map, "firstRow"), "a first row"),
+    firstColumn: count(field(map, "firstColumn"), "a first column"),
+    lastRow: count(field(map, "lastRow"), "a last row"),
+    lastColumn: count(field(map, "lastColumn"), "a last column"),
+  };
+  if (range.lastRow < range.firstRow || range.lastColumn < range.firstColumn) {
+    throw new CodecError("a cell range ends before it starts");
+  }
+  return range;
+};
+
+const id16 = <T>(value: DecodedValue, what: string): T =>
+  bytesOfLength(value, ID_BYTES, what) as T;
+
+const revision = (value: DecodedValue, what: string): bigint =>
+  BigInt(count(value, what));
+
+const encodeRelationship = (relationship: RelationshipDefV1): CborValue =>
+  cborMap([
+    ["relationshipId", relationship.relationshipId],
+    ["fromTableId", relationship.fromTableId],
+    ["fromFieldId", relationship.fromFieldId],
+    ["toTableId", relationship.toTableId],
+    ["toKeyFieldId", relationship.toKeyFieldId],
+    ["detectionSource", relationship.detectionSource],
+    ["isActive", relationship.isActive],
+    ["schemaRevision", relationship.schemaRevision],
+  ]);
+
+const decodeRelationship = (value: DecodedValue): RelationshipDefV1 => {
+  const map = exactKeys(
+    asMap(value, "a relationship"),
+    [
+      "relationshipId",
+      "fromTableId",
+      "fromFieldId",
+      "toTableId",
+      "toKeyFieldId",
+      "detectionSource",
+      "isActive",
+      "schemaRevision",
+    ],
+    "a relationship",
+  );
+  return {
+    relationshipId: id16<RelationshipId>(field(map, "relationshipId"), "a relationship id"),
+    fromTableId: id16<TableId>(field(map, "fromTableId"), "a table id"),
+    fromFieldId: id16<FieldId>(field(map, "fromFieldId"), "a field id"),
+    toTableId: id16<TableId>(field(map, "toTableId"), "a table id"),
+    toKeyFieldId: id16<FieldId>(field(map, "toKeyFieldId"), "a field id"),
+    detectionSource: oneOf(
+      field(map, "detectionSource"),
+      RELATIONSHIP_DETECTION_SOURCES,
+      "a detection source",
+    ),
+    isActive: boolean(field(map, "isActive"), "an active flag"),
+    schemaRevision: revision(field(map, "schemaRevision"), "a schema revision"),
+  };
+};
+
+const encodeCondition = (condition: RuleConditionV1): CborValue => {
+  switch (condition.kind) {
+    case "field-present":
+    case "field-absent":
+      return cborMap([
+        ["kind", condition.kind],
+        ["fieldId", condition.fieldId],
+      ]);
+    case "field-equals":
+      return cborMap([
+        ["kind", condition.kind],
+        ["fieldId", condition.fieldId],
+        ["value", encodeCellValue(condition.value)],
+      ]);
+    case "all":
+    case "any":
+      return cborMap([
+        ["kind", condition.kind],
+        ["conditions", condition.conditions.map(encodeCondition)],
+      ]);
+    case "not":
+      return cborMap([
+        ["kind", condition.kind],
+        ["condition", encodeCondition(condition.condition)],
+      ]);
+    default: {
+      const unreachable: never = condition;
+      return unreachable;
+    }
+  }
+};
+
+const CONDITION_KINDS = Object.freeze([
+  "field-present",
+  "field-absent",
+  "field-equals",
+  "all",
+  "any",
+  "not",
+] as const);
+
+const decodeCondition = (value: DecodedValue): RuleConditionV1 => {
+  const map = asMap(value, "a rule condition");
+  const kind = oneOf(field(map, "kind"), CONDITION_KINDS, "a rule condition");
+  switch (kind) {
+    case "field-present":
+    case "field-absent":
+      exactKeys(map, ["kind", "fieldId"], "a rule condition");
+      return { kind, fieldId: id16<FieldId>(field(map, "fieldId"), "a field id") };
+    case "field-equals":
+      exactKeys(map, ["kind", "fieldId", "value"], "a rule condition");
+      return {
+        kind,
+        fieldId: id16<FieldId>(field(map, "fieldId"), "a field id"),
+        value: decodeCellValue(field(map, "value")),
+      };
+    case "all":
+    case "any":
+      exactKeys(map, ["kind", "conditions"], "a rule condition");
+      return {
+        kind,
+        conditions: list(field(map, "conditions"), "rule conditions").map(
+          decodeCondition,
+        ),
+      };
+    case "not":
+      exactKeys(map, ["kind", "condition"], "a rule condition");
+      return { kind, condition: decodeCondition(field(map, "condition")) };
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+};
+
+/** Labels, types, and counts: text, whole numbers, and booleans only. */
+const encodeMessageParameters = (
+  parameters: Readonly<Record<string, MessageParameterV1>>,
+): CborValue =>
+  cborMap(
+    Object.entries(parameters).map(([name, value]) => {
+      if (typeof value === "number" && !Number.isSafeInteger(value)) {
+        throw new CodecError("a message parameter number must be a whole number");
+      }
+      return [name, value] as const;
+    }),
+  );
+
+const decodeMessageParameters = (
+  value: DecodedValue,
+): Readonly<Record<string, MessageParameterV1>> => {
+  const parameters: Record<string, MessageParameterV1> = {};
+  for (const [name, entry] of asMap(value, "message parameters")) {
+    if (typeof name !== "string") {
+      throw new CodecError("a message parameter name is not text");
+    }
+    if (typeof entry === "bigint") {
+      parameters[name] = integer(entry, "a message parameter");
+    } else if (typeof entry === "string" || typeof entry === "boolean") {
+      parameters[name] = entry;
+    } else {
+      throw new CodecError("a message parameter is not a safe scalar");
+    }
+  }
+  return parameters;
+};
+
+const encodeValidationRule = (rule: CheckpointValidationRuleV1): CborValue =>
+  cborMap([
+    ["tableId", rule.tableId],
+    ["displayName", rule.displayName],
+    [
+      "rule",
+      cborMap([
+        ["irVersion", rule.rule.irVersion],
+        ["ruleId", rule.rule.ruleId],
+        ["condition", encodeCondition(rule.rule.condition)],
+        ["severity", rule.rule.severity],
+        ["messageKey", rule.rule.messageKey],
+        ["messageParameters", encodeMessageParameters(rule.rule.messageParameters)],
+      ]),
+    ],
+    ["isActive", rule.isActive],
+    ["schemaRevision", rule.schemaRevision],
+  ]);
+
+const decodeValidationRule = (value: DecodedValue): CheckpointValidationRuleV1 => {
+  const map = exactKeys(
+    asMap(value, "a validation rule"),
+    ["tableId", "displayName", "rule", "isActive", "schemaRevision"],
+    "a validation rule",
+  );
+  const ir = exactKeys(
+    asMap(field(map, "rule"), "a rule IR"),
+    ["irVersion", "ruleId", "condition", "severity", "messageKey", "messageParameters"],
+    "a rule IR",
+  );
+  if (count(field(ir, "irVersion"), "a rule IR version") !== 1) {
+    throw new CodecError("a rule declares an unsupported IR version");
+  }
+  return {
+    tableId: id16<TableId>(field(map, "tableId"), "a table id"),
+    displayName: nfcText(field(map, "displayName"), "a rule name"),
+    rule: {
+      irVersion: 1,
+      ruleId: id16<RuleId>(field(ir, "ruleId"), "a rule id"),
+      condition: decodeCondition(field(ir, "condition")),
+      severity: oneOf(field(ir, "severity"), VALIDATION_SEVERITIES, "a rule severity"),
+      messageKey: text(field(ir, "messageKey"), "a message key"),
+      messageParameters: decodeMessageParameters(field(ir, "messageParameters")),
+    },
+    isActive: boolean(field(map, "isActive"), "an active flag"),
+    schemaRevision: revision(field(map, "schemaRevision"), "a schema revision"),
+  };
+};
+
+const encodeInertItem = (item: InertItemV1): CborValue =>
+  cborMap([
+    ["inertItemId", item.inertItemId],
+    ["sheetId", item.sheetId],
+    ["kind", item.kind],
+    ["location", item.location],
+    ["reasonKey", item.reasonKey],
+    ["anchor", item.anchor === null ? null : encodeCellRange(item.anchor)],
+    ["preservedManifestStorageId", item.preservedManifestStorageId],
+  ]);
+
+const decodeInertItem = (value: DecodedValue): InertItemV1 => {
+  const map = exactKeys(
+    asMap(value, "an inert item"),
+    [
+      "inertItemId",
+      "sheetId",
+      "kind",
+      "location",
+      "reasonKey",
+      "anchor",
+      "preservedManifestStorageId",
+    ],
+    "an inert item",
+  );
+  const anchor = field(map, "anchor");
+  return {
+    inertItemId: id16<InertItemId>(field(map, "inertItemId"), "an inert item id"),
+    sheetId: id16<SheetId>(field(map, "sheetId"), "a sheet id"),
+    kind: oneOf(field(map, "kind"), INERT_ITEM_KINDS, "an inert item kind"),
+    location: nfcText(field(map, "location"), "an inert item location"),
+    reasonKey: oneOf(field(map, "reasonKey"), INERT_REASON_KEYS, "an inert reason"),
+    anchor: anchor === null ? null : decodeCellRange(anchor),
+    preservedManifestStorageId: optionalText(
+      field(map, "preservedManifestStorageId"),
+      "a preserved object root",
+    ),
+  };
+};
+
+const encodeDecision = (decision: InferenceDecisionRecordV1): CborValue =>
+  cborMap([
+    ["decisionId", decision.decisionId],
+    ["subject", decision.subject],
+    ["decisionKind", decision.decisionKind],
+    ["evidenceFingerprint", decision.evidenceFingerprint],
+    ["disposition", decision.disposition],
+    ["statement", decision.statement as CborValue],
+    ["evidence", decision.evidence as CborValue],
+    ["recordedEventId", decision.recordedEventId],
+  ]);
+
+const decodeDecision = (value: DecodedValue): InferenceDecisionRecordV1 => {
+  const map = exactKeys(
+    asMap(value, "an inference decision"),
+    [
+      "decisionId",
+      "subject",
+      "decisionKind",
+      "evidenceFingerprint",
+      "disposition",
+      "statement",
+      "evidence",
+      "recordedEventId",
+    ],
+    "an inference decision",
+  );
+  const kind = field(map, "decisionKind");
+  return {
+    decisionId: id16<DecisionId>(field(map, "decisionId"), "a decision id"),
+    subject: text(field(map, "subject"), "a decision subject"),
+    decisionKind: kind === null ? null : oneOf(kind, DECISION_KINDS, "a decision kind"),
+    evidenceFingerprint: bytesOfLength(
+      field(map, "evidenceFingerprint"),
+      SHA256_BYTES,
+      "an evidence fingerprint",
+    ),
+    disposition: oneOf(
+      field(map, "disposition"),
+      INFERENCE_DISPOSITIONS,
+      "a decision disposition",
+    ),
+    statement: field(map, "statement"),
+    evidence: field(map, "evidence"),
+    recordedEventId: id16<EventId>(field(map, "recordedEventId"), "an event id"),
+  };
+};
+
+const encodeLineage = (lineage: ImportLineageV1): CborValue =>
+  cborMap([
+    ["lineageId", lineage.lineageId],
+    ["importKind", lineage.importKind],
+    ["importOrdinal", lineage.importOrdinal],
+    ["sourceDisplayName", lineage.sourceDisplayName],
+    ["sourceSha256", lineage.sourceSha256],
+    ["acceptedAtMs", lineage.acceptedAtMs],
+    ["identityDecisions", lineage.identityDecisions as CborValue],
+    ["acceptedCommitId", lineage.acceptedCommitId],
+  ]);
+
+const decodeLineage = (value: DecodedValue): ImportLineageV1 => {
+  const map = exactKeys(
+    asMap(value, "an import lineage"),
+    [
+      "lineageId",
+      "importKind",
+      "importOrdinal",
+      "sourceDisplayName",
+      "sourceSha256",
+      "acceptedAtMs",
+      "identityDecisions",
+      "acceptedCommitId",
+    ],
+    "an import lineage",
+  );
+  return {
+    lineageId: id16<LineageId>(field(map, "lineageId"), "a lineage id"),
+    importKind: oneOf(field(map, "importKind"), IMPORT_KINDS, "an import kind"),
+    importOrdinal: count(field(map, "importOrdinal"), "an import ordinal"),
+    sourceDisplayName: nfcText(field(map, "sourceDisplayName"), "a source name"),
+    sourceSha256: bytesOfLength(
+      field(map, "sourceSha256"),
+      SHA256_BYTES,
+      "a source fingerprint",
+    ),
+    acceptedAtMs: count(field(map, "acceptedAtMs"), "an acceptance time"),
+    identityDecisions: field(map, "identityDecisions"),
+    acceptedCommitId: id16<CommitId>(field(map, "acceptedCommitId"), "a commit id"),
+  };
+};
+
+const F02_SHEET_KEYS = Object.freeze([
+  "sheetId",
+  "displayName",
+  "sheetOrdinal",
+  "snapshotManifestStorageId",
+  "declaredRowCount",
+  "declaredColumnCount",
+] as const);
+
+const F03_SHEET_KEYS = Object.freeze([
+  ...F02_SHEET_KEYS,
+  "classification",
+  "snapshotRevision",
+] as const);
+
+/** The descriptor's canonical form; `table.created` carries the same map. */
+export const encodeSheetDescriptor = (sheet: SheetDescriptorV1): CborValue =>
+  cborMap([
+    ["sheetId", sheet.sheetId],
+    ["displayName", sheet.displayName],
+    ["sheetOrdinal", sheet.sheetOrdinal],
+    ["snapshotManifestStorageId", sheet.snapshotManifestStorageId],
+    ["declaredRowCount", integerOrNull(sheet.declaredRowCount)],
+    ["declaredColumnCount", integerOrNull(sheet.declaredColumnCount)],
+    ["classification", [...sheet.classification]],
+    ["snapshotRevision", sheet.snapshotRevision],
+  ]);
+
+const decodeClassification = (
+  value: DecodedValue,
+): SheetDescriptorV1["classification"] => {
+  const roles = list(value, "a sheet classification").map((role) =>
+    oneOf(role, SHEET_CLASSIFICATIONS, "a sheet role"),
+  );
+  if (roles.length === 0 || new Set(roles).size !== roles.length) {
+    throw new CodecError("a sheet classification must name distinct roles");
+  }
+  return roles;
+};
+
+const decodeSheetFields = (
+  sheet: ReadonlyMap<DecodedKey, DecodedValue>,
+): CheckpointSheetV1 => ({
+  sheetId: id16<SheetId>(field(sheet, "sheetId"), "a sheet id"),
+  displayName: nfcText(field(sheet, "displayName"), "a sheet name"),
+  sheetOrdinal: count(field(sheet, "sheetOrdinal"), "a sheet ordinal"),
+  snapshotManifestStorageId: text(
+    field(sheet, "snapshotManifestStorageId"),
+    "a snapshot manifest id",
+  ),
+  declaredRowCount: optionalCount(field(sheet, "declaredRowCount"), "a declared row count"),
+  declaredColumnCount: optionalCount(
+    field(sheet, "declaredColumnCount"),
+    "a declared column count",
+  ),
+});
+
+/** A sheet descriptor in its F03 form (the only form `table.created` has). */
+export const decodeSheetDescriptor = (value: DecodedValue): SheetDescriptorV1 => {
+  const sheet = exactKeys(asMap(value, "a sheet"), [...F03_SHEET_KEYS], "a sheet");
+  return {
+    ...decodeSheetFields(sheet),
+    classification: decodeClassification(field(sheet, "classification")),
+    snapshotRevision: revision(field(sheet, "snapshotRevision"), "a snapshot revision"),
+  };
+};
+
+// ------------------------------------------------------- checkpoint manifest --
+
+const F02_MANIFEST_KEYS = Object.freeze([
+  "manifestVersion",
+  "appId",
+  "schemaRevision",
+  "frontier",
+  "appState",
+  "tables",
+  "enumOptions",
+  "sheetSnapshots",
+  "recordPages",
+  "semanticSha256",
+] as const);
+
+const F03_MANIFEST_KEYS = Object.freeze([
+  ...F02_MANIFEST_KEYS,
+  "relationships",
+  "validationRules",
+  "inertItems",
+  "inferenceDecisions",
+  "importLineages",
+] as const);
+
+/**
+ * True when `map` holds exactly `names`. Used only to choose between the two
+ * legal key sets; the chosen set is then enforced by `exactKeys`.
+ */
+const hasExactly = (
+  map: ReadonlyMap<DecodedKey, DecodedValue>,
+  names: readonly string[],
+): boolean => map.size === names.length && names.every((name) => map.has(name));
+
+/**
+ * The exact bytes `semanticSha256` is computed over: the manifest sans hash.
+ * Always the F03 key set — an F02 writer's absent roots are written as their
+ * defaults.
+ */
 export function encodeCheckpointBody(
   manifest: Omit<CheckpointManifestV1, "semanticSha256">,
 ): Uint8Array {
+  const resolved = resolveCheckpointManifest(manifest);
   return encodeCanonical(
     cborMap([
-      ["manifestVersion", manifest.manifestVersion],
-      ["appId", manifest.appId],
-      ["schemaRevision", manifest.schemaRevision],
-      ["frontier", encodeFrontier(manifest.frontier)],
-      ["appState", encodeAppState(manifest.appState)],
-      ["tables", manifest.tables.map(encodeTableDef)],
-      ["enumOptions", manifest.enumOptions.map(encodeEnumOption)],
-      [
-        "sheetSnapshots",
-        manifest.sheetSnapshots.map((sheet) =>
-          cborMap([
-            ["sheetId", sheet.sheetId],
-            ["displayName", sheet.displayName],
-            ["sheetOrdinal", sheet.sheetOrdinal],
-            ["snapshotManifestStorageId", sheet.snapshotManifestStorageId],
-            ["declaredRowCount", integerOrNull(sheet.declaredRowCount)],
-            ["declaredColumnCount", integerOrNull(sheet.declaredColumnCount)],
-          ]),
-        ),
-      ],
-      ["recordPages", manifest.recordPages.map(encodePageRef)],
+      ["manifestVersion", resolved.manifestVersion],
+      ["appId", resolved.appId],
+      ["schemaRevision", resolved.schemaRevision],
+      ["frontier", encodeFrontier(resolved.frontier)],
+      ["appState", encodeAppState(resolved.appState)],
+      ["tables", resolved.tables.map(encodeTableDef)],
+      ["enumOptions", resolved.enumOptions.map(encodeEnumOption)],
+      ["sheetSnapshots", resolved.sheetSnapshots.map(encodeSheetDescriptor)],
+      ["relationships", resolved.relationships.map(encodeRelationship)],
+      ["validationRules", resolved.validationRules.map(encodeValidationRule)],
+      ["inertItems", resolved.inertItems.map(encodeInertItem)],
+      ["inferenceDecisions", resolved.inferenceDecisions.map(encodeDecision)],
+      ["importLineages", resolved.importLineages.map(encodeLineage)],
+      ["recordPages", resolved.recordPages.map(encodePageRef)],
     ]),
   );
 }
@@ -812,72 +1382,77 @@ export function encodeCheckpointManifest(manifest: CheckpointManifestV1): Uint8A
   return encodeCanonical(map);
 }
 
-export function decodeCheckpointManifest(payload: Uint8Array): CheckpointManifestV1 {
+/**
+ * The body bytes `semanticSha256` covers, **as they were written**: the
+ * payload's own map without its hash, re-encoded canonically (which is
+ * byte-exact). An F02 manifest's body therefore stays the F02 bytes it was
+ * hashed over — decoding and re-encoding through the F03 encoder would add the
+ * defaulted keys and break the digest.
+ */
+export function checkpointSemanticBody(payload: Uint8Array): Uint8Array {
+  const map = new Map(asMap(decodeCanonical(payload), "a checkpoint manifest"));
+  if (!map.delete("semanticSha256")) {
+    throw new CodecError("a checkpoint manifest is missing semanticSha256");
+  }
+  return encodeCanonical(map);
+}
+
+export function decodeCheckpointManifest(
+  payload: Uint8Array,
+): ResolvedCheckpointManifestV1 {
+  const raw = asMap(decodeCanonical(payload), "a checkpoint manifest");
+  const isF02 = hasExactly(raw, F02_MANIFEST_KEYS);
   const map = exactKeys(
-    asMap(decodeCanonical(payload), "a checkpoint manifest"),
-    [
-      "manifestVersion",
-      "appId",
-      "schemaRevision",
-      "frontier",
-      "appState",
-      "tables",
-      "enumOptions",
-      "sheetSnapshots",
-      "recordPages",
-      "semanticSha256",
-    ],
+    raw,
+    isF02 ? [...F02_MANIFEST_KEYS] : [...F03_MANIFEST_KEYS],
     "a checkpoint manifest",
   );
   if (count(field(map, "manifestVersion"), "a manifest version") !== VERSION) {
     throw new CodecError("checkpoint manifest declares an unsupported version");
   }
 
-  return {
+  const sheetKeys = isF02 ? [...F02_SHEET_KEYS] : [...F03_SHEET_KEYS];
+  const base: CheckpointManifestV1 = {
     manifestVersion: VERSION,
     appId: bytesOfLength(field(map, "appId"), ID_BYTES, "an app id") as AppId,
-    schemaRevision: BigInt(count(field(map, "schemaRevision"), "a schema revision")),
+    schemaRevision: revision(field(map, "schemaRevision"), "a schema revision"),
     frontier: decodeFrontier(field(map, "frontier")),
     appState: decodeAppState(field(map, "appState")),
     tables: list(field(map, "tables"), "tables").map(decodeTableDef),
     enumOptions: list(field(map, "enumOptions"), "enum options").map(decodeEnumOption),
     sheetSnapshots: list(field(map, "sheetSnapshots"), "sheet snapshots").map(
       (value) => {
-        const sheet = exactKeys(
-          asMap(value, "a sheet snapshot"),
-          [
-            "sheetId",
-            "displayName",
-            "sheetOrdinal",
-            "snapshotManifestStorageId",
-            "declaredRowCount",
-            "declaredColumnCount",
-          ],
-          "a sheet snapshot",
-        );
-        return {
-          sheetId: bytesOfLength(
-            field(sheet, "sheetId"),
-            ID_BYTES,
-            "a sheet id",
-          ) as SheetId,
-          displayName: nfcText(field(sheet, "displayName"), "a sheet name"),
-          sheetOrdinal: count(field(sheet, "sheetOrdinal"), "a sheet ordinal"),
-          snapshotManifestStorageId: text(
-            field(sheet, "snapshotManifestStorageId"),
-            "a snapshot manifest id",
-          ),
-          declaredRowCount: optionalCount(
-            field(sheet, "declaredRowCount"),
-            "a declared row count",
-          ),
-          declaredColumnCount: optionalCount(
-            field(sheet, "declaredColumnCount"),
-            "a declared column count",
-          ),
-        };
+        const sheet = exactKeys(asMap(value, "a sheet snapshot"), sheetKeys, "a sheet snapshot");
+        return isF02
+          ? decodeSheetFields(sheet)
+          : {
+              ...decodeSheetFields(sheet),
+              classification: decodeClassification(field(sheet, "classification")),
+              snapshotRevision: revision(
+                field(sheet, "snapshotRevision"),
+                "a snapshot revision",
+              ),
+            };
       },
     ),
+    ...(isF02
+      ? {}
+      : {
+          relationships: list(field(map, "relationships"), "relationships").map(
+            decodeRelationship,
+          ),
+          validationRules: list(field(map, "validationRules"), "validation rules").map(
+            decodeValidationRule,
+          ),
+          inertItems: list(field(map, "inertItems"), "inert items").map(decodeInertItem),
+          inferenceDecisions: list(
+            field(map, "inferenceDecisions"),
+            "inference decisions",
+          ).map(decodeDecision),
+          importLineages: list(field(map, "importLineages"), "import lineages").map(
+            decodeLineage,
+          ),
+        }),
     recordPages: list(field(map, "recordPages"), "record pages").map(decodePageRef),
     semanticSha256: bytesOfLength(
       field(map, "semanticSha256"),
@@ -885,6 +1460,7 @@ export function decodeCheckpointManifest(payload: Uint8Array): CheckpointManifes
       "a semantic digest",
     ),
   };
+  return { ...resolveCheckpointManifest(base), semanticSha256: base.semanticSha256 };
 }
 
 // ----------------------------------------------------------------- app head --

@@ -95,6 +95,13 @@ const table: TableDefV1 = {
   schemaRevision: 1n,
 };
 
+const SUPPLIERS = asDomainId("table", new Uint8Array(16).fill(30));
+const PARENT_TARGET = {
+  fieldId: PARENT,
+  tableId: SUPPLIERS,
+  tableLabel: "Suppliers",
+};
+
 /** F02's resolver: this app has no relationships, so nothing resolves (D25). */
 const noReferences = (): boolean => false;
 
@@ -223,7 +230,7 @@ describe("validateRecord", () => {
 
   it("preserves and flags a reference no resolver can find", () => {
     const report = validateRecord(
-      context(),
+      context({ referenceTargets: [PARENT_TARGET] }),
       record([
         [NAME, textValue("x")],
         [PARENT, referenceValue(asDomainId("record", new Uint8Array(16).fill(8)))],
@@ -236,7 +243,7 @@ describe("validateRecord", () => {
     // The same value passes once a resolver can see the target.
     expect(
       validateRecord(
-        context({ referenceExists: () => true }),
+        context({ referenceExists: () => true, referenceTargets: [PARENT_TARGET] }),
         record([
           [NAME, textValue("x")],
           [
@@ -246,6 +253,106 @@ describe("validateRecord", () => {
         ]),
       ).issues,
     ).toEqual([]);
+  });
+
+  describe("broken references (D36)", () => {
+    const PARENT_RECORD = asDomainId("record", new Uint8Array(16).fill(8));
+    const expectedIssue = (severity: "warning" | "blocking") => ({
+      fieldId: PARENT,
+      ruleId: null,
+      kind: "broken-reference",
+      severity,
+      messageKey: "validation.broken-reference",
+      messageParameters: { fieldLabel: "field 15", targetTable: "Suppliers" },
+    });
+
+    it("flags an imported unmatched key as a broken reference, never its text", () => {
+      const report = validateRecord(
+        context({ referenceTargets: [PARENT_TARGET] }),
+        record([
+          [NAME, textValue("x")],
+          [PARENT, invalidPreservedValue("SUP-404")],
+        ]),
+      );
+
+      expect(report.isValid).toBe(true);
+      expect(report.issues).toEqual([expectedIssue("warning")]);
+      expect(JSON.stringify(report.issues)).not.toContain("SUP-404");
+    });
+
+    it("asks the resolver about the target table, not the field's own table", () => {
+      const asked: string[] = [];
+      validateRecord(
+        context({
+          referenceTargets: [PARENT_TARGET],
+          referenceExists: (target) => {
+            asked.push(String(target[0]));
+            return true;
+          },
+        }),
+        record([
+          [NAME, textValue("x")],
+          [PARENT, referenceValue(PARENT_RECORD)],
+        ]),
+      );
+
+      expect(asked).toEqual([String(SUPPLIERS[0])]);
+    });
+
+    it("blocks an authored reference to a record that is not there", () => {
+      const report = validateRecord(context({ referenceTargets: [PARENT_TARGET] }), {
+        ...record([
+          [NAME, textValue("x")],
+          [PARENT, referenceValue(PARENT_RECORD)],
+        ]),
+        provenance: new Map([[PARENT, { source: "user" }]]),
+      });
+
+      expect(report.isValid).toBe(false);
+      expect(report.issues).toEqual([expectedIssue("blocking")]);
+    });
+
+    it("warns for an imported or carried-over reference that no longer resolves", () => {
+      for (const provenance of [
+        undefined,
+        new Map([[PARENT, { source: "initial-import" as const }]]),
+        // Authored now, but another field: the reference is carried over.
+        new Map([[NAME, { source: "user" as const }]]),
+      ]) {
+        const report = validateRecord(context({ referenceTargets: [PARENT_TARGET] }), {
+          ...record([
+            [NAME, textValue("x")],
+            [PARENT, referenceValue(PARENT_RECORD)],
+          ]),
+          ...(provenance === undefined ? {} : { provenance }),
+        });
+        expect(report.issues).toEqual([expectedIssue("warning")]);
+      }
+    });
+
+    it("treats a reference field with no relationship as pointing nowhere", () => {
+      const report = validateRecord(
+        context({ referenceExists: () => true }),
+        record([
+          [NAME, textValue("x")],
+          [PARENT, referenceValue(PARENT_RECORD)],
+        ]),
+      );
+
+      expect(kinds(report)).toEqual(["broken-reference"]);
+      expect(report.issues[0]?.messageParameters["targetTable"]).toBe("");
+    });
+
+    it("keeps an invalid value in a non-reference field a type warning", () => {
+      const report = validateRecord(
+        context({ referenceTargets: [PARENT_TARGET] }),
+        record([
+          [NAME, textValue("x")],
+          [PRICE, invalidPreservedValue("n/a")],
+        ]),
+      );
+      expect(kinds(report)).toEqual(["type"]);
+    });
   });
 
   it("evaluates a hand-built record-level rule IR", () => {

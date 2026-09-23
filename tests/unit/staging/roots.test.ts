@@ -17,7 +17,11 @@ import {
   type RecordId,
   type TableId,
 } from "../../../src/domain/model/ids.js";
+import { sha256 } from "../../../src/crypto/hash.js";
+import { decodeCanonical, encodeCanonical } from "../../../src/persistence/codecs/canonical-cbor.js";
 import {
+  checkpointSemanticBody,
+  encodeCheckpointBody,
   PAGE_MAX_DECODED_BYTES,
   RECORD_PAGE_MAX_RECORDS,
   compareRecordKeys,
@@ -29,6 +33,7 @@ import {
   encodeRecordPage,
   type AppHeadV1,
   type CheckpointManifestV1,
+  type ResolvedCheckpointManifestV1,
   type StoredRecordV1,
 } from "../../../src/import/staging/roots.js";
 import { DEFAULT_APP_THEME } from "../../../src/import/staging/theme.js";
@@ -229,5 +234,262 @@ describe("the app head and its checkpoint", () => {
     const encoded = encodeCheckpointManifest(checkpoint);
     const truncated = encoded.slice(0, encoded.byteLength - 1);
     expect(() => decodeCheckpointManifest(truncated)).toThrow(CodecError);
+  });
+});
+
+/**
+ * A checkpoint manifest exactly as F02's encoder wrote it, generated at
+ * `2b16638` (before D37) and committed as bytes: one delimited table with a
+ * text and an enum field, one option, one sheet, one record page. Every
+ * GATE-F02 app's checkpoint has this key set.
+ */
+const F02_CHECKPOINT_HEX = [
+  "aa656170704964502c2d2e2f303132333435363738393a3b667461626c657381a9666669656c647382a86474797065a1",
+  "646b696e646474657874676669656c64496450292a2b2c2d2e2f303132333435363738677461626c6549645028292a2b",
+  "2c2d2e2f3031323334353637686973416374697665f56a69735265717569726564f46b646973706c61794e616d65644e",
+  "616d656c6669656c644f7264696e616c006e736368656d615265766973696f6e01a86474797065a1646b696e6464656e",
+  "756d676669656c644964502a2b2c2d2e2f30313233343536373839677461626c6549645028292a2b2c2d2e2f30313233",
+  "34353637686973416374697665f56a69735265717569726564f46b646973706c61794e616d65665374617475736c6669",
+  "656c644f7264696e616c016e736368656d615265766973696f6e01677461626c6549645028292a2b2c2d2e2f30313233",
+  "34353637686973416374697665f56a6b65794669656c644964f66b646973706c61794e616d65694669656c64204c6f67",
+  "6c6c6162656c4669656c644964f66c7461626c654f7264696e616c006d736f7572636553686565744964502b2c2d2e2f",
+  "303132333435363738393a6e736368656d615265766973696f6e01686170705374617465ab656170704964502c2d2e2f",
+  "303132333435363738393a3b657468656d65a266746f6b656e73a6676170702d696e6b6723313732313163696170702d",
+  "6d7574656467236532646564326a6170702d616363656e7467233466376436636a6170702d63616e7661736723663766",
+  "3565656b6170702d7072696d61727967233264356134626b6170702d737572666163656723666666646638687468656d",
+  "654b65797173686561662e6275696c742d696e2e7631686c6f63616c6974796770726573656e746b6372656174656441",
+  "744d731b00000199155c62006b646973706c61794e616d65694669656c64204c6f676d64757261626c65486f6d654964",
+  "f66d73746174655265766973696f6e016e6c6173744f70656e656441744d73f66e736368656d615265766973696f6e01",
+  "756465766963654f6e6c794368616e6765436f756e7401766c6173745375636365737366756c4261636b75704d73f668",
+  "66726f6e7469657281a2686465766963654964502d2e2f303132333435363738393a3b3c6e636f6d6d69745365717565",
+  "6e6365016b656e756d4f7074696f6e7381a6676669656c644964502a2b2c2d2e2f303132333435363738396869734163",
+  "74697665f5686f7074696f6e4964502e2f303132333435363738393a3b3c3d6c646973706c61794c6162656c644f7065",
+  "6e6d6f7074696f6e4f7264696e616c006e736368656d615265766973696f6e016b7265636f7264506167657381a6676c",
+  "6173744b6579582002020202020202020202020202020202020202020202020202020202020202026866697273744b65",
+  "79582001010101010101010101010101010101010101010101010101010101010101016973746f726167654964764747",
+  "47474747474747474747474747474747474747416c6465636f646564436f756e74026e73656d616e7469635368613235",
+  "3658202f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e716465636f646564427974654c",
+  "656e67746819012c6e736368656d615265766973696f6e016e73656d616e74696353686132353658202d483e1d639954",
+  "2b917ffccc3ee549936cc05e7a38672fbe4eb6f0036ed184606e7368656574536e617073686f747381a6677368656574",
+  "4964502b2c2d2e2f303132333435363738393a6b646973706c61794e616d65694669656c64204c6f676c73686565744f",
+  "7264696e616c00706465636c61726564526f77436f756e74f6736465636c61726564436f6c756d6e436f756e74f67819",
+  "736e617073686f744d616e696665737453746f7261676549647646464646464646464646464646464646464646464641",
+  "6f6d616e696665737456657273696f6e01",
+].join("");
+
+const fromHex = (hex: string): Uint8Array =>
+  Uint8Array.from(hex.match(/../g) ?? [], (pair) => parseInt(pair, 16));
+
+describe("checkpoint manifest evolution (D37, CA-20)", () => {
+  const f02 = fromHex(F02_CHECKPOINT_HEX);
+
+  it("decodes an F02 manifest to the F02-true defaults", () => {
+    const decoded = decodeCheckpointManifest(f02);
+
+    expect(decoded.tables.map((table) => table.displayName)).toEqual(["Field Log"]);
+    expect(decoded.relationships).toEqual([]);
+    expect(decoded.validationRules).toEqual([]);
+    expect(decoded.inertItems).toEqual([]);
+    expect(decoded.inferenceDecisions).toEqual([]);
+    expect(decoded.importLineages).toEqual([]);
+    expect(decoded.sheetSnapshots).toHaveLength(1);
+    expect(decoded.sheetSnapshots[0]?.classification).toEqual(["table"]);
+    expect(decoded.sheetSnapshots[0]?.snapshotRevision).toBe(decoded.schemaRevision);
+  });
+
+  it("verifies the F02 digest over the bytes that were written", async () => {
+    const decoded = decodeCheckpointManifest(f02);
+    const body = checkpointSemanticBody(f02);
+
+    expect(await sha256(body)).toEqual(decoded.semanticSha256);
+    // Re-encoding through the F03 encoder adds the defaulted keys, so it would
+    // not verify — which is why the body is taken from the payload as written.
+    expect(await sha256(encodeCheckpointBody(decoded))).not.toEqual(
+      decoded.semanticSha256,
+    );
+  });
+
+  const full = (): ResolvedCheckpointManifestV1 => {
+    const base = decodeCheckpointManifest(f02);
+    const sheet = base.sheetSnapshots[0]!;
+    const table = base.tables[0]!;
+    return {
+      ...base,
+      sheetSnapshots: [{ ...sheet, classification: ["summary", "chart"], snapshotRevision: 3n }],
+      relationships: [
+        {
+          relationshipId: id("relationship", 60),
+          fromTableId: table.tableId,
+          fromFieldId: table.fields[0]!.fieldId,
+          toTableId: id("table", 61),
+          toKeyFieldId: id("field", 62),
+          detectionSource: "lookup-formula",
+          isActive: true,
+          schemaRevision: 1n,
+        },
+      ],
+      validationRules: [
+        {
+          tableId: table.tableId,
+          displayName: "Name when open",
+          rule: {
+            irVersion: 1,
+            ruleId: id("rule", 63),
+            condition: {
+              kind: "any",
+              conditions: [
+                { kind: "field-present", fieldId: table.fields[0]!.fieldId },
+                {
+                  kind: "not",
+                  condition: {
+                    kind: "field-equals",
+                    fieldId: table.fields[1]!.fieldId,
+                    value: textValue("Open"),
+                  },
+                },
+              ],
+            },
+            severity: "warning",
+            messageKey: "rule.name-when-open",
+            messageParameters: { fieldLabel: "Name", count: 2, strict: false },
+          },
+          isActive: true,
+          schemaRevision: 1n,
+        },
+      ],
+      inertItems: [
+        {
+          inertItemId: id("inert-item", 64),
+          sheetId: sheet.sheetId,
+          kind: "chart",
+          location: "Overview!B2:F9",
+          reasonKey: "chart-not-live-yet",
+          anchor: { firstRow: 1, firstColumn: 1, lastRow: 8, lastColumn: 5 },
+          preservedManifestStorageId: null,
+        },
+      ],
+      inferenceDecisions: [
+        {
+          decisionId: id("decision", 65),
+          subject: "relationship",
+          decisionKind: "relationship",
+          evidenceFingerprint: digest(66),
+          disposition: "rejected",
+          statement: new Map([["statementId", "rel:0"]]),
+          evidence: [1n, "lookup"],
+          recordedEventId: id("event", 67),
+        },
+        {
+          decisionId: id("decision", 68),
+          subject: "app-name",
+          decisionKind: null,
+          evidenceFingerprint: digest(69),
+          disposition: "edited",
+          statement: "Jobs",
+          evidence: [],
+          recordedEventId: id("event", 70),
+        },
+      ],
+      importLineages: [
+        {
+          lineageId: id("lineage", 71),
+          importKind: "initial",
+          importOrdinal: 0,
+          sourceDisplayName: "field-log.xlsx",
+          sourceSha256: digest(72),
+          acceptedAtMs: 1_757_000_000_000,
+          identityDecisions: new Map([["kind", "initial"]]),
+          acceptedCommitId: id("commit", 73),
+        },
+      ],
+    };
+  };
+
+  it("round-trips every F03 root byte-identically", () => {
+    const manifest = full();
+    const encoded = encodeCheckpointManifest(manifest);
+    const decoded = decodeCheckpointManifest(encoded);
+
+    expect(decoded).toEqual(manifest);
+    expect(encodeCheckpointManifest(decoded)).toEqual(encoded);
+  });
+
+  it("writes every key even when the writer predates them", () => {
+    const { relationships, validationRules, inertItems, inferenceDecisions, importLineages, ...f02Writer } =
+      decodeCheckpointManifest(f02);
+    void [relationships, validationRules, inertItems, inferenceDecisions, importLineages];
+    const writer: CheckpointManifestV1 = {
+      ...f02Writer,
+      sheetSnapshots: f02Writer.sheetSnapshots.map(
+        ({ classification, snapshotRevision, ...sheet }) => {
+          void [classification, snapshotRevision];
+          return sheet;
+        },
+      ),
+    };
+    const map = decodeCanonical(encodeCheckpointManifest(writer)) as ReadonlyMap<string, unknown>;
+
+    expect([...map.keys()]).toEqual(
+      expect.arrayContaining(["relationships", "validationRules", "inertItems", "inferenceDecisions", "importLineages"]),
+    );
+    expect(decodeCheckpointManifest(encodeCheckpointManifest(writer))).toEqual(
+      decodeCheckpointManifest(f02),
+    );
+  });
+
+  const withKeys = (
+    bytes: Uint8Array,
+    edit: (map: Map<string, unknown>) => void,
+  ): Uint8Array => {
+    const map = new Map(decodeCanonical(bytes) as ReadonlyMap<string, unknown>);
+    edit(map);
+    return encodeCanonical(map as never);
+  };
+
+  it("refuses any key set that is neither exactly F02 nor exactly F03", () => {
+    const f03 = encodeCheckpointManifest(full());
+
+    // F02 plus one F03 root is neither shape.
+    expect(() =>
+      decodeCheckpointManifest(withKeys(f02, (map) => map.set("relationships", []))),
+    ).toThrow(CodecError);
+    // F03 missing one root.
+    expect(() =>
+      decodeCheckpointManifest(withKeys(f03, (map) => map.delete("inertItems"))),
+    ).toThrow(CodecError);
+    // A stray key on either shape.
+    expect(() =>
+      decodeCheckpointManifest(withKeys(f03, (map) => map.set("extra", 1n))),
+    ).toThrow(CodecError);
+  });
+
+  it("refuses an F03 manifest whose sheet entry has the F02 shape", () => {
+    const f03 = encodeCheckpointManifest(full());
+    const f02Sheets = (decodeCanonical(f02) as ReadonlyMap<string, unknown>).get("sheetSnapshots");
+    expect(() =>
+      decodeCheckpointManifest(withKeys(f03, (map) => map.set("sheetSnapshots", f02Sheets))),
+    ).toThrow(CodecError);
+  });
+
+  it("refuses an empty classification and an unknown decision kind", () => {
+    const manifest = full();
+    expect(() =>
+      decodeCheckpointManifest(
+        encodeCheckpointManifest({
+          ...manifest,
+          sheetSnapshots: [{ ...manifest.sheetSnapshots[0]!, classification: [] }],
+        }),
+      ),
+    ).toThrow(CodecError);
+    expect(() =>
+      decodeCheckpointManifest(
+        encodeCheckpointManifest({
+          ...manifest,
+          inferenceDecisions: [
+            { ...manifest.inferenceDecisions[0]!, decisionKind: "app-name" as never },
+          ],
+        }),
+      ),
+    ).toThrow(CodecError);
   });
 });

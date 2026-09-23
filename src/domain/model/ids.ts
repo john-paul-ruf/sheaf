@@ -40,6 +40,9 @@ export const DOMAIN_ID_KINDS = Object.freeze([
   "rule",
   "lineage",
   "sheet",
+  "relationship",
+  "inert-item",
+  "decision",
 ] as const);
 
 export type DomainIdKind = (typeof DOMAIN_ID_KINDS)[number];
@@ -63,6 +66,9 @@ export type OptionId = DomainId<"option">;
 export type RuleId = DomainId<"rule">;
 export type LineageId = DomainId<"lineage">;
 export type SheetId = DomainId<"sheet">;
+export type RelationshipId = DomainId<"relationship">;
+export type InertItemId = DomainId<"inert-item">;
+export type DecisionId = DomainId<"decision">;
 
 export type AnyDomainId = DomainId<DomainIdKind>;
 

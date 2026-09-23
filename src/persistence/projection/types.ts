@@ -46,6 +46,7 @@ import type {
   TableDefV1,
 } from "../../domain/model/schema.js";
 import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
+import type { SheetClassificationV1 } from "../../domain/model/snapshots.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import type {
   ValidationIssueKindV1,
@@ -61,15 +62,11 @@ import type {
 /** SHA-256 over exact bytes; M08's `sha256` satisfies it (M09's convention). */
 export type Sha256Fn = (bytes: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 
-export const SHEET_CLASSIFICATIONS = Object.freeze([
-  "table",
-  "lookup",
-  "summary",
-  "chart",
-  "snapshot",
-] as const);
-
-export type SheetClassificationV1 = (typeof SHEET_CLASSIFICATIONS)[number];
+/** The domain's list (M01), re-exported where the projection's readers look. */
+export {
+  SHEET_CLASSIFICATIONS,
+  type SheetClassificationV1,
+} from "../../domain/model/snapshots.js";
 
 /** `change_history.subject_kind`, closed by migration 005. */
 export const CHANGE_SUBJECT_KINDS = Object.freeze([

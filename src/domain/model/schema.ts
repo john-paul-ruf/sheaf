@@ -12,7 +12,13 @@
  * `tests/unit/domain/schema.test.ts` pins the two against each other.
  */
 
-import type { FieldId, OptionId, SheetId, TableId } from "./ids.js";
+import type {
+  FieldId,
+  OptionId,
+  RelationshipId,
+  SheetId,
+  TableId,
+} from "./ids.js";
 import type { CellValueKindV1 } from "./values.js";
 
 export const FIELD_TYPE_KINDS = Object.freeze([
@@ -32,10 +38,10 @@ export const FIELD_TYPE_KINDS = Object.freeze([
 export type FieldTypeKindV1 = (typeof FIELD_TYPE_KINDS)[number];
 
 /**
- * `reference` is defined but has no F02 producer (D25): value-only CSV apps
- * detect no relationships, and the surfaces that author one arrive in F03. It
- * is declared now so the closed list, the storage mapping, and the validator's
- * reference-shape check are complete rather than retrofitted.
+ * `reference` has no delimited producer (D25): a value-only CSV proposes no
+ * relationship. A workbook import (F03) produces one, and a `reference` field is
+ * always the source end of exactly one {@link RelationshipDefV1}, which names
+ * the table its values point into.
  */
 export type FieldTypeV1 =
   | { readonly kind: "date" }
@@ -162,6 +168,40 @@ export interface TableDefV1 {
   readonly labelFieldId: FieldId | null;
   /** The imported sheet this table came from, or null when authored. */
   readonly sourceSheetId: SheetId | null;
+  readonly isActive: boolean;
+  readonly schemaRevision: bigint;
+}
+
+/** migration 005's `relationships.detection_source` CHECK, verbatim. */
+export const RELATIONSHIP_DETECTION_SOURCES = Object.freeze([
+  "declared",
+  "lookup-formula",
+  "key-match",
+  "user",
+] as const);
+
+export type RelationshipDetectionSourceV1 =
+  (typeof RELATIONSHIP_DETECTION_SOURCES)[number];
+
+/**
+ * A child table's reference field pointing at a parent table's key
+ * (database.md § `relationships`).
+ *
+ * The endpoint invariant is migration 005's trigger, restated as a domain check
+ * in `validateSchema` so a schema that would fail the SQL fails the validator
+ * first: `fromFieldId` is a `reference` field of `fromTableId`, and
+ * `toKeyFieldId` is **the** `keyFieldId` of `toTableId`. Record-level validity
+ * — whether a given value names a live parent — is the shared validator's, never
+ * a SQL foreign key, so a broken reference can be preserved and flagged (D36).
+ */
+export interface RelationshipDefV1 {
+  readonly relationshipId: RelationshipId;
+  readonly fromTableId: TableId;
+  readonly fromFieldId: FieldId;
+  readonly toTableId: TableId;
+  readonly toKeyFieldId: FieldId;
+  readonly detectionSource: RelationshipDetectionSourceV1;
+  /** Disabled relationships stay auditable; they resolve nothing. */
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
 }

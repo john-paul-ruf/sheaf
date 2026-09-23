@@ -13,7 +13,11 @@
  */
 
 import { encodeDomainId, type FieldId } from "../model/ids.js";
-import type { EnumOptionDefV1, TableDefV1 } from "../model/schema.js";
+import type {
+  EnumOptionDefV1,
+  RelationshipDefV1,
+  TableDefV1,
+} from "../model/schema.js";
 import {
   buildReport,
   type ValidationIssueV1,
@@ -37,12 +41,14 @@ const isOrdinal = (value: number): boolean =>
   Number.isInteger(value) && value >= 0;
 
 /**
- * Checks a complete schema: the tables, their fields, and every enum option
- * that belongs to them.
+ * Checks a complete schema: the tables, their fields, every enum option that
+ * belongs to them, and every relationship between them. A delimited app has no
+ * relationships, which is the default.
  */
 export function validateSchema(
   tables: readonly TableDefV1[],
   enumOptions: readonly EnumOptionDefV1[],
+  relationships: readonly RelationshipDefV1[] = [],
 ): ValidationReport {
   const issues: ValidationIssueV1[] = [];
 
@@ -195,5 +201,87 @@ export function validateSchema(
     }
   }
 
+  issues.push(...relationshipIssues(tables, fieldsById, relationships));
+
   return buildReport(issues);
+}
+
+/**
+ * migration 005's `trg_relationships_insert_guard`, stated in the domain: the
+ * source field is a `reference` field of the source table, and the target
+ * field is the target table's `keyFieldId`. The SQL `UNIQUE` on
+ * `from_field_id` is here too — one reference field points at one table.
+ */
+function relationshipIssues(
+  tables: readonly TableDefV1[],
+  fieldsById: ReadonlyMap<string, { table: TableDefV1; type: string }>,
+  relationships: readonly RelationshipDefV1[],
+): readonly ValidationIssueV1[] {
+  const issues: ValidationIssueV1[] = [];
+  const relationshipIds = new Set<string>();
+  const sourceFields = new Set<string>();
+  const tablesById = new Map(
+    tables.map((table) => [encodeDomainId(table.tableId), table]),
+  );
+
+  for (const relationship of relationships) {
+    const relationshipKey = encodeDomainId(relationship.relationshipId);
+    if (relationshipIds.has(relationshipKey)) {
+      issues.push(schemaIssue("schema.duplicate-relationship-id"));
+    }
+    relationshipIds.add(relationshipKey);
+
+    const sourceKey = encodeDomainId(relationship.fromFieldId);
+    if (sourceFields.has(sourceKey)) {
+      issues.push(
+        schemaIssue(
+          "schema.duplicate-relationship-source",
+          {},
+          relationship.fromFieldId,
+        ),
+      );
+    }
+    sourceFields.add(sourceKey);
+
+    const source = fieldsById.get(sourceKey);
+    if (
+      source === undefined ||
+      encodeDomainId(source.table.tableId) !==
+        encodeDomainId(relationship.fromTableId)
+    ) {
+      issues.push(
+        schemaIssue(
+          "schema.relationship-source-not-in-table",
+          {},
+          relationship.fromFieldId,
+        ),
+      );
+    } else if (source.type !== "reference") {
+      issues.push(
+        schemaIssue(
+          "schema.relationship-source-not-reference",
+          { fieldType: source.type },
+          relationship.fromFieldId,
+        ),
+      );
+    }
+
+    const target = tablesById.get(encodeDomainId(relationship.toTableId));
+    if (
+      target === undefined ||
+      target.keyFieldId === null ||
+      encodeDomainId(target.keyFieldId) !==
+        encodeDomainId(relationship.toKeyFieldId)
+    ) {
+      issues.push(
+        schemaIssue(
+          "schema.relationship-target-not-key",
+          {},
+          relationship.fromFieldId,
+        ),
+      );
+    }
+  }
+
+  return issues;
 }
