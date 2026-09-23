@@ -43,6 +43,8 @@ export const DOMAIN_ID_KINDS = Object.freeze([
   "relationship",
   "inert-item",
   "decision",
+  "formula",
+  "chart",
 ] as const);
 
 export type DomainIdKind = (typeof DOMAIN_ID_KINDS)[number];
@@ -69,6 +71,10 @@ export type SheetId = DomainId<"sheet">;
 export type RelationshipId = DomainId<"relationship">;
 export type InertItemId = DomainId<"inert-item">;
 export type DecisionId = DomainId<"decision">;
+/** A computed column, table metric, or dashboard value (CA-25). */
+export type FormulaId = DomainId<"formula">;
+/** An imported or authored chart definition (CA-30). */
+export type ChartId = DomainId<"chart">;
 
 export type AnyDomainId = DomainId<DomainIdKind>;
 

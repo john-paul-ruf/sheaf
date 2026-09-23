@@ -121,6 +121,8 @@ describe("domain ids", () => {
       "relationship",
       "inert-item",
       "decision",
+      "formula",
+      "chart",
     ]);
     expect(Object.isFrozen(DOMAIN_ID_KINDS)).toBe(true);
   });
