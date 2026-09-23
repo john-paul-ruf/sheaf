@@ -1644,6 +1644,9 @@ export interface SnapshotViewerVm {
   readonly endRow: number;
   readonly hasPrevious: boolean;
   readonly hasNext: boolean;
+  /** Where the neighbouring pages start; null where there is none. */
+  readonly previousFirstRow: number | null;
+  readonly nextFirstRow: number | null;
   readonly inertItems: readonly InertItemVm[];
   /** snapshot-detail.html's callout, or null when the sheet has no inert item. */
   readonly inertHeadline: string | null;
@@ -1785,6 +1788,8 @@ export function selectSnapshotViewerVm(input: {
     endRow,
     hasPrevious: page.firstRow > 0,
     hasNext: endRow < rowCount,
+    previousFirstRow: page.firstRow > 0 ? Math.max(0, page.firstRow - pageRows) : null,
+    nextFirstRow: endRow < rowCount ? endRow : null,
     inertItems: items,
     inertHeadline:
       items.length === 0

@@ -211,7 +211,15 @@ describe("the snapshot viewer (SCR-031)", () => {
 
   it("pages at 50 rows and says where the page is", () => {
     const vm = selectSnapshotViewerVm({ page: page({ rowCount: 61, firstRow: 50, rows: [] }), inertItems: [] });
-    expect(vm).toMatchObject({ firstRow: 50, endRow: 61, hasPrevious: true, hasNext: false });
+    expect(vm).toMatchObject({
+      firstRow: 50,
+      endRow: 61,
+      hasPrevious: true,
+      hasNext: false,
+      // From a short last page, the previous page is still a whole one.
+      previousFirstRow: 0,
+      nextFirstRow: null,
+    });
     expect(vm.announcement).toBe("Overview, rows 51 to 61 of 61. Read only.");
     expect(pageStartFor(54)).toBe(50);
     expect(pageStartFor(49)).toBe(0);

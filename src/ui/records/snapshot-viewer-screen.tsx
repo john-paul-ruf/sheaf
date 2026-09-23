@@ -70,6 +70,7 @@ export function SnapshotViewerScreen({
   const [text, setText] = useState(vm.find.state === "idle" ? "" : vm.find.text);
   const captionId = useId();
   const findFieldId = useId();
+  const { previousFirstRow, nextFirstRow } = vm;
   const inertListId = useId();
 
   // The sheet's own focus restore lands first; this runs after it, so the
@@ -85,7 +86,6 @@ export function SnapshotViewerScreen({
       clearTimeout(timer);
     };
   }, [focusRequest, findFieldId, inertListId]);
-  const pageSize = vm.endRow - vm.firstRow;
   const isSameQuery = vm.find.state !== "idle" && vm.find.text === text.trim();
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
@@ -203,19 +203,19 @@ export function SnapshotViewerScreen({
 
         {(vm.hasPrevious || vm.hasNext) && (
           <div className={cx(styles["actions"])}>
-            {vm.hasPrevious && (
+            {previousFirstRow !== null && (
               <Button
                 onPress={() => {
-                  onPage(Math.max(0, vm.firstRow - pageSize));
+                  onPage(previousFirstRow);
                 }}
               >
                 Earlier rows
               </Button>
             )}
-            {vm.hasNext && (
+            {nextFirstRow !== null && (
               <Button
                 onPress={() => {
-                  onPage(vm.endRow);
+                  onPage(nextFirstRow);
                 }}
               >
                 Later rows

@@ -34,32 +34,21 @@ import {
   screen,
 } from "./fixtures/app.js";
 import { expect, test } from "./fixtures/no-network.js";
+import {
+  DEMO_XLSX,
+  MACRO_WORKBOOK,
+  WORKBOOK_TIMEOUT_MS as PARSE_TIMEOUT_MS,
+  chooseFile as choose,
+  openUpload,
+  toggleSheet,
+} from "./fixtures/workbook.js";
 
 const CORPUS = resolve(process.cwd(), "tests/fixtures/workbooks");
-const DEMO_XLSX = resolve(CORPUS, "ooxml/fieldwork-q3.xlsx");
-const MACRO_WORKBOOK = resolve(CORPUS, "unsafe/payroll.xlsm");
 const ZIP_BOMB = resolve(CORPUS, "unsafe/zip-bomb.xlsx");
-
-/** A whole workbook through two workers, on a busy machine (F02 fixtures). */
-const PARSE_TIMEOUT_MS = 120_000;
 
 test.afterEach(async ({ page }) => {
   await deleteLocalStore(page);
 });
-
-async function openUpload(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Choose a workbook" }).click();
-  await expect(screen(page, "SCR-016")).toBeVisible();
-}
-
-async function choose(page: Page, file: string | { name: string; mimeType: string; buffer: Buffer }): Promise<void> {
-  await page.locator('input[type="file"]').first().setInputFiles(file);
-}
-
-/** A CTL-043 row is pressed by its label; its input is visually hidden. */
-async function toggleSheet(page: Page, name: string): Promise<void> {
-  await page.getByRole("checkbox", { name: new RegExp(`^${name}\\b`, "u") }).locator("xpath=ancestor::label").click();
-}
 
 /**
  * Records every name the import's progress region had, so a stream that
