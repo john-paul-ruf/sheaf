@@ -6,7 +6,9 @@ import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { TextField } from "../primitives/text-field.js";
 import { AppFrame, type AppIdentity, type AppNavigation } from "../records/app-frame.js";
+import { logoSource } from "../theme/app-theme.js";
 import styles from "./schema.module.css";
+import themeStyles from "./theme.module.css";
 
 /**
  * SCR-037 — app settings (app-settings.html), truthful per feature.
@@ -16,8 +18,9 @@ import styles from "./schema.module.css";
  * changed like any other structure change, with a preview first. The ones a
  * later release brings (re-upload, export, remove) are named and disabled
  * with the reason, the SHT-016 precedent GATE-F03 approved (D62). "Theme &
- * logo" is absent until its route exists: a row that leads nowhere is not a
- * row. Durability states only the facts this device holds, and offers no
+ * logo" links to SCR-036 with the stored theme's summary (app-settings.html's
+ * Appearance card), and is absent where no route serves it: a row that leads
+ * nowhere is not a row. Durability states only the facts this device holds, and offers no
  * backup, because in this release there is nowhere for one to go.
  */
 
@@ -26,6 +29,12 @@ export interface AppSettingsScreenProps {
   readonly app: AppIdentity;
   readonly nav: AppNavigation;
   readonly structureHref: string;
+  /** SCR-036 and the stored theme's summary ("Cedar · light · comfortable"). */
+  readonly appearance?: {
+    readonly href: string;
+    readonly summary: string | null;
+    readonly glyph: string;
+  };
   readonly onRename: (name: string) => void;
   readonly announcement?: string;
   readonly topBarActions?: ReactNode;
@@ -51,6 +60,7 @@ export function AppSettingsScreen({
   app,
   nav,
   structureHref,
+  appearance,
   onRename,
   announcement,
   topBarActions,
@@ -115,6 +125,35 @@ export function AppSettingsScreen({
               </li>
             </ul>
           </section>
+
+          {appearance !== undefined && (
+            <section aria-labelledby="settings-appearance" className={cx(styles["card"])} data-section="appearance">
+              <span className={cx(styles["eyebrow"])} id="settings-appearance">
+                Appearance
+              </span>
+              <div className={cx(styles["head"])}>
+                <span className={cx(styles["rowCopy"])}>
+                  <InlineLink target={{ kind: "internal", href: appearance.href }}>
+                    <strong>Theme &amp; logo</strong>
+                  </InlineLink>
+                  {appearance.summary !== null && <span className={cx(styles["hint"])}>{appearance.summary}</span>}
+                </span>
+                {app.theme.logo === undefined ? (
+                  <span aria-hidden="true" className={cx(themeStyles["mark"])}>
+                    {appearance.glyph}
+                  </span>
+                ) : (
+                  <img
+                    alt=""
+                    className={cx(themeStyles["mark"], themeStyles["logo"])}
+                    height={app.theme.logo.height}
+                    src={logoSource(app.theme.logo)}
+                    width={app.theme.logo.width}
+                  />
+                )}
+              </div>
+            </section>
+          )}
 
           <section aria-labelledby="settings-durability" className={cx(styles["card"])} data-section="durability">
             <span className={cx(styles["eyebrow"])} id="settings-durability">

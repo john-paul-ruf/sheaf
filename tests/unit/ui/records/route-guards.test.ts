@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   appSettingsPath,
   appSnapshotsPath,
+  appThemePath,
   chartPath,
   chartsPath,
   editChartPath,
@@ -143,6 +144,37 @@ describe("the structure and settings shapes (CA-07 amendment 4, D63)", () => {
 
   it("leaves the extra-segment case to the phase's fallback", () => {
     expect(guardRoute("unlocked", "/app/app-1/settings/theme")).toEqual({ kind: "redirect", to: "/library" });
+  });
+});
+
+const THEME_SHAPES = ["/app/app-1/theme", "/app/app-1/theme/"] as const;
+
+describe("the theme shape (CA-07 amendment 4, D63)", () => {
+  it("is an app-area path, and an extra segment is not", () => {
+    expect(isAppAreaPath("/app/app-1/theme")).toBe(true);
+    expect(isAppAreaPath("/app/app-1/theme/logo")).toBe(false);
+    expect(isAppAreaPath("/app/app-1/themes")).toBe(false);
+  });
+
+  it("is built from the id, percent-encoded", () => {
+    expect(appThemePath("a b")).toBe("/app/a%20b/theme");
+    expect(isAppAreaPath(appThemePath("a/b"))).toBe(true);
+  });
+
+  const expected: Readonly<Record<SessionPhase, ReturnType<typeof guardRoute>>> = {
+    "first-run": { kind: "redirect", to: "/welcome" },
+    locked: { kind: "redirect", to: "/unlock" },
+    unlocked: { kind: "render" },
+  };
+
+  for (const phase of ["first-run", "locked", "unlocked"] as const) {
+    it.each(THEME_SHAPES)(`${phase}: %s`, (path) => {
+      expect(guardRoute(phase, path)).toEqual(expected[phase]);
+    });
+  }
+
+  it("leaves the extra-segment case to the phase's fallback", () => {
+    expect(guardRoute("unlocked", "/app/app-1/theme/logo")).toEqual({ kind: "redirect", to: "/library" });
   });
 });
 

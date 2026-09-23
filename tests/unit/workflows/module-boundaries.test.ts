@@ -29,6 +29,7 @@ const WORKFLOW_FILES = [
   "src/application/workflows/import-services.ts",
   "src/application/workflows/records-services.ts",
   "src/application/workflows/schema-services.ts",
+  "src/application/workflows/theme-services.ts",
   "src/application/workflows/import.machine.ts",
   "src/application/workflows/setup.machine.ts",
   "src/application/workflows/unlock.machine.ts",
@@ -45,6 +46,7 @@ const VIEW_MODEL_FILES = [
   "src/application/view-models/import.ts",
   "src/application/view-models/records.ts",
   "src/application/view-models/schema.ts",
+  "src/application/view-models/theme.ts",
 ];
 
 /** Source with comments removed: a spec citation is not an import. */

@@ -168,6 +168,11 @@ export function appSettingsPath(appId: string): string {
   return `${appPath(appId)}/settings`;
 }
 
+/** SCR-036, the app's theme editor (CA-07 amendment 4, D63). */
+export function appThemePath(appId: string): string {
+  return `${appPath(appId)}/theme`;
+}
+
 export function tablePath(appId: string, tableId: string): string {
   return `${appPath(appId)}/t/${encodeURIComponent(tableId)}`;
 }
@@ -202,14 +207,14 @@ export function appHref(appId: string): string {
 }
 
 /**
- * The fourteen app-area shapes, as one expression. An id may be any non-empty
+ * The fifteen app-area shapes, as one expression. An id may be any non-empty
  * run of characters that is not a separator, so a path with an extra segment
  * is *not* an app path and falls to the phase's fallback exactly as before.
- * CA-07 amendment 4 adds the four chart paths, the structure path and the
- * settings path (D63).
+ * CA-07 amendment 4 adds the four chart paths, the structure path, the
+ * settings path and the theme path (D63).
  */
 const APP_AREA_PATH =
-  /^\/app\/[^/]+(?:\/history|\/structure|\/settings|\/snapshots(?:\/[^/]+)?|\/charts(?:\/[^/]+(?:\/edit)?)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
+  /^\/app\/[^/]+(?:\/history|\/structure|\/settings|\/theme|\/snapshots(?:\/[^/]+)?|\/charts(?:\/[^/]+(?:\/edit)?)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
 
 export function isAppAreaPath(path: string): boolean {
   return APP_AREA_PATH.test(path);

@@ -10,8 +10,8 @@ import { appliedOutcome, button, dialog, fakeSchema, press, wiring } from "./har
 /**
  * SCR-037 as rendered (S06 CP3; app-settings.html), truthful per feature:
  * every served route is a link with its real counts, every later-release row
- * is named and disabled with its reason, Theme & logo is absent until its
- * route exists, and durability states only this device's facts.
+ * is named and disabled with its reason, Theme & logo links to its editor with
+ * the stored theme's summary, and durability states only this device's facts.
  */
 
 const sheets: ListSheetSnapshotsResponseV1 = {
@@ -45,14 +45,23 @@ describe("SCR-037 — app settings", () => {
     expect(query('[data-section="history"] a').getAttribute("href")).toBe(`#/app/${APP_ID}/history`);
   });
 
-  it("names the later-release rows, disabled with the reason, and no Theme & logo row", async () => {
+  it("names the later-release rows, disabled with the reason", async () => {
     await open();
     for (const title of ["Re-upload a newer workbook", "Export data & charts", "Remove or delete"]) {
       const row = query(`[data-later="${title}"]`);
       expect(row.querySelector("button")?.disabled, title).toBe(true);
       expect(row.textContent, title).toContain("Arrives in a later release.");
     }
-    expect(query('[data-screen="SCR-037"]').textContent).not.toContain("Theme");
+  });
+
+  it("links Theme & logo to SCR-036 with the stored theme's summary (CAP-37)", async () => {
+    await open();
+    const appearance = query('[data-section="appearance"]');
+    const link = appearance.querySelector("a");
+    expect([link?.textContent, link?.getAttribute("href")]).toEqual(["Theme & logo", `#/app/${APP_ID}/theme`]);
+    // The F02 built-in names no palette, so the summary says only what it knows.
+    expect(appearance.textContent).toContain("Light · comfortable");
+    expect(appearance.querySelector('[aria-hidden="true"]')?.textContent).toBe("FL");
   });
 
   it("states durability from this device's facts, and offers no backup", async () => {

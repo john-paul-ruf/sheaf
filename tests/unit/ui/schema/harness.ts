@@ -1,5 +1,7 @@
 import { vi } from "vitest";
 import type { SchemaServices } from "../../../../src/application/workflows/schema-services.js";
+import type { LogoPreparationV1, ThemeServices } from "../../../../src/application/workflows/theme-services.js";
+import { BUILT_IN_PALETTES } from "../../../../src/import/staging/theme.js";
 import type { AppAreaWiring } from "../../../../src/routes/app-area-hooks.js";
 import type {
   AppSessionViewV1,
@@ -8,6 +10,7 @@ import type {
   PreviewSchemaChangeResponseV1,
   SchemaApplyOutcomeV1,
   SchemaPreviewViewV1,
+  ThemeOutcomeWireV1,
 } from "../../../../src/workers/protocol/messages.js";
 import { interact, query, queryAll } from "../render.js";
 import { APP_ID, identity, nav, structure } from "./fixtures.js";
@@ -36,6 +39,29 @@ export function fakeSchema(input: {
         outcome: outcomes.shift() ?? { result: "unknown-app" },
       }),
     ),
+  };
+  return services;
+}
+
+/**
+ * The theme column over a fake worker edge: the real DF-1 palettes, each save
+ * answered with what the test says, and each chosen file prepared as it says.
+ */
+export function fakeTheme(input: {
+  readonly outcomes?: readonly ThemeOutcomeWireV1[];
+  readonly logos?: readonly LogoPreparationV1[];
+} = {}) {
+  const outcomes = [...(input.outcomes ?? [])];
+  const logos = [...(input.logos ?? [])];
+  const services: ThemeServices = {
+    listThemePalettes: vi.fn(() =>
+      Promise.resolve({
+        kind: "listThemePalettes" as const,
+        palettes: BUILT_IN_PALETTES.map(({ key, name, light, dark }) => ({ key, name, light, dark })),
+      }),
+    ),
+    changeTheme: vi.fn(() => Promise.resolve({ kind: "changeTheme" as const, outcome: outcomes.shift() ?? { result: "unknown-app" as const } })),
+    prepareLogo: vi.fn(() => Promise.resolve(logos.shift() ?? { kind: "refused" as const, reason: "unreadable" as const })),
   };
   return services;
 }
@@ -86,6 +112,7 @@ export function wiring(schema: SchemaServices, overrides: Partial<AppAreaWiring>
     records: {} as AppAreaWiring["records"],
     charts: {} as AppAreaWiring["charts"],
     schema,
+    theme: fakeTheme(),
     session: session(),
     topBarActions: null,
     announce: vi.fn(),

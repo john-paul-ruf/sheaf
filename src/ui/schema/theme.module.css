@@ -1,0 +1,262 @@
+/*
+ * M46 — SCR-036 the theme editor (theme.html).
+ *
+ * Unlayered by the layer contract. Every colour is a token, or the draft
+ * theme's own value arriving as data (a swatch shows the palette it names).
+ * One column below 900px; from tablet landscape up, theme.html's split puts
+ * the preview beside the form.
+ */
+
+.split {
+  display: grid;
+  gap: var(--space-16);
+  min-width: 0;
+}
+
+.fieldset {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.legend {
+  padding: 0;
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-status);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+/* ---- palette swatches (CTL-115) ------------------------------------------ */
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+}
+
+.swatch {
+  display: grid;
+  place-items: end center;
+  width: 66px;
+  height: 66px;
+  border: 0;
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+  cursor: pointer;
+}
+
+.swatch[data-selected="true"],
+.customSwatch[aria-pressed="true"] {
+  outline: var(--focus-ring-width) solid var(--color-text);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.swatch:has(input:focus-visible),
+.customSwatch:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.customSwatch {
+  border: 1px dashed var(--color-border-input);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.colour {
+  width: 100%;
+  min-height: var(--space-48);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.file {
+  width: 100%;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-control);
+  padding: var(--space-8);
+  background: var(--color-surface);
+}
+
+/* ---- mode and density (CTL-116, CTL-050) --------------------------------- */
+
+.segmented {
+  display: inline-grid;
+  grid-auto-flow: column;
+  justify-self: start;
+  gap: var(--space-4);
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+  background: var(--color-panel);
+}
+
+.segment span {
+  display: grid;
+  place-items: center;
+  min-height: var(--target-min);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--text-supporting);
+  font-weight: var(--weight-control);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment:has(input:checked) span {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--weight-status);
+  box-shadow: var(--shadow-level-1);
+}
+
+.segment:has(input:focus-visible) span {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ---- logo (CTL-048, CTL-117) --------------------------------------------- */
+
+.logoRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+.mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--space-48);
+  height: var(--space-48);
+  border-radius: var(--radius-card);
+  background: var(--color-selected-on-ink);
+  color: var(--ink-950);
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--weight-status);
+}
+
+.logo {
+  object-fit: contain;
+  background: var(--color-surface);
+}
+
+.close {
+  display: inline-grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--weight-status);
+  text-decoration: none;
+}
+
+.close:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ---- the preview (theme.html's phone frame) ------------------------------ */
+
+.phone {
+  min-width: 0;
+  overflow: hidden;
+  border: var(--space-8) solid var(--color-chrome);
+  border-radius: var(--radius-panel);
+}
+
+.phoneScreen {
+  min-height: 100%;
+  background: var(--color-canvas);
+  color: var(--color-text);
+}
+
+.phoneHead {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  padding: var(--space-16);
+  background: var(--color-chrome);
+  color: var(--color-chrome-text);
+  overflow-wrap: anywhere;
+}
+
+.phoneBody {
+  display: grid;
+  gap: var(--space-16);
+  justify-items: start;
+  padding: var(--space-16);
+}
+
+.previewBadge {
+  border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-12);
+  background: var(--color-success-tint);
+  color: var(--color-success-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-status);
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-4);
+  justify-self: stretch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-16);
+  background: var(--color-surface);
+}
+
+.metricLabel {
+  font-size: var(--text-supporting);
+}
+
+.metricValue {
+  font-family: var(--font-display);
+  font-size: var(--text-page);
+  font-variant-numeric: tabular-nums;
+}
+
+.primary {
+  display: grid;
+  place-items: center;
+  justify-self: stretch;
+  min-height: var(--target-min);
+  border-radius: var(--radius-control);
+  background: var(--color-action);
+  color: var(--color-action-text);
+  font-weight: var(--weight-status);
+}
+
+.accentBar {
+  justify-self: stretch;
+  height: var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--app-accent);
+}
+
+@media (min-width: 900px) {
+  .split {
+    grid-template-columns: minmax(300px, 0.82fr) minmax(430px, 1.18fr);
+    align-items: start;
+  }
+}

@@ -11,9 +11,15 @@
  * displayed at any width, so assistive technology is never offered both.
  */
 
+/*
+ * The text colour is re-read here, not inherited from <body>: an inherited
+ * colour is the body's computed value, so an app root that remaps
+ * `--color-text` would otherwise keep the shell's ink on its own canvas.
+ */
 .root {
   min-height: 100vh;
   background: var(--color-canvas);
+  color: var(--color-text);
 }
 
 .skipLink {

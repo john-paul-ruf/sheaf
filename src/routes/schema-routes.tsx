@@ -31,6 +31,7 @@ import {
   type StructureRuleVm,
   type StructureSelection,
 } from "../application/view-models/schema.js";
+import { describeThemeSummary } from "../application/view-models/theme.js";
 import type {
   AppStructureViewV1,
   SchemaChangeWireV1,
@@ -48,7 +49,8 @@ import { RuleEditorDialog } from "../ui/schema/rule-editor.js";
 import { StructureScreen } from "../ui/schema/structure-screen.js";
 import { UnsupportedFormulaDialog } from "../ui/schema/unsupported-formula-dialog.js";
 import type { AppAreaWiring } from "./app-area-hooks.js";
-import { appPath, hashHref, structurePath } from "./guards.js";
+import { appPath, appThemePath, hashHref, structurePath } from "./guards.js";
+import { glyphOf, usePalettes } from "./theme-routes.js";
 
 type StructureState =
   | { readonly kind: "reading" }
@@ -410,9 +412,10 @@ export function AppSettingsRoute({
   readonly notice?: string;
   readonly clearNotice: () => void;
 }): ReactNode {
-  const { identity, nav, records, session, topBarActions } = area;
+  const { identity, nav, records, session, theme, topBarActions } = area;
   const appId = identity.appId;
   const state = useStructure(area);
+  const palettes = usePalettes(theme);
   const changes = useSchemaChange(area);
   const [sheets, setSheets] = useState<readonly SheetSnapshotViewV1[] | null>(null);
   useEffect(() => clearNotice, [clearNotice]);
@@ -443,6 +446,11 @@ export function AppSettingsRoute({
   return (
     <AppSettingsScreen
       app={identity}
+      appearance={{
+        href: hashHref(appThemePath(appId)),
+        summary: palettes === null ? null : describeThemeSummary(session.theme, palettes),
+        glyph: glyphOf(session),
+      }}
       key={session.displayName}
       nav={nav}
       onRename={(name) => {

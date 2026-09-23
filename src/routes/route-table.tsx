@@ -91,6 +91,7 @@ import type {
 } from "../workers/protocol/messages.js";
 import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
 import type { SchemaServices } from "../application/workflows/schema-services.js";
+import type { ThemeServices } from "../application/workflows/theme-services.js";
 import { toSecurityError } from "../application/workflows/services.js";
 import { DelimitedTargetScreen } from "../ui/import/delimited-target-screen.js";
 import { ImportFailedScreen } from "../ui/import/import-failed-screen.js";
@@ -137,6 +138,7 @@ import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
 import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { AppSettingsRoute, StructureRoute } from "./schema-routes.js";
+import { ThemeRoute } from "./theme-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -494,7 +496,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
-      <AppArea charts={wiring.charts} records={wiring.records} schema={wiring.schema} topBarActions={lockAction}>
+      <AppArea charts={wiring.charts} records={wiring.records} schema={wiring.schema} theme={wiring.theme} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -902,12 +904,14 @@ function AppArea({
   records,
   charts,
   schema,
+  theme,
   topBarActions,
   children,
 }: {
   readonly records: RecordsServices;
   readonly charts: ChartServices;
   readonly schema: SchemaServices;
+  readonly theme: ThemeServices;
   readonly topBarActions: ReactNode;
   /** The rest of the unlocked area, rendered when no app path is current. */
   readonly children: ReactNode;
@@ -927,6 +931,7 @@ function AppArea({
       key={appId}
       records={records}
       schema={schema}
+      theme={theme}
       topBarActions={topBarActions}
     />
   );
@@ -944,12 +949,14 @@ function OpenedApp({
   records,
   charts,
   schema,
+  theme,
   topBarActions,
 }: {
   readonly appId: string;
   readonly records: RecordsServices;
   readonly charts: ChartServices;
   readonly schema: SchemaServices;
+  readonly theme: ThemeServices;
   readonly topBarActions: ReactNode;
 }): ReactNode {
   const [state, setState] = useState<OpenedAppState>({ kind: "opening" });
@@ -1078,6 +1085,7 @@ function OpenedApp({
     records,
     charts,
     schema,
+    theme,
     session,
     topBarActions,
     announce,
@@ -1128,6 +1136,7 @@ function OpenedApp({
         element={<AppSettingsRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}
         path="/app/:appId/settings"
       />
+      <Route element={<ThemeRoute area={area} />} path="/app/:appId/theme" />
       <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/new" />
       <Route
         element={<ChartDetailRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}

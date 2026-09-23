@@ -35,6 +35,7 @@ import {
   createSchemaServices,
   type SchemaServices,
 } from "../application/workflows/schema-services.js";
+import { createThemeServices, type ThemeServices } from "../application/workflows/theme-services.js";
 import type { SessionPhase } from "./guards.js";
 
 const clock: ClockPort = { nowEpochMs: () => Date.now() };
@@ -78,6 +79,8 @@ export interface SecurityWiring {
   readonly charts: ChartServices;
   /** The app's structure: read, preview and apply a change (CA-28). */
   readonly schema: SchemaServices;
+  /** The app's theme: palettes, the page-side logo, and the save (CA-32). */
+  readonly theme: ThemeServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
   readonly clock: ClockPort;
@@ -125,6 +128,7 @@ export function useSheafRuntime(): SheafRuntime {
       records: createRecordsServices(app.client),
       charts: createChartServices(app.client),
       schema: createSchemaServices(app.client),
+      theme: createThemeServices(app.client),
       policy: passphrasePolicy,
       codeFormat: recoveryCodeFormat,
       clock,
