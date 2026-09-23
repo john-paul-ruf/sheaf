@@ -19,23 +19,36 @@ import { Navigate } from "react-router";
 import { announceRecalculated } from "../application/view-models/records.js";
 import {
   describeApplyFailure,
+  describeFormulaError,
+  formulaChangeFor,
   ruleFieldChoices,
   ruleSentence,
+  selectAppSettingsVm,
   selectImpactVm,
   selectStructureVm,
+  selectUnsupportedFormulaVm,
+  type StructureCalculationVm,
   type StructureRuleVm,
   type StructureSelection,
 } from "../application/view-models/schema.js";
-import type { AppStructureViewV1, SchemaChangeWireV1, SchemaPreviewViewV1 } from "../workers/protocol/messages.js";
+import type {
+  AppStructureViewV1,
+  SchemaChangeWireV1,
+  SchemaPreviewViewV1,
+  SheetSnapshotViewV1,
+} from "../workers/protocol/messages.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
+import { AppSettingsScreen } from "../ui/schema/app-settings-screen.js";
 import { StatusBanner } from "../ui/primitives/status-banner.js";
 import { FIELD_FOCUS } from "../ui/schema/field-editor.js";
 import { FieldActionsSheet, type FieldActionV1 } from "../ui/schema/field-actions-sheet.js";
+import { FormulaEditorDialog } from "../ui/schema/formula-editor.js";
 import { ImpactDialog } from "../ui/schema/impact-dialog.js";
 import { RuleEditorDialog } from "../ui/schema/rule-editor.js";
 import { StructureScreen } from "../ui/schema/structure-screen.js";
+import { UnsupportedFormulaDialog } from "../ui/schema/unsupported-formula-dialog.js";
 import type { AppAreaWiring } from "./app-area-hooks.js";
-import { appPath } from "./guards.js";
+import { appPath, hashHref, structurePath } from "./guards.js";
 
 type StructureState =
   | { readonly kind: "reading" }
@@ -81,6 +94,8 @@ interface PendingChange {
 export function useSchemaChange(area: AppAreaWiring): {
   readonly pending: PendingChange | null;
   readonly propose: (change: SchemaChangeWireV1) => Promise<SchemaPreviewViewV1 | null>;
+  /** Counts a change without opening MOD-014, for an editor that shows its own refusal. */
+  readonly preview: (change: SchemaChangeWireV1) => Promise<SchemaPreviewViewV1 | null>;
   readonly show: (change: SchemaChangeWireV1, preview: SchemaPreviewViewV1) => void;
   readonly apply: () => void;
   readonly cancel: () => void;
@@ -154,13 +169,20 @@ export function useSchemaChange(area: AppAreaWiring): {
     setPending(null);
   }, []);
 
-  return { pending, propose, show, apply, cancel, failure };
+  return { pending, propose, preview: readPreview, show, apply, cancel, failure };
 }
 
 type Overlay =
   | { readonly kind: "none" }
   | { readonly kind: "field-actions" }
-  | { readonly kind: "rule"; readonly rule?: StructureRuleVm };
+  | { readonly kind: "rule"; readonly rule?: StructureRuleVm }
+  /** The live-calculation editor; MOD-015 when the calculation is unsupported. */
+  | {
+      readonly kind: "formula" | "rewrite";
+      readonly calculation?: StructureCalculationVm;
+      readonly error?: string;
+      readonly busy?: boolean;
+    };
 
 const FOCUS_FOR: Partial<Record<FieldActionV1, string>> = {
   rename: FIELD_FOCUS.name,
@@ -201,14 +223,39 @@ export function StructureRoute({
   const propose = (change: SchemaChangeWireV1): void => {
     void changes.propose(change);
   };
+  /**
+   * A calculation is counted with its editor still open: a parse or name
+   * error belongs beside the text, at the position S03 reports (D58), and
+   * only a translatable calculation goes on to MOD-014.
+   */
+  const proposeFormula = (change: SchemaChangeWireV1): void => {
+    if (overlay.kind !== "formula" && overlay.kind !== "rewrite") return;
+    const editing = overlay;
+    setOverlay({ ...editing, busy: true });
+    void changes.preview(change).then((counted) => {
+      if (counted?.refusal?.kind === "formula") {
+        setOverlay({ ...editing, busy: false, error: describeFormulaError(counted.refusal) });
+        return;
+      }
+      setOverlay({ kind: "none" });
+      if (counted !== null) changes.show(change, counted);
+    });
+  };
+  const editCalculation = (calculation: StructureCalculationVm): void => {
+    setOverlay({ kind: calculation.disposition === "unsupported" ? "rewrite" : "formula", calculation });
+  };
 
   return (
     <StructureScreen
       app={identity}
       nav={nav}
+      onAddCalculation={() => {
+        setOverlay({ kind: "formula" });
+      }}
       onAddRule={() => {
         setOverlay({ kind: "rule" });
       }}
+      onEditCalculation={editCalculation}
       onEditRule={(rule) => {
         setOverlay({ kind: "rule", rule });
       }}
@@ -246,6 +293,10 @@ export function StructureRoute({
                   propose({ kind: "reactivate-field", fieldId: field.fieldId });
                   return;
                 }
+                if (action === "calculation" && field.calculation !== null) {
+                  editCalculation(field.calculation);
+                  return;
+                }
                 // The sheet closes first; its editor takes focus on the next frame.
                 const target = FOCUS_FOR[action];
                 if (target !== undefined) requestAnimationFrame(() => document.getElementById(target)?.focus());
@@ -280,6 +331,46 @@ export function StructureRoute({
               {...(overlay.rule === undefined ? {} : { rule: overlay.rule })}
             />
           )}
+          {overlay.kind === "formula" && vm.table !== null && (
+            <FormulaEditorDialog
+              busy={overlay.busy === true}
+              onCancel={() => {
+                setOverlay({ kind: "none" });
+              }}
+              onPreview={(draft) => {
+                const tableId = vm.table?.tableId;
+                if (tableId === undefined) return;
+                proposeFormula(formulaChangeFor({ tableId, calculation: overlay.calculation ?? null, ...draft }));
+              }}
+              tableName={vm.table.name}
+              {...(overlay.calculation === undefined ? {} : { calculation: overlay.calculation })}
+              {...(overlay.error === undefined ? {} : { error: overlay.error })}
+            />
+          )}
+          {overlay.kind === "rewrite" && overlay.calculation !== undefined && (
+            <UnsupportedFormulaDialog
+              busy={overlay.busy === true}
+              onCancel={() => {
+                setOverlay({ kind: "none" });
+              }}
+              onPreview={(text) => {
+                const calculation = overlay.calculation;
+                if (calculation === undefined) return;
+                proposeFormula(
+                  formulaChangeFor({
+                    tableId: calculation.tableId ?? "",
+                    calculation,
+                    target: calculation.target,
+                    name: calculation.name,
+                    type: "number",
+                    text,
+                  }),
+                );
+              }}
+              vm={selectUnsupportedFormulaVm(overlay.calculation)}
+              {...(overlay.error === undefined ? {} : { error: overlay.error })}
+            />
+          )}
           {changes.pending !== null && (
             <ImpactDialog
               busy={changes.pending.busy}
@@ -296,6 +387,87 @@ export function StructureRoute({
           )}
         </>
       }
+      topBarActions={topBarActions}
+      vm={vm}
+      {...(notice === undefined ? {} : { announcement: notice })}
+    />
+  );
+}
+
+/**
+ * SCR-037 at `#/app/{id}/settings`: the facts it states are read, not
+ * assumed — the structure's counts from its read, the snapshots' from theirs,
+ * durability from the open session — and a row whose fact has not arrived
+ * says nothing rather than a guess. Renaming the app is a structure change
+ * (`rename-app`), previewed in MOD-014 like every other.
+ */
+export function AppSettingsRoute({
+  area,
+  notice,
+  clearNotice,
+}: {
+  readonly area: AppAreaWiring;
+  readonly notice?: string;
+  readonly clearNotice: () => void;
+}): ReactNode {
+  const { identity, nav, records, session, topBarActions } = area;
+  const appId = identity.appId;
+  const state = useStructure(area);
+  const changes = useSchemaChange(area);
+  const [sheets, setSheets] = useState<readonly SheetSnapshotViewV1[] | null>(null);
+  useEffect(() => clearNotice, [clearNotice]);
+  useEffect(() => {
+    let live = true;
+    void records.listSheetSnapshots({ appId }).then(
+      (answered) => {
+        if (live) setSheets(answered.sheets);
+      },
+      () => {
+        if (live) setSheets(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [records, appId, session]);
+
+  const structure = state.kind === "read" ? state.structure : null;
+  const vm = selectAppSettingsVm({
+    appId,
+    appName: session.displayName,
+    isScratch: session.isScratch,
+    deviceOnlyChangeCount: session.deviceOnlyChangeCount,
+    structure,
+    sheets,
+  });
+  return (
+    <AppSettingsScreen
+      app={identity}
+      key={session.displayName}
+      nav={nav}
+      onRename={(name) => {
+        void changes.propose({ kind: "rename-app", name });
+      }}
+      overlays={
+        <>
+          {changes.failure !== null && <StatusBanner title={changes.failure} tone="danger" />}
+          {changes.pending !== null && structure !== null && (
+            <ImpactDialog
+              busy={changes.pending.busy}
+              onApply={changes.apply}
+              onCancel={changes.cancel}
+              vm={selectImpactVm({
+                change: changes.pending.change,
+                preview: changes.pending.preview,
+                structure,
+                wasStale: changes.pending.wasStale,
+              })}
+              {...(changes.pending.failure === null ? {} : { failure: changes.pending.failure })}
+            />
+          )}
+        </>
+      }
+      structureHref={hashHref(structurePath(appId))}
       topBarActions={topBarActions}
       vm={vm}
       {...(notice === undefined ? {} : { announcement: notice })}

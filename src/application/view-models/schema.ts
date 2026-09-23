@@ -288,6 +288,8 @@ export interface StructureTableVm {
   readonly fields: readonly StructureFieldRowVm[];
   readonly rules: readonly StructureRuleVm[];
   readonly metrics: readonly StructureCalculationVm[];
+  /** Every live calculation of the table: its computed columns, then its metrics. */
+  readonly calculations: readonly StructureCalculationVm[];
 }
 
 export interface StructureVm {
@@ -386,6 +388,12 @@ export function selectStructureVm(structure: AppStructureViewV1, selection: Stru
   const selectedField =
     fields.find((field) => field.fieldId === selection.fieldId) ?? activeFields[0] ?? fields[0];
 
+  const metrics =
+    current === undefined
+      ? []
+      : activeFormulas
+          .filter((formula) => formula.target.kind === "table-metric" && formula.target.tableId === current.tableId)
+          .map((formula) => calculationOf(formula, lookup));
   const table: StructureTableVm | null =
     current === undefined
       ? null
@@ -403,9 +411,14 @@ export function selectStructureVm(structure: AppStructureViewV1, selection: Stru
             isSelected: field.fieldId === selectedField?.fieldId,
           })),
           rules: current.rules.map((rule) => ruleOf(rule, lookup)),
-          metrics: activeFormulas
-            .filter((formula) => formula.target.kind === "table-metric" && formula.target.tableId === current.tableId)
-            .map((formula) => calculationOf(formula, lookup)),
+          metrics,
+          calculations: [
+            ...fields.flatMap((field) => {
+              const calculation = field.isActive ? calculations.get(field.fieldId) : undefined;
+              return calculation === undefined ? [] : [calculation];
+            }),
+            ...metrics,
+          ],
         };
 
   const field: StructureFieldVm | null =
@@ -773,6 +786,150 @@ export function describeApplyFailure(outcome: Exclude<SchemaApplyOutcomeV1, { re
       return "This app is no longer on this device, so nothing was applied.";
     default: {
       const unreachable: never = outcome;
+      return unreachable;
+    }
+  }
+}
+
+// --- live calculations: the formula editor and MOD-015 (CP3) ----------------
+
+/** A formula refusal said where it happens (S03 returns a best-guess position; D58). */
+export function describeFormulaError(refusal: SchemaRefusalWireV1): string {
+  const sentence = describeSchemaRefusal(refusal);
+  return refusal.kind === "formula" && refusal.position !== null
+    ? `${sentence} Look near character ${String(refusal.position + 1)}.`
+    : sentence;
+}
+
+/** The kinds of result a new calculated column may hold (a connection is not a result). */
+export const CALCULATED_COLUMN_TYPES: readonly TypeChoiceVm[] = Object.freeze(
+  (["number", "text", "date", "boolean"] as const).map((kind) => ({ value: kind, label: TYPE_LABEL[kind] })),
+);
+
+export interface UnsupportedFormulaVm {
+  readonly title: string;
+  readonly originalText: string;
+  readonly keptSentence: string;
+  readonly newRowSentence: string;
+}
+
+/**
+ * MOD-015 (dialog-atlas.html#mod-015). Its decision contract: *original text,
+ * imported value, new-row empty behaviour* — each said as a fact about this
+ * calculation (D51, STA-013), before the person rewrites it.
+ */
+export function selectUnsupportedFormulaVm(calculation: StructureCalculationVm): UnsupportedFormulaVm {
+  return {
+    title: `Rewrite ${calculation.name}`,
+    originalText: calculation.text,
+    keptSentence:
+      calculation.target === "computed-column"
+        ? "Each imported record keeps the value the workbook held. Nothing is recalculated over it."
+        : "The value the workbook held is kept. Nothing is recalculated over it.",
+    newRowSentence:
+      calculation.target === "computed-column"
+        ? "A record added here stays empty and flagged, because Sheaf cannot calculate this formula."
+        : "Sheaf cannot calculate this formula, so the value does not change.",
+  };
+}
+
+// --- SCR-037 app settings (app-settings.html) -------------------------------
+
+export interface AppSettingsVm {
+  readonly appId: string;
+  readonly appName: string;
+  /** "5 tables · 72 fields · 4 relationships"; null until the structure is read. */
+  readonly structureSummary: string | null;
+  /** "7 sheets · 4 inert items"; null until the snapshots are read. */
+  readonly snapshotsSummary: string | null;
+  readonly durabilityTitle: string;
+  readonly durabilityDetail: string;
+}
+
+/** The later-release rows (D62 / GATE-F03's SHT-016 precedent): named, disabled, with the reason. */
+export const LATER_RELEASE = "Arrives in a later release.";
+
+export function selectAppSettingsVm(input: {
+  readonly appId: string;
+  readonly appName: string;
+  readonly isScratch: boolean;
+  readonly deviceOnlyChangeCount: number;
+  readonly structure: AppStructureViewV1 | null;
+  readonly sheets: readonly { readonly inertCounts: readonly { readonly count: number }[] }[] | null;
+}): AppSettingsVm {
+  const { structure, sheets } = input;
+  const changes = `${plural(input.deviceOnlyChangeCount, "change", "changes")} only on this device.`;
+  return {
+    appId: input.appId,
+    appName: input.appName,
+    structureSummary:
+      structure === null
+        ? null
+        : [
+            plural(structure.tables.length, "table", "tables"),
+            plural(structure.tables.reduce((sum, table) => sum + table.fields.filter((field) => field.isActive).length, 0), "field", "fields"),
+            plural(structure.relationships.filter((relationship) => relationship.isActive).length, "relationship", "relationships"),
+          ].join(" · "),
+    snapshotsSummary:
+      sheets === null
+        ? null
+        : [
+            plural(sheets.length, "sheet", "sheets"),
+            plural(sheets.reduce((sum, sheet) => sum + sheet.inertCounts.reduce((inner, entry) => inner + entry.count, 0), 0), "inert item", "inert items"),
+          ].join(" · "),
+    durabilityTitle: input.isScratch ? "On this device only · not backed up" : changes,
+    durabilityDetail: input.isScratch
+      ? `${input.appName} has no durable home. ${changes} Choosing a durable home and backing up arrive in a later release.`
+      : "",
+  };
+}
+
+/** The `save-formula` change a formula editor's draft names (D58, CA-25's targets). */
+export function formulaChangeFor(input: {
+  readonly tableId: string;
+  readonly calculation: StructureCalculationVm | null;
+  readonly target: StructureCalculationVm["target"];
+  readonly name: string;
+  readonly type: FieldTypeKindVm;
+  readonly text: string;
+}): SchemaChangeWireV1 {
+  const { calculation, name, text } = input;
+  const target = calculation?.target ?? input.target;
+  switch (target) {
+    case "computed-column":
+      return {
+        kind: "save-formula",
+        formulaId: calculation?.formulaId ?? null,
+        target: {
+          kind: "computed-column",
+          tableId: calculation?.tableId ?? input.tableId,
+          fieldId: calculation?.fieldId ?? null,
+          newField:
+            calculation === null
+              ? { displayName: name, type: CHANGEABLE_TYPES.find((type) => type.kind === input.type) ?? { kind: "number" } }
+              : null,
+        },
+        displayName: null,
+        text,
+      };
+    case "table-metric":
+      return {
+        kind: "save-formula",
+        formulaId: calculation?.formulaId ?? null,
+        target: { kind: "table-metric", tableId: calculation?.tableId ?? input.tableId },
+        displayName: name,
+        text,
+      };
+    case "dashboard-value":
+      return {
+        kind: "save-formula",
+        formulaId: calculation?.formulaId ?? null,
+        target: { kind: "dashboard-value", tableId: calculation === null ? null : calculation.tableId },
+        displayName: name,
+        text,
+      };
+    default: {
+      const unreachable: never = target;
       return unreachable;
     }
   }

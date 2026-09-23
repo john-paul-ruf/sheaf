@@ -3,6 +3,7 @@ import type { SchemaServices } from "../../../../src/application/workflows/schem
 import type { AppAreaWiring } from "../../../../src/routes/app-area-hooks.js";
 import type {
   AppSessionViewV1,
+  AppStructureViewV1,
   ApplySchemaChangeResponseV1,
   PreviewSchemaChangeResponseV1,
   SchemaApplyOutcomeV1,
@@ -20,11 +21,12 @@ import { APP_ID, identity, nav, structure } from "./fixtures.js";
 export function fakeSchema(input: {
   readonly previews?: readonly SchemaPreviewViewV1[];
   readonly outcomes?: readonly SchemaApplyOutcomeV1[];
+  readonly structure?: AppStructureViewV1;
 } = {}) {
   const previews = [...(input.previews ?? [])];
   const outcomes = [...(input.outcomes ?? [])];
   const services: SchemaServices = {
-    getAppStructure: vi.fn(() => Promise.resolve({ kind: "getAppStructure" as const, structure: structure() })),
+    getAppStructure: vi.fn(() => Promise.resolve({ kind: "getAppStructure" as const, structure: input.structure ?? structure() })),
     previewSchemaChange: vi.fn(() =>
       Promise.resolve<PreviewSchemaChangeResponseV1>({ kind: "previewSchemaChange", preview: previews.shift() ?? null }),
     ),

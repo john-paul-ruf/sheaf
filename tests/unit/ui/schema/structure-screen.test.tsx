@@ -19,7 +19,9 @@ async function renderStructure(fieldId: string | null = null) {
     <StructureScreen
       app={identity}
       nav={nav}
+      onAddCalculation={vi.fn()}
       onAddRule={vi.fn()}
+      onEditCalculation={vi.fn()}
       onEditRule={vi.fn()}
       onOpenFieldActions={vi.fn()}
       onPropose={vi.fn()}

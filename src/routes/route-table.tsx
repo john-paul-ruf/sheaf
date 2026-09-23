@@ -136,7 +136,7 @@ import {
 import { SnapshotViewerRoute, SnapshotsRoute } from "./snapshot-routes.js";
 import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
 import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
-import { StructureRoute } from "./schema-routes.js";
+import { AppSettingsRoute, StructureRoute } from "./schema-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -164,6 +164,7 @@ import {
   appHistoryPath,
   appHref,
   appPath,
+  appSettingsPath,
   appSnapshotsPath,
   chartPath,
   chartsPath,
@@ -1063,6 +1064,7 @@ function OpenedApp({
     appSnapshots: hashHref(appSnapshotsPath(appId)),
     charts: hashHref(chartsPath(appId)),
     structure: hashHref(structurePath(appId)),
+    settings: hashHref(appSettingsPath(appId)),
     tables: session.tables.map((table) => ({
       tableId: table.tableId,
       displayName: table.displayName,
@@ -1121,6 +1123,10 @@ function OpenedApp({
       <Route
         element={<StructureRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}
         path="/app/:appId/structure"
+      />
+      <Route
+        element={<AppSettingsRoute area={area} clearNotice={clearNotice} {...(notice === null ? {} : { notice })} />}
+        path="/app/:appId/settings"
       />
       <Route element={<ChartBuilderRoute area={area} />} path="/app/:appId/charts/new" />
       <Route

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   describeSchemaRefusal,
+  formulaChangeFor,
+  selectAppSettingsVm,
+  selectUnsupportedFormulaVm,
   ruleValueFrom,
   selectImpactVm,
   selectStructureVm,
@@ -155,5 +158,39 @@ describe("the editors' choices", () => {
     expect(ruleValueFrom("12.50", { kind: "number" })).toEqual({ kind: "number", decimal: "12.50" });
     expect(ruleValueFrom("1e3", { kind: "currency", currencyCode: "USD" })).toBeNull();
     expect(ruleValueFrom("  open ", { kind: "text" })).toEqual({ kind: "text", text: "open" });
+  });
+});
+
+describe("CP3: calculations and settings", () => {
+  it("names each save-formula target exactly (CA-25)", () => {
+    const base = { tableId: IDS.jobs, calculation: null, name: "Due", type: "date" as const, text: "[Start]+30" };
+    expect(formulaChangeFor({ ...base, target: "computed-column" })).toEqual({
+      kind: "save-formula",
+      formulaId: null,
+      target: { kind: "computed-column", tableId: IDS.jobs, fieldId: null, newField: { displayName: "Due", type: { kind: "date" } } },
+      displayName: null,
+      text: "[Start]+30",
+    });
+    expect(formulaChangeFor({ ...base, target: "dashboard-value" })).toMatchObject({ target: { kind: "dashboard-value", tableId: null }, displayName: "Due" });
+  });
+
+  it("says MOD-015's three facts for an unsupported column", () => {
+    const [balance] = selectStructureVm(structure(), { tableId: IDS.jobs, fieldId: null }).table?.calculations ?? [];
+    expect(balance?.name).toBe("Balance");
+    const vm = selectUnsupportedFormulaVm({ ...balance!, disposition: "unsupported" });
+    expect(vm.newRowSentence).toBe("A record added here stays empty and flagged, because Sheaf cannot calculate this formula.");
+  });
+
+  it("states settings facts only once read, and durability from the session", () => {
+    const unread = selectAppSettingsVm({ appId: "a", appName: "Field Log", isScratch: true, deviceOnlyChangeCount: 1, structure: null, sheets: null });
+    expect(unread.structureSummary).toBeNull();
+    expect(unread.snapshotsSummary).toBeNull();
+    expect(unread.durabilityDetail).toBe(
+      "Field Log has no durable home. 1 change only on this device. Choosing a durable home and backing up arrive in a later release.",
+    );
+    const read = selectAppSettingsVm({ appId: "a", appName: "Field Log", isScratch: false, deviceOnlyChangeCount: 0, structure: structure(), sheets: [] });
+    expect(read.structureSummary).toBe("2 tables · 9 fields · 1 relationship");
+    expect(read.snapshotsSummary).toBe("0 sheets · 0 inert items");
+    expect(read.durabilityTitle).toBe("0 changes only on this device.");
   });
 });

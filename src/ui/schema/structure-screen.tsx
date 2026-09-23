@@ -39,8 +39,10 @@ export interface StructureScreenProps {
   readonly onOpenFieldActions: () => void;
   readonly onAddRule: () => void;
   readonly onEditRule: (rule: StructureRuleVm) => void;
-  /** The live-calculation editor on a computed field's calculation. */
-  readonly onEditCalculation?: (calculation: StructureCalculationVm) => void;
+  /** The live-calculation editor for a new calculation of the chosen table. */
+  readonly onAddCalculation: () => void;
+  /** The live-calculation editor (or MOD-015, for an unsupported one) on a calculation. */
+  readonly onEditCalculation: (calculation: StructureCalculationVm) => void;
   /** A confirmed change's sentence (said after the commit, never before). */
   readonly announcement?: string;
   readonly topBarActions?: ReactNode;
@@ -58,6 +60,7 @@ export function StructureScreen({
   onOpenFieldActions,
   onAddRule,
   onEditRule,
+  onAddCalculation,
   onEditCalculation,
   announcement,
   topBarActions,
@@ -143,7 +146,7 @@ export function StructureScreen({
                 onOpenActions={onOpenFieldActions}
                 onPropose={onPropose}
                 tables={vm.tables}
-                {...(field.calculation === null || onEditCalculation === undefined
+                {...(field.calculation === null
                   ? {}
                   : { onEditCalculation: () => { if (field.calculation !== null) onEditCalculation(field.calculation); } })}
               />
@@ -151,9 +154,24 @@ export function StructureScreen({
             {table !== null && (
               <RulesSection onAddRule={onAddRule} onEditRule={onEditRule} onPropose={onPropose} table={table} />
             )}
-            {table !== null && <CalculationsSection calculations={[...table.metrics]} title="Table metrics" />}
+            {table !== null && (
+              <CalculationsSection
+                calculations={table.calculations}
+                id="table-calculations"
+                onAdd={onAddCalculation}
+                onEdit={onEditCalculation}
+                onPropose={onPropose}
+                title={`Calculations in ${table.name}`}
+              />
+            )}
             {vm.dashboardValues.length > 0 && (
-              <CalculationsSection calculations={[...vm.dashboardValues]} title="Dashboard values" />
+              <CalculationsSection
+                calculations={vm.dashboardValues}
+                id="dashboard-calculations"
+                onEdit={onEditCalculation}
+                onPropose={onPropose}
+                title="Values on app home"
+              />
             )}
             {table !== null && (
               <TableSection key={`${table.tableId}:${String(vm.schemaRevision)}`} onPropose={onPropose} table={table} />
@@ -163,15 +181,6 @@ export function StructureScreen({
       </div>
       {overlays}
     </AppFrame>
-  );
-}
-
-function Calculation({ calculation }: { readonly calculation: StructureCalculationVm }): ReactNode {
-  return (
-    <div className={cx(styles["stack"])} data-calculation={calculation.formulaId}>
-      <span className={cx(styles["listTitle"])}>In plain language</span>
-      <code className={cx(styles["expression"])}>{calculation.text}</code>
-    </div>
   );
 }
 
@@ -265,27 +274,55 @@ function TableSection({
 }
 
 function CalculationsSection({
+  id,
   title,
   calculations,
+  onAdd,
+  onEdit,
+  onPropose,
 }: {
+  readonly id: string;
   readonly title: string;
   readonly calculations: readonly StructureCalculationVm[];
+  readonly onAdd?: () => void;
+  readonly onEdit: (calculation: StructureCalculationVm) => void;
+  readonly onPropose: (change: SchemaChangeVm) => void;
 }): ReactNode {
-  if (calculations.length === 0) return null;
   return (
-    <section aria-label={title} className={cx(styles["card"])}>
-      <span className={cx(styles["eyebrow"])}>Live calculation</span>
-      <ul className={cx(styles["rows"])}>
-        {calculations.map((calculation) => (
-          <li className={cx(styles["stack"])} key={calculation.formulaId}>
-            <div className={cx(styles["head"])}>
-              <h2 className={cx(styles["sectionTitle"])}>{calculation.name}</h2>
-              <span className={cx(styles["badge"])}>{calculation.badge}</span>
-            </div>
-            <Calculation calculation={calculation} />
-          </li>
-        ))}
-      </ul>
+    <section aria-labelledby={id} className={cx(styles["card"])} data-section={id}>
+      <div className={cx(styles["head"])}>
+        <div className={cx(styles["headText"])}>
+          <span className={cx(styles["eyebrow"])}>Live calculation</span>
+          <h2 className={cx(styles["sectionTitle"])} id={id}>
+            {title}
+          </h2>
+        </div>
+        {onAdd !== undefined && <Button onPress={onAdd}>Add a live calculation</Button>}
+      </div>
+      {calculations.length === 0 ? (
+        <p className={cx(styles["lede"])}>Nothing here is calculated yet.</p>
+      ) : (
+        <ul className={cx(styles["rows"])}>
+          {calculations.map((calculation) => (
+            <li className={cx(styles["stack"])} data-calculation={calculation.formulaId} key={calculation.formulaId}>
+              <div className={cx(styles["head"])}>
+                <h3 className={cx(styles["listTitle"])}>{calculation.name}</h3>
+                <span className={cx(styles["badge"])}>{calculation.badge}</span>
+              </div>
+              <span className={cx(styles["hint"])}>In plain language</span>
+              <code className={cx(styles["expression"])}>{calculation.text}</code>
+              <div className={cx(styles["actions"])}>
+                <Button onPress={() => { onEdit(calculation); }}>
+                  {calculation.disposition === "unsupported" ? `Rewrite ${calculation.name}` : `Edit ${calculation.name}`}
+                </Button>
+                <Button onPress={() => { onPropose({ kind: "remove-formula", formulaId: calculation.formulaId }); }}>
+                  {`Remove ${calculation.name}`}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
