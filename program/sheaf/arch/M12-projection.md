@@ -245,3 +245,8 @@ fact.
 - `charts` rows: `UPSERT_CHART` / `DELETE_CHART` / `SELECT_CHART_IDS` (`statements.ts`); `upsertChartRow` (`hydrate.ts`) hydrates the checkpoint root and caches definitions in `schema.charts` (engine cache; reads come from it, `definition_cbor` is written by `cbor-values.ts#encodeChartDefinition`, byte-identical to M23's codec — pinned in `roots.test.ts`).
 - Replay (`apply-events.ts`): `chart.saved` requires `chartRevision` = 0 for a new chart or held revision + 1, and a payload consistent with its definition; `chart.deleted` requires a held chart. A taken ordinal is refused by `UNIQUE (chart_ordinal)`. History subject `chart`, subject id = `objectId`.
 - New `chart-query.ts#chartDataset(handle, query, labelOf)`: bounded page loop (1,000 rows/statement) over the newest `sourceRowBudget` rows by `record_pk DESC`, one `cells` alias per dimension/measure, S04's filter terms via `filter-sql.ts#queryWhere` (now exported), exact decimal aggregation (M03 `decimal.ts`), text grouped case-insensitively (`foldText`) as the text filter matches, dates bucketed by epoch-day arithmetic, relationship groupings join reference → parent record → parent lane and keep the parents per category. `query-exec.ts` dispatches it with its own `recordLabel`.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M08/M10 projection value codec — `src/persistence/projection/cbor-values.ts` (lease r2))
+
+- The `theme_cbor` codec carries the v2 fields with the same keys and canonical bytes as M23's `encodeAppTheme` (pinned byte-equal in `tests/unit/projection/cbor-values.test.ts`). It still does not import M23.

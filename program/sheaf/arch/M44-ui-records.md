@@ -173,3 +173,13 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 
 - `app-frame.tsx`: `AppArea` += `"structure" | "settings"`; `AppNavigation` += optional `structure`, `settings`. Destinations are now Home · table · Charts · Structure · Settings · All apps (schema.html / app-settings.html rails); Sheet snapshots and Change history left the bar (six destinations keep each 320px target ≥44px) and are reached from SCR-037 and app home. `appSnapshots`/`appHistory` stay in `AppNavigation` (app home and SCR-037 link them).
 - `app-home-screen.tsx`: "Edit structure" link in the "Open a table" section head when `nav.structure` is present (app-home.html).
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M44 app frame — `src/ui/records/app-frame.tsx`, `app-home-screen.tsx`)
+
+- The frame root carries `data-app-mode`, `data-app-density` and `appThemeVariables(...)`. `appThemeStyle` removed. The app-home hero shows the logo (alt = app name) in place of the monogram.
+
+<!-- formulas-queries-charts SESSION-08 CP4 -->
+### F04 delta — SESSION-08 (M44 app frame — `src/ui/records/records.module.css` (CP4, r3))
+
+- The SCR-024 `.hero` paints `--color-chrome` / `--color-chrome-text` (M40 roles): app-ink chrome with app-surface text in light mode, app-surface chrome with app-ink text in dark mode; outside an app theme it falls back to ink-950 / white as before.

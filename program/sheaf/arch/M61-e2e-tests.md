@@ -66,3 +66,9 @@ lease to write, moved out of a spec S07 also owned, and S08 leased
   `30396a9`). Suite size at wave close: 57 e2e tests (baseline 36).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): two SESSION staples
   folded into the Suites table and Shared-fixtures section.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M61 e2e (CP4, `7df22fb`))
+
+- `tests/e2e/theme.spec.ts`: CAP-37 real-entry proof (320px offline and desktop; axe light and dark on SCR-036/037/024; dark-chrome focus ring; reload and unlock persistence; tile; failing accent refused).
+- `tests/e2e/gate-f04-demo.spec.ts`: the GATE-F04 journey and MOD-015 through the real entry.

@@ -199,3 +199,10 @@ The SESSION-07 delta for this module is recorded jointly in `arch/M01-domain-mod
 - **M32** `messages.ts`: `SchemaChangeWireV1` `change-field-type` gains optional `optionLabels: readonly string[]`. **M33** `structure-handlers.ts` `toRequest` forwards it.
 - **M37** `records.ts`: `toIssueVm(issue, fields = [])`. `rule-compare` / `rule-between` record-rule issues are said from their own parameters: `"{left} must be on or after {right}."` (the words follow the compared fields' kind, from `fields`; neutral words without them), `"{left} must be at least the number set in the rule “{ruleLabel}”."` for a literal (its kind, never its value), `"{field} is outside what the rule “{ruleLabel}” allows."` for a range (between and not-between share the key). Unknown keys or missing parameters keep the generic sentence. `selectRecordDetailVm`, `selectRecordFormVm` and MOD-010 pass the table's fields.
 - **M37** `schema.ts`: `describeChange` for `change-field-type` with `optionLabels`: `Change {field} to Choice list with the choices A, B`. **M46** `field-editor.tsx`: when the chosen kind is Choice list and the field is not one, a `[data-editor="new-choices"]` list asks the person to name the choices; Change type is disabled until at least one choice is named.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M32 protocol — `src/workers/protocol/messages.ts`)
+
+- RPCs `listThemePalettes` → `ThemePaletteWireV1[]`; `changeTheme {appId, themeKey, mode, density, customAccent|null, logo: keep|remove|set(AppLogoWireV1)}` → `ThemeOutcomeWireV1` changed|unchanged|refused(`ThemeRefusalWireV1`: unknown-palette|invalid-accent|logo{unreadable|over-bytes|over-edge}|contrast{failures})|unknown-app.
+- `AppThemeWireV1` v2: optional `mode`, `density`, `customAccent`, `darkTokens` (the palette's dark set), `logo: AppLogoWireV1 {pngBase64, width, height}` (base64, because no byte type crosses the contract).
+- `LibraryAppV1.themeTile?: LibraryThemeTileV1 {primary, label, logo|null}`; `AppSessionViewV1.accentId?`/`glyph?` (closes the F02 carry).

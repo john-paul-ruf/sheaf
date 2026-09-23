@@ -163,3 +163,10 @@ not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
 
 - CA-33: `chart-not-rebuilt` and `formula-not-supported` are added to PRESERVED/INERT reason keys, `INERT_REASON_OF`, both wire unions and the copy maps.
 - `import-handlers.ts`: refreshes formulas after rejection memory. The proposal wire carries formulas, charts and rules.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M01 domain model — `src/domain/model/events.ts`)
+
+- `AppThemeV1` v2 (D56, CA-32): additive optional `mode` (`APP_THEME_MODES` light|dark|system, absent = light), `density` (`APP_THEME_DENSITIES` comfortable|compact, absent = comfortable), `customAccent` (`#rrggbb`, `isThemeColor`), `logo: AppThemeLogoV1 {mediaType:"image/png", bytes, width, height}` (`APP_LOGO_MAX_EDGE` 256, `APP_LOGO_MAX_BYTES` 64 KiB).
+- **The contrast gate lives here (Orchestrator ruling r2, replacing CA-32's "pure, in M40"):** `contrastRatio`, `themeRenderings(theme, darkTokens)`, `evaluateThemeContrast(renderings)` → `ThemeContrastCheckV1[]`, `THEME_CONTRAST_PAIRS`, `TEXT_CONTRAST_MINIMUM` 4.5 / `NON_TEXT_CONTRAST_MINIMUM` 3, `SYSTEM_FOCUS_COLORS` (Leaf 700 / Sprout 300, pinned to `tokens.css` by `tests/unit/ui/theme.test.ts`). One pure gate: M37 (editor verdict) and M34 (`changeTheme`) both call it. M34 may not import `src/ui`, and M40 depends on nothing, so M01 is the one module both can reach. `src/ui/theme/contrast.ts` does not exist.
+- `ThemeChangedPayloadV1 {before: AppThemeV1 | null, after}`.

@@ -241,3 +241,9 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
 - New `live-structure.ts`: `importedFormulasOf`, `liveComputedFieldsOf`, `importedChartsOf`.
 - `promotion.ts`: writes the formulas root, computed field defs with `formulaId` (via the roots `encodeFieldDef`), and the charts root pinned per D65 (first sheet with a valid rebuilt chart). Also applies the D51 value policy (live computed values are omitted from record pages; frozen and unsupported values are kept) and promotes rules as irVersion 2.
 - The staged proposal codec accepts both the F03 and F04 key sets. `review-edits.ts` / `lifecycle.ts` take formula identities.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M23 staging — `src/import/staging/{theme,roots}.ts`)
+
+- `BUILT_IN_PALETTES: BuiltInPaletteV1[] {key, name, light, dark}` (cedar, indigo, clay, graphite), DF-1 values pinned against design.md by `tests/unit/staging/theme.test.ts`. `builtInPalette(key)`. `DEFAULT_APP_THEME` is unchanged.
+- `encodeAppTheme`/`decodeAppTheme` v2: the v2 keys are written only when set, so F02/F03 bytes round-trip byte-identically. The decode is exact-keys: a logo is PNG, 1..256 edges, ≤ 64 KiB.

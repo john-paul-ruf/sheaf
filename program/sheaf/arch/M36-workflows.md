@@ -182,3 +182,8 @@ single-table shape underneath them.
 ### F04 delta — SESSION-06 (M36 — workflows (`src/application/workflows/schema-services.ts`) — new file)
 
 - `SchemaServices {getAppStructure, previewSchemaChange, applySchemaChange}` + `createSchemaServices(port: RecordsWorkerPort)`; typed adapters, no machine; every outcome stays a result. Registered in `WORKFLOW_FILES`.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M36 workflows — `src/application/workflows/theme-services.ts` (new))
+
+- `ThemeServices {listThemePalettes, changeTheme, prepareLogo}`; `createThemeServices(port, codec = browserLogoCodec)`. `LogoCodecPort.toPng(file, maxEdge)` decodes with `createImageBitmap` and re-encodes a PNG ≤ 256 px on an `OffscreenCanvas`. `prepareLogo` refuses types other than PNG/JPEG/WebP, unreadable files, and PNGs over 64 KiB. Wired as `SecurityWiring.theme` → `AppAreaWiring.theme`.

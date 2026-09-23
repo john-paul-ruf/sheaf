@@ -139,3 +139,8 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 - `guards.tsx`: `structurePath(appId)`, `appSettingsPath(appId)`; `APP_AREA_PATH` gains `/structure` and `/settings` (CA-07 amendment 4, structure/settings half — fourteen shapes).
 - `schema-routes.tsx` (new): `StructureRoute`, `AppSettingsRoute`, and the exported `useSchemaChange(area)` hook (preview → MOD-014 → apply at `preview.schemaRevision`; on `stale-preview` re-previews and shows the new counts; only `applied` announces, after the commit, then `area.refresh()`).
 - `app-runtime.tsx`: `SecurityWiring.schema`; `app-area-hooks.tsx`: `AppAreaWiring.schema`; `route-table.tsx`: `#/app/:appId/structure`, `#/app/:appId/settings`, `nav.structure`, `nav.settings`.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M54 routes — `guards.tsx`, `theme-routes.tsx` (new), `schema-routes.tsx`, `route-table.tsx`, `app-runtime.tsx`, `app-area-hooks.tsx`)
+
+- CA-07 am.4: `appThemePath(appId)` = `/app/{id}/theme`; `isAppAreaPath` accepts it (15 shapes). `ThemeRoute` (SCR-036); `usePalettes`, `glyphOf`.

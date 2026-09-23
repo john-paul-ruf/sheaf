@@ -43,3 +43,8 @@
 - **Contract held:** every surface proposes one `SchemaChangeVm` (alias of `SchemaChangeWireV1`) and applies nothing itself; the route previews, MOD-014 shows the preview's counts, and apply names the previewed revision. No free-text rule input (D52): the rule editor emits `{kind:"compare", left, op, right:{field}|{value}}` only. Formula text is never parsed on the page. `src/ui/schema/**` imports only React, React Aria, siblings and VM types (`tests/unit/ui/architecture.test.ts`); protocol shapes reach it through VM aliases (`SchemaChangeVm`, `RuleConditionVm`, `FieldTypeKindVm`).
 - **Truthful per feature (SCR-037):** re-upload / export / remove render as disabled `Button`s with `LATER_RELEASE` ("Arrives in a later release."); no Theme & logo row (S08 adds it with its route); no backup action.
 - SCR-036 (theme) remains S08's.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M46 schema UI — `src/ui/schema/theme-screen.tsx`, `theme.module.css` (new), `app-settings-screen.tsx`)
+
+- SCR-036 `ThemeScreen` (palette radios, custom accent, mode, density, logo, verdict, preview, "Save theme locally"). SCR-037 gains the "Appearance → Theme & logo" card with the summary.

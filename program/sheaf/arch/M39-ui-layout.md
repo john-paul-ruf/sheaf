@@ -67,3 +67,8 @@ consume it.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the app-area
   single-navigation assertion and the top-bar token gap recorded here rather
   than only in SESSION-08's return. F02 wrote no delta into this fragment.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M39 layout — `src/ui/layout/app-shell.module.css`)
+
+- The rail paints `--color-chrome`/`--color-chrome-text`; `.root` re-reads `color: var(--color-text)` so an app root's remap reaches its text.

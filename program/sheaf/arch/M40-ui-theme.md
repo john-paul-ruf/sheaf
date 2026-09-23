@@ -71,3 +71,10 @@ Extracted from specs/architecture.md §Module Contracts + specs/design.md
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the durable-token coupling
   above recorded here, where a future editor of `tokens.css` will read it. F02
   wrote no delta into this fragment.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M40 UI theme — `src/ui/theme/{app-theme.ts (new), theme.ts, tokens.css}`)
+
+- `assertPresentationOnly(variables)`: the one guard for shell and app themes; `applyShellTheme` calls it.
+- `appThemeVariables(theme, drawn)` gives the six `--app-*` plus the presentation roles remapped onto them (`--color-canvas/surface/text/action/action-text/accent/chrome/chrome-text`; in dark also `--color-text-muted/panel/border/border-input/disabled-fill`). Compact density sets `--space-16: var(--space-12)`. `appThemeTokens`, `useAppRenderMode(theme)` (system follows `prefers-color-scheme` live; a theme with no dark set draws light), `logoSource`.
+- `tokens.css`: new roles `--color-chrome` (ink-950), `--color-chrome-text` (white); system-owned `[data-app-mode="dark"] { --focus-ring-color: sprout-300; --focus-ring; color-scheme: dark }`.

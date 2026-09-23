@@ -80,3 +80,8 @@ disabled branch is byte-for-byte the F01 Button (`disabledReason` +
   the head's "F01 subset: empty state only" and the "F02: enable the upload
   action" debt line are both discharged and removed; the interim `#/upload`
   default recorded as the landed `navigateToUpload` it became.
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M42 library — `src/ui/library/library-screen.tsx`)
+
+- The tile mark is the logo (decorative, alt ""), or the glyph on the theme's primary and label, or the D29 accent.

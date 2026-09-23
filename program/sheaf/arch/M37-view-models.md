@@ -279,3 +279,9 @@ The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.
 - MOD-014: `selectImpactVm({change, preview, structure, wasStale})` → `ImpactDialogVm {title, counts, preservation, applyLabel, blocker, staleNote}`; a refused preview shows no counts. `describeChange`, `describeSchemaRefusal` (incl. known `schema.*` transition keys), `describeApplyFailure`, `describeFormulaError` (appends S03's best-guess position).
 - MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`, `LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three targets.
 - Registered in `tests/unit/workflows/module-boundaries.test.ts` `VIEW_MODEL_FILES` (WF-BOUNDARY lease addition).
+
+<!-- formulas-queries-charts SESSION-08 -->
+### F04 delta — SESSION-08 (M37 view models — `src/application/view-models/theme.ts` (new), `library.ts`)
+
+- `ThemeDraft`, `draftFromTheme`, `draftTheme`, `draftLogo`, `selectThemeVerdict`, `selectThemeEditorVm` (SCR-036), `describeThemeSummary` ("Cedar · light · comfortable"), `describeContrastCheck` (design.md headings + mode), `describeLogoRefusal`, `describeThemeOutcome`.
+- `LibraryTileVm.themeTile?`.
