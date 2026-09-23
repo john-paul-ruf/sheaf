@@ -177,3 +177,8 @@ single-table shape underneath them.
 
 - `import.ts` VM: `ReviewCalculationVm`, `ReviewChartVm` (with `isPinned`), `ReviewRuleVm`. `records.ts` inert sentences revised (exported types unchanged).
 - `src/ui/import/review-screen.tsx`: calculation articles (reject/restore/why), rule descriptions, "N formulas keep working" count, dashboard sheet copy. `review-evidence.tsx`: formula-outcome evidence copy.
+
+<!-- formulas-queries-charts SESSION-06 -->
+### F04 delta — SESSION-06 (M36 — workflows (`src/application/workflows/schema-services.ts`) — new file)
+
+- `SchemaServices {getAppStructure, previewSchemaChange, applySchemaChange}` + `createSchemaServices(port: RecordsWorkerPort)`; typed adapters, no machine; every outcome stays a result. Registered in `WORKFLOW_FILES`.

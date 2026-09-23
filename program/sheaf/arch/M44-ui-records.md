@@ -167,3 +167,9 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 ### F04 delta — SESSION-05 (M44 records UI — `src/ui/records/`)
 
 - `app-frame.tsx`: `AppArea` gains `"charts"`; `AppNavigation.charts?` adds the "Charts" destination (after the table) → SCR-053. `app-home-screen.tsx`: pinned charts (mark → records filtered, "View data table" → SCR-033, "Edit chart"); the F02 absence card is drawn only when there are no metrics and no pinned chart. `records-screen.tsx`: the heading eyebrow names the chart a mark's filter came from.
+
+<!-- formulas-queries-charts SESSION-06 -->
+### F04 delta — SESSION-06 (M44 — records UI)
+
+- `app-frame.tsx`: `AppArea` += `"structure" | "settings"`; `AppNavigation` += optional `structure`, `settings`. Destinations are now Home · table · Charts · Structure · Settings · All apps (schema.html / app-settings.html rails); Sheet snapshots and Change history left the bar (six destinations keep each 320px target ≥44px) and are reached from SCR-037 and app home. `appSnapshots`/`appHistory` stay in `AppNavigation` (app home and SCR-037 link them).
+- `app-home-screen.tsx`: "Edit structure" link in the "Open a table" section head when `nav.structure` is present (app-home.html).

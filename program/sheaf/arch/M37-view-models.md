@@ -270,3 +270,12 @@ file — additive at the wire, rewritten at the VM):**
 ### F04 delta — SESSION-07 (pointer)
 
 The SESSION-07 delta for this module is recorded jointly in `arch/M36-workflows.md` under the same marker (CA-33 reason keys, live-structure promotion, import review).
+
+<!-- formulas-queries-charts SESSION-06 -->
+### F04 delta — SESSION-06 (M37 — view models (`src/application/view-models/schema.ts`) — new file)
+
+- `selectStructureVm(structure, selection)` → `StructureVm` (tables with `fieldCountLabel`/`hasKey`, table with fields/rules/metrics/`calculations`, field detail with calculation, options, connection + detection-source evidence, dashboard values). Nothing the read lacks is drawn: no per-choice record counts, no type-inference evidence, no saved-rule failing counts.
+- `typeLabel`, `typeChoicesFor`, `typeForChoice`, `CHANGEABLE_TYPES`, `CALCULATED_COLUMN_TYPES`; `ruleFieldChoices`, `operatorChoicesFor`, `ruleValueFrom`, `ruleValueText`, `ruleValueHint`, `ruleSentence`, `describeRuleCondition`.
+- MOD-014: `selectImpactVm({change, preview, structure, wasStale})` → `ImpactDialogVm {title, counts, preservation, applyLabel, blocker, staleNote}`; a refused preview shows no counts. `describeChange`, `describeSchemaRefusal` (incl. known `schema.*` transition keys), `describeApplyFailure`, `describeFormulaError` (appends S03's best-guess position).
+- MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`, `LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three targets.
+- Registered in `tests/unit/workflows/module-boundaries.test.ts` `VIEW_MODEL_FILES` (WF-BOUNDARY lease addition).

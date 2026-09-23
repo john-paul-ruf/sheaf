@@ -132,3 +132,10 @@ rows across first-run/locked/unlocked, plus the app-path, library-search and
 ### F04 delta — SESSION-05 (M54 routes — `src/routes/`)
 
 - CA-07 amendment 4 (chart half): `chartsPath`, `newChartPath`, `chartPath`, `editChartPath` (`guards.tsx`); `isAppAreaPath` now also matches `/charts(/{id}(/edit)?)?` (incl. `/charts/new`). New `chart-routes.tsx`: `ChartsIndexRoute`, `ChartBuilderRoute` (draft restore, debounced preview, MOD-012/MOD-013), `ChartDetailRoute`, `usePinnedCharts`, `openMarkRecords`. `filter-intent.ts`: `filterIntentState(filters, origin?)`, `RECORDS_FILTER_ORIGIN_KEY`, `readFilterOrigin` (chart name + record labels, beside S04's intent key). `app-runtime.tsx` composes `ChartServices`; `app-area-hooks.tsx` `AppAreaWiring.charts`; `route-table.tsx` mounts the four chart paths and feeds app home and the records route.
+
+<!-- formulas-queries-charts SESSION-06 -->
+### F04 delta — SESSION-06 (M54 — routes)
+
+- `guards.tsx`: `structurePath(appId)`, `appSettingsPath(appId)`; `APP_AREA_PATH` gains `/structure` and `/settings` (CA-07 amendment 4, structure/settings half — fourteen shapes).
+- `schema-routes.tsx` (new): `StructureRoute`, `AppSettingsRoute`, and the exported `useSchemaChange(area)` hook (preview → MOD-014 → apply at `preview.schemaRevision`; on `stale-preview` re-previews and shows the new counts; only `applied` announces, after the commit, then `area.refresh()`).
+- `app-runtime.tsx`: `SecurityWiring.schema`; `app-area-hooks.tsx`: `AppAreaWiring.schema`; `route-table.tsx`: `#/app/:appId/structure`, `#/app/:appId/settings`, `nav.structure`, `nav.settings`.
