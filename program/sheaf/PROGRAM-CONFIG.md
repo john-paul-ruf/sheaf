@@ -126,6 +126,10 @@ Test modules: M56, M57, M58, M60, M61 all grew; M59, M62, M63, M64 are still
 planned. Arch fragments now exist for M58 and M61 (created by Roshi at the F02
 final pass, see the fragment-reconciliation note above).
 
+### F04 planning note (2026-09-23)
+
+F04 `formulas-queries-charts` adds two UI modules, **M45** (`src/ui/charts/`) and **M46** (`src/ui/schema/`). Their fragments were seeded at planning. F04 also adds **Chart.js** as the only new runtime dependency (the approved stack; pinned in S05). The `schema_fields` currency-code round-trip carried from F02 was **disproved as a schema defect**: the code lives in the encrypted field definition, and the projection caches definitions per session. No DB re-entry was needed.
+
 ### F03 landed modules (git-verified at `425562d`, code ≡ `30396a9`)
 
 Thirty-eight product modules now exist in code (plus DB-phase-owned M10). F03
@@ -345,6 +349,12 @@ distinct sessions inside one feature cycle; instances cited):
 > lint 0, `pnpm test` 155 files / 1728 passed / 3 skipped, full e2e 57 passed.
 > Reported for Forge/Jikijitsu to reconcile at the next feature's planning,
 > not corrected here.
+>
+> **Reconciled at F04 planning (Planner, 2026-09-23):** every command row
+> above is unchanged in form. Re-verified at `21946c7` (code ≡ `30396a9`):
+> typecheck 0, lint 0, `pnpm test` 155 files / 1728 passed / 3 skipped. Build,
+> browser and e2e are inherited from F03 (57 e2e passed @ `30396a9`). The F04
+> STATE.md Verification Baseline is the active record.
 
 | Check | Command | Scope |
 |---|---|---|
@@ -390,7 +400,7 @@ needs real Dropbox/OneDrive test accounts, and is never a checkpoint gate.
 5. **UI surfaces come from the design inventory.** A missing surface is a design-fill seam for Jikijitsu, never an invention. Mock Tailwind classes are reference only — production styling is CSS Modules + tokens.
 6. **Format versions come from `src/migrations/index.ts`** (`CURRENT_FORMAT_VERSIONS`). No session redeclares them; consume the export.
 7. **A session's `Owns` glob is authoritative; its Files table is indicative.** A worker may create a file inside its lease that the plan did not name, provided it (a) names the file and the reason in its return, and (b) records it in the arch delta. This is not lease widening and needs no amendment. F01 saw it in four of seven sessions, each time for a real structural reason: `src/ui/primitives/class-names.ts` (S03), `src/workers/data/handlers.ts` (S05 — so commands are testable without a worker), `tests/unit/workflows/fakes.ts` + `module-boundaries.test.ts` (S06), `src/routes/app-runtime.tsx` + `src/ui/security/{frames,verdict}.tsx` (S07). F02 added seven more (S03 +1, S04 +3, S07 +3, S08 +2, each disclosed). F03 added at least a dozen more across nearly every session (each format adapter's internal file split, `M23`'s `roots.ts`/`events.ts`/`theme.ts`/`fact-codec.ts`/`row-plan.ts`/`import-commit.ts`, `M54`'s `app-area-hooks.tsx`/`snapshot-routes.tsx`), **and F03 also produced the mirror case for the first time**: S08's Files table listed `src/application/view-models/snapshots.ts`, which its own checkpoint proof never needed — the snapshot VMs landed in `records.ts` instead. The rule already covers this direction too (the Files table is indicative, not binding, in *either* direction); no amendment needed, recorded here as the first observed instance. *(Added by Roshi after F01; extended by Archivist at the F03 final pass.)*
-8. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N. **F03 is awaiting the human GATE-F03 verdict** (STATE.md § Current Blockers) as of this pass; no F04 planning may start until it lands.
+8. **The program runs on demo gates.** `/program/sheaf/ROADMAP.md` sequences features F01–F08; every Forge run plans exactly one roadmap feature. Each feature ends demoable, its STATE.md carries a standing `GATE-F0N` human blocker, and Jikijitsu dispatches nothing from the next feature until the gate verdict lands. Gate feedback routes per the roadmap's Gate Protocol (approve / approve-with-notes / revise / redirect→Genesis re-entry). Forge runs for feature N+1 start only after GATE-F0N. GATE-F03 was approved on 2026-09-23 (ROADMAP Gate Log, revision `30396a9`). F04 `formulas-queries-charts` is planned (Planner, base `21946c7`), and it halts at GATE-F04.
 
 ## Genesis Sources
 
