@@ -109,6 +109,24 @@ export interface ColumnStats {
   firstFormula: { readonly text: string; readonly isArray: boolean; readonly isExternal: boolean } | null;
   /** Lookups in this column's master formulas, with the formula that carried each. */
   readonly lookups: { readonly lookup: LookupV1; readonly formulaText: string }[];
+  /**
+   * The fill-down anchor: the first formula cell whose text could be read,
+   * with its relative shape (M03's `relativeShapeKey`) and its row.
+   */
+  master: FormulaMasterV1 | null;
+  /** Formula cells whose shape is the master's (the fill-down proof). */
+  shapeMatches: number;
+  /** The first row whose formula is another shape or unreadable; `null` while none is. */
+  shapeBreakRowIndex: number | null;
+}
+
+/** A column's first readable formula, the one its other rows are compared with. */
+export interface FormulaMasterV1 {
+  readonly text: string;
+  readonly shapeKey: string;
+  readonly rowIndex: number;
+  readonly isArray: boolean;
+  readonly isExternal: boolean;
 }
 
 export const newStats = (distinctLimit: number, dateSystem: DateSystemV1 | null): ColumnStats => ({
@@ -125,7 +143,23 @@ export const newStats = (distinctLimit: number, dateSystem: DateSystemV1 | null)
   formulaCount: 0,
   firstFormula: null,
   lookups: [],
+  master: null,
+  shapeMatches: 0,
+  shapeBreakRowIndex: null,
 });
+
+/** Tallies one formula cell's shape against the column's master. */
+export const observeFormulaShape = (
+  stats: ColumnStats,
+  rowIndex: number,
+  formula: { readonly text: string | null; readonly shapeKey: string | null; readonly isArray: boolean; readonly isExternal: boolean },
+): void => {
+  if (stats.master === null && formula.text !== null && formula.shapeKey !== null) {
+    stats.master = { text: formula.text, shapeKey: formula.shapeKey, rowIndex, isArray: formula.isArray, isExternal: formula.isExternal };
+  }
+  if (formula.shapeKey !== null && formula.shapeKey === stats.master?.shapeKey) stats.shapeMatches += 1;
+  else stats.shapeBreakRowIndex ??= rowIndex;
+};
 
 const bump = <K>(tally: Map<K, number>, key: K, by = 1): void => {
   tally.set(key, (tally.get(key) ?? 0) + by);
@@ -229,6 +263,13 @@ export const mergeStats = (into: ColumnStats, from: ColumnStats): ColumnStats =>
     merged.formulaCount += source.formulaCount;
     merged.firstFormula ??= source.firstFormula;
     merged.lookups.push(...source.lookups.slice(0, COLUMN_LOOKUP_LIMIT - merged.lookups.length));
+    if (merged.master === null || source.master?.shapeKey === merged.master.shapeKey) {
+      merged.master ??= source.master;
+      merged.shapeMatches += source.shapeMatches;
+    } else if (source.master !== null) {
+      merged.shapeBreakRowIndex ??= source.master.rowIndex;
+    }
+    merged.shapeBreakRowIndex ??= source.shapeBreakRowIndex;
   }
   return merged;
 };

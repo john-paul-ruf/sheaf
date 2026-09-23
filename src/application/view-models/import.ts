@@ -1468,7 +1468,7 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
       section("tables-and-rows", tables.length, "none-found"),
       section("fields-and-choices", fields.length, "none-found"),
       section("connections", connections.length, structure),
-      section("live-calculations", formulaRegionCount, structure),
+      section("live-calculations", proposal?.formulas.length ?? 0, structure),
       section("sheets-and-snapshots", isDelimited ? 0 : selectedSheetCount, structure),
     ],
     diagnostics: proposal?.diagnostics ?? [],

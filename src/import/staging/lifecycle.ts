@@ -34,6 +34,7 @@ import {
 } from "../../persistence/codecs/canonical-cbor.js";
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
 import type { EntropyPort } from "../../application/ports/entropy.js";
+import type { FormulaIdentitiesV1 } from "../inference/formulas.js";
 import type {
   EnvelopeCryptoPort,
   EnvelopeKeyRefV1,
@@ -588,11 +589,13 @@ export function stageWithProposal(
 export function stageWithReviewEdit(
   stage: ImportStageV1,
   edit: WorkbookReviewEditV1,
+  /** Stand-ins for re-deriving what each formula becomes (`formula-identities.ts`). */
+  formulaIdentities: FormulaIdentitiesV1,
 ): ReviewEditResultV2 & { readonly stage?: ImportStageV1 } {
   if (stage.proposal === null) {
     return { kind: "rejected", reason: "unknown-table" };
   }
-  const result = applyWorkbookReviewEdit(stage.proposal, edit);
+  const result = applyWorkbookReviewEdit(stage.proposal, edit, formulaIdentities);
   if (result.kind === "rejected") {
     return result;
   }

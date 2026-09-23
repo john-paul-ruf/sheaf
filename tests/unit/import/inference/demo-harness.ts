@@ -4,6 +4,7 @@
  */
 
 import type { WorkbookFactStreamItemV2 } from "../../../../src/import/facts/index.js";
+import { testFormulaIdentities } from "../delimited-proposal.js";
 import { ooxmlAdapter, ooxmlInventoryReader } from "../../../../src/import/formats/ooxml/index.js";
 import {
   inferWorkbook,
@@ -58,6 +59,7 @@ export const contextFor = (
   sheetSelection,
   rejectionMemory,
   fingerprintOf: fakeFingerprint,
+  formulaIdentities: testFormulaIdentities(),
   existingApp: null,
 });
 

@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { f02ProposalOf, testFormulaIdentities } from "../import/delimited-proposal.js";
 import type {
   ApplyReviewEditResponseV1,
   ProposedAppWireV1,
@@ -46,7 +47,6 @@ import type {
   ReviewEditRejectionV1,
   ReviewEditV1,
 } from "../../../src/import/inference/review-edits.js";
-import { inferProposal } from "../../../src/import/inference/infer.js";
 import { applyReviewEdit } from "../../../src/import/inference/review-edits.js";
 import { parseDelimited } from "../../../src/import/formats/delimited/parse.js";
 import { sniffContent } from "../../../src/import/source/sniff.js";
@@ -116,6 +116,7 @@ describe("the wire proposal", () => {
       sheetSelection: null,
       rejectionMemory: new Set(),
       fingerprintOf: (input) => input,
+      formulaIdentities: testFormulaIdentities(),
       existingApp: null,
     });
     // Through the wire and back through structured clone: no field lost.
@@ -133,7 +134,7 @@ describe("the wire proposal", () => {
     for await (const item of parseDelimited(source, sniff.format)) {
       items.push(item);
     }
-    const proposal = inferProposal(items, { fileName: "field-log-messy.csv" });
+    const proposal = f02ProposalOf(items, "field-log-messy.csv");
 
     // Through the wire type and back: no widening, no dropped field.
     const onTheWire: ProposedAppWireV1 = proposal;

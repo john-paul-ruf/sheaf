@@ -101,6 +101,10 @@ describe("fact vocabulary V2", () => {
       expect(PRESERVED_REASON_KEYS).toContain(PRESERVED_REASON_BY_KIND[kind]);
     }
     expect(PRESERVED_REASON_BY_KIND.formula).toBe("formula-not-live-yet");
+    // CA-33: the two F04 reasons are inference's to give, never an adapter's.
+    expect(Object.values(PRESERVED_REASON_BY_KIND)).not.toContain("chart-not-rebuilt");
+    expect(Object.values(PRESERVED_REASON_BY_KIND)).not.toContain("formula-not-supported");
+    expect(PRESERVED_REASON_KEYS).toEqual(expect.arrayContaining(["chart-not-rebuilt", "formula-not-supported"]));
   });
 
   it("maps a chart or pivot definition only when the fact carries one, with exact keys", () => {

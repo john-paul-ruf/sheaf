@@ -91,10 +91,14 @@ export type InertItemKindV1 = (typeof INERT_ITEM_KINDS)[number];
  * Why an item is not interactive. Keys, never sentences: wording is M37's. The
  * list is closed so a surface can say something true for every member.
  *
- * - `formula-not-live-yet` — preserved text and cached value; evaluated from
- *   F04 (D33).
- * - `chart-not-live-yet` — charts and pivots are kept as snapshots and rebuilt
- *   live in F04 (D45).
+ * - `formula-not-live-yet` — preserved text and cached value, kept as authored
+ *   values: an F03 import's formula (D33, D50), or one the review declined.
+ * - `chart-not-live-yet` — an F03 import's chart, pivot or sparkline, kept as
+ *   a snapshot (D45, D50).
+ * - `chart-not-rebuilt` — a chart, pivot or sparkline F04 could not rebuild
+ *   faithfully (D55), kept as a snapshot.
+ * - `formula-not-supported` — a formula outside the catalog or imported
+ *   structure: its imported values are kept, new rows stay empty (D51).
  * - `object-not-rendered` — drawings, images, embedded objects, form controls,
  *   sparklines: kept in the source, never rendered (invariant 8).
  * - `link-not-followed` — external links, hyperlinks, data connections are
@@ -113,6 +117,8 @@ export const INERT_REASON_KEYS = Object.freeze([
   "formatting-not-reproduced",
   "validation-not-expressible",
   "kept-in-source",
+  "chart-not-rebuilt",
+  "formula-not-supported",
 ] as const);
 
 export type InertReasonKeyV1 = (typeof INERT_REASON_KEYS)[number];

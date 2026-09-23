@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { f02ProposalOf } from "./delimited-proposal.js";
 import {
-  inferProposal,
   type ProposedAppV1,
 } from "../../../src/import/inference/infer.js";
 import {
@@ -14,7 +14,7 @@ const demoProposal = async (): Promise<ProposedAppV1> => {
     "delimited/field-log-messy.csv",
     "field-log-messy.csv",
   );
-  return inferProposal(items, { fileName: "field-log-messy.csv" });
+  return f02ProposalOf(items, "field-log-messy.csv");
 };
 
 const applied = (

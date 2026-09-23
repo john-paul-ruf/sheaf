@@ -359,6 +359,7 @@ export function workbookWire(f02: ProposedAppWireV1): ProposedWorkbookWireV1 {
         discardedRows: f02.discardedRows,
         discardedRowCount: f02.discardedRowCount,
         rowCount: f02.rowCount,
+        lastDataRowIndex: f02.rowCount === 0 ? null : (f02.headerRowIndex ?? -1) + f02.rowCount,
         joinedToTableKey: null,
         fields: f02.table.fields.map((field) => ({
           columnKey: columnKey(field.columnIndex),
@@ -378,6 +379,7 @@ export function workbookWire(f02: ProposedAppWireV1): ProposedWorkbookWireV1 {
     ],
     relationships: [],
     recordRules: [],
+    formulas: [],
     inertItems: [],
     inertCounts: {
       formula: 0,

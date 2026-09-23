@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testFormulaIdentities } from "../import/delimited-proposal.js";
 import { asStorageId16, decodeStorageId16, encodeStorageId16 } from "../../../src/domain/model/bytes.js";
 import { compareDomainIds, encodeDomainId } from "../../../src/domain/model/ids.js";
 import { INERT_REASON_KEYS } from "../../../src/domain/model/snapshots.js";
@@ -80,6 +81,7 @@ async function stageDemo(harness: StagingHarnessV1): Promise<{ loaded: LoadedImp
     sheetSelection: inventory.map((sheet) => ({ ...sheet, isSelected: SELECTED.includes(sheet.sheetIndex) })),
     rejectionMemory: new Set(),
     fingerprintOf: (input) => input,
+    formulaIdentities: testFormulaIdentities(),
     existingApp: null,
   });
   const edited = applyWorkbookReviewEdit(inferred, { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" });
@@ -289,7 +291,8 @@ describe("promoting the demo workbook (CA-19/20/22)", () => {
     const { head, checkpoint, checkpointBytes } = await roots(demo);
 
     expect(checkpoint.inertItems.map((item) => item.kind)).toEqual(
-      expect.arrayContaining(["chart", "drawing", "formula", "cell-styling"]),
+      // F04: formulas now live — the demo leaves no formula inert.
+      expect.arrayContaining(["chart", "drawing", "cell-styling"]),
     );
     for (const item of checkpoint.inertItems) expect(INERT_REASON_KEYS).toContain(item.reasonKey);
 
@@ -451,6 +454,7 @@ describe("the row plan (CA-19)", () => {
           sheetSelection: null,
           rejectionMemory: new Set(),
           fingerprintOf: (input) => input,
+          formulaIdentities: testFormulaIdentities(),
           existingApp: null,
         });
         const entropy = new SequenceEntropy();
@@ -476,6 +480,7 @@ describe("the row plan (CA-19)", () => {
       sheetSelection: null,
       rejectionMemory: new Set(),
       fingerprintOf: (input) => input,
+      formulaIdentities: testFormulaIdentities(),
       existingApp: null,
     });
     expect(proposal.tables.map((table) => `${table.tableKey}:${String(table.rowCount)}`)).toEqual([
@@ -526,6 +531,7 @@ describe("pages inside their caps: the demo's full selection, Archive 2018 inclu
       sheetSelection: null,
       rejectionMemory: new Set(),
       fingerprintOf: (input) => input,
+      formulaIdentities: testFormulaIdentities(),
       existingApp: null,
     });
     const entropy = countingEntropy();

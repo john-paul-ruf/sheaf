@@ -4,12 +4,21 @@
  * Bytes are committed beside this file and pinned by the corpus test.
  */
 
-import type { WorkbookSpec } from "../build/ooxml-builder.js";
+import type { RowSpec, WorkbookSpec } from "../build/ooxml-builder.js";
 
 const CREW_ROWS = [
   ["Name", "Role", "Rate"],
   ["Ada", "Lead", 41.5],
   ["Grace", "Technician", 38],
+];
+
+/** `formulas-live.xlsx`'s jobs: id, quoted, paid, and the cached RAND() value. */
+const LIVE_JOBS: readonly (readonly [string, number, number, number])[] = [
+  ["J-1", 400, 100, 0.42],
+  ["J-2", 250, 250, 0.17],
+  ["J-3", 900, 300, 0.93],
+  ["J-4", 120, 0, 0.08],
+  ["J-5", 610, 10, 0.61],
 ];
 
 /** Jobs per month, the series most charts in `charts.xlsx` plot. */
@@ -236,6 +245,70 @@ export const FIDELITY_WORKBOOKS: ReadonlyMap<string, WorkbookSpec> = new Map<str
           formControls: 1,
           shapes: [{ range: "D2:F6" }],
           pictures: [{ range: "D8:E12" }],
+        },
+      ],
+    },
+  ],
+  [
+    /**
+     * F04 (S07): one of each formula disposition the import makes live or keeps.
+     * Jobs is a declared table with a totals row: Balance fills down live, Checked
+     * reads TODAY (live, never stored), Lucky draws RAND (frozen), Rate calls
+     * OFFSET (not in the catalog), Mixed breaks its shape on the last row, and
+     * the totals row sums Quoted. Summary is a summary tab whose first two
+     * values read each other (a cycle) and whose third sums Jobs. Stock is a
+     * region whose footer row sums the column above it (a table metric).
+     */
+    "formulas-live.xlsx",
+    {
+      styles: { numFmts: [{ id: 164, code: "yyyy-mm-dd" }], cellXfs: [{ numFmtId: 0 }, { numFmtId: 164 }] },
+      sheets: [
+        {
+          name: "Jobs",
+          rows: [
+            ["Job", "Quoted", "Paid", "Balance", "Checked", "Lucky", "Rate", "Mixed"],
+            ...LIVE_JOBS.map(([job, quoted, paid, lucky], index): RowSpec => {
+              const row = String(index + 2);
+              const factor = index === LIVE_JOBS.length - 1 ? 3 : 2;
+              return [
+                job,
+                quoted,
+                paid,
+                { value: quoted - paid, formula: { text: `B${row}-C${row}` } },
+                { value: 45566, style: 1, formula: { text: "TODAY()" } },
+                { value: lucky, formula: { text: "RAND()" } },
+                { value: quoted, formula: { text: `OFFSET(B${row},0,0)` } },
+                { value: quoted * factor, formula: { text: `B${row}*${String(factor)}` } },
+              ];
+            }),
+            ["Total", { value: 2280, formula: { text: "SUM(JobsTable[Quoted])" } }],
+          ],
+          tables: [
+            {
+              name: "JobsTable",
+              ref: "A1:H7",
+              columns: ["Job", "Quoted", "Paid", "Balance", "Checked", "Lucky", "Rate", "Mixed"],
+              totalsRowCount: 1,
+            },
+          ],
+        },
+        {
+          name: "Summary",
+          rows: [
+            ["Loop A", { value: 0, formula: { text: "B2+1" } }],
+            ["Loop B", { value: 0, formula: { text: "B1+1" } }],
+            ["Quoted total", { value: 2280, formula: { text: "SUM(Jobs!B2:B6)" } }],
+          ],
+        },
+        {
+          name: "Stock",
+          rows: [
+            ["Material", "Qty"],
+            ["Gravel", 12],
+            ["Sand", 4],
+            ["Mulch", 9],
+            ["Total", { value: 25, formula: { text: "SUM(B2:B4)" } }],
+          ],
         },
       ],
     },

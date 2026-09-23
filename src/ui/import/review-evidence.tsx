@@ -63,14 +63,14 @@ export function describeParts(kind: PreservedPartKindVm, count: number): string 
 
 /**
  * Why each preserved part is kept rather than made live (D40), in STA-012's
- * "type, location, reason" voice. Formulas, charts and pivots are kept as
- * they were and are not live yet (D33, D45); nothing is said to keep working.
+ * "type, location, reason" voice. The F03-era keys say what is true after F04
+ * (D50, D62); nothing is said to keep working, and nothing is promised.
  */
 export const INERT_REASON: Readonly<Record<PreservedReasonKeyVm, string>> = Object.freeze({
   "formula-not-live-yet":
-    "Imported results are kept as values. The formula is preserved and is not recalculated yet.",
-  "chart-not-live-yet": "Kept as a snapshot; rebuilt as a live chart in a later release.",
-  "pivot-not-live-yet": "Kept as a snapshot; rebuilt as a live summary in a later release.",
+    "Imported results are kept as values. The formula is preserved; you can add a live calculation in App structure.",
+  "chart-not-live-yet": "Kept as a snapshot of the workbook's chart. It is not a live chart.",
+  "pivot-not-live-yet": "Kept as a snapshot of the workbook's pivot table. It is not a live chart.",
   "visual-only": "Preserved in the snapshot; Sheaf cannot make it interactive.",
   "note-kept-as-text": "Kept as text in the snapshot.",
   "link-not-followed": "Kept as text; Sheaf never follows it.",
@@ -81,6 +81,8 @@ export const INERT_REASON: Readonly<Record<PreservedReasonKeyVm, string>> = Obje
   "formatting-not-reproduced": "The values are kept; the formatting is not reproduced.",
   "script-not-run": "Kept in the source workbook; Sheaf never runs it.",
   "validation-not-expressible": "The values are kept; Sheaf cannot enforce this rule.",
+  "chart-not-rebuilt": "Kept as a snapshot. Sheaf could not rebuild it as a live chart.",
+  "formula-not-supported": "Sheaf cannot calculate this formula. The imported values are kept; new rows stay empty and flagged.",
 });
 
 /**
@@ -127,6 +129,84 @@ export function evidenceTag(evidence: EvidenceVm, isExcel = true): string {
       return "Preserved content";
     case "previously-rejected":
       return "You rejected this before";
+    case "formula-outcome":
+      // review.html's badges for a live and an unsupported calculation.
+      return evidence.disposition === "live"
+        ? "Live computed value"
+        : evidence.disposition === "frozen"
+          ? "Frozen at import"
+          : "Needs attention";
+  }
+}
+
+type FormulaOutcomeVm = Extract<EvidenceVm, { kind: "formula-outcome" }>;
+
+/** Why a formula is kept as imported values, from the reason's own facts (D62). */
+function keptBecause(evidence: FormulaOutcomeVm): string {
+  const name = evidence.detail ?? "one of its functions";
+  switch (evidence.reason) {
+    case "unparsed":
+      return "Sheaf could not read this formula.";
+    case "external-source":
+      return "It refers to another workbook, which Sheaf never opens.";
+    case "three-d-reference":
+      return "It reads a range across several sheets.";
+    case "whole-row-reference":
+      return "It reads whole rows.";
+    case "unresolved-name":
+      return "It uses a name Sheaf could not find in this workbook.";
+    case "outside-imported-structure":
+      return "It reads cells outside the tables Sheaf is creating.";
+    case "row-specific-reference":
+      return "It reads one particular row rather than a whole column.";
+    case "multi-column-range":
+      return "It reads a range spanning several columns.";
+    case "unsupported-lookup":
+      return "Its lookup does not go through a connection Sheaf is creating.";
+    case "unsupported-function":
+      return `${name} is not supported yet.`;
+    case "arity":
+      return `${name} is used with a number of arguments Sheaf does not accept.`;
+    case "unsupported-operator":
+      return "It uses an operator Sheaf does not calculate.";
+    case "array-constant":
+    case "array-formula":
+      return "It is an array formula.";
+    case "unsupported-error-literal":
+      return "It names an error value Sheaf does not use.";
+    case "number-out-of-range":
+      return "It holds a number too large for Sheaf to calculate exactly.";
+    case "not-filled-down":
+      return `Only ${formatCount(evidence.shapeMatchCount)} of ${formatCount(evidence.rowCount ?? 0)} rows hold the same formula${
+        evidence.shapeBreakRowIndex === null ? "" : `; row ${formatCount(evidence.shapeBreakRowIndex + 1)} differs`
+      }.`;
+    case "unreadable":
+      return "The workbook's formula text could not be read.";
+    case "value-not-kept":
+      return "It draws random numbers, and a summary value has no row to keep a frozen result in.";
+    case null:
+      return "Sheaf cannot calculate this formula.";
+  }
+}
+
+/** What a formula becomes, in review.html's voice. */
+function describeOutcome(evidence: FormulaOutcomeVm): string {
+  const isColumn = evidence.target === "computed-column";
+  switch (evidence.disposition) {
+    case "live": {
+      const rows = isColumn
+        ? `All ${formatCount(evidence.rowCount ?? 0)} rows hold the same formula, so every row will recalculate immediately when its inputs change, including rows you add later.`
+        : "It will recalculate immediately whenever the rows it reads change.";
+      const related = evidence.relatedTableName === null ? "" : ` It reads “${evidence.relatedTableName}” through its connection.`;
+      const clock = evidence.determinism === "clock-volatile" ? " It reads today's date, so it is recalculated rather than stored." : "";
+      return `${rows}${related}${clock}`;
+    }
+    case "frozen":
+      return "It draws random numbers, so each imported row keeps the value the workbook calculated, frozen. A row you add gets its own value once.";
+    case "unsupported":
+      return `${keptBecause(evidence)} Existing imported results stay visible.${
+        isColumn ? " New rows will leave this value empty and flagged—not silently set it to zero." : " The value stays in the sheet snapshot."
+      }`;
   }
 }
 
@@ -212,6 +292,8 @@ export function describeEvidence(evidence: EvidenceVm): string {
       return `${describeParts(evidence.partKind, evidence.count)} kept as preserved content.`;
     case "previously-rejected":
       return "You rejected this in an earlier import, so it is proposed as rejected.";
+    case "formula-outcome":
+      return describeOutcome(evidence);
   }
 }
 

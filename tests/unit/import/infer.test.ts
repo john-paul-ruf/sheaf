@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { f02ProposalOf } from "./delimited-proposal.js";
 import {
-  inferProposal,
   PROPOSAL_LEADING_ROWS,
   type ProposedAppV1,
 } from "../../../src/import/inference/infer.js";
@@ -18,7 +18,7 @@ const proposalOf = async (
   fileName: string,
 ): Promise<ProposedAppV1> => {
   const { items } = await parseFixture(`delimited/${fixture}`, fileName);
-  return inferProposal(items, { fileName });
+  return f02ProposalOf(items, fileName);
 };
 
 const typingOf = (
@@ -443,7 +443,7 @@ describe("inference over the rest of the corpus", () => {
     const withoutSummary = items.filter((item) => item.kind === "batch");
 
     expect(() =>
-      inferProposal(withoutSummary, { fileName: "field-log-messy.csv" }),
+      f02ProposalOf(withoutSummary, "field-log-messy.csv"),
     ).toThrow(/completed fact stream/);
   });
 });
@@ -453,12 +453,8 @@ describe("evidence fingerprints", () => {
     const short = generateLargeDelimited(40);
     const grown = generateLargeDelimited(400);
 
-    const before = inferProposal((await parseText(short)).items, {
-      fileName: "field-history.csv",
-    });
-    const after = inferProposal((await parseText(grown)).items, {
-      fileName: "field-history.csv",
-    });
+    const before = f02ProposalOf((await parseText(short)).items, "field-history.csv");
+    const after = f02ProposalOf((await parseText(grown)).items, "field-history.csv");
 
     expect(after.rowCount).toBeGreaterThan(before.rowCount);
     expect(

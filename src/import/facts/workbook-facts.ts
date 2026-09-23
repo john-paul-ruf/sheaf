@@ -217,6 +217,10 @@ export const PRESERVED_REASON_KEYS = Object.freeze([
   "formatting-not-reproduced",
   "script-not-run",
   "validation-not-expressible",
+  /** F04 (D55): a chart or pivot inference could not rebuild; never an adapter's. */
+  "chart-not-rebuilt",
+  /** F04 (D51): a formula inference cannot make live; never an adapter's. */
+  "formula-not-supported",
 ] as const);
 export type PreservedReasonKeyV1 = (typeof PRESERVED_REASON_KEYS)[number];
 

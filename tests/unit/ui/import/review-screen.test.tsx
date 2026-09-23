@@ -456,7 +456,10 @@ describe("SCR-023 workbook — Connections", () => {
 describe("SCR-023 workbook — Live calculations", () => {
   it("D43 watchpoint — review Live calculations section: formulas preserved, results kept, not live yet", async () => {
     const vm = await demoReviewVm(await demoProposal());
-    expect(vm.formulaRegionCount).toBe(3);
+    // F04: formulas now live — none of the demo's formulas is left inert (the
+    // section itself is rebuilt around the proposal's formulas at S07 CP3).
+    expect(vm.formulaRegionCount).toBe(0);
+    expect(vm.sections.find((section) => section.id === "live-calculations")?.count).toBe(6);
     await render(screen(vm));
     const section = query('[data-section="live-calculations"]').textContent;
     expect(section).toContain("Live calculations");
@@ -465,7 +468,6 @@ describe("SCR-023 workbook — Live calculations", () => {
     expect(section).toContain("E2-F2");
     expect(section).toContain("Original formula preserved");
     expect(section).toContain("Sheaf does not recalculate it yet.");
-    expect(section).toContain("3 formula regions are preserved in all");
     // D33: nothing may promise a live formula in F03.
     expect(section).not.toMatch(/keep(s)? working|recalculate immediately|Live computed value/u);
   });

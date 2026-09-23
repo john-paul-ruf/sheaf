@@ -26,6 +26,7 @@
 
 import { isNfcText } from "../../domain/model/values.js";
 import type { DateSystemV1 } from "../facts/index.js";
+import { refreshFormulas, type FormulaIdentitiesV1 } from "./formulas.js";
 import type { ProposedAppV1, ProposedFieldV1, ProposedRowV1 } from "./infer.js";
 import { fieldNamesFrom, type WorkbookDiscardedRowV1 } from "./regions.js";
 import {
@@ -461,7 +462,7 @@ export type WorkbookReviewEditV1 =
   | { readonly kind: "reject-relationship"; readonly relationshipKey: string }
   | { readonly kind: "restore-relationship"; readonly relationshipKey: string }
   | { readonly kind: "retarget-relationship"; readonly relationshipKey: string; readonly toTableKey: string }
-  /** For `table-split`, `table-merge`, `sheet-classification` and `record-rule` statements. */
+  /** For `table-split`, `table-merge`, `sheet-classification`, `record-rule` and `formula` statements. */
   | { readonly kind: "reject-statement"; readonly statementId: string }
   | { readonly kind: "restore-statement"; readonly statementId: string }
   | { readonly kind: "set-key"; readonly tableKey: string; readonly columnKey: string | null }
@@ -492,6 +493,7 @@ const REJECTABLE_SUBJECTS: ReadonlySet<WorkbookInferenceSubjectV1> = new Set([
   "table-merge",
   "sheet-classification",
   "record-rule",
+  "formula",
 ]);
 
 const refuse = (reason: WorkbookReviewEditRejectionV1): ReviewEditResultV2 => ({ kind: "rejected", reason });
@@ -657,8 +659,24 @@ const setWorkbookHeaderRow = (proposal: ProposedWorkbookV1, table: ProposedTable
 /**
  * Applies one workbook review edit. Never throws; an impossible edit is a
  * rejection value, and an applied edit returns a new proposal.
+ *
+ * `formulaIdentities` are the stand-ins the formula translation names (the
+ * same kind inference was given): with them, every formula's outcome is
+ * re-derived after the edit, since a relationship, a header or a join can
+ * change what a formula becomes (D49). Without them outcomes stand as they were.
  */
-export function applyWorkbookReviewEdit(proposal: ProposedWorkbookV1, edit: WorkbookReviewEditV1): ReviewEditResultV2 {
+export function applyWorkbookReviewEdit(
+  proposal: ProposedWorkbookV1,
+  edit: WorkbookReviewEditV1,
+  formulaIdentities?: FormulaIdentitiesV1,
+): ReviewEditResultV2 {
+  const result = applyEdit(proposal, edit);
+  return result.kind === "applied" && formulaIdentities !== undefined
+    ? { kind: "applied", proposal: refreshFormulas(result.proposal, formulaIdentities) }
+    : result;
+}
+
+function applyEdit(proposal: ProposedWorkbookV1, edit: WorkbookReviewEditV1): ReviewEditResultV2 {
   switch (edit.kind) {
     case "rename-app": {
       const problem = checkName(edit.appName);

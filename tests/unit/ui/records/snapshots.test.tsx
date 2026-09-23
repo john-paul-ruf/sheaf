@@ -153,7 +153,8 @@ describe("SCR-031 — one sheet, read only", () => {
 
     // STA-012: type, location, reason, and the way to it.
     const item = query('[data-inert="chart"]');
-    expect(item.textContent).toContain("Kept as a snapshot; rebuilt as a live chart in a later release.");
+    // F04: the F03 durable key keeps decoding, its copy revised (D50, D62).
+    expect(item.textContent).toContain("Kept as a snapshot of the workbook's chart. It is not a live chart.");
     expect(query("[data-screen='SCR-031']").textContent).toContain("1 inert item on this sheet");
   });
 

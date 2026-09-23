@@ -14,6 +14,12 @@
  * S02's workbook vocabulary is their strict superset (additive, D32).
  */
 
+import {
+  FORMULA_DETERMINISMS,
+  FORMULA_DISPOSITIONS,
+  FORMULA_TARGET_KINDS,
+  isAllowedClassification,
+} from "../../domain/formulas/index.js";
 import { CodecError } from "../../domain/model/errors.js";
 import { INFERENCE_DISPOSITIONS } from "../../domain/model/events.js";
 import { FIELD_TYPE_KINDS, RELATIONSHIP_DETECTION_SOURCES, type FieldTypeV1 } from "../../domain/model/schema.js";
@@ -43,7 +49,9 @@ import {
 } from "../inference/statements.js";
 import type { WorkbookSourceValueFormatV1 } from "../inference/values.js";
 import {
+  FORMULA_KEEP_REASONS,
   SHEET_ROLES,
+  type ProposedFormulaV1,
   type ProposedInertItemV1,
   type ProposedRecordRuleV1,
   type ProposedRelationshipV1,
@@ -200,9 +208,23 @@ const WORKBOOK_EVIDENCE_KINDS = Object.freeze([
   "sheet-shape",
   "preserved-part",
   "previously-rejected",
+  "formula-outcome",
 ] as const);
 
 type WorkbookOnlyEvidenceKind = (typeof WORKBOOK_EVIDENCE_KINDS)[number];
+
+const FORMULA_OUTCOME_KEYS = [
+  "kind",
+  "target",
+  "disposition",
+  "determinism",
+  "reason",
+  "detail",
+  "shapeMatchCount",
+  "rowCount",
+  "shapeBreakRowIndex",
+  "relatedTableName",
+];
 
 const isWorkbookOnly = (kind: string): kind is WorkbookOnlyEvidenceKind =>
   (WORKBOOK_EVIDENCE_KINDS as readonly string[]).includes(kind);
@@ -298,6 +320,19 @@ export function encodeWorkbookEvidence(evidence: WorkbookEvidenceV1): CborValue 
       ]);
     case "previously-rejected":
       return cborMap([["kind", evidence.kind]]);
+    case "formula-outcome":
+      return cborMap([
+        ["kind", evidence.kind],
+        ["target", evidence.target],
+        ["disposition", evidence.disposition],
+        ["determinism", evidence.determinism],
+        ["reason", evidence.reason],
+        ["detail", evidence.detail],
+        ["shapeMatchCount", evidence.shapeMatchCount],
+        ["rowCount", integerOrNull(evidence.rowCount)],
+        ["shapeBreakRowIndex", integerOrNull(evidence.shapeBreakRowIndex)],
+        ["relatedTableName", evidence.relatedTableName],
+      ]);
     default:
       return encodeEvidence(evidence);
   }
@@ -440,6 +475,27 @@ export function decodeWorkbookEvidence(value: DecodedValue): WorkbookEvidenceV1 
     case "previously-rejected":
       keyed(map, ["kind"], "rejection evidence");
       return { kind };
+    case "formula-outcome": {
+      const m = keyed(map, FORMULA_OUTCOME_KEYS, "formula outcome evidence");
+      const disposition = oneOf(field(m, "disposition"), FORMULA_DISPOSITIONS, "a formula disposition");
+      const determinism = oneOf(field(m, "determinism"), FORMULA_DETERMINISMS, "a formula determinism");
+      if (!isAllowedClassification(disposition, determinism)) {
+        throw new CodecError("a formula outcome's disposition and determinism are not a legal pair");
+      }
+      const reason = field(m, "reason");
+      return {
+        kind,
+        target: oneOf(field(m, "target"), FORMULA_TARGET_KINDS, "a formula target"),
+        disposition,
+        determinism,
+        reason: reason === null ? null : oneOf(reason, FORMULA_KEEP_REASONS, "a formula reason"),
+        detail: optionalText(field(m, "detail"), "a formula detail"),
+        shapeMatchCount: count(field(m, "shapeMatchCount"), "a shape count"),
+        rowCount: optionalCount(field(m, "rowCount"), "a row count"),
+        shapeBreakRowIndex: optionalCount(field(m, "shapeBreakRowIndex"), "a row"),
+        relatedTableName: optionalText(field(m, "relatedTableName"), "a table name"),
+      };
+    }
     default: {
       const unreachable: never = kind;
       return unreachable;
@@ -705,6 +761,9 @@ const TABLE_KEYS = [
   "labelColumnKey",
 ];
 
+/** F04 adds the last data row, which a formula's references are resolved against. */
+const TABLE_KEYS_F04 = [...TABLE_KEYS, "lastDataRowIndex"];
+
 const encodeTable = (table: ProposedTableV2): CborValue =>
   cborMap([
     ["tableKey", table.tableKey],
@@ -718,26 +777,46 @@ const encodeTable = (table: ProposedTableV2): CborValue =>
     ["discardedRows", table.discardedRows.map(encodeDiscarded)],
     ["discardedRowCount", table.discardedRowCount],
     ["rowCount", table.rowCount],
+    ["lastDataRowIndex", integerOrNull(table.lastDataRowIndex)],
     ["joinedToTableKey", table.joinedToTableKey],
     ["fields", table.fields.map(encodeField)],
     ["keyColumnKey", table.keyColumnKey],
     ["labelColumnKey", table.labelColumnKey],
   ]);
 
+/**
+ * A table staged before F04 has no last data row. Its proposal holds no
+ * formula either, so the one reader never needs it: the declared end, or the
+ * header plus the rows, stands in.
+ */
+const f03LastDataRow = (source: ProposedTableV2["source"], headerRowIndex: number | null, rowCount: number): number | null =>
+  rowCount === 0
+    ? null
+    : source.kind === "declared-table"
+      ? source.range.lastRow - source.totalsRowCount
+      : (headerRowIndex ?? -1) + rowCount;
+
 const decodeTable = (value: DecodedValue): ProposedTableV2 => {
-  const map = exactKeys(asMap(value, "a proposed table"), TABLE_KEYS, "a proposed table");
+  const raw = asMap(value, "a proposed table");
+  const map = exactKeys(raw, raw.has("lastDataRowIndex") ? TABLE_KEYS_F04 : TABLE_KEYS, "a proposed table");
+  const source = decodeTableSource(field(map, "source"));
+  const headerRowIndex = optionalCount(field(map, "headerRowIndex"), "a header row");
+  const rowCount = count(field(map, "rowCount"), "a row count");
   return {
     tableKey: text(field(map, "tableKey"), "a table key"),
     sheetKey: text(field(map, "sheetKey"), "a sheet key"),
     tableName: nfcText(field(map, "tableName"), "a table name"),
-    source: decodeTableSource(field(map, "source")),
+    source,
     firstColumn: count(field(map, "firstColumn"), "a first column"),
     lastColumn: count(field(map, "lastColumn"), "a last column"),
-    headerRowIndex: optionalCount(field(map, "headerRowIndex"), "a header row"),
+    headerRowIndex,
     leadingRows: list(field(map, "leadingRows"), "leading rows").map(decodeRow),
     discardedRows: list(field(map, "discardedRows"), "discarded rows").map(decodeDiscarded),
     discardedRowCount: count(field(map, "discardedRowCount"), "a discarded row count"),
-    rowCount: count(field(map, "rowCount"), "a row count"),
+    rowCount,
+    lastDataRowIndex: map.has("lastDataRowIndex")
+      ? optionalCount(field(map, "lastDataRowIndex"), "a last data row")
+      : f03LastDataRow(source, headerRowIndex, rowCount),
     joinedToTableKey: optionalText(field(map, "joinedToTableKey"), "a joined table key"),
     fields: list(field(map, "fields"), "proposed fields").map(decodeField),
     keyColumnKey: optionalText(field(map, "keyColumnKey"), "a key column"),
@@ -921,6 +1000,103 @@ const decodeRule = (value: DecodedValue): ProposedRecordRuleV1 => {
   };
 };
 
+// ----------------------------------------------------------------- formulas --
+
+const FORMULA_KEYS = [
+  "formulaKey",
+  "target",
+  "displayName",
+  "originalText",
+  "sheetKey",
+  "rowIndex",
+  "columnIndex",
+  "location",
+  "anchor",
+  "isArray",
+  "shapeMatchCount",
+  "shapeBreakRowIndex",
+  "disposition",
+  "determinism",
+  "reason",
+  "detail",
+  "relationshipKey",
+  "isActive",
+];
+
+const encodeFormulaTarget = (target: ProposedFormulaV1["target"]): CborValue =>
+  target.kind === "dashboard-value"
+    ? cborMap([
+        ["kind", target.kind],
+        ["sheetKey", target.sheetKey],
+      ])
+    : cborMap([
+        ["kind", target.kind],
+        ["tableKey", target.tableKey],
+        ["columnKey", target.columnKey],
+      ]);
+
+const decodeFormulaTarget = (value: DecodedValue): ProposedFormulaV1["target"] => {
+  const map = asMap(value, "a formula target");
+  const kind = oneOf(field(map, "kind"), FORMULA_TARGET_KINDS, "a formula target");
+  if (kind === "dashboard-value") {
+    return { kind, sheetKey: text(field(keyed(map, ["kind", "sheetKey"], "a dashboard target"), "sheetKey"), "a sheet key") };
+  }
+  const m = keyed(map, ["kind", "tableKey", "columnKey"], "a formula target");
+  return { kind, tableKey: text(field(m, "tableKey"), "a table key"), columnKey: text(field(m, "columnKey"), "a column key") };
+};
+
+const encodeFormula = (formula: ProposedFormulaV1): CborValue =>
+  cborMap([
+    ["formulaKey", formula.formulaKey],
+    ["target", encodeFormulaTarget(formula.target)],
+    ["displayName", formula.displayName],
+    ["originalText", formula.originalText],
+    ["sheetKey", formula.sheetKey],
+    ["rowIndex", formula.rowIndex],
+    ["columnIndex", formula.columnIndex],
+    ["location", formula.location],
+    ["anchor", encodeRange(formula.anchor)],
+    ["isArray", formula.isArray],
+    ["shapeMatchCount", formula.shapeMatchCount],
+    ["shapeBreakRowIndex", integerOrNull(formula.shapeBreakRowIndex)],
+    ["disposition", formula.disposition],
+    ["determinism", formula.determinism],
+    ["reason", formula.reason],
+    ["detail", formula.detail],
+    ["relationshipKey", formula.relationshipKey],
+    ["isActive", formula.isActive],
+  ]);
+
+const decodeFormula = (value: DecodedValue): ProposedFormulaV1 => {
+  const map = exactKeys(asMap(value, "a proposed formula"), FORMULA_KEYS, "a proposed formula");
+  const disposition = oneOf(field(map, "disposition"), FORMULA_DISPOSITIONS, "a formula disposition");
+  const determinism = oneOf(field(map, "determinism"), FORMULA_DETERMINISMS, "a formula determinism");
+  if (!isAllowedClassification(disposition, determinism)) {
+    throw new CodecError("a proposed formula's disposition and determinism are not a legal pair");
+  }
+  const reason = field(map, "reason");
+  return {
+    formulaKey: text(field(map, "formulaKey"), "a formula key"),
+    target: decodeFormulaTarget(field(map, "target")),
+    displayName: optionalText(field(map, "displayName"), "a formula name"),
+    originalText: text(field(map, "originalText"), "a formula"),
+    sheetKey: text(field(map, "sheetKey"), "a sheet key"),
+    rowIndex: count(field(map, "rowIndex"), "a row"),
+    columnIndex: count(field(map, "columnIndex"), "a column"),
+    location: text(field(map, "location"), "a location"),
+    anchor: decodeRange(field(map, "anchor")),
+    isArray: boolean(field(map, "isArray"), "an array flag"),
+    shapeMatchCount: count(field(map, "shapeMatchCount"), "a shape count"),
+    shapeBreakRowIndex: optionalCount(field(map, "shapeBreakRowIndex"), "a row"),
+    disposition,
+    determinism,
+    reason: reason === null ? null : oneOf(reason, FORMULA_KEEP_REASONS, "a formula reason"),
+    detail: optionalText(field(map, "detail"), "a formula detail"),
+    relationshipKey: optionalText(field(map, "relationshipKey"), "a relationship key"),
+    isActive: boolean(field(map, "isActive"), "an active flag"),
+  };
+};
+
 // -------------------------------------------------------------- inert items --
 
 const encodeInert = (item: ProposedInertItemV1): CborValue =>
@@ -973,6 +1149,9 @@ const PROPOSAL_KEYS = [
   "diagnostics",
 ];
 
+/** F04 adds the formulas; a proposal staged before F04 decodes with none. */
+const PROPOSAL_KEYS_F04 = [...PROPOSAL_KEYS, "formulas"];
+
 export function encodeWorkbookProposal(proposal: ProposedWorkbookV1): CborValue {
   return cborMap([
     ["fileName", proposal.fileName],
@@ -982,6 +1161,7 @@ export function encodeWorkbookProposal(proposal: ProposedWorkbookV1): CborValue 
     ["tables", proposal.tables.map(encodeTable)],
     ["relationships", proposal.relationships.map(encodeRelationship)],
     ["recordRules", proposal.recordRules.map(encodeRule)],
+    ["formulas", proposal.formulas.map(encodeFormula)],
     ["inertItems", proposal.inertItems.map(encodeInert)],
     ["inertCounts", encodeInertCounts(proposal.inertCounts)],
     ["statements", proposal.statements.map(encodeWorkbookStatement)],
@@ -991,7 +1171,8 @@ export function encodeWorkbookProposal(proposal: ProposedWorkbookV1): CborValue 
 
 /** `isRowCountExact` is the literal `true` in the type, never a stored byte (D24). */
 export function decodeWorkbookProposal(value: DecodedValue): ProposedWorkbookV1 {
-  const map = exactKeys(asMap(value, "a proposal"), PROPOSAL_KEYS, "a proposal");
+  const raw = asMap(value, "a proposal");
+  const map = exactKeys(raw, raw.has("formulas") ? PROPOSAL_KEYS_F04 : PROPOSAL_KEYS, "a proposal");
   return {
     fileName: text(field(map, "fileName"), "a file name"),
     isDelimited: boolean(field(map, "isDelimited"), "a delimited flag"),
@@ -1000,6 +1181,7 @@ export function decodeWorkbookProposal(value: DecodedValue): ProposedWorkbookV1 
     tables: list(field(map, "tables"), "tables").map(decodeTable),
     relationships: list(field(map, "relationships"), "relationships").map(decodeRelationship),
     recordRules: list(field(map, "recordRules"), "record rules").map(decodeRule),
+    formulas: map.has("formulas") ? list(field(map, "formulas"), "formulas").map(decodeFormula) : [],
     inertItems: list(field(map, "inertItems"), "inert items").map(decodeInert),
     inertCounts: decodeInertCounts(field(map, "inertCounts")),
     statements: list(field(map, "statements"), "statements").map(decodeWorkbookStatement),

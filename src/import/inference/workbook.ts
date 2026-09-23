@@ -28,7 +28,7 @@
  * 7. Stored rejections are proposed rejected, with their effect (D44).
  *
  * A stream with no `sheet` fact is a delimited file: one sheet, one table,
- * measured exactly as F02 did (`inferProposal` is now this path's adapter).
+ * measured exactly as F02 did, with F02's statements and fingerprint inputs.
  *
  * **Bounded state**, per structure: each table keeps its builder's window,
  * discards and column stats (`regions.ts`, `types.ts`); each open region keeps
@@ -39,10 +39,15 @@
  * row's cells. Nothing holds a whole sheet.
  */
 
-import { extractReferences, findLookups, parseFormula, type FormulaReferenceV1 } from "../../domain/formulas/index.js";
+import {
+  extractReferences,
+  findLookups,
+  parseFormula,
+  relativeShapeKey,
+  type FormulaReferenceV1,
+} from "../../domain/formulas/index.js";
 import { dateValue, decimalValue, type CellValueV1 } from "../../domain/model/values.js";
 import {
-  PRESERVED_PART_KINDS,
   type DateSystemV1,
   type ImportDiagnosticV2,
   type PreservedPartKindV1,
@@ -50,6 +55,7 @@ import {
   type WorkbookStructureFactV1,
 } from "../facts/index.js";
 import { classifySheet } from "./classify.js";
+import { countInert, refreshFormulas, type FormulaIdentitiesV1 } from "./formulas.js";
 import { chooseKey, chooseLabel, type KeyedColumnV1 } from "./keys.js";
 import {
   PROPOSAL_LEADING_ROWS,
@@ -86,6 +92,7 @@ import {
 } from "./types.js";
 import { readDecimal, serialToEpochDay, sourceTextOfCellValue } from "./values.js";
 import {
+  type ProposedFormulaV1,
   type ProposedInertItemV1,
   type ProposedRecordRuleV1,
   type ProposedSheetV1,
@@ -105,6 +112,9 @@ export const SHEET_REGION_LIMIT = 32;
 
 /** Preserved parts listed per sheet; the adapters already aggregate per-cell kinds. */
 export const SHEET_PRESERVED_PART_LIMIT = 4096;
+
+/** Loose formula cells kept per sheet as dashboard candidates; more stay in the snapshot. */
+export const SHEET_LOOSE_FORMULA_LIMIT = 256;
 
 /** One sheet of the workbook and whether the user selected it (D39, D47). */
 export interface WorkbookSheetChoiceV1 {
@@ -129,6 +139,11 @@ export interface WorkbookInferenceContextV1 {
    * supplies M08's SHA-256 (tests use a deterministic fake).
    */
   readonly fingerprintOf: (input: string) => string;
+  /**
+   * Stand-in identities the formula translation names while it decides what
+   * each formula becomes (M23's `reviewFormulaIdentities`): M21 makes none.
+   */
+  readonly formulaIdentities: FormulaIdentitiesV1;
   /** The app a delimited file is appended to; its table names stay unique. */
   readonly existingApp: { readonly tableNames: readonly string[] } | null;
 }
@@ -186,6 +201,10 @@ interface SheetState {
   readonly formats: Map<number, CellFormatV1>;
   readonly validations: ValidationFact[];
   readonly preserved: PreservedPartFact[];
+  /** Each shared-formula group's shape, from its master (a child's text is the master's, shifted). */
+  readonly sharedShapes: Map<number, string>;
+  /** Formula cells in no declared table: a summary sheet's dashboard values (≤ {@link SHEET_LOOSE_FORMULA_LIMIT}). */
+  readonly looseFormulas: LooseFormulaV1[];
   rowCount: number;
   usedCellCount: number;
   formulaCellCount: number;
@@ -193,6 +212,15 @@ interface SheetState {
   formulaNumericCount: number;
   crossSheetFormulaCount: number;
   row: { readonly rowIndex: number; readonly cellCount: number; readonly cells: Map<number, MutableCell> } | null;
+}
+
+/** A formula cell outside every declared table, and the text left of it. */
+interface LooseFormulaV1 {
+  readonly rowIndex: number;
+  readonly columnIndex: number;
+  readonly text: string | null;
+  readonly isArray: boolean;
+  readonly label: string | null;
 }
 
 interface MutableCell {
@@ -247,6 +275,8 @@ const newSheet = (info: SheetInfo): SheetState => ({
   formats: new Map(),
   validations: [],
   preserved: [],
+  sharedShapes: new Map(),
+  looseFormulas: [],
   rowCount: 0,
   usedCellCount: 0,
   formulaCellCount: 0,
@@ -347,6 +377,17 @@ const flushRow = (sheet: SheetState): void => {
     );
     if (table === undefined) loose.push(cell);
   }
+  for (const cell of loose) {
+    if (cell.formula === null || sheet.looseFormulas.length >= SHEET_LOOSE_FORMULA_LIMIT) continue;
+    const label = [...loose].reverse().find((other) => other.column < cell.column && other.formula === null && other.text !== "" && !isNumericText(other));
+    sheet.looseFormulas.push({
+      rowIndex: row.rowIndex,
+      columnIndex: cell.column,
+      text: cell.formula.text,
+      isArray: cell.formula.isArray,
+      label: label?.text ?? null,
+    });
+  }
   for (const { fact, builder } of sheet.declared) {
     if (row.rowIndex < fact.range.firstRow || row.rowIndex > fact.range.lastRow) continue;
     const mine = within(cells, fact.range.firstColumn, fact.range.lastColumn);
@@ -425,6 +466,32 @@ const statement = (
   evidence,
   evidenceFingerprint,
   disposition: "accepted",
+});
+
+const isNumericText = (cell: CellInputV1): boolean => readDecimal(cell.text) !== null;
+
+/** A proposed formula before `refreshFormulas` derives its outcome. */
+const proposedFormula = (
+  formula: Pick<
+    ProposedFormulaV1,
+    "formulaKey" | "target" | "displayName" | "originalText" | "sheetKey" | "rowIndex" | "columnIndex" | "location" | "anchor" | "isArray" | "shapeMatchCount" | "shapeBreakRowIndex"
+  >,
+): ProposedFormulaV1 => ({
+  ...formula,
+  disposition: "unsupported",
+  determinism: "unsupported",
+  reason: null,
+  detail: null,
+  relationshipKey: null,
+  isActive: true,
+});
+
+const formulaTextEvidence = (text: string | null, isArray: boolean, isExternal: boolean, formulaCount: number): WorkbookEvidenceV1 => ({
+  kind: "formula-text",
+  text,
+  isArray,
+  isExternal,
+  formulaCount,
 });
 
 const rowShape = (row: ProposedRowV1): EvidenceV1 => ({
@@ -633,7 +700,15 @@ function readStream(items: Iterable<WorkbookFactStreamItemV2>): ReadStreamV1 {
             ) {
               sheet.crossSheetFormulaCount += 1;
             }
-            cell.formula = { text: fact.text, isArray: fact.isArray, isExternal: fact.isExternal, lookups: ast === null ? [] : findLookups(ast) };
+            const ownShape = ast === null ? null : relativeShapeKey(ast, fact.rowIndex, fact.columnIndex);
+            if (ownShape !== null && fact.sharedGroup !== null) sheet.sharedShapes.set(fact.sharedGroup, ownShape);
+            cell.formula = {
+              text: fact.text,
+              isArray: fact.isArray,
+              isExternal: fact.isExternal,
+              lookups: ast === null ? [] : findLookups(ast),
+              shapeKey: ownShape ?? (fact.text === null && fact.sharedGroup !== null ? (sheet.sharedShapes.get(fact.sharedGroup) ?? null) : null),
+            };
           } else {
             sheet.usedCellCount += 1;
             cell.text = sourceTextOfCellValue(fact.value);
@@ -835,6 +910,7 @@ function proposeDelimited(
         discardedRows: measured.discardedRows,
         discardedRowCount: measured.discardedRowCount,
         rowCount: measured.dataRowCount,
+        lastDataRowIndex: measured.lastRowIndex < 0 ? null : measured.lastRowIndex,
         joinedToTableKey: null,
         fields,
         keyColumnKey: null,
@@ -843,6 +919,7 @@ function proposeDelimited(
     ],
     relationships: [],
     recordRules: [],
+    formulas: [],
     inertItems: [],
     inertCounts: countInert([]),
     statements,
@@ -850,12 +927,6 @@ function proposeDelimited(
     isRowCountExact: true,
   };
 }
-
-const countInert = (items: readonly ProposedInertItemV1[]): Readonly<Record<PreservedPartKindV1, number>> => {
-  const counts = Object.fromEntries(PRESERVED_PART_KINDS.map((kind) => [kind, 0])) as Record<PreservedPartKindV1, number>;
-  for (const item of items) counts[item.kind] += 1;
-  return counts;
-};
 
 /** Pass 1 of a workbook proposal: every sheet measured, merges and splits decided. */
 function candidatesOf(sheets: readonly SheetState[]): Candidate[] {
@@ -1056,6 +1127,7 @@ function proposeWorkbook(
   ];
   const tables: ProposedTableV2[] = [];
   const recordRules: ProposedRecordRuleV1[] = [];
+  const formulas: ProposedFormulaV1[] = [];
   const inertItems: ProposedInertItemV1[] = [];
   const roles = new Map<SheetState, readonly SheetRoleV1[]>();
 
@@ -1132,30 +1204,63 @@ function proposeWorkbook(
       say(scope, "table-label", tableKey, null, "set-label", columnEvidence(draft.labelColumnKey));
 
       const firstDataRow = (measured.headerRowIndex ?? measured.firstRowIndex - 1) + 1;
+      const lastDataRow =
+        candidate.declared === null ? measured.lastRowIndex : candidate.declared.range.lastRow - candidate.declared.totalsRowCount;
       for (const { field, stats, typeEvidence, optionsEvidence, nameEvidence } of draft.fields) {
         const columnScope = [...scope, field.columnIndex];
         say(columnScope, "field-name", field.columnKey, field.columnIndex, "rename-field", [nameEvidence]);
         say(columnScope, "field-type", field.columnKey, field.columnIndex, "override-type", typeEvidence);
         if (field.valueType.kind === "enum") say(columnScope, "enum-options", field.columnKey, field.columnIndex, "edit-enum-options", optionsEvidence);
-        if (stats.formulaCount > 0) {
-          say(columnScope, "formula", field.columnKey, field.columnIndex, null, [
-            {
-              kind: "formula-text",
-              text: stats.firstFormula?.text ?? null,
-              isArray: stats.firstFormula?.isArray ?? false,
-              isExternal: stats.firstFormula?.isExternal ?? false,
-              formulaCount: stats.formulaCount,
-            },
+        // A computed column: one per standalone table, over its joined rows' stats too.
+        if (stats.formulaCount > 0 && candidate.joinedTo === null) {
+          say(columnScope, "formula", field.columnKey, field.columnIndex, "reject-statement", [
+            formulaTextEvidence(stats.firstFormula?.text ?? null, stats.firstFormula?.isArray ?? false, stats.firstFormula?.isExternal ?? false, stats.formulaCount),
           ]);
-          const anchor = { firstRow: firstDataRow, firstColumn: field.columnIndex, lastRow: measured.lastRowIndex, lastColumn: field.columnIndex };
-          inertItems.push({
-            kind: "formula",
-            sheetKey,
-            location: locationText(sheetName, anchor.firstRow, anchor.firstColumn, anchor.lastRow, anchor.lastColumn),
-            reasonKey: "formula-not-live-yet",
-            anchor,
-          });
+          const anchor = { firstRow: firstDataRow, firstColumn: field.columnIndex, lastRow: lastDataRow, lastColumn: field.columnIndex };
+          formulas.push(
+            proposedFormula({
+              formulaKey: field.columnKey,
+              target: { kind: "computed-column", tableKey, columnKey: field.columnKey },
+              displayName: null,
+              originalText: stats.master?.text ?? "",
+              sheetKey,
+              rowIndex: stats.master?.rowIndex ?? firstDataRow,
+              columnIndex: field.columnIndex,
+              location: locationText(sheetName, anchor.firstRow, anchor.firstColumn, anchor.lastRow, anchor.lastColumn),
+              anchor,
+              isArray: stats.master?.isArray ?? false,
+              shapeMatchCount: stats.shapeMatches,
+              shapeBreakRowIndex: stats.shapeBreakRowIndex,
+            }),
+          );
         }
+      }
+
+      // Table metrics: the formulas of its totals row, or of its footer row.
+      for (const footer of candidate.joinedTo === null ? measured.footer : []) {
+        const entry = draft.fields.find(({ field }) => field.columnIndex === footer.columnIndex);
+        if (entry === undefined) continue;
+        const formulaKey = `${entry.field.columnKey}.R${String(footer.rowIndex + 1)}`;
+        const anchor = { firstRow: footer.rowIndex, firstColumn: footer.columnIndex, lastRow: footer.rowIndex, lastColumn: footer.columnIndex };
+        say([...scope, footer.columnIndex, "total"], "formula", formulaKey, footer.columnIndex, "reject-statement", [
+          formulaTextEvidence(footer.text, footer.isArray, false, 1),
+        ]);
+        formulas.push(
+          proposedFormula({
+            formulaKey,
+            target: { kind: "table-metric", tableKey, columnKey: entry.field.columnKey },
+            displayName: footer.label === null ? entry.field.fieldName : `${footer.label} ${entry.field.fieldName}`,
+            originalText: footer.text,
+            sheetKey,
+            rowIndex: footer.rowIndex,
+            columnIndex: footer.columnIndex,
+            location: locationText(sheetName, footer.rowIndex, footer.columnIndex, footer.rowIndex, footer.columnIndex),
+            anchor,
+            isArray: footer.isArray,
+            shapeMatchCount: 1,
+            shapeBreakRowIndex: null,
+          }),
+        );
       }
 
       tables.push({
@@ -1179,6 +1284,7 @@ function proposeWorkbook(
         discardedRows: measured.discardedRows,
         discardedRowCount: measured.discardedRowCount,
         rowCount: measured.dataRowCount,
+        lastDataRowIndex: measured.dataRowCount === 0 ? null : lastDataRow,
         joinedToTableKey: candidate.joinedTo?.tableKey ?? null,
         fields: draft.fields.map(({ field }) => field),
         keyColumnKey: draft.keyColumnKey,
@@ -1194,7 +1300,33 @@ function proposeWorkbook(
         const found = region.formulaBox as BoxV1;
         return grow(grow(box, found.firstRow, found.firstColumn), found.lastRow, found.lastColumn);
       }, null);
-    if (loose !== null) {
+    if (sheetRoles.includes("summary")) {
+      // A summary tab's formulas are its dashboard values (FR-5), one per cell.
+      for (const cell of sheet.looseFormulas) {
+        const place = `R${String(cell.rowIndex + 1)}C${String(cell.columnIndex + 1)}`;
+        const formulaKey = `${sheetKey}.${place}`;
+        const location = locationText(sheetName, cell.rowIndex, cell.columnIndex, cell.rowIndex, cell.columnIndex);
+        say([sheetName, place], "formula", formulaKey, cell.columnIndex, "reject-statement", [
+          formulaTextEvidence(cell.text, cell.isArray, false, 1),
+        ]);
+        formulas.push(
+          proposedFormula({
+            formulaKey,
+            target: { kind: "dashboard-value", sheetKey },
+            displayName: cell.label ?? `${sheetName} ${location.slice(location.lastIndexOf("!") + 1)}`,
+            originalText: cell.text ?? "",
+            sheetKey,
+            rowIndex: cell.rowIndex,
+            columnIndex: cell.columnIndex,
+            location,
+            anchor: { firstRow: cell.rowIndex, firstColumn: cell.columnIndex, lastRow: cell.rowIndex, lastColumn: cell.columnIndex },
+            isArray: cell.isArray,
+            shapeMatchCount: 1,
+            shapeBreakRowIndex: null,
+          }),
+        );
+      }
+    } else if (loose !== null) {
       inertItems.push({
         kind: "formula",
         sheetKey,
@@ -1306,7 +1438,7 @@ function proposeWorkbook(
     };
   });
 
-  return applyRejectionMemory(
+  const remembered = applyRejectionMemory(
     {
       fileName: context.fileName,
       isDelimited: false,
@@ -1315,6 +1447,7 @@ function proposeWorkbook(
       tables,
       relationships: detected.relationships,
       recordRules,
+      formulas,
       inertItems,
       inertCounts: countInert(inertItems),
       statements,
@@ -1324,4 +1457,6 @@ function proposeWorkbook(
     context.rejectionMemory,
     context.fingerprintOf,
   );
+  // After the memory: a remembered rejection (a relationship, say) changes what a formula becomes.
+  return refreshFormulas(remembered, context.formulaIdentities);
 }

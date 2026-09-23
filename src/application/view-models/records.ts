@@ -1978,14 +1978,17 @@ export function describeInertCount(kind: InertItemKindWireV1, count: number): st
 
 /**
  * Why each inert item stays inert (STA-012's "reason"), in the voice the
- * review already uses for the same reasons (S07's `INERT_REASON`). Nothing is
- * said to keep working, and nothing live is promised beyond "a later release".
+ * review already uses for the same reasons (`review-evidence.tsx`'s
+ * `INERT_REASON`). Nothing is said to keep working, and nothing live is
+ * promised: the F03-era keys say what is true after F04 (D50, D62).
  */
 export const INERT_REASON_SENTENCE: Readonly<Record<InertReasonKeyWireV1, string>> =
   Object.freeze({
     "formula-not-live-yet":
-      "Imported results are kept as values. The formula is preserved and is not recalculated yet.",
-    "chart-not-live-yet": "Kept as a snapshot; rebuilt as a live chart in a later release.",
+      "Imported results are kept as values. The formula is preserved; you can add a live calculation in App structure.",
+    "chart-not-live-yet": "Kept as a snapshot of the workbook's chart. It is not a live chart.",
+    "chart-not-rebuilt": "Kept as a snapshot. Sheaf could not rebuild it as a live chart.",
+    "formula-not-supported": "Sheaf cannot calculate this formula. The imported values are kept; new rows stay empty and flagged.",
     "object-not-rendered": "Preserved in the snapshot; Sheaf cannot make it interactive.",
     "link-not-followed": "Kept as text; Sheaf never follows it.",
     "script-never-runs": "Kept in the source workbook; Sheaf never runs it.",

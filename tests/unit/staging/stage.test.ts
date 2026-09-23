@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testFormulaIdentities } from "../import/delimited-proposal.js";
 import { CodecError } from "../../../src/domain/model/errors.js";
 import {
   encodeBase64Url,
@@ -78,6 +79,7 @@ const CONTEXT = {
   sheetSelection: null,
   rejectionMemory: new Set<string>(),
   fingerprintOf: (input: string): string => input,
+  formulaIdentities: testFormulaIdentities(),
   existingApp: null,
 };
 
@@ -243,6 +245,7 @@ describe("encodeImportStage / decodeImportStage", () => {
     const edits = [
       { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" },
       { kind: "rename-table", tableKey: "s1.t0", tableName: "Clients" },
+      { kind: "reject-statement", statementId: "formula:s0.t0.c6" },
     ] as const;
     let proposal = inferred;
     for (const edit of edits) {
@@ -255,6 +258,11 @@ describe("encodeImportStage / decodeImportStage", () => {
     expect(proposal.sheets.some((sheet) => sheet.classification.includes("excluded"))).toBe(true);
     expect(proposal.relationships.length).toBeGreaterThan(0);
     expect(proposal.inertItems.length).toBeGreaterThan(0);
+    // F04: formulas of every target, one declined, with their outcome evidence.
+    expect(proposal.formulas.map((formula) => formula.target.kind)).toEqual(
+      expect.arrayContaining(["computed-column", "dashboard-value"]),
+    );
+    expect(proposal.formulas.find((formula) => formula.formulaKey === "s0.t0.c6")?.isActive).toBe(false);
 
     const staged = await stage({
       format: "xlsx",
@@ -274,6 +282,38 @@ describe("encodeImportStage / decodeImportStage", () => {
     const encoded = encodeImportStage(staged);
     expect(decodeImportStage(encoded)).toEqual(staged);
     expect(encodeImportStage(decodeImportStage(encoded))).toEqual(encoded);
+  });
+
+  it("decodes a workbook proposal staged before F04: no formulas, and a derived last data row", async () => {
+    const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx", { selection: [0, 1] });
+    if (stream === null) throw new Error("the demo workbook did not size");
+    const proposal = inferWorkbook(stream.items, { ...CONTEXT, fileName: "fieldwork-q3.xlsx" });
+    const staged = await stage({
+      format: "xlsx",
+      preflight: null,
+      inventory: stream.report.sheets.map((sheet) => ({
+        sheetIndex: sheet.sheetIndex,
+        name: sheet.name,
+        sheetKind: sheet.kind,
+        visibility: sheet.visibility,
+        estimatedRowCount: sheet.estimatedRowCount,
+        estimatedCellCount: sheet.estimatedCellCount,
+      })),
+      selectedSheets: [0, 1],
+      proposal,
+    });
+    const map = decodeCanonical(encodeImportStage(staged)) as Map<string, CborValue>;
+    const f03 = map.get("proposal") as Map<string, CborValue>;
+    f03.delete("formulas");
+    for (const table of f03.get("tables") as Map<string, CborValue>[]) table.delete("lastDataRowIndex");
+    const decoded = decodeImportStage(encodeCanonical(map)).proposal;
+    expect(decoded?.formulas).toEqual([]);
+    // Declared tables end where they are declared; the demo's have no totals row.
+    expect(decoded?.tables.map((table) => table.lastDataRowIndex)).toEqual(proposal.tables.map((table) => table.lastDataRowIndex));
+    // A key set that is neither F03's nor F04's still refuses.
+    f03.set("formulas", []);
+    f03.set("charts", []);
+    expect(() => decodeImportStage(encodeCanonical(map))).toThrow(CodecError);
   });
 
   it("refuses trailing bytes, an unknown field, and a missing field", async () => {

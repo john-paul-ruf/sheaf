@@ -12,9 +12,17 @@
  * - declared table `s<sheetIndex>.t<n>`, region table `s<sheetIndex>.r<n>`
  *   (the table key is also its region key, for `set-header-row`);
  * - column `<tableKey>.c<sheetColumn>`;
- * - relationship `rel:<childColumnKey>`, rule `rule:<columnKey>`.
+ * - relationship `rel:<childColumnKey>`, rule `rule:<columnKey>`;
+ * - formula: a computed column's `<columnKey>`, a table metric's
+ *   `<columnKey>.R<row>`, a dashboard value's `<sheetKey>.R<row>C<column>`
+ *   (rows and columns one-based, as a person reads them).
  */
 
+import {
+  IMPORT_UNSUPPORTED_REASONS,
+  type FormulaDeterminismV1,
+  type FormulaDispositionV1,
+} from "../../domain/formulas/index.js";
 import type {
   DateSystemV1,
   ImportDiagnosticV2,
@@ -91,7 +99,7 @@ export interface ProposedWorkbookFieldV1 {
   readonly enumOptions: readonly ProposedEnumOptionV1[];
   /** `null`: not measured (a user override, or a structural edit since). */
   readonly violations: TypeViolationsV1 | null;
-  /** The column's first master formula, preserved and not live (D33); the field stays authored. */
+  /** The column's first master formula, as authored; what it becomes is its entry in `formulas`. */
   readonly formulaText: string | null;
 }
 
@@ -110,6 +118,8 @@ export interface ProposedTableV2 {
   readonly discardedRowCount: number;
   /** This table's own data rows. Exact. */
   readonly rowCount: number;
+  /** Its last data row (totals and footer rows excluded); `null` when it has none. */
+  readonly lastDataRowIndex: number | null;
   /**
    * The table whose rows these rows join (a spacer merge, FR-4). A joined
    * table is promoted as part of that one; its own fields stand ready for a
@@ -168,6 +178,63 @@ export interface ProposedRecordRuleV1 {
   readonly isActive: boolean;
 }
 
+/** Why an imported formula stays kept values (closed): M03's reasons, then the proposal's own. */
+export const FORMULA_KEEP_REASONS = Object.freeze([
+  ...IMPORT_UNSUPPORTED_REASONS,
+  /** A column whose rows do not all hold the same formula (the fill-down proof failed). */
+  "not-filled-down",
+  /** The formula's text could not be read from the workbook. */
+  "unreadable",
+  "array-formula",
+  /** A nondeterministic metric or dashboard value: no record exists to keep its frozen value. */
+  "value-not-kept",
+] as const);
+
+export type FormulaKeepReasonV1 = (typeof FORMULA_KEEP_REASONS)[number];
+
+/** Where an imported formula's result lives (migration 005's target kinds, by key). */
+export type ProposedFormulaTargetV1 =
+  | { readonly kind: "computed-column"; readonly tableKey: string; readonly columnKey: string }
+  /** A totals-row or footer cell; `columnKey` is the column it sits under. */
+  | { readonly kind: "table-metric"; readonly tableKey: string; readonly columnKey: string }
+  | { readonly kind: "dashboard-value"; readonly sheetKey: string };
+
+/**
+ * One workbook formula and what it becomes (CA-25 at import, D51). The
+ * outcome — disposition, determinism, reason — is derived from the text and
+ * the proposal's structure (`formulas.ts`) and re-derived after every review
+ * edit; `isActive` is the review's own choice.
+ */
+export interface ProposedFormulaV1 {
+  readonly formulaKey: string;
+  readonly target: ProposedFormulaTargetV1;
+  /** A metric's or dashboard value's label; a computed column is its field. */
+  readonly displayName: string | null;
+  /** The formula as authored, without its `=`: a column's first row's. */
+  readonly originalText: string;
+  /** The cell that text belongs to; its relative references count from here. */
+  readonly sheetKey: string;
+  readonly rowIndex: number;
+  readonly columnIndex: number;
+  /** A user-understandable place: `Jobs!G2:G61`, `Overview!B3`. */
+  readonly location: string;
+  readonly anchor: RangeV1;
+  readonly isArray: boolean;
+  /** Cells holding this formula's shape: the fill-down proof for a column. */
+  readonly shapeMatchCount: number;
+  /** The first row of a column that breaks the shape; `null` when none does. */
+  readonly shapeBreakRowIndex: number | null;
+  readonly disposition: FormulaDispositionV1;
+  readonly determinism: FormulaDeterminismV1;
+  readonly reason: FormulaKeepReasonV1 | null;
+  /** The function a reason names (`OFFSET`), if any. */
+  readonly detail: string | null;
+  /** The applied relationship a lookup goes through. */
+  readonly relationshipKey: string | null;
+  /** `false` once the review declines it: its values stay authored literals. */
+  readonly isActive: boolean;
+}
+
 export interface ProposedInertItemV1 {
   readonly kind: PreservedPartKindV1;
   readonly sheetKey: string;
@@ -190,6 +257,8 @@ export interface ProposedWorkbookV1 {
   readonly tables: readonly ProposedTableV2[];
   readonly relationships: readonly ProposedRelationshipV1[];
   readonly recordRules: readonly ProposedRecordRuleV1[];
+  /** Every formula a table column, totals row or summary sheet holds (F04). */
+  readonly formulas: readonly ProposedFormulaV1[];
   readonly inertItems: readonly ProposedInertItemV1[];
   /** Inert items per kind, over every selected sheet (FR-9). */
   readonly inertCounts: Readonly<Record<PreservedPartKindV1, number>>;

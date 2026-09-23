@@ -145,7 +145,8 @@ describe("the snapshot viewer (SCR-031)", () => {
         kind: "chart",
         kindName: "Chart",
         location: "Overview!D2:K18",
-        reason: "Kept as a snapshot; rebuilt as a live chart in a later release.",
+        // F04: the F03 durable key keeps decoding, its copy revised (D50, D62).
+        reason: "Kept as a snapshot of the workbook's chart. It is not a live chart.",
         anchorRow: 1,
       },
     ]);

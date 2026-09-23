@@ -1171,7 +1171,9 @@ export type PreservedReasonKeyWireV1 =
   | "connection-not-refreshed"
   | "formatting-not-reproduced"
   | "script-not-run"
-  | "validation-not-expressible";
+  | "validation-not-expressible"
+  | "chart-not-rebuilt"
+  | "formula-not-supported";
 
 export type WorkbookInferenceSubjectWireV1 =
   | InferenceSubjectWireV1
@@ -1280,7 +1282,70 @@ export type WorkbookEvidenceWireV1 =
       readonly tableCount: number;
     }
   | { readonly kind: "preserved-part"; readonly partKind: PreservedPartKindWireV1; readonly count: number }
-  | { readonly kind: "previously-rejected" };
+  | { readonly kind: "previously-rejected" }
+  | {
+      readonly kind: "formula-outcome";
+      readonly target: FormulaTargetKindWireV1;
+      readonly disposition: FormulaDispositionWireV1;
+      readonly determinism: FormulaDeterminismWireV1;
+      readonly reason: FormulaKeepReasonWireV1 | null;
+      readonly detail: string | null;
+      readonly shapeMatchCount: number;
+      readonly rowCount: number | null;
+      readonly shapeBreakRowIndex: number | null;
+      readonly relatedTableName: string | null;
+    };
+
+/** migration 005's formula target kinds, restated. */
+export type FormulaTargetKindWireV1 = "computed-column" | "table-metric" | "dashboard-value";
+export type FormulaDispositionWireV1 = "live" | "frozen" | "unsupported";
+export type FormulaDeterminismWireV1 = "deterministic" | "clock-volatile" | "frozen-nondeterministic" | "unsupported";
+
+/** Why an imported formula stays kept values: M03's reasons, then the proposal's own (S07). */
+export type FormulaKeepReasonWireV1 =
+  | "unparsed"
+  | "external-source"
+  | "three-d-reference"
+  | "whole-row-reference"
+  | "unresolved-name"
+  | "outside-imported-structure"
+  | "row-specific-reference"
+  | "multi-column-range"
+  | "unsupported-lookup"
+  | "unsupported-function"
+  | "arity"
+  | "unsupported-operator"
+  | "array-constant"
+  | "unsupported-error-literal"
+  | "number-out-of-range"
+  | "not-filled-down"
+  | "unreadable"
+  | "array-formula"
+  | "value-not-kept";
+
+/** One imported formula and what it becomes (S07's `ProposedFormulaV1`). */
+export interface ProposedFormulaWireV1 {
+  readonly formulaKey: string;
+  readonly target:
+    | { readonly kind: "computed-column" | "table-metric"; readonly tableKey: string; readonly columnKey: string }
+    | { readonly kind: "dashboard-value"; readonly sheetKey: string };
+  readonly displayName: string | null;
+  readonly originalText: string;
+  readonly sheetKey: string;
+  readonly rowIndex: number;
+  readonly columnIndex: number;
+  readonly location: string;
+  readonly anchor: RangeWireV1;
+  readonly isArray: boolean;
+  readonly shapeMatchCount: number;
+  readonly shapeBreakRowIndex: number | null;
+  readonly disposition: FormulaDispositionWireV1;
+  readonly determinism: FormulaDeterminismWireV1;
+  readonly reason: FormulaKeepReasonWireV1 | null;
+  readonly detail: string | null;
+  readonly relationshipKey: string | null;
+  readonly isActive: boolean;
+}
 
 export interface WorkbookStatementWireV1 {
   readonly statementId: string;
@@ -1349,6 +1414,7 @@ export interface ProposedTableWireV2 {
   }[];
   readonly discardedRowCount: number;
   readonly rowCount: number;
+  readonly lastDataRowIndex: number | null;
   readonly joinedToTableKey: string | null;
   readonly fields: readonly ProposedWorkbookFieldWireV1[];
   readonly keyColumnKey: string | null;
@@ -1411,6 +1477,7 @@ export interface ProposedWorkbookWireV1 {
   readonly tables: readonly ProposedTableWireV2[];
   readonly relationships: readonly ProposedRelationshipWireV1[];
   readonly recordRules: readonly ProposedRecordRuleWireV1[];
+  readonly formulas: readonly ProposedFormulaWireV1[];
   readonly inertItems: readonly ProposedInertItemWireV1[];
   readonly inertCounts: Readonly<Record<PreservedPartKindWireV1, number>>;
   readonly statements: readonly WorkbookStatementWireV1[];
@@ -1953,7 +2020,9 @@ export type InertReasonKeyWireV1 =
   | "script-never-runs"
   | "formatting-not-reproduced"
   | "validation-not-expressible"
-  | "kept-in-source";
+  | "kept-in-source"
+  | "chart-not-rebuilt"
+  | "formula-not-supported";
 
 /** Zero-based and inclusive on both corners. */
 export interface CellRangeWireV1 {

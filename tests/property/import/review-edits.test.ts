@@ -1,8 +1,8 @@
 import fc from "fast-check";
 import { beforeAll, describe, expect, it } from "vitest";
+import { f02ProposalOf } from "../../unit/import/delimited-proposal.js";
 import {
   ENUM_OPTION_LIMIT,
-  inferProposal,
   type ProposedAppV1,
 } from "../../../src/import/inference/infer.js";
 import {
@@ -71,7 +71,7 @@ beforeAll(async () => {
     "delimited/field-log-messy.csv",
     "field-log-messy.csv",
   );
-  base = inferProposal(items, { fileName: "field-log-messy.csv" });
+  base = f02ProposalOf(items, "field-log-messy.csv");
 });
 
 describe("applyReviewEdit properties", () => {

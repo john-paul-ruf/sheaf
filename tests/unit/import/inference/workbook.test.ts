@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { f02ProposalOf } from "../delimited-proposal.js";
 import { decimalValue, textValue } from "../../../../src/domain/model/values.js";
 import type { WorkbookFactStreamItemV2, WorkbookFactV2 } from "../../../../src/import/facts/index.js";
-import { inferProposal } from "../../../../src/import/inference/infer.js";
 import { sourceTextToCellValue } from "../../../../src/import/inference/values.js";
 import { inferWorkbook } from "../../../../src/import/inference/workbook.js";
 import type { ProposedTableV2, ProposedWorkbookV1 } from "../../../../src/import/inference/workbook-proposal.js";
@@ -136,7 +136,7 @@ describe("inferWorkbook — the demo workbook's structure", () => {
     expect(fieldNamed(jobs, "Approved").type).toEqual({ kind: "boolean" });
   });
 
-  it("keeps formula columns authored, typed from cached values, with a formula statement", async () => {
+  it("types formula columns from cached values and proposes each live, with its evidence (F04)", async () => {
     const proposal = await proposeFixture(DEMO, ALL);
     const jobs = tableNamed(proposal, "Jobs");
     const balance = fieldNamed(jobs, "Balance");
@@ -145,9 +145,24 @@ describe("inferWorkbook — the demo workbook's structure", () => {
       formulaText: "E2-F2",
       violations: { count: 2 },
     });
+    // F04: formulas now live — the statement is rejectable and carries its outcome.
     expect(statement(proposal, `formula:${balance.columnKey}`)).toMatchObject({
       subject: "formula",
-      evidence: [{ kind: "formula-text", text: "E2-F2", isArray: false, isExternal: false, formulaCount: 60 }],
+      editKind: "reject-statement",
+      evidence: [
+        { kind: "formula-text", text: "E2-F2", isArray: false, isExternal: false, formulaCount: 60 },
+        {
+          kind: "formula-outcome",
+          target: "computed-column",
+          disposition: "live",
+          determinism: "deterministic",
+          reason: null,
+          shapeMatchCount: 60,
+          rowCount: 60,
+          shapeBreakRowIndex: null,
+          relatedTableName: null,
+        },
+      ],
     });
     expect(fieldNamed(jobs, "Customer")).toMatchObject({ type: { kind: "text" }, formulaText: "VLOOKUP(B2,Customers!A:B,2,FALSE)" });
   });
@@ -284,7 +299,7 @@ describe("inferWorkbook — the delimited special case", () => {
   it("is one sheet and one table that maps exactly onto the F02 pinned proposal", async () => {
     const { items } = await parseFixture("delimited/field-log-messy.csv", "field-log-messy.csv");
     const workbook = inferWorkbook(items, contextFor("field-log-messy.csv", null));
-    const f02 = inferProposal(items, { fileName: "field-log-messy.csv" });
+    const f02 = f02ProposalOf(items, "field-log-messy.csv");
 
     expect(workbook.sheets).toHaveLength(1);
     expect(workbook.sheets[0]).toMatchObject({ sheetKey: "s0", isSelected: true, classification: ["table"] });

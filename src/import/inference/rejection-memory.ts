@@ -15,6 +15,7 @@
  * exactly the same thing.
  */
 
+import { deriveFormulaSurface } from "./formulas.js";
 import { decisionKindOf, type WorkbookStatementV1 } from "./statements.js";
 import {
   SHEET_ROLES,
@@ -156,6 +157,12 @@ export function statementEffect(proposal: ProposedWorkbookV1, statement: Workboo
         ...proposal,
         recordRules: proposal.recordRules.map((rule) => (rule.ruleKey === target ? { ...rule, isActive: !isRejected } : rule)),
       };
+    case "formula":
+      // Declined, a formula's imported values stay authored literals (D51).
+      return deriveFormulaSurface({
+        ...proposal,
+        formulas: proposal.formulas.map((formula) => (formula.formulaKey === target ? { ...formula, isActive: !isRejected } : formula)),
+      });
     default:
       return proposal;
   }

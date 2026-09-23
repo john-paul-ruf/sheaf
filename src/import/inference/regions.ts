@@ -17,7 +17,7 @@
  * the declaration's, never inferred (declared structure wins).
  */
 
-import { columnLettersOf, type LookupV1 } from "../../domain/formulas/index.js";
+import { columnLettersOf, parseFormula, type FormulaAstV1, type LookupV1 } from "../../domain/formulas/index.js";
 import type { DateSystemV1 } from "../facts/index.js";
 import {
   COLUMN_LOOKUP_LIMIT,
@@ -26,6 +26,7 @@ import {
   looksLikeHeading,
   newStats,
   observe,
+  observeFormulaShape,
   type CellFormatV1,
   type ColumnStats,
 } from "./types.js";
@@ -160,8 +161,59 @@ export interface CellInputV1 {
     readonly isExternal: boolean;
     /** The lookups its text names (M03); empty for a shared child or an unparsed text. */
     readonly lookups: readonly LookupV1[];
+    /**
+     * Its relative shape (M03's `relativeShapeKey`): a shared child's is its
+     * master's. `null` when neither its text nor its group's could be read.
+     */
+    readonly shapeKey: string | null;
   } | null;
 }
+
+/** A formula cell in a table's totals row, or in the footer row directly under a region table. */
+export interface FooterFormulaV1 {
+  readonly rowIndex: number;
+  /** The sheet column. */
+  readonly columnIndex: number;
+  readonly text: string;
+  readonly isArray: boolean;
+  /** The row's first text cell left of it (`Total`), if any. */
+  readonly label: string | null;
+}
+
+/** The aggregates a footer cell may apply to the column above it. */
+const FOOTER_AGGREGATES: ReadonlySet<string> = new Set(["SUM", "AVERAGE", "COUNT", "COUNTA", "MIN", "MAX"]);
+
+const unwrap = (ast: FormulaAstV1): FormulaAstV1 => (ast.kind === "group" ? unwrap(ast.expression) : ast);
+
+/**
+ * True when `text` aggregates exactly the column above it: one catalog
+ * aggregate over one area in `column`, from at most `firstDataRow` down to
+ * the row directly above `rowIndex`.
+ */
+export function aggregatesColumnAbove(text: string, rowIndex: number, column: number, firstDataRow: number): boolean {
+  const parsed = parseFormula(text);
+  if (parsed.kind !== "parsed") return false;
+  const call = unwrap(parsed.ast);
+  if (call.kind !== "call" || !FOOTER_AGGREGATES.has(call.name) || call.args.length !== 1) return false;
+  const argument = call.args[0];
+  const area = argument === null || argument === undefined ? null : unwrap(argument);
+  if (area?.kind !== "reference" || area.reference.kind !== "area" || area.reference.scope !== null) return false;
+  const { first, last } = area.reference;
+  return (
+    first.column === column &&
+    last.column === column &&
+    Math.min(first.row, last.row) <= firstDataRow &&
+    Math.max(first.row, last.row) === rowIndex - 1
+  );
+}
+
+const footerOf = (rowIndex: number, cells: readonly CellInputV1[]): FooterFormulaV1[] =>
+  cells.flatMap((cell) => {
+    const text = cell.formula?.text ?? null;
+    if (text === null || cell.formula === null) return [];
+    const label = [...cells].reverse().find((other) => other.column < cell.column && other.formula === null && other.text !== "")?.text ?? null;
+    return [{ rowIndex, columnIndex: cell.column, text, isArray: cell.formula.isArray, label }];
+  });
 
 export type TableBuilderMode =
   | { readonly kind: "delimited" }
@@ -190,6 +242,8 @@ export interface MeasuredTableV1 {
   readonly lastRowIndex: number;
   /** Stats by relative column; a column no data row filled has fresh stats. */
   readonly columns: readonly ColumnStats[];
+  /** Formula cells of a declared totals row, or of a region's footer row (discarded `totals-row`). */
+  readonly footer: readonly FooterFormulaV1[];
 }
 
 /**
@@ -203,6 +257,10 @@ export class TableBuilder {
   private readonly columns = new Map<number, ColumnStats>();
   private discardedRowCount = 0;
   private dataRowCount = 0;
+  private firstDataRowIndex = -1;
+  private readonly footer: FooterFormulaV1[] = [];
+  /** A region's latest data row, held back until a later row shows it is not the footer. */
+  private pending: { readonly row: ProposedRowV1; readonly cells: readonly CellInputV1[] } | null = null;
   private headerRowIndex: number | null = null;
   private isDecided: boolean;
   private modal = 0;
@@ -227,11 +285,46 @@ export class TableBuilder {
     }
   }
 
+  /**
+   * A region's rows are held back one row: the last one may turn out to be
+   * a footer of column aggregates (`=SUM(C2:C9)` under C), which is a table
+   * metric and never a record (FR-14b).
+   */
   private takeDataRow(row: ProposedRowV1, cells: readonly CellInputV1[]): void {
+    if (this.mode.kind !== "region") {
+      this.commitDataRow(row, cells);
+      return;
+    }
+    if (this.pending !== null) this.commitDataRow(this.pending.row, this.pending.cells);
+    this.pending = { row, cells };
+  }
+
+  private settlePending(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    const formulas = pending.cells.filter((cell) => cell.formula !== null);
+    const isFooter =
+      this.dataRowCount >= 2 &&
+      formulas.length > 0 &&
+      formulas.every(
+        (cell) => cell.formula?.text != null && aggregatesColumnAbove(cell.formula.text, pending.row.rowIndex, cell.column, this.firstDataRowIndex),
+      );
+    if (!isFooter) {
+      this.commitDataRow(pending.row, pending.cells);
+      return;
+    }
+    this.discard(pending.row, "totals-row");
+    this.footer.push(...footerOf(pending.row.rowIndex, pending.cells));
+    this.lastRowIndex = pending.row.rowIndex - 1;
+  }
+
+  private commitDataRow(row: ProposedRowV1, cells: readonly CellInputV1[]): void {
     if (isEmptyRow(row.cells)) {
       this.discard(row, "empty-row");
       return;
     }
+    if (this.firstDataRowIndex < 0) this.firstDataRowIndex = row.rowIndex;
     this.dataRowCount += 1;
     for (const cell of cells) {
       if (cell.text === "" && cell.formula === null) continue;
@@ -244,6 +337,7 @@ export class TableBuilder {
       if (cell.text !== "") observe(stats, row.rowIndex, cell.text, cell.format);
       if (cell.formula !== null) {
         stats.formulaCount += 1;
+        observeFormulaShape(stats, row.rowIndex, cell.formula);
         if (stats.firstFormula === null && cell.formula.text !== null) {
           stats.firstFormula = { text: cell.formula.text, isArray: cell.formula.isArray, isExternal: cell.formula.isExternal };
         }
@@ -264,6 +358,7 @@ export class TableBuilder {
         this.discard(row, "above-header");
       } else if (row.rowIndex > mode.lastDataRow) {
         this.discard(row, "totals-row");
+        this.footer.push(...footerOf(row.rowIndex, cells));
       } else {
         this.takeDataRow(row, cells);
       }
@@ -302,6 +397,7 @@ export class TableBuilder {
 
   finish(): MeasuredTableV1 {
     this.decide();
+    this.settlePending();
     // As wide as the widest row, never the *typical* row: a ragged row's
     // extra cells are real values, and a narrower table would drop them.
     const columnCount = this.fixedWidth ?? Math.max(this.modal, this.widest);
@@ -326,6 +422,7 @@ export class TableBuilder {
           this.columns.get(index) ??
           newStats(this.mode.kind === "delimited" ? ENUM_OPTION_LIMIT : KEY_SKETCH_LIMIT, this.dateSystem),
       ),
+      footer: this.footer,
     };
   }
 }

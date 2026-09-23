@@ -218,7 +218,19 @@ const ALL_SHEETS = {
     },
   ],
   recordRules: [],
-  inertCounts: { formula: 3, chart: 1, drawing: 2, "cell-styling": 7 },
+  // F04 (S07): the demo's formulas, live. Jobs Balance and the Customer lookup
+  // (through the Customer ID relationship) become computed columns; the four
+  // Overview formulas become dashboard values, Balance reading the two SUMs.
+  formulas: [
+    ["s0.t0.c2", "computed-column", null, "VLOOKUP(B2,Customers!A:B,2,FALSE)", "Jobs!C2:C61", 60, "live", "deterministic", null, "rel:s0.t0.c1", true],
+    ["s0.t0.c6", "computed-column", null, "E2-F2", "Jobs!G2:G61", 60, "live", "deterministic", null, null, true],
+    ["s5.R3C2", "dashboard-value", "Open jobs", 'COUNTIF(Jobs!D2:D61,"In progress")', "Overview!B3", 1, "live", "deterministic", null, null, true],
+    ["s5.R4C2", "dashboard-value", "Quoted total", "SUM(Jobs!E2:E61)", "Overview!B4", 1, "live", "deterministic", null, null, true],
+    ["s5.R5C2", "dashboard-value", "Paid total", "SUM(Jobs!F2:F61)", "Overview!B5", 1, "live", "deterministic", null, null, true],
+    ["s5.R6C2", "dashboard-value", "Balance", "B4-B5", "Overview!B6", 1, "live", "deterministic", null, null, true],
+  ],
+  // F04: formulas now live — the three formula items (two columns, the Overview cells) are gone.
+  inertCounts: { chart: 1, drawing: 2, "cell-styling": 7 },
   statements: [
     [
       "app-name",
@@ -311,8 +323,8 @@ const ALL_SHEETS = {
     [
       "formula:s0.t0.c2",
       "formula",
-      null,
-      ["formula-text"],
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
       "accepted",
       "[\"sheaf.inference.v2\",\"formula\",\"Jobs\",\"JobsTable\",2,\"formula-text\",\"VLOOKUP(B2,Customers!A:B,2,FALSE)\"]",
     ],
@@ -391,8 +403,8 @@ const ALL_SHEETS = {
     [
       "formula:s0.t0.c6",
       "formula",
-      null,
-      ["formula-text"],
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
       "accepted",
       "[\"sheaf.inference.v2\",\"formula\",\"Jobs\",\"JobsTable\",6,\"formula-text\",\"E2-F2\"]",
     ],
@@ -963,6 +975,39 @@ const ALL_SHEETS = {
       ["preserved-part"],
       "accepted",
       "[\"sheaf.inference.v2\",\"sheet-classification\",\"Overview\",\"chart\",\"preserved-part\",\"chart\"]",
+    ],
+    // F04: the Overview summary formulas are dashboard values now, each its own statement.
+    [
+      "formula:s5.R3C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R3C2\",\"formula-text\",\"COUNTIF(Jobs!D2:D61,\\\"In progress\\\")\"]",
+    ],
+    [
+      "formula:s5.R4C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R4C2\",\"formula-text\",\"SUM(Jobs!E2:E61)\"]",
+    ],
+    [
+      "formula:s5.R5C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R5C2\",\"formula-text\",\"SUM(Jobs!F2:F61)\"]",
+    ],
+    [
+      "formula:s5.R6C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R6C2\",\"formula-text\",\"B4-B5\"]",
     ],
     [
       "table-name:s6.r0",
@@ -1265,7 +1310,19 @@ const ARCHIVE_DESELECTED = {
     },
   ],
   recordRules: [],
-  inertCounts: { formula: 3, chart: 1, drawing: 2, "cell-styling": 6 },
+  // F04 (S07): the demo's formulas, live. Jobs Balance and the Customer lookup
+  // (through the Customer ID relationship) become computed columns; the four
+  // Overview formulas become dashboard values, Balance reading the two SUMs.
+  formulas: [
+    ["s0.t0.c2", "computed-column", null, "VLOOKUP(B2,Customers!A:B,2,FALSE)", "Jobs!C2:C61", 60, "live", "deterministic", null, "rel:s0.t0.c1", true],
+    ["s0.t0.c6", "computed-column", null, "E2-F2", "Jobs!G2:G61", 60, "live", "deterministic", null, null, true],
+    ["s5.R3C2", "dashboard-value", "Open jobs", 'COUNTIF(Jobs!D2:D61,"In progress")', "Overview!B3", 1, "live", "deterministic", null, null, true],
+    ["s5.R4C2", "dashboard-value", "Quoted total", "SUM(Jobs!E2:E61)", "Overview!B4", 1, "live", "deterministic", null, null, true],
+    ["s5.R5C2", "dashboard-value", "Paid total", "SUM(Jobs!F2:F61)", "Overview!B5", 1, "live", "deterministic", null, null, true],
+    ["s5.R6C2", "dashboard-value", "Balance", "B4-B5", "Overview!B6", 1, "live", "deterministic", null, null, true],
+  ],
+  // F04: formulas now live — the three formula items (two columns, the Overview cells) are gone.
+  inertCounts: { chart: 1, drawing: 2, "cell-styling": 6 },
   statements: [
     [
       "app-name",
@@ -1358,8 +1415,8 @@ const ARCHIVE_DESELECTED = {
     [
       "formula:s0.t0.c2",
       "formula",
-      null,
-      ["formula-text"],
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
       "accepted",
       "[\"sheaf.inference.v2\",\"formula\",\"Jobs\",\"JobsTable\",2,\"formula-text\",\"VLOOKUP(B2,Customers!A:B,2,FALSE)\"]",
     ],
@@ -1438,8 +1495,8 @@ const ARCHIVE_DESELECTED = {
     [
       "formula:s0.t0.c6",
       "formula",
-      null,
-      ["formula-text"],
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
       "accepted",
       "[\"sheaf.inference.v2\",\"formula\",\"Jobs\",\"JobsTable\",6,\"formula-text\",\"E2-F2\"]",
     ],
@@ -2011,6 +2068,39 @@ const ARCHIVE_DESELECTED = {
       "accepted",
       "[\"sheaf.inference.v2\",\"sheet-classification\",\"Overview\",\"chart\",\"preserved-part\",\"chart\"]",
     ],
+    // F04: the Overview summary formulas are dashboard values now, each its own statement.
+    [
+      "formula:s5.R3C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R3C2\",\"formula-text\",\"COUNTIF(Jobs!D2:D61,\\\"In progress\\\")\"]",
+    ],
+    [
+      "formula:s5.R4C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R4C2\",\"formula-text\",\"SUM(Jobs!E2:E61)\"]",
+    ],
+    [
+      "formula:s5.R5C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R5C2\",\"formula-text\",\"SUM(Jobs!F2:F61)\"]",
+    ],
+    [
+      "formula:s5.R6C2",
+      "formula",
+      "reject-statement",
+      ["formula-text", "formula-outcome"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"formula\",\"Overview\",\"R6C2\",\"formula-text\",\"B4-B5\"]",
+    ],
     [
       "relationship:rel:s0.t0.c1",
       "relationship",
@@ -2034,12 +2124,14 @@ describe("CA-19 — the pinned demo proposal", () => {
   it("proposes exactly this for fieldwork-q3.xlsx with every sheet selected", async () => {
     const proposal = await proposeFixture(DEMO, [0, 1, 2, 3, 4, 5, 6]);
     expect(pinOf(proposal)).toEqual(ALL_SHEETS);
-    expect(proposal.statements).toHaveLength(108);
+    // F04: 108 → 112, the four Overview dashboard values each gain a statement.
+    expect(proposal.statements).toHaveLength(112);
   });
 
   it("proposes exactly this with Archive 2018 deselected", async () => {
     const proposal = await proposeFixture(DEMO, [0, 1, 2, 3, 4, 5]);
     expect(pinOf(proposal)).toEqual(ARCHIVE_DESELECTED);
-    expect(proposal.statements).toHaveLength(95);
+    // F04: 95 → 99, the four Overview dashboard values each gain a statement.
+    expect(proposal.statements).toHaveLength(99);
   });
 });

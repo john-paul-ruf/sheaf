@@ -23,6 +23,7 @@
  * about where one ends and the next begins.
  */
 
+import type { FormulaDeterminismV1, FormulaDispositionV1 } from "../../domain/formulas/index.js";
 import type { InferenceDispositionV1 } from "../../domain/model/events.js";
 import type {
   FormatClassV1,
@@ -33,6 +34,7 @@ import type {
   ValidationOperatorV1,
   ValidationRuleV1,
 } from "../facts/index.js";
+import type { FormulaKeepReasonV1 } from "./workbook-proposal.js";
 
 export const INFERENCE_SUBJECTS = Object.freeze([
   "app-name",
@@ -346,7 +348,22 @@ export type WorkbookStructureEvidenceV1 =
       readonly tableCount: number;
     }
   | { readonly kind: "preserved-part"; readonly partKind: PreservedPartKindV1; readonly count: number }
-  | { readonly kind: "previously-rejected" };
+  | { readonly kind: "previously-rejected" }
+  | {
+      /** What an imported formula becomes (F04, D51), re-derived after every review edit. */
+      readonly kind: "formula-outcome";
+      readonly target: "computed-column" | "table-metric" | "dashboard-value";
+      readonly disposition: FormulaDispositionV1;
+      readonly determinism: FormulaDeterminismV1;
+      readonly reason: FormulaKeepReasonV1 | null;
+      readonly detail: string | null;
+      /** Cells holding the formula's shape, and (for a column) the rows it must fill. */
+      readonly shapeMatchCount: number;
+      readonly rowCount: number | null;
+      readonly shapeBreakRowIndex: number | null;
+      /** The parent table a lookup reads through its relationship. */
+      readonly relatedTableName: string | null;
+    };
 
 export type WorkbookEvidenceV1 = EvidenceV1 | WorkbookStructureEvidenceV1;
 
@@ -386,6 +403,10 @@ const workbookTermsOf = (evidence: WorkbookEvidenceV1): readonly string[] => {
     case "previously-rejected":
       // A stored rejection is *why* the statement stands rejected, not what
       // it is about; letting it in would change the fingerprint it matched.
+      return [];
+    case "formula-outcome":
+      // Derived from the text and the structure, and re-derived by review
+      // edits: the decision is about the formula text alone.
       return [];
     default:
       return fingerprintTermsOf(evidence);

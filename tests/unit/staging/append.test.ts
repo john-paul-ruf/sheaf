@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testFormulaIdentities } from "../import/delimited-proposal.js";
 import { asStorageId16, decodeStorageId16, encodeStorageId16 } from "../../../src/domain/model/bytes.js";
 import type { WorkbookFactStreamItemV2 } from "../../../src/import/facts/index.js";
 import { parseDelimited } from "../../../src/import/formats/delimited/parse.js";
@@ -100,6 +101,7 @@ async function stageDelimited(
     sheetSelection: null,
     rejectionMemory: new Set(),
     fingerprintOf: (input) => input,
+    formulaIdentities: testFormulaIdentities(),
     existingApp: tableNames === null ? null : { tableNames },
   });
   const reviewed = await writeImportStage(harness.ports, harness.localRoot, sourced.loaded, stageWithProposal(sourced.loaded.stage, proposal));

@@ -52,6 +52,8 @@ describe("workbook roots vocabularies", () => {
   it("keeps D40's sixteen inert kinds and a closed reason list, frozen", () => {
     expect(INERT_ITEM_KINDS).toHaveLength(16);
     expect(INERT_REASON_KEYS).toContain("formula-not-live-yet");
+    // CA-33 (F04 S07): F03's durable keys keep decoding beside the two new ones.
+    expect(INERT_REASON_KEYS).toEqual(expect.arrayContaining(["chart-not-live-yet", "chart-not-rebuilt", "formula-not-supported"]));
     for (const list of [
       DECISION_KINDS,
       IMPORT_KINDS,

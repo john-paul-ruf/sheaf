@@ -108,6 +108,8 @@ import type { AppSessionV1 } from "./app-session.js";
 import type { LoadedAppV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
 import { inferWorkbook } from "../../import/inference/workbook.js";
+import { refreshFormulas } from "../../import/inference/formulas.js";
+import { reviewFormulaIdentities } from "../../import/staging/formula-identities.js";
 import type { ProposedRuleConditionV1, ProposedWorkbookV1 } from "../../import/inference/workbook-proposal.js";
 import { decodeFactStreamItem, encodeFactStreamItem } from "../../import/staging/fact-codec.js";
 import type { LoadedImportStageV1 } from "../../import/staging/lifecycle.js";
@@ -1060,7 +1062,11 @@ export function createImportHandlers(
       const digest = await crypto.sha256(new TextEncoder().encode(statement.evidenceFingerprint));
       digests.set(statement.evidenceFingerprint, hexOf(digest));
     }
-    return applyRejectionMemory(proposal, memory, (input) => digests.get(input) ?? "");
+    // A remembered rejection (a relationship, say) changes what a formula becomes.
+    return refreshFormulas(
+      applyRejectionMemory(proposal, memory, (input) => digests.get(input) ?? ""),
+      reviewFormulaIdentities(deps.entropy),
+    );
   }
 
   /**
@@ -1311,6 +1317,7 @@ export function createImportHandlers(
           // Memory is applied below, once its digests are known (M08 is async).
           rejectionMemory: new Set(),
           fingerprintOf: noRejectionMemory,
+          formulaIdentities: reviewFormulaIdentities(deps.entropy),
           // An append's new table is named apart from the app's own (D38).
           existingApp:
             target === null
@@ -1358,7 +1365,7 @@ export function createImportHandlers(
       }
       const { context, catalogPort, loaded } = opened;
 
-      const result = stageWithReviewEdit(loaded.stage, request.edit);
+      const result = stageWithReviewEdit(loaded.stage, request.edit, reviewFormulaIdentities(deps.entropy));
       if (result.kind === "rejected" || result.stage === undefined) {
         crypto.destroyKey(loaded.provisionalKey);
         return {

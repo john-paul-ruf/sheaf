@@ -231,6 +231,8 @@ export const INERT_REASON_OF: Readonly<Record<PreservedReasonKeyV1, InertReasonK
   "formatting-not-reproduced": "formatting-not-reproduced",
   "script-not-run": "script-never-runs",
   "validation-not-expressible": "validation-not-expressible",
+  "chart-not-rebuilt": "chart-not-rebuilt",
+  "formula-not-supported": "formula-not-supported",
 });
 
 // Every key and value is a member of its closed list, or this module does not load.
