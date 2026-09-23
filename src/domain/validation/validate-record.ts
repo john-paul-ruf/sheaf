@@ -34,13 +34,26 @@
  * Provenance is part of the record, not a flag: {@link RecordUnderValidationV1}
  * states where each value in this write comes from, and a value it does not
  * name is not being authored by this write.
+ *
+ * **Computed fields (D51).** A field with a `formulaId` is skipped by the
+ * required and type checks: its value is derived, or — for a frozen or
+ * unsupported formula — an imported literal kept with its provenance. A value
+ * this write authors for it (`source: "user"`) is a blocking `formula` issue
+ * `computed-not-authored`, unless it is the frozen literal the command
+ * evaluated once (`evidence.frozen`).
+ *
+ * **Record rules.** v1 and v2 rules evaluate through one path. A v2
+ * comparison over a missing value or mismatched types is undetermined and
+ * does not fire; `all`/`any`/`not` combine undetermined results the way
+ * three-valued logic does, so a v1 rule — always determined — evaluates
+ * exactly as before.
  */
 
 import type { RecordId, TableId } from "../model/ids.js";
 import { encodeDomainId, type FieldId } from "../model/ids.js";
 import type { ValueProvenanceV1 } from "../model/provenance.js";
 import type { EnumOptionDefV1, FieldDefV1, TableDefV1 } from "../model/schema.js";
-import { expectedCellKindForFieldType } from "../model/schema.js";
+import { expectedCellKindForFieldType, isComputedField } from "../model/schema.js";
 import {
   cellValuesEqual,
   isAbsentCellValue,
@@ -49,10 +62,13 @@ import {
 } from "../model/values.js";
 import {
   buildReport,
-  type RuleConditionV1,
+  type CompareOperatorV1,
+  type RuleConditionV2,
+  type RuleMeasureV2,
   type ValidationIssueV1,
   type ValidationReport,
   type ValidationRuleIR,
+  type ValidationRuleIRV2,
 } from "./rules.js";
 
 /**
@@ -77,7 +93,7 @@ export interface ValidationContext {
   readonly table: TableDefV1;
   /** Active and inactive options, keyed by their enum field. */
   readonly enumOptions: ReadonlyMap<FieldId, readonly EnumOptionDefV1[]>;
-  readonly rules: readonly ValidationRuleIR[];
+  readonly rules: readonly (ValidationRuleIR | ValidationRuleIRV2)[];
   readonly referenceExists: ReferenceResolver;
   /**
    * The target of each reference field this table holds, from its active
@@ -137,15 +153,24 @@ const targetOf = (
     (target) => encodeDomainId(target.fieldId) === encodeDomainId(field.fieldId),
   );
 
+const provenanceNow = (
+  record: RecordUnderValidationV1,
+  field: FieldDefV1,
+): ValueProvenanceV1 | undefined =>
+  [...(record.provenance ?? [])].find(
+    ([fieldId]) => encodeDomainId(fieldId) === encodeDomainId(field.fieldId),
+  )?.[1];
+
 const isAuthoredNow = (
   record: RecordUnderValidationV1,
   field: FieldDefV1,
-): boolean =>
-  [...(record.provenance ?? [])].some(
-    ([fieldId, provenance]) =>
-      provenance.source === "user" &&
-      encodeDomainId(fieldId) === encodeDomainId(field.fieldId),
-  );
+): boolean => provenanceNow(record, field)?.source === "user";
+
+/** The literal a frozen formula's one evaluation produced (D51). */
+const isFrozenLiteral = (provenance: ValueProvenanceV1): boolean =>
+  typeof provenance.evidence === "object" &&
+  provenance.evidence !== null &&
+  "frozen" in provenance.evidence;
 
 function checkField(
   context: ValidationContext,
@@ -228,10 +253,73 @@ function checkField(
   return issues;
 }
 
+/** Code-point order of NFC text — not UTF-16 unit order, not a locale collation. */
+const compareText = (left: string, right: string): number => {
+  const a = [...left.normalize("NFC")];
+  const b = [...right.normalize("NFC")];
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const difference = (a[index]?.codePointAt(0) ?? 0) - (b[index]?.codePointAt(0) ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
+};
+
+/** Numeric order of two canonical decimal strings, without a float. */
+const compareDecimalText = (left: string, right: string): number => {
+  const sign = (text: string): number =>
+    text.startsWith("-") ? -1 : /^0(\.0+)?$/.test(text) ? 0 : 1;
+  if (sign(left) !== sign(right)) return sign(left) - sign(right);
+  const [leftInteger = "", leftFraction = ""] = left.replace("-", "").split(".");
+  const [rightInteger = "", rightFraction = ""] = right.replace("-", "").split(".");
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const a = `${leftInteger.padStart(40, "0")}${leftFraction.padEnd(width, "0")}`;
+  const b = `${rightInteger.padStart(40, "0")}${rightFraction.padEnd(width, "0")}`;
+  const magnitude = a < b ? -1 : a > b ? 1 : 0;
+  return sign(left) < 0 ? -magnitude : magnitude;
+};
+
+/** The typed order of two values, or `null` when they are not comparable. */
+function compareTyped(left: CellValueV1, right: CellValueV1): number | null {
+  if (left.kind === "decimal" && right.kind === "decimal") return compareDecimalText(left.decimal, right.decimal);
+  if (left.kind === "date" && right.kind === "date") return left.epochDay - right.epochDay;
+  if (left.kind === "text" && right.kind === "text") return compareText(left.text, right.text);
+  return null;
+}
+
+const measured = (value: CellValueV1, measure: RuleMeasureV2 | undefined): CellValueV1 | null => {
+  if (isAbsentCellValue(value)) return null;
+  if (measure === undefined) return value;
+  return value.kind === "text"
+    ? { kind: "decimal", decimal: String([...value.text].length) }
+    : null;
+};
+
+const holds = (operator: CompareOperatorV1, order: number): boolean => {
+  switch (operator) {
+    case "lt":
+      return order < 0;
+    case "le":
+      return order <= 0;
+    case "gt":
+      return order > 0;
+    case "ge":
+      return order >= 0;
+    case "eq":
+      return order === 0;
+    case "ne":
+      return order !== 0;
+    default: {
+      const unreachable: never = operator;
+      return unreachable;
+    }
+  }
+};
+
+/** `true`/`false`, or `null` when a comparison cannot be decided (three-valued). */
 function evaluateCondition(
-  condition: RuleConditionV1,
+  condition: RuleConditionV2,
   record: RecordUnderValidationV1,
-): boolean {
+): boolean | null {
   switch (condition.kind) {
     case "field-present":
       return !isAbsentCellValue(valueOf(record, condition.fieldId));
@@ -242,21 +330,53 @@ function evaluateCondition(
         valueOf(record, condition.fieldId),
         condition.value,
       );
-    case "all":
-      return condition.conditions.every((nested) =>
-        evaluateCondition(nested, record),
-      );
-    case "any":
-      return condition.conditions.some((nested) =>
-        evaluateCondition(nested, record),
-      );
-    case "not":
-      return !evaluateCondition(condition.condition, record);
+    case "all": {
+      const results = condition.conditions.map((nested) => evaluateCondition(nested, record));
+      return results.includes(false) ? false : results.includes(null) ? null : true;
+    }
+    case "any": {
+      const results = condition.conditions.map((nested) => evaluateCondition(nested, record));
+      return results.includes(true) ? true : results.includes(null) ? null : false;
+    }
+    case "not": {
+      const result = evaluateCondition(condition.condition, record);
+      return result === null ? null : !result;
+    }
+    case "compare": {
+      const left = measured(valueOf(record, condition.left), condition.measure);
+      const right =
+        "field" in condition.right
+          ? measured(valueOf(record, condition.right.field), condition.measure)
+          : condition.right.value;
+      const order = left === null || right === null ? null : compareTyped(left, right);
+      return order === null ? null : holds(condition.op, order);
+    }
+    case "between":
+    case "not-between": {
+      const value = measured(valueOf(record, condition.fieldId), condition.measure);
+      const low = value === null ? null : compareTyped(value, condition.low);
+      const high = value === null ? null : compareTyped(value, condition.high);
+      if (low === null || high === null) return null;
+      const isInside = low >= 0 && high <= 0;
+      return condition.kind === "between" ? isInside : !isInside;
+    }
     default: {
       const unreachable: never = condition;
       return unreachable;
     }
   }
+}
+
+/**
+ * True unless the record definitely breaks the rule. An undetermined v2
+ * comparison does not fire. Schema-impact analysis counts failing records
+ * through this same function (CA-27).
+ */
+export function ruleHolds(
+  rule: ValidationRuleIR | ValidationRuleIRV2,
+  record: RecordUnderValidationV1,
+): boolean {
+  return evaluateCondition(rule.condition, record) !== false;
 }
 
 /**
@@ -304,13 +424,22 @@ export function validateRecord(
       // against a definition the user no longer edits against.
       continue;
     }
+    if (isComputedField(field)) {
+      const provenance = provenanceNow(record, field);
+      if (provenance?.source === "user" && !isFrozenLiteral(provenance)) {
+        issues.push(
+          fieldIssue(field, "formula", "blocking", "computed-not-authored"),
+        );
+      }
+      continue;
+    }
     issues.push(
       ...checkField(context, record, field, valueOf(record, field.fieldId)),
     );
   }
 
   for (const rule of context.rules) {
-    if (!evaluateCondition(rule.condition, record)) {
+    if (!ruleHolds(rule, record)) {
       issues.push({
         fieldId: null,
         ruleId: rule.ruleId,

@@ -194,3 +194,19 @@ export function dependenciesOf(document: FormulaIRDocumentV1): readonly FormulaD
   }
   return dependencies;
 }
+
+/**
+ * One formula as a definition (CA-25): stable ID, target, the text as
+ * authored or imported, its IR (`null` only when unsupported), disposition,
+ * determinism and dependencies. It never holds an evaluated value.
+ */
+export interface FormulaDefinitionV1 {
+  readonly formulaId: FormulaId;
+  readonly target: FormulaTargetV1;
+  readonly displayName: string | null;
+  readonly originalText: string;
+  readonly document: FormulaIRDocumentV1 | null;
+  readonly disposition: FormulaDispositionV1;
+  readonly determinism: FormulaDeterminismV1;
+  readonly dependencies: readonly FormulaDependencyV1[];
+}

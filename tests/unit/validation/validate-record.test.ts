@@ -503,3 +503,48 @@ describe("validateRecord", () => {
     }
   });
 });
+
+describe("validateRecord — computed fields (D51)", () => {
+  const FORMULA = asDomainId("formula", new Uint8Array(16).fill(40));
+  const BALANCE = fieldId(16);
+  const computed = context({
+    table: {
+      ...table,
+      fields: [...table.fields, field(BALANCE, { kind: "currency", currencyCode: "USD" }, { isRequired: true, formulaId: FORMULA })],
+    },
+  });
+  const base = [[NAME, textValue("Cedar plank")]] as const;
+
+  it("skips the required and type checks for a computed field", () => {
+    expect(validateRecord(computed, record(base))).toEqual({ isValid: true, issues: [] });
+    expect(validateRecord(computed, record([...base, [BALANCE, textValue("n/a")]]))).toEqual({ isValid: true, issues: [] });
+  });
+
+  it("refuses a value the user authors for a computed field", () => {
+    const report = validateRecord(computed, {
+      ...record([...base, [BALANCE, decimalValue("5")]]),
+      provenance: new Map([[BALANCE, { source: "user" }]]),
+    });
+    expect(report.isValid).toBe(false);
+    expect(report.issues).toEqual([
+      {
+        fieldId: BALANCE,
+        ruleId: null,
+        kind: "formula",
+        severity: "blocking",
+        messageKey: "computed-not-authored",
+        messageParameters: { fieldLabel: "field 16" },
+      },
+    ]);
+  });
+
+  it("accepts an imported literal and the frozen literal a command evaluated once", () => {
+    for (const provenance of [{ source: "initial-import" as const }, { source: "user" as const, evidence: { frozen: "=RAND()" } }]) {
+      const report = validateRecord(computed, {
+        ...record([...base, [BALANCE, decimalValue("0.42")]]),
+        provenance: new Map([[BALANCE, provenance]]),
+      });
+      expect(report, provenance.source).toEqual({ isValid: true, issues: [] });
+    }
+  });
+});

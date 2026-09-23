@@ -78,8 +78,9 @@ export function buildReport(
  *
  * The language is deliberately tiny and total: no arithmetic, no function
  * calls, no user-supplied text to interpret — nothing that could execute
- * imported behavior (invariant 8). Formula-backed conditions arrive with the
- * formula engine in F04, as a new IR version.
+ * imported behavior (invariant 8). Cross-field comparisons are IR version 2
+ * ({@link ValidationRuleIRV2}, D52); version 1 keeps decoding and evaluating
+ * unchanged.
  */
 export type RuleConditionV1 =
   | { readonly kind: "field-present"; readonly fieldId: FieldId }
@@ -101,3 +102,71 @@ export interface ValidationRuleIR {
   readonly messageKey: string;
   readonly messageParameters: Readonly<Record<string, MessageParameterV1>>;
 }
+
+/** The typed order a `compare` condition asks about (D52). */
+export const COMPARE_OPERATORS = Object.freeze(["lt", "le", "gt", "ge", "eq", "ne"] as const);
+
+export type CompareOperatorV1 = (typeof COMPARE_OPERATORS)[number];
+
+/**
+ * What a v2 comparison measures on its field: the value itself, or — for a
+ * workbook `text-length` validation (CA-27) — the text's length in code
+ * points. Absent means the value.
+ */
+export type RuleMeasureV2 = "text-length";
+
+/**
+ * The record-rule IR, version 2 (D52, CA-27): every v1 condition, plus
+ * `compare` (field against field or against a literal) and `between` /
+ * `not-between` (inclusive bounds). Values compare under their typed order —
+ * decimals numerically, dates by epoch day, text by NFC code point. A
+ * comparison whose operand is missing, or whose operands differ in type, does
+ * not fire: `required` and the type check already cover those.
+ */
+export type RuleConditionV2 =
+  | Exclude<RuleConditionV1, { readonly kind: "all" | "any" | "not" }>
+  | { readonly kind: "all"; readonly conditions: readonly RuleConditionV2[] }
+  | { readonly kind: "any"; readonly conditions: readonly RuleConditionV2[] }
+  | { readonly kind: "not"; readonly condition: RuleConditionV2 }
+  | {
+      readonly kind: "compare";
+      readonly left: FieldId;
+      readonly op: CompareOperatorV1;
+      readonly right: { readonly field: FieldId } | { readonly value: CellValueV1 };
+      readonly measure?: RuleMeasureV2;
+    }
+  | {
+      readonly kind: "between" | "not-between";
+      readonly fieldId: FieldId;
+      readonly low: CellValueV1;
+      readonly high: CellValueV1;
+      readonly measure?: RuleMeasureV2;
+    };
+
+export interface ValidationRuleIRV2 {
+  readonly irVersion: 2;
+  readonly ruleId: RuleId;
+  readonly condition: RuleConditionV2;
+  readonly severity: ValidationSeverityV1;
+  readonly messageKey: string;
+  /** Field labels and the literal's type — never a cell value (CA-12). */
+  readonly messageParameters: Readonly<Record<string, MessageParameterV1>>;
+}
+
+/** The message keys a v2 rule adds to the v1 keys (CA-27). */
+export const RULE_V2_MESSAGE_KEYS = Object.freeze(["rule-compare", "rule-between"] as const);
+
+/**
+ * The `formula` issue keys (CA-26): a user write to a computed field, and the
+ * computed-cell states the projection flags.
+ */
+export const FORMULA_ISSUE_MESSAGE_KEYS = Object.freeze([
+  "computed-not-authored",
+  "formula-result-type",
+  "formula-error",
+  "formula-cycle",
+  "unsupported-formula",
+  "missing-unsupported-formula",
+] as const);
+
+export type FormulaIssueMessageKeyV1 = (typeof FORMULA_ISSUE_MESSAGE_KEYS)[number];

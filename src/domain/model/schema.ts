@@ -14,6 +14,7 @@
 
 import type {
   FieldId,
+  FormulaId,
   OptionId,
   RelationshipId,
   SheetId,
@@ -91,13 +92,6 @@ export function storageKindForFieldType(type: FieldTypeV1): StorageKindV1 {
 }
 
 /**
- * There is deliberately no `isComputed`/`formulaId` pair here. F02 has no
- * formula engine, so every field is authored; declaring the computed half now
- * would let a writer assert a computed field that nothing can evaluate
- * (invariant 7). The projection's `is_computed` column is written `0` for
- * every F02 field, and F04's formula work adds the fields with their producer.
- */
-/**
  * The one cell-value kind a field of this type accepts. Everything else is a
  * type issue: the value is preserved and flagged, never coerced. The absent
  * states (`missing`, `blank`) and `invalid-preserved` are legal for every
@@ -144,6 +138,19 @@ export interface FieldDefV1 {
   readonly isRequired: boolean;
   readonly isActive: boolean;
   readonly schemaRevision: bigint;
+  /**
+   * The formula that computes this field (D51); absent means the field is
+   * authored. A computed field's values are never authored: a live formula's
+   * cells are derived by recalculation and never enter an event (invariant 7),
+   * while a frozen or unsupported formula's imported literals keep their
+   * value provenance. migration 005 pins `is_computed` to this being set.
+   */
+  readonly formulaId?: FormulaId;
+}
+
+/** True for a field whose values a formula computes (D51). */
+export function isComputedField(field: FieldDefV1): boolean {
+  return field.formulaId !== undefined;
 }
 
 export interface EnumOptionDefV1 {
