@@ -283,4 +283,179 @@ All of CAP-28 to CAP-38 are verified against current sources at `5bc19fb`; see t
 | Inherited (F03) | CFB ranged read; `referenceTargets` optional; `originalBaselineStorageId`; lineage ids; rejection-memory consumer | **carried** as planned (see STATE Inherited obligations): next `cfb.ts` owner / F06 |
 
 ### Archivist's Note
-(appended below once the final Archivist returns)
+
+- **role:** archivist
+- **registryUpdated:** true
+- **reconciled:**
+  - `arch/M01-domain-model.md`
+  - `arch/M02-validation.md`
+  - `arch/M03-formulas.md`
+  - `arch/M07-ports.md`
+  - `arch/M12-projection.md`
+  - `arch/M15-ooxml.md`
+  - `arch/M21-inference.md`
+  - `arch/M23-staging.md`
+  - `arch/M32-worker-protocol.md`
+  - `arch/M33-workers.md`
+  - `arch/M34-commands.md`
+  - `arch/M35-queries.md`
+  - `arch/M36-workflows.md`
+  - `arch/M37-view-models.md`
+  - `arch/M38-ui-primitives.md`
+  - `arch/M39-ui-layout.md`
+  - `arch/M40-ui-theme.md`
+  - `arch/M42-ui-library.md`
+  - `arch/M43-ui-import.md`
+  - `arch/M44-ui-records.md`
+  - `arch/M45-ui-charts.md`
+  - `arch/M46-ui-schema.md`
+  - `arch/M54-routes.md`
+  - `arch/M58-workbook-fixtures.md`
+  - `arch/M61-e2e-tests.md`
+  - `arch/M65-workbook-facts.md`
+  - `PROGRAM-CONFIG.md`
+- **conventionsAdded:**
+  - A payload cached by the projection (M12) and sealed by staging (M23) is the same durable fact encoded twice; a version change must lease both (`ed1f65d3f1c1e905`) — 3 in-cycle instances (rule IR, chart definitions, theme v2; the third broke and needed a correction).
+- **proposedForFramework:**
+  - A checkpoint's seed instruction should name the exact producing function, not just the file (`242f2bb3c9d6af33`) — 1 cycle, 1 instance; → PLANNER.md.
+  - A worker-tier proving assertion requires exact counts, not an inequality, at the first checkpoint that proves a capability (`abf5cf9b579e46b5`) — 1 cycle, 1 instance (S03's `≥` assertion masked the M02 identity defect for two sessions); → CODER.md/PLANNER.md.
+  - Re-raised, unchanged text: no interim drift check below 16 sessions (`442cb40af6e1a830`, 4 cycles, 21 instances); Archivist envelope omits the cleanup ledger (`f1442f23b7f0949d`, 4 cycles, 5 instances); paired test-directory handoff naming (`1f54dec2254e8f15`, practiced correctly in F04, still unadopted in text); concurrent-sibling shared-vocabulary channel gap (`1c51a85390a3f964`, mitigated in F04's own plan, still unadopted in text).
+- **logEntry:** `program/sheaf/ROSHI-LOG.md`, dated 2026-09-23, "final pass, cycle **F04 / formulas-queries-charts**" — committed at `60a6a81`.
+
+### cleanupBriefs
+
+None crossed a briefing threshold this pass.
+
+### standingRecommendations
+
+- **pattern:** A dependency must-not ships as a test, not a review note
+- **cycles:** 4
+- **instances:** 5(F01)+3(F02)+5(F03)+3(F04)
+- **firstSeen:** F01
+- **status:** promoted → PROGRAM-CONFIG Conventions
+
+- **pattern:** Encode a must-not as a type or a runtime throw
+- **cycles:** 4
+- **instances:** 5(F01)+8(F02)+3(F03)+2(F04)
+- **firstSeen:** F01
+- **status:** promoted → PROGRAM-CONFIG Conventions
+
+- **pattern:** Test filters take no bare `--`
+- **cycles:** 1
+- **instances:** 3
+- **firstSeen:** F01
+- **status:** promoted → PROGRAM-CONFIG Conventions; no F02/F03/F04 instance
+
+- **pattern:** `Owns` authoritative, Files table indicative
+- **cycles:** 4
+- **instances:** 7(F01)+9(F02)+12+(F03)+1(F04)
+- **firstSeen:** F01
+- **status:** promoted → Custom Rule 7
+
+- **pattern:** Arch fragment head contract superseded by its own delta
+- **cycles:** 4
+- **instances:** 4(F01)+6(F02)+6(F03)+1(F04)
+- **firstSeen:** F01
+- **status:** promoted → fragment policy; still firing each cycle (M03, F04)
+
+- **pattern:** Lease or boundary sweep drawn over the wrong tree
+- **cycles:** 2
+- **instances:** 3(F02)
+- **firstSeen:** F01
+- **status:** promoted → PROGRAM-CONFIG Conventions; held — 0 new instances F03/F04
+
+- **pattern:** Closed union and its exhaustive map split across leases
+- **cycles:** 2
+- **instances:** 3(F02)+0(F03)+4(F04)
+- **firstSeen:** F02
+- **status:** promoted → PROGRAM-CONFIG Conventions; F04 mixed (1 blocked, 3 pre-empted)
+
+- **pattern:** A delta describing another module
+- **cycles:** 3
+- **instances:** 4(F01)+4(F02)+0(F03)+1(F04)
+- **firstSeen:** F01
+- **status:** promoted → fragment policy; new F04 instance (M38→M37/M46)
+
+- **pattern:** No interim drift check scheduled below 16 sessions
+- **cycles:** 4
+- **instances:** 4(F01)+10(F02)+5(F03)+2(F04)
+- **firstSeen:** F01
+- **status:** open (Vow 3 → ORCHESTRATOR.md)
+
+- **pattern:** Archivist envelope write set omits the cleanup ledger it is asked to own
+- **cycles:** 4
+- **instances:** 1(F01)+2(F02)+1(F03)+1(F04)
+- **firstSeen:** F01
+- **status:** open (Vow 3 → ORCHESTRATOR.md)
+
+- **pattern:** Landed proof legs left in STATE's `planned:` list at receive
+- **cycles:** 1
+- **instances:** 13
+- **firstSeen:** F02
+- **status:** adopted
+
+- **pattern:** STATE table rows that lose a cell go unnoticed
+- **cycles:** 1
+- **instances:** 6
+- **firstSeen:** F02
+- **status:** open (Vow 3 → ORCHESTRATOR.md); not exhaustively re-checked
+
+- **pattern:** A module no session leased has no route into its own fragment
+- **cycles:** 1
+- **instances:** 6
+- **firstSeen:** F02
+- **status:** open (Vow 3 → ORCHESTRATOR.md); 0 new instances F03/F04
+
+- **pattern:** FORGE-CONFIG Verification Commands has no post-baseline maintainer
+- **cycles:** 1
+- **instances:** 2
+- **firstSeen:** F01
+- **status:** adopted
+
+- **pattern:** Checkpoint boundary blur: capability bodies and proofs split across checkpoints
+- **cycles:** 2
+- **instances:** 2(F01)+0(F02)
+- **firstSeen:** F01
+- **status:** retired
+
+- **pattern:** Authorized contract change breaks a consumer outside the lease
+- **cycles:** 1
+- **instances:** 1
+- **firstSeen:** F02
+- **status:** not proposed — substance already present
+
+- **pattern:** Files staged in the shared index from outside any lease
+- **cycles:** 1
+- **instances:** 3
+- **firstSeen:** F01
+- **status:** retired
+
+- **pattern:** A declared serial-lease-handoff line for a source directory should name its paired test-directory handoff
+- **cycles:** 1
+- **instances:** 4
+- **firstSeen:** F03
+- **status:** open (Vow 3 → PLANNER.md); practiced correctly in F04, 0 new gap instances
+
+- **pattern:** A rule a concurrently-dispatched sibling session discovers mid-run has no channel to reach another concurrently-dispatched sibling
+- **cycles:** 1
+- **instances:** 1
+- **firstSeen:** F03
+- **status:** open (Vow 3 → PLANNER.md); mitigated in F04's own plan, 0 new instances
+
+- **pattern:** A payload cached by the projection (M12) and sealed by staging (M23) is the same durable fact encoded twice; a version change must lease both
+- **cycles:** 1
+- **instances:** 3
+- **firstSeen:** F04
+- **status:** promoted → PROGRAM-CONFIG Conventions
+
+- **pattern:** A checkpoint's seed instruction should name the exact producing function, not just the file
+- **cycles:** 1
+- **instances:** 1
+- **firstSeen:** F04
+- **status:** open (Vow 3 → PLANNER.md)
+
+- **pattern:** A worker-tier proving assertion requires exact counts, not an inequality, at the first checkpoint that proves a capability
+- **cycles:** 1
+- **instances:** 1
+- **firstSeen:** F04
+- **status:** open (Vow 3 → CODER.md / PLANNER.md)
