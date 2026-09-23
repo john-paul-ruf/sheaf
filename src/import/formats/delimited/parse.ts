@@ -34,10 +34,10 @@ import {
 import type {
   CancellationTokenV1,
   ImportDiagnosticCodeV1,
-  WorkbookFactBatchV1,
-  WorkbookFactStreamItemV1,
-  WorkbookFactV1,
-} from "./facts.js";
+  WorkbookFactBatchV2,
+  WorkbookFactStreamItemV2,
+  WorkbookFactV2,
+} from "../../facts/index.js";
 
 /** One read window: 64 KiB. */
 export const DELIMITED_READ_CHUNK_BYTES = 65_536;
@@ -53,6 +53,13 @@ export interface DelimitedParseOptionsV1 {
   readonly factsPerBatch?: number;
   readonly maxRowCharacters?: number;
   readonly cancellation?: CancellationTokenV1;
+  /**
+   * Names the one sheet a delimited file is (M65's positional scoping): the
+   * stream then opens with a `sheet` fact, as every workbook stream does. The
+   * import worker passes the file stem; pre-flight's sample parse, which only
+   * reads rows back, passes nothing and gets the F02 stream exactly.
+   */
+  readonly sheetName?: string;
 }
 
 const SEVERITY: Readonly<Record<ImportDiagnosticCodeV1, "info" | "warning">> =
@@ -81,7 +88,7 @@ interface DiagnosticTally {
 
 /**
  * Turns a delimited source into workbook facts. The returned iterable is
- * single-use and ends either with a `WorkbookSummaryV1` — the parse ran to the
+ * single-use and ends either with a `WorkbookSummaryV2` — the parse ran to the
  * end — or, when cancellation was observed between two batches, with no
  * summary at all. A consumer that stops iterating cancels just as effectively:
  * the generator unwinds and no read is left outstanding.
@@ -90,7 +97,7 @@ export async function* parseDelimited(
   source: RandomAccessSource,
   format: DelimitedFormatV1,
   options: DelimitedParseOptionsV1 = {},
-): AsyncGenerator<WorkbookFactStreamItemV1, void, undefined> {
+): AsyncGenerator<WorkbookFactStreamItemV2, void, undefined> {
   const chunkBytes = Math.min(
     positive(options.chunkBytes, DELIMITED_READ_CHUNK_BYTES),
     MAX_SLICE_BYTES,
@@ -106,8 +113,8 @@ export async function* parseDelimited(
   const cancellation = options.cancellation;
 
   const diagnostics = new Map<ImportDiagnosticCodeV1, DiagnosticTally>();
-  const ready: WorkbookFactBatchV1[] = [];
-  let facts: WorkbookFactV1[] = [];
+  const ready: WorkbookFactBatchV2[] = [];
+  let facts: WorkbookFactV2[] = [];
   let batchSeq = 0;
 
   let rowCount = 0;
@@ -128,7 +135,7 @@ export async function* parseDelimited(
    * so the bound holds exactly. A row's facts may therefore span two batches;
    * every fact names its own row, so no consumer needs them together.
    */
-  const push = (fact: WorkbookFactV1): void => {
+  const push = (fact: WorkbookFactV2): void => {
     facts.push(fact);
     if (facts.length >= factsPerBatch) {
       ready.push({ kind: "batch", batchSeq, facts });
@@ -265,6 +272,18 @@ export async function* parseDelimited(
     }
   };
 
+  if (options.sheetName !== undefined) {
+    push({
+      kind: "sheet",
+      sheetIndex: 0,
+      name: options.sheetName,
+      sheetKind: "worksheet",
+      visibility: "visible",
+      declaredRange: null,
+      dateSystem: "1900",
+    });
+  }
+
   const decoder = new TextDecoder(format.encoding, { ignoreBOM: true });
   let offset = format.bomByteLength;
 
@@ -277,7 +296,7 @@ export async function* parseDelimited(
     consume(decoder.decode(chunk, { stream: true }));
 
     while (ready.length > 0) {
-      yield ready.shift() as WorkbookFactBatchV1;
+      yield ready.shift() as WorkbookFactBatchV2;
       if (cancellation?.aborted === true) {
         return;
       }
@@ -300,7 +319,7 @@ export async function* parseDelimited(
   }
 
   while (ready.length > 0) {
-    yield ready.shift() as WorkbookFactBatchV1;
+    yield ready.shift() as WorkbookFactBatchV2;
     if (cancellation?.aborted === true) {
       return;
     }

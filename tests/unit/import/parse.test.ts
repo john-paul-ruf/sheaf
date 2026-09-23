@@ -19,10 +19,10 @@ import {
 import { CodecError } from "../../../src/domain/model/errors.js";
 import {
   factStreamItemToCanonicalValue,
-  type ImportDiagnosticCodeV1,
-  type WorkbookFactStreamItemV1,
-  type WorkbookSummaryV1,
-} from "../../../src/import/formats/delimited/facts.js";
+  type ImportDiagnosticCodeV2,
+  type WorkbookFactStreamItemV2,
+  type WorkbookSummaryV2,
+} from "../../../src/import/facts/index.js";
 import {
   DELIMITED_FACTS_PER_BATCH,
   parseDelimited,
@@ -31,7 +31,7 @@ import { sniffContent } from "../../../src/import/source/sniff.js";
 import { parseFixture, parseText } from "./parse-harness.js";
 import { countingSource, fixtureSource } from "./fixtures.js";
 
-const codes = (summary: WorkbookSummaryV1): ImportDiagnosticCodeV1[] =>
+const codes = (summary: WorkbookSummaryV2): ImportDiagnosticCodeV2[] =>
   summary.diagnostics.map((diagnostic) => diagnostic.code).sort();
 
 describe("delimited parsing", () => {
@@ -203,6 +203,27 @@ describe("delimited parsing", () => {
     expect(DELIMITED_FACTS_PER_BATCH).toBe(1024);
   });
 
+  it("opens with its one sheet fact when the sheet is named, and changes nothing else", async () => {
+    const plain = await parseFixture("delimited/field-log-messy.csv", "field-log-messy.csv");
+    const named = await parseFixture("delimited/field-log-messy.csv", "field-log-messy.csv", {
+      sheetName: "field-log-messy",
+    });
+    const factsOf = (items: typeof plain.items) => items.flatMap((item) => (item.kind === "batch" ? item.facts : []));
+
+    const [first, ...rest] = factsOf(named.items);
+    expect(first).toEqual({
+      kind: "sheet",
+      sheetIndex: 0,
+      name: "field-log-messy",
+      sheetKind: "worksheet",
+      visibility: "visible",
+      declaredRange: null,
+      dateSystem: "1900",
+    });
+    expect(rest).toEqual(factsOf(plain.items));
+    expect(named.summary).toEqual(plain.summary);
+  });
+
   it("stops between batches when the cancellation token is aborted", async () => {
     const cancellation = { aborted: false };
     const format = (
@@ -218,7 +239,7 @@ describe("delimited parsing", () => {
       await fixtureSource("delimited/field-log-messy.csv"),
     );
 
-    const seen: WorkbookFactStreamItemV1[] = [];
+    const seen: WorkbookFactStreamItemV2[] = [];
     for await (const item of parseDelimited(source, format, {
       chunkBytes: 512,
       factsPerBatch: 8,

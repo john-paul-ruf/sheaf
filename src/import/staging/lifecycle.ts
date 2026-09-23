@@ -42,6 +42,7 @@ import type { EnvelopeStorePort } from "../../application/ports/envelope-store.j
 import type { StagingCatalogPort } from "../../application/ports/staging-catalog.js";
 import type { DetectedFormatV1, ExtensionContradictionV1 } from "../source/sniff.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
+import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { ProposedAppV1 } from "../inference/infer.js";
 import {
   applyReviewEdit,
@@ -63,6 +64,8 @@ import {
   IMPORT_STAGE_VERSION,
   decodeImportStage,
   encodeImportStage,
+  type ImportDestinationV1,
+  type ImportFormatV1,
   type ImportStageV1,
 } from "./stage.js";
 
@@ -106,11 +109,13 @@ export interface LoadedImportStageV1 {
 
 export interface CreateImportStageInputV1 {
   readonly fileName: string;
+  readonly format: ImportFormatV1;
+  readonly destination: ImportDestinationV1;
   readonly detected: DetectedFormatV1;
   readonly contradiction: ExtensionContradictionV1 | null;
   readonly preflight: PreflightReportV1;
   readonly sourceByteLength: number;
-  readonly selectedSheets: readonly string[];
+  readonly selectedSheets: readonly number[];
 }
 
 // ------------------------------------------------------------ workflow codec --
@@ -221,6 +226,8 @@ export async function createImportStage(
     stageRevision: 1,
     lineageId: ports.entropy.randomBytes(DOMAIN_ID_BYTE_LENGTH),
     fileName: input.fileName,
+    format: input.format,
+    destination: input.destination,
     detected: input.detected,
     contradiction: input.contradiction,
     // Not known yet: nothing has read the source through (see `stage.ts`).
@@ -356,6 +363,84 @@ export async function readImportStage(
     workflowStorageId,
     provisionalKey,
   };
+}
+
+/** Every row a stage names, and where its payload lives — what cleanup collects. */
+export interface StageRowsV1 {
+  readonly stageStorageId: string;
+  readonly storageIds: readonly string[];
+}
+
+const isStorageIdText = (value: DecodedValue): value is string => {
+  if (typeof value !== "string") return false;
+  try {
+    decodeStorageId16(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The rows a stage payload this build cannot decode still names. Every staged
+ * row is classified retained or temporary — the stage invariant since F02 —
+ * so those two lists are the whole set; nothing else in the payload is read.
+ */
+const rowsOfUndecodableStage = (payload: Uint8Array): readonly string[] => {
+  let map: ReadonlyMap<unknown, DecodedValue>;
+  try {
+    map = asMap(decodeCanonical(payload), "a stage payload");
+  } catch {
+    return [];
+  }
+  return ["retainedStorageIds", "temporaryStorageIds"].flatMap((name) => {
+    const value = map.get(name);
+    return Array.isArray(value) ? (value as readonly DecodedValue[]).filter(isStorageIdText) : [];
+  });
+};
+
+/**
+ * The rows cleanup must collect for one workflow, or `undefined` when the
+ * workflow or its stage is already gone. Unlike {@link readImportStage} this
+ * accepts a stage payload the current codec refuses: a stage written by an
+ * earlier build (F02's version 1) is **stale**, not damage — it is abandoned
+ * and collected like any interrupted import, with a receipt, rather than
+ * failing the unlock sweep as an integrity error.
+ */
+export async function readStageRows(
+  ports: StagingPortsV1,
+  localRoot: EnvelopeKeyRefV1,
+  workflowStorageId: string,
+): Promise<StageRowsV1 | undefined> {
+  const workflowFrame = await ports.store.getEnvelope(decodeStorageId16(workflowStorageId));
+  if (workflowFrame === undefined) {
+    return undefined;
+  }
+  const opened = await ports.crypto.open(workflowFrame, WORKFLOW_SCOPE, localRoot, WORKFLOW_PAYLOAD_KIND);
+  const resume = decodeWorkflowResume(opened.payload);
+  const stageFrame = await ports.store.getEnvelope(decodeStorageId16(resume.stageStorageId));
+  if (stageFrame === undefined) {
+    return undefined;
+  }
+  const provisionalKey = ports.crypto.importKey(resume.provisionalKey);
+  try {
+    const { payload } = await ports.crypto.open(
+      stageFrame,
+      IMPORT_STAGE_SCOPE,
+      provisionalKey,
+      IMPORT_STAGE_PAYLOAD_KIND,
+    );
+    let storageIds: readonly string[];
+    try {
+      storageIds = stagedChunkStorageIds(decodeImportStage(payload));
+    } catch (cause) {
+      if (!(cause instanceof CodecError)) throw cause;
+      storageIds = rowsOfUndecodableStage(payload);
+    }
+    return { stageStorageId: resume.stageStorageId, storageIds };
+  } finally {
+    ports.crypto.destroyKey(provisionalKey);
+  }
 }
 
 // -------------------------------------------------------------------- write --

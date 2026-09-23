@@ -49,11 +49,7 @@ import {
   oneOf,
   text,
 } from "./proposal-codec.js";
-import {
-  readImportStage,
-  stagedChunkStorageIds,
-  type StagingPortsV1,
-} from "./lifecycle.js";
+import { readStageRows, type StagingPortsV1 } from "./lifecycle.js";
 
 const CLEANUP_SCOPE = "local.cleanup" as const;
 const CLEANUP_PAYLOAD_KIND = "local.cleanup-ticket" as const;
@@ -178,19 +174,16 @@ async function abandonStage(
   localRoot: EnvelopeKeyRefV1,
   input: AbandonStageInputV1,
 ): Promise<CleanupTicketV1> {
-  const loaded = await readImportStage(ports, localRoot, input.workflowStorageId);
+  // A stage this build cannot decode (F02's version 1) is stale, and is
+  // collected by the rows it names rather than refused (`readStageRows`).
+  const rows = await readStageRows(ports, localRoot, input.workflowStorageId);
 
   const doomed = new Set<string>([
     ...(input.extraStorageIds ?? []),
     // The workflow envelope is deleted below, in this same transaction; the
     // stage payload is collected by the ticket like every other opaque row.
-    ...(loaded === undefined ? [] : [loaded.stageStorageId]),
-    ...(loaded === undefined ? [] : stagedChunkStorageIds(loaded.stage)),
+    ...(rows === undefined ? [] : [rows.stageStorageId, ...rows.storageIds]),
   ]);
-  if (loaded !== undefined) {
-    // The key handle dies with the transaction that orphans its wrap.
-    ports.crypto.destroyKey(loaded.provisionalKey);
-  }
 
   const expectation = ports.catalog.expectation();
   const revision = expectation.transactionRevision + 1;

@@ -20,8 +20,8 @@
 
 import type {
   CancellationTokenV1,
-  WorkbookFactStreamItemV1,
-} from "../../import/formats/delimited/facts.js";
+  WorkbookFactStreamItemV2,
+} from "../../import/facts/index.js";
 import { parseDelimited } from "../../import/formats/delimited/parse.js";
 import { sniffContent, type SniffResultV1 } from "../../import/source/sniff.js";
 import {
@@ -127,6 +127,10 @@ function awaitAck(port: MessagePort, seq: number): Promise<AckOutcome> {
   });
 }
 
+/** `field-log-messy` from `field-log-messy.csv`: the one sheet a delimited file is. */
+export const fileStemOf = (fileName: string): string =>
+  fileName.replace(/\.[^.]*$/, "") || fileName;
+
 export interface StreamFactsResultV1 {
   readonly outcome: "completed" | "cancelled" | "stage-rejected" | "parse-failed";
   readonly batchesSent: number;
@@ -163,7 +167,7 @@ export async function streamFacts(
   let rowsSoFar = 0;
   let sawSummary = false;
 
-  const send = async (item: WorkbookFactStreamItemV1): Promise<boolean> => {
+  const send = async (item: WorkbookFactStreamItemV2): Promise<boolean> => {
     const pending = awaitAck(port, seq);
     port.postMessage(stageBatch(seq, item));
     const ack = await pending;
@@ -178,6 +182,7 @@ export async function streamFacts(
   try {
     for await (const item of parseDelimited(source, sniff.format, {
       cancellation,
+      sheetName: fileStemOf(sniff.declaredName),
     })) {
       if (item.kind === "batch") {
         rowsSoFar += item.facts.filter((fact) => fact.kind === "row").length;

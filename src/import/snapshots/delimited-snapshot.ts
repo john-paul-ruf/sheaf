@@ -22,7 +22,7 @@ import {
   encodeCanonical,
   type CborValue,
 } from "../../persistence/codecs/canonical-cbor.js";
-import type { WorkbookFactStreamItemV1 } from "../formats/delimited/facts.js";
+import type { WorkbookFactStreamItemV2 } from "../facts/index.js";
 import {
   asMap,
   cborMap,
@@ -71,7 +71,7 @@ export interface SnapshotManifestV1 {
  * came from rather than inventing a rendering for it.
  */
 export function snapshotRowsFromFacts(
-  items: Iterable<WorkbookFactStreamItemV1>,
+  items: Iterable<WorkbookFactStreamItemV2>,
 ): readonly SnapshotRowV1[] {
   const widths = new Map<number, number>();
   const cells = new Map<number, Map<number, string>>();

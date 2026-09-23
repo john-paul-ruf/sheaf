@@ -1,7 +1,7 @@
 import type {
-  WorkbookFactStreamItemV1,
-  WorkbookSummaryV1,
-} from "../../../src/import/formats/delimited/facts.js";
+  WorkbookFactStreamItemV2,
+  WorkbookSummaryV2,
+} from "../../../src/import/facts/index.js";
 import {
   parseDelimited,
   type DelimitedParseOptionsV1,
@@ -11,14 +11,14 @@ import type { RandomAccessSource } from "../../../src/import/source/source.js";
 import { fixtureSource, textSource } from "./fixtures.js";
 
 export interface ParsedStream {
-  readonly items: readonly WorkbookFactStreamItemV1[];
-  readonly summary: WorkbookSummaryV1;
+  readonly items: readonly WorkbookFactStreamItemV2[];
+  readonly summary: WorkbookSummaryV2;
   /** Rows rebuilt from the sparse facts; a blank or missing cell reads as "". */
   readonly rows: readonly (readonly string[])[];
 }
 
 export const rowsOf = (
-  items: readonly WorkbookFactStreamItemV1[],
+  items: readonly WorkbookFactStreamItemV2[],
 ): readonly (readonly string[])[] => {
   const rows = new Map<number, string[]>();
   for (const item of items) {
@@ -50,7 +50,7 @@ export const parseSource = async (
   if (format.kind !== "delimited") {
     throw new Error(`${declaredName} did not sniff as delimited`);
   }
-  const items: WorkbookFactStreamItemV1[] = [];
+  const items: WorkbookFactStreamItemV2[] = [];
   for await (const item of parseDelimited(source, format, options ?? {})) {
     items.push(item);
   }

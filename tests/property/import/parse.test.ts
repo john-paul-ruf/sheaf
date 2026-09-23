@@ -8,7 +8,7 @@ import {
   parseDelimited,
   type DelimitedParseOptionsV1,
 } from "../../../src/import/formats/delimited/parse.js";
-import type { WorkbookFactStreamItemV1 } from "../../../src/import/formats/delimited/facts.js";
+import type { WorkbookFactStreamItemV2 } from "../../../src/import/facts/index.js";
 import {
   bytesSource,
   countingSource,
@@ -85,8 +85,8 @@ const drain = async (
   text: string,
   delimiter: DelimitedFormatV1["delimiter"],
   options: DelimitedParseOptionsV1 = {},
-): Promise<WorkbookFactStreamItemV1[]> => {
-  const items: WorkbookFactStreamItemV1[] = [];
+): Promise<WorkbookFactStreamItemV2[]> => {
+  const items: WorkbookFactStreamItemV2[] = [];
   for await (const item of parseDelimited(
     textSource(text),
     format(delimiter),
@@ -149,7 +149,7 @@ describe("delimited parser properties", () => {
         fc.constantFrom(...DELIMITERS),
         fc.integer({ min: 1, max: 512 }),
         async (bytes, delimiter, chunkBytes) => {
-          const items: WorkbookFactStreamItemV1[] = [];
+          const items: WorkbookFactStreamItemV2[] = [];
           for await (const item of parseDelimited(
             bytesSource(bytes),
             format(delimiter),

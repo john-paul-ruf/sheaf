@@ -14,10 +14,12 @@
  * run on a stream with no summary.
  */
 
-import type {
-  ImportDiagnosticV1,
-  WorkbookFactStreamItemV1,
-} from "../formats/delimited/facts.js";
+import {
+  IMPORT_DIAGNOSTIC_CODES_V1,
+  type ImportDiagnosticCodeV1,
+  type ImportDiagnosticV1,
+  type WorkbookFactStreamItemV2,
+} from "../facts/index.js";
 import type { DiscardedRowV1, ProposedRowV1, WorkbookDiscardedRowV1 } from "./regions.js";
 import {
   INFERENCE_SUBJECTS,
@@ -126,6 +128,24 @@ const f02Discard = (row: WorkbookDiscardedRowV1): DiscardedRowV1 =>
   row.reason === "totals-row" ? defect(row.reason) : { rowIndex: row.rowIndex, reason: row.reason, cells: row.cells };
 
 /**
+ * A delimited stream as S02's delimited path reads it. The import worker opens
+ * a delimited stream with its one `sheet` fact (M65's positional scoping), but
+ * `inferWorkbook` recognises a delimited file by the *absence* of a sheet fact
+ * — which is what keeps its proposal, statements and fingerprints equal to
+ * F02's (CA-19). A delimited file is one sheet by definition, so the fact
+ * carries nothing inference could lose.
+ */
+export function* delimitedStream(
+  items: Iterable<WorkbookFactStreamItemV2>,
+): Generator<WorkbookFactStreamItemV2> {
+  for (const item of items) {
+    yield item.kind === "batch" && item.facts.some((fact) => fact.kind === "sheet")
+      ? { ...item, facts: item.facts.filter((fact) => fact.kind !== "sheet") }
+      : item;
+  }
+}
+
+/**
  * Reads a completed fact stream and proposes one app with one table.
  *
  * @throws when the stream carries no terminal summary — a cancelled parse has
@@ -133,13 +153,18 @@ const f02Discard = (row: WorkbookDiscardedRowV1): DiscardedRowV1 =>
  * screen must never have to do.
  */
 export function inferProposal(
-  items: Iterable<WorkbookFactStreamItemV1>,
+  items: Iterable<WorkbookFactStreamItemV2>,
   context: InferenceContextV1,
 ): ProposedAppV1 {
   let diagnostics: readonly ImportDiagnosticV1[] = [];
-  function* tap(): Generator<WorkbookFactStreamItemV1> {
-    for (const item of items) {
-      if (item.kind === "summary") diagnostics = item.diagnostics;
+  function* tap(): Generator<WorkbookFactStreamItemV2> {
+    for (const item of delimitedStream(items)) {
+      if (item.kind === "summary") {
+        diagnostics = item.diagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          code: f02Member<ImportDiagnosticCodeV1>(diagnostic.code, IMPORT_DIAGNOSTIC_CODES_V1),
+        }));
+      }
       yield item;
     }
   }

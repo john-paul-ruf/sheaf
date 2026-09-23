@@ -33,10 +33,10 @@ import type {
   DecodedValue,
 } from "../../persistence/codecs/canonical-cbor.js";
 import {
-  IMPORT_DIAGNOSTIC_CODES,
+  IMPORT_DIAGNOSTIC_CODES_V1,
   type ImportDiagnosticCodeV1,
   type ImportDiagnosticV1,
-} from "../formats/delimited/facts.js";
+} from "../facts/index.js";
 import {
   DISCARD_REASONS,
   type DiscardedRowV1,
@@ -223,7 +223,7 @@ export function decodeDiagnostic(value: DecodedValue): ImportDiagnosticV1 {
   return {
     code: oneOf<ImportDiagnosticCodeV1>(
       field(map, "code"),
-      IMPORT_DIAGNOSTIC_CODES,
+      IMPORT_DIAGNOSTIC_CODES_V1,
       "a diagnostic code",
     ),
     severity: oneOf(

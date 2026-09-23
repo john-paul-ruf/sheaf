@@ -19,7 +19,7 @@
  * lost batch is a failed import — never a shorter file.
  */
 
-import type { WorkbookFactStreamItemV1 } from "../../import/formats/delimited/facts.js";
+import type { WorkbookFactStreamItemV2 } from "../../import/facts/index.js";
 
 export const STAGE_CHANNEL_VERSION = 1;
 
@@ -28,7 +28,7 @@ export interface StageBatchMessageV1 {
   readonly channelVersion: typeof STAGE_CHANNEL_VERSION;
   readonly kind: "batch";
   readonly seq: number;
-  readonly batch: WorkbookFactStreamItemV1;
+  readonly batch: WorkbookFactStreamItemV2;
 }
 
 /**
@@ -124,7 +124,7 @@ export function isStageChannelOutboundV1(
 
 export const stageBatch = (
   seq: number,
-  batch: WorkbookFactStreamItemV1,
+  batch: WorkbookFactStreamItemV2,
 ): StageBatchMessageV1 => ({
   channelVersion: STAGE_CHANNEL_VERSION,
   kind: "batch",

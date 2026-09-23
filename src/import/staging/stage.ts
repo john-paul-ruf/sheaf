@@ -46,6 +46,7 @@ import {
   type ExtensionContradictionV1,
   type ZipContainerV1,
 } from "../source/sniff.js";
+import { WORKBOOK_FORMATS, type WorkbookFormatV1 } from "../facts/index.js";
 import type { PreflightReportV1 } from "../preflight/preflight.js";
 import type { ProposedAppV1 } from "../inference/infer.js";
 import type { ReviewEditV1 } from "../inference/review-edits.js";
@@ -62,7 +63,6 @@ import {
   field,
   integerOrNull,
   list,
-  nfcText,
   oneOf,
   optionalCount,
   text,
@@ -75,7 +75,26 @@ import {
  */
 const SHA256_BYTES = 32;
 
-export const IMPORT_STAGE_VERSION = 1;
+/**
+ * 2 since F03: the stage names its format, its destination and its selected
+ * sheets by index. A version-1 (F02) stage does not decode; the unlock sweep
+ * treats it as stale and collects it (`cleanup.ts`), because a stage is a
+ * provisional import that never outlives the session that started it.
+ */
+export const IMPORT_STAGE_VERSION = 2;
+
+/** Which reader produced the staged facts: F02's delimited parser or a workbook adapter. */
+export const IMPORT_FORMATS = Object.freeze(["delimited", ...WORKBOOK_FORMATS] as const);
+
+export type ImportFormatV1 = "delimited" | WorkbookFormatV1;
+
+/**
+ * Where the import lands: a new app, or — for a delimited file only (D38) —
+ * a new table in an app that already exists.
+ */
+export type ImportDestinationV1 =
+  | { readonly kind: "new-app" }
+  | { readonly kind: "existing-app"; readonly appId: Uint8Array };
 
 /** Scope and payload kind are fixed by migration 003; stated once, here. */
 export const IMPORT_STAGE_SCOPE = "app.import-stage" as const;
@@ -149,6 +168,8 @@ export interface ImportStageV1 {
   /** Allocated at stage creation so `import.accepted` can name it (CA-11). */
   readonly lineageId: Uint8Array;
   readonly fileName: string;
+  readonly format: ImportFormatV1;
+  readonly destination: ImportDestinationV1;
   readonly detected: DetectedFormatV1;
   readonly contradiction: ExtensionContradictionV1 | null;
   /**
@@ -162,8 +183,11 @@ export interface ImportStageV1 {
   readonly sourceByteLength: number;
   /** The safe metadata inventory and capacity estimate (database.md). */
   readonly preflight: PreflightReportV1;
-  /** One implicit sheet for delimited text; F03's adapters select many. */
-  readonly selectedSheets: readonly string[];
+  /**
+   * Workbook sheet indexes the user selected, ascending (D39, D47); only these
+   * are parsed. A delimited file is its one sheet, `[0]`.
+   */
+  readonly selectedSheets: readonly number[];
   readonly sourceChunks: readonly StagedChunkRefV1[];
   readonly factChunks: readonly StagedChunkRefV1[];
   readonly snapshotChunks: readonly StagedChunkRefV1[];
@@ -235,6 +259,29 @@ export function validateImportStage(stage: ImportStageV1): ImportStageV1 {
   }
   if (stage.fileName.length === 0) {
     throw new CodecError("a stage has no file name");
+  }
+  if (
+    stage.selectedSheets.length === 0 ||
+    stage.selectedSheets.some(
+      (sheet, index) =>
+        !Number.isSafeInteger(sheet) ||
+        sheet < 0 ||
+        (index > 0 && sheet <= (stage.selectedSheets[index - 1] as number)),
+    )
+  ) {
+    throw new CodecError("a stage's sheet selection must be ascending, unique and non-empty");
+  }
+  if (stage.format === "delimited" && (stage.selectedSheets.length !== 1 || stage.selectedSheets[0] !== 0)) {
+    throw new CodecError("a delimited stage is exactly its one sheet");
+  }
+  if (stage.destination.kind === "existing-app") {
+    if (stage.destination.appId.byteLength !== DOMAIN_ID_BYTE_LENGTH) {
+      throw new CodecError("a destination app id must be 16 bytes");
+    }
+    if (stage.format !== "delimited") {
+      // FR-1's into-existing path is value-only: a workbook becomes a new app.
+      throw new CodecError("only a delimited file can be added to an existing app");
+    }
   }
   if (!Number.isSafeInteger(stage.sourceByteLength) || stage.sourceByteLength < 0) {
     throw new CodecError("stage source length is not a safe byte count");
@@ -329,6 +376,27 @@ const encodeDetected = (format: DetectedFormatV1): CborValue => {
   }
 };
 
+const encodeDestination = (destination: ImportDestinationV1): CborValue =>
+  destination.kind === "new-app"
+    ? cborMap([["kind", "new-app"]])
+    : cborMap([
+        ["kind", "existing-app"],
+        ["appId", destination.appId],
+      ]);
+
+const DESTINATION_KINDS = Object.freeze(["new-app", "existing-app"] as const);
+
+const decodeDestination = (value: DecodedValue): ImportDestinationV1 => {
+  const map = asMap(value, "a destination");
+  const kind = oneOf(field(map, "kind"), DESTINATION_KINDS, "a destination");
+  if (kind === "new-app") {
+    exactKeys(map, ["kind"], "a new-app destination");
+    return { kind };
+  }
+  exactKeys(map, ["kind", "appId"], "an existing-app destination");
+  return { kind, appId: bytesOfLength(field(map, "appId"), DOMAIN_ID_BYTE_LENGTH, "an app id") };
+};
+
 const encodeContradiction = (
   contradiction: ExtensionContradictionV1 | null,
 ): CborValue =>
@@ -371,6 +439,8 @@ export function encodeImportStage(stage: ImportStageV1): Uint8Array {
       ["stageRevision", stage.stageRevision],
       ["lineageId", stage.lineageId],
       ["fileName", stage.fileName],
+      ["format", stage.format],
+      ["destination", encodeDestination(stage.destination)],
       ["detected", encodeDetected(stage.detected)],
       ["contradiction", encodeContradiction(stage.contradiction)],
       ["sourceSha256", stage.sourceSha256],
@@ -543,6 +613,8 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
       "stageRevision",
       "lineageId",
       "fileName",
+      "format",
+      "destination",
       "detected",
       "contradiction",
       "sourceSha256",
@@ -583,6 +655,8 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
       "a lineage id",
     ),
     fileName: text(field(map, "fileName"), "a file name"),
+    format: oneOf(field(map, "format"), IMPORT_FORMATS, "an import format"),
+    destination: decodeDestination(field(map, "destination")),
     detected: decodeDetected(field(map, "detected")),
     contradiction: decodeContradiction(field(map, "contradiction")),
     sourceSha256: optionalBytes(
@@ -593,7 +667,7 @@ export function decodeImportStage(payload: Uint8Array): ImportStageV1 {
     sourceByteLength: count(field(map, "sourceByteLength"), "a source length"),
     preflight: decodePreflight(field(map, "preflight")),
     selectedSheets: list(field(map, "selectedSheets"), "selected sheets").map(
-      (sheet) => nfcText(sheet, "a sheet name"),
+      (sheet) => count(sheet, "a selected sheet"),
     ),
     sourceChunks: list(field(map, "sourceChunks"), "source chunks").map(decodeChunk),
     factChunks: list(field(map, "factChunks"), "fact chunks").map(decodeChunk),

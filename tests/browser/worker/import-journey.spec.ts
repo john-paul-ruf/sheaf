@@ -461,6 +461,9 @@ test("a refused promotion is a typed result and leaves nothing behind", async ({
     throw new Error("expected a stage view");
   }
   expect(stage.response.stage).not.toBeNull();
+  // The rows the import wrote: its workflow and stage envelopes and every fact
+  // chunk (an empty file still stages its sheet fact and its summary).
+  const importRows = 2 + (stage.response.stage?.factChunkCount ?? 0);
 
   const receipt = await command(page, { kind: "cancelImportStage", stageId });
   if (!receipt.ok || receipt.response.kind !== "cancelImportStage") {
@@ -471,7 +474,7 @@ test("a refused promotion is a typed result and leaves nothing behind", async ({
   const catalogsWritten =
     (cleaned.transactionRevision as number) - (before.transactionRevision as number);
   expect(cleaned.envelopes.length).toBe(
-    before.envelopes.length + catalogsWritten - 3,
+    before.envelopes.length + catalogsWritten - importRows,
   );
 });
 

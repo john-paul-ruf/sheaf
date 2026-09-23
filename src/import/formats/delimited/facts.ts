@@ -2,10 +2,11 @@
  * The F02 (V1) subset of the workbook fact vocabulary, re-exported from its
  * home in M65 (`src/import/facts/workbook-facts.ts`, D32).
  *
- * This file is the one sanctioned duplicate path while F03 migrates: the seven
- * F02 consumers keep importing from here and compile unchanged; S06 moves them
- * to M65 and deletes this file. `IMPORT_DIAGNOSTIC_CODES` here is the V1 list,
- * so every exhaustive map an F02 consumer keeps over it stays exhaustive.
+ * The seven F02 consumers now import from M65 (S06); nothing in `src/`
+ * imports this file. It remains only while S01's re-export assertion
+ * (`tests/unit/import/facts/workbook-facts.test.ts`) still pins it, and is
+ * deleted together with that assertion. `IMPORT_DIAGNOSTIC_CODES` here is the
+ * V1 list.
  */
 
 export {

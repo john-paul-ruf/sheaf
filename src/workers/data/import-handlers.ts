@@ -74,11 +74,8 @@ import {
   type StagingPortsV1,
 } from "../../import/staging/lifecycle.js";
 import type { PreflightReportV1 } from "../../import/preflight/preflight.js";
-import {
-  factStreamItemToCanonicalValue,
-  type WorkbookFactStreamItemV1,
-} from "../../import/formats/delimited/facts.js";
-import { encodeCanonical } from "../../persistence/codecs/canonical-cbor.js";
+import type { WorkbookFactStreamItemV2 } from "../../import/facts/index.js";
+import { encodeFactStreamItem } from "../../import/staging/fact-codec.js";
 import { asStorageId16, encodeStorageId16 } from "../../domain/model/bytes.js";
 import {
   IMPORT_STAGE_PAYLOAD_KIND,
@@ -425,7 +422,7 @@ export interface ImportHandlersV1 {
   /** Runs before the library is reported, on every unlock (M23's contract). */
   sweep(context: ImportSessionContextV1): Promise<readonly CleanupReceiptV1[]>;
   /** The facts accumulated while staging, for inference (D17). */
-  accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV1[];
+  accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV2[];
   /** Forgets in-memory stage bookkeeping and closes ports; called on lock. */
   dispose(): void;
 }
@@ -435,7 +432,7 @@ const STORAGE_ID_BYTES = 16;
 /** One live channel and the facts it has delivered so far. */
 interface ChannelStateV1 {
   readonly port: MessagePort;
-  facts: WorkbookFactStreamItemV1[];
+  facts: WorkbookFactStreamItemV2[];
   /** Serialises batches: one commit at a time, in sequence order. */
   queue: Promise<void>;
   closed: boolean;
@@ -597,7 +594,7 @@ export function createImportHandlers(
   async function commitBatch(
     stageId: string,
     ackedSeq: number,
-    item: WorkbookFactStreamItemV1,
+    item: WorkbookFactStreamItemV2,
   ): Promise<void> {
     const opened = await loadStage(stageId);
     if (opened === undefined) {
@@ -606,7 +603,7 @@ export function createImportHandlers(
     const { catalogPort, context, loaded } = opened;
 
     const revision = catalogPort.expectation().transactionRevision + 1;
-    const payload = encodeCanonical(factStreamItemToCanonicalValue(item));
+    const payload = encodeFactStreamItem(item);
     const storageId = asStorageId16(deps.entropy.randomBytes(STORAGE_ID_BYTES));
     const chunkFrame = await crypto.seal({
       scope: IMPORT_STAGE_SCOPE,
@@ -754,7 +751,9 @@ export function createImportHandlers(
           contradiction: null,
           preflight: preflightFrom(request),
           sourceByteLength: request.preflight.sourceByteLength,
-          selectedSheets: [request.fileName],
+          format: "delimited",
+          destination: { kind: "new-app" },
+          selectedSheets: [0],
         },
       );
 
@@ -1061,7 +1060,7 @@ export function createImportHandlers(
       return sweepStaleImports(portsFor(catalogPort), context.localRoot);
     },
 
-    accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV1[] {
+    accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV2[] {
       return channels.get(stageId)?.facts ?? [];
     },
 

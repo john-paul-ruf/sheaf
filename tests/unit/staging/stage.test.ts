@@ -46,8 +46,8 @@ import {
   type PreflightReportV1,
 } from "../../../src/import/preflight/preflight.js";
 import type {
-  WorkbookFactStreamItemV1,
-} from "../../../src/import/formats/delimited/facts.js";
+  WorkbookFactStreamItemV2,
+} from "../../../src/import/facts/index.js";
 import type { ProposedAppV1 } from "../../../src/import/inference/infer.js";
 import { fixtureSource } from "../import/fixtures.js";
 
@@ -88,7 +88,7 @@ async function realFixture(): Promise<Fixture> {
     throw new Error("fixture did not pass pre-flight");
   }
 
-  const items: WorkbookFactStreamItemV1[] = [];
+  const items: WorkbookFactStreamItemV2[] = [];
   for await (const item of parseDelimited(source, sniff.format)) {
     items.push(item);
   }
@@ -114,6 +114,8 @@ async function stage(
     stageRevision: 1,
     lineageId: Uint8Array.from({ length: 16 }, (_, index) => 7 + index),
     fileName: "field-log-messy.csv",
+    format: "delimited",
+    destination: { kind: "new-app" },
     detected: {
       kind: "delimited",
       delimiter: ",",
@@ -125,7 +127,7 @@ async function stage(
     sourceSha256: digest(120),
     sourceByteLength: preflight.sourceByteLength,
     preflight,
-    selectedSheets: ["Field Log Messy"],
+    selectedSheets: [0],
     sourceChunks: [source],
     factChunks: [facts],
     snapshotChunks: [snapshot],

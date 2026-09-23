@@ -72,7 +72,7 @@ import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js
 import type { EntropyPort } from "../../application/ports/entropy.js";
 import type { ClockPort } from "../../application/ports/clock.js";
 import type { EnvelopeKeyRefV1 } from "../../application/ports/envelope-crypto.js";
-import type { WorkbookFactStreamItemV1 } from "../formats/delimited/facts.js";
+import type { WorkbookFactStreamItemV2 } from "../facts/index.js";
 import type { ProposedAppV1, ProposedFieldV1 } from "../inference/infer.js";
 import { sourceTextToCellValue } from "../inference/values.js";
 import {
@@ -144,7 +144,7 @@ export type PromotionResultV1 =
 
 export interface PromoteInputV1 {
   readonly loaded: LoadedImportStageV1;
-  readonly facts: readonly WorkbookFactStreamItemV1[];
+  readonly facts: readonly WorkbookFactStreamItemV2[];
   /** The source bytes, already chunked and staged, in order. */
   readonly sourceChunks: readonly ManifestChunkRefV1[];
   readonly acceptedName: string;
@@ -243,7 +243,7 @@ function buildRecords(
   entropy: EntropyPort,
   proposal: ProposedAppV1,
   schema: AllocatedSchemaV1,
-  facts: readonly WorkbookFactStreamItemV1[],
+  facts: readonly WorkbookFactStreamItemV2[],
 ): BuiltRecordsV1 {
   const rows = snapshotRowsFromFacts(facts);
   const headerRowIndex = proposal.headerRowIndex;

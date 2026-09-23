@@ -11,8 +11,10 @@
 import { describe, expect, it } from "vitest";
 import {
   asStorageId16,
+  decodeStorageId16,
   encodeStorageId16,
 } from "../../../src/domain/model/bytes.js";
+import { CodecError } from "../../../src/domain/model/errors.js";
 import {
   createImportStage,
   readImportStage,
@@ -32,6 +34,7 @@ import {
 import {
   IMPORT_STAGE_PAYLOAD_KIND,
   IMPORT_STAGE_SCOPE,
+  decodeImportStage,
   type ImportStageV1,
   type StagedChunkRefV1,
 } from "../../../src/import/staging/stage.js";
@@ -66,8 +69,41 @@ const INPUT: CreateImportStageInputV1 = {
     bytesSampled: 5469,
   },
   sourceByteLength: 5469,
-  selectedSheets: ["Field Log Messy"],
+  format: "delimited",
+  destination: { kind: "new-app" },
+  selectedSheets: [0],
 };
+
+/**
+ * A stage payload exactly as the F02 build wrote it (`encodeImportStage` at
+ * `fb05e2f`, stage version 1): three chunks — one retained source chunk (id
+ * bytes 0x03…) and two temporary fact chunks (0x04…, 0x05…).
+ */
+const F02_STAGE_HEX =
+  "b46673746174757366737461676564677374616765496476415145424151454241514542415145424151454241516864" +
+  "65746563746564a5646b696e646964656c696d69746564676e65776c696e65626c6668656e636f64696e67657574662d" +
+  "386964656c696d69746572612c6d626f6d427974654c656e677468006866696c654e616d65736669656c642d6c6f672d" +
+  "6d657373792e6373766870726f6772657373a465706861736569696e66657272696e6769726f7773536f466172182b6d" +
+  "61636b65644261746368536571017062617463686573436f6d6d6974746564026870726f706f73616cf6696c696e6561" +
+  "67654964500202020202020202020202020202020269707265666c69676874aa676e65776c696e65626c6668656e636f" +
+  "64696e67657574662d386866696c654e616d65736669656c642d6c6f672d6d657373792e6373766964656c696d697465" +
+  "72612c6a73616d706c65526f777381826453697465665374617475736b636f6c756d6e436f756e74096c627974657353" +
+  "616d706c656419155d70736f75726365427974654c656e67746819155d71657374696d61746564526f77436f756e7418" +
+  "2b72657374696d6174656443656c6c436f756e741901836a666163744368756e6b7382a4667368613235365820040404" +
+  "04040404040404040404040404040404040404040404040404040404046873657175656e6365006973746f7261676549" +
+  "647642415145424151454241514542415145424151454241716465636f646564427974654c656e677468190384a46673" +
+  "6861323536582005050505050505050505050505050505050505050505050505050505050505056873657175656e6365" +
+  "016973746f7261676549647642515546425155464251554642515546425155464251716465636f646564427974654c65" +
+  "6e67746818506b7265766965774564697473806c736f757263654368756e6b7381a46673686132353658200303030303" +
+  "0303030303030303030303030303030303030303030303030303036873657175656e6365006973746f72616765496476" +
+  "41774d4441774d4441774d4441774d4441774d444177716465636f646564427974654c656e67746819155d6c736f7572" +
+  "6365536861323536f66c737461676556657273696f6e016d636f6e74726164696374696f6ef66d737461676552657669" +
+  "73696f6e036e73656c6563746564536865657473816f4669656c64204c6f67204d657373796e736e617073686f744368" +
+  "756e6b738070736f75726365427974654c656e67746819155d7272657461696e656453746f7261676549647381764177" +
+  "4d4441774d4441774d4441774d4441774d4441777374656d706f7261727953746f726167654964738276424151454241" +
+  "514542415145424151454241514542417642515546425155464251554642515546425155464251";
+
+const f02Row = (fill: number): string => encodeStorageId16(asStorageId16(new Uint8Array(16).fill(fill)));
 
 /** Seals `count` opaque chunks under the provisional key and stages them. */
 async function withChunks(
@@ -376,6 +412,42 @@ describe("the unlock-time sweep", () => {
     for (const storageId of [...doomed, staged.workflowStorageId]) {
       expect(harness.store.has(storageId)).toBe(false);
     }
+  });
+
+  it("collects a stage the F02 build wrote as stale, with a receipt — never an integrity error", async () => {
+    const f02Payload = Uint8Array.from(Buffer.from(F02_STAGE_HEX, "hex"));
+    // The premise: this build cannot decode it.
+    expect(() => decodeImportStage(f02Payload)).toThrow(CodecError);
+
+    const harness = stagingHarness();
+    const created = await createImportStage(harness.ports, harness.localRoot, INPUT);
+    const { stageStorageId, workflowStorageId, provisionalKey } = created.loaded;
+    const revision = harness.store.rows.get(stageStorageId)?.revision as number;
+    const sealAt = async (storageIdText: string, payload: Uint8Array): Promise<void> => {
+      const frame = await harness.crypto.seal({
+        scope: IMPORT_STAGE_SCOPE,
+        storageId: decodeStorageId16(storageIdText),
+        logicalRevision: BigInt(revision),
+        payloadKind: IMPORT_STAGE_PAYLOAD_KIND,
+        payload,
+        compression: "deflate-raw-v1",
+        key: provisionalKey,
+      });
+      harness.store.rows.set(storageIdText, { revision, frame });
+    };
+    // The F02 stage under the same workflow, and the rows it names.
+    await sealAt(stageStorageId, f02Payload);
+    for (const fill of [3, 4, 5]) await sealAt(f02Row(fill), new Uint8Array([fill]));
+
+    const receipts = await sweepStaleImports(harness.ports, harness.localRoot);
+
+    expect(receipts).toEqual([
+      expect.objectContaining({ reason: "import-failed", deletedCount: 4, completed: true }),
+    ]);
+    for (const storageId of [stageStorageId, workflowStorageId, f02Row(3), f02Row(4), f02Row(5)]) {
+      expect(harness.store.has(storageId)).toBe(false);
+    }
+    expect(harness.catalog.readRefs()).toEqual({ activeWorkflowStorageIds: [], cleanupTicketStorageIds: [] });
   });
 
   it("does nothing, and commits nothing, when there is nothing to sweep", async () => {

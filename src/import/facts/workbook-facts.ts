@@ -9,8 +9,8 @@
  *
  * **V2 is additive (D32).** The F02 vocabulary (`row`, `value`, `diagnostic`,
  * batch, summary — {@link WorkbookFactV1}) moved here unchanged from
- * `formats/delimited/facts.ts`, which re-exports it until S06 migrates the
- * F02 consumers. V2 adds the declared structure a workbook carries: sheets,
+ * `formats/delimited/facts.ts`; every consumer imports it from here. V2 adds
+ * the declared structure a workbook carries: sheets,
  * number formats, formulas, declared tables, validations, merges, defined names
  * and preserved parts.
  *

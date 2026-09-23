@@ -33,7 +33,7 @@ import { applyReviewEdit } from "../../../src/import/inference/review-edits.js";
 import { parseDelimited } from "../../../src/import/formats/delimited/parse.js";
 import { sniffContent } from "../../../src/import/source/sniff.js";
 import { isDelimitedSniff } from "../../../src/import/preflight/preflight.js";
-import type { WorkbookFactStreamItemV1 } from "../../../src/import/formats/delimited/facts.js";
+import type { WorkbookFactStreamItemV2 } from "../../../src/import/facts/index.js";
 import { fixtureSource } from "../import/fixtures.js";
 
 /**
@@ -71,7 +71,7 @@ describe("the wire proposal", () => {
       throw new Error("fixture is not delimited");
     }
 
-    const items: WorkbookFactStreamItemV1[] = [];
+    const items: WorkbookFactStreamItemV2[] = [];
     for await (const item of parseDelimited(source, sniff.format)) {
       items.push(item);
     }
