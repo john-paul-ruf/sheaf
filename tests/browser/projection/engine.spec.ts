@@ -432,7 +432,7 @@ async function hydrateFixture(input: FixtureInput): Promise<HydrationSnapshot> {
     ],
   };
 
-  const handle = await projection.openProjection({ sha256: hash.sha256 });
+  const handle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   window.__sheafProjection = handle;
   await projection.hydrateApp(handle, checkpoint);
 

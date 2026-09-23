@@ -48,6 +48,7 @@ import type {
   DeviceId,
   EventId,
   FieldId,
+  FormulaId,
   InertItemId,
   RecordId,
   RelationshipId,
@@ -234,6 +235,12 @@ export interface ProjectionIssueRowV1 {
   >;
 }
 
+/** A computed cell's result as a read reports it (CA-26). */
+export type ProjectionComputedCellV1 =
+  | { readonly state: "ok" | "frozen" | "unsupported"; readonly value: CellValueV1 }
+  | { readonly state: "type" | "empty" | "cycle" | "unsupported-new-row" }
+  | { readonly state: "error"; readonly code: string };
+
 export interface ProjectionRecordSummaryV1 {
   /** The session row key — stable inside one projection, never durable. */
   readonly recordPk: number;
@@ -241,8 +248,24 @@ export interface ProjectionRecordSummaryV1 {
   readonly tableId: TableId;
   readonly recordRevision: bigint;
   readonly authoredValues: ReadonlyMap<FieldId, CellValueV1>;
+  /** Every active computed column's current result, by the schema's field IDs. */
+  readonly computed: ReadonlyMap<FieldId, ProjectionComputedCellV1>;
   readonly blockingIssueCount: number;
   readonly warningIssueCount: number;
+}
+
+/** A metric's or dashboard value's current result (D60); ephemeral. */
+export interface ProjectionScalarResultV1 {
+  readonly formulaId: FormulaId;
+  readonly status: "ok" | "empty" | "unsupported" | "cycle" | "error";
+  readonly value: CellValueV1 | null;
+  readonly code: string | null;
+  readonly evaluatedAtMs: number;
+}
+
+/** The computed columns a batch of commits re-derived. */
+export interface ProjectionApplyReceiptV1 {
+  readonly recalculatedFieldIds: readonly FieldId[];
 }
 
 export interface ProjectionRecordDetailV1 extends ProjectionRecordSummaryV1 {
@@ -423,7 +446,9 @@ export type ProjectionQueryV1 =
       readonly decisionKind: DecisionKindV1 | null;
     }
   /** A table's formulas, or every formula when null. */
-  | { readonly kind: "list-formulas"; readonly tableId: TableId | null };
+  | { readonly kind: "list-formulas"; readonly tableId: TableId | null }
+  /** Every metric and dashboard value's current result. */
+  | { readonly kind: "scalar-results" };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -449,6 +474,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-inert-items": readonly ProjectionInertItemV1[];
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
   readonly "list-formulas": readonly ProjectionFormulaV1[];
+  readonly "scalar-results": readonly ProjectionScalarResultV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];
@@ -463,5 +489,15 @@ export interface ProjectionEnginePort {
   execute<K extends ProjectionQueryKindV1>(
     query: Extract<ProjectionQueryV1, { readonly kind: K }>,
   ): ProjectionQueryResultsV1[K];
-  applyEvents(commits: readonly ProjectionCommitV1[]): Promise<void>;
+  /**
+   * Replays commits and recalculates, in one transaction; resolves with the
+   * computed columns that moved (D60's `recalculated` notice).
+   */
+  applyEvents(commits: readonly ProjectionCommitV1[]): Promise<ProjectionApplyReceiptV1>;
+  /**
+   * Re-evaluates the clock-volatile formulas when they were last evaluated
+   * more than `maxAgeMs` ago or on another day; resolves with the columns
+   * that moved (none when the reading was fresh).
+   */
+  refreshVolatile(maxAgeMs: number): Promise<readonly FieldId[]>;
 }

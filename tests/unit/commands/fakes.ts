@@ -44,6 +44,7 @@ import type {
   LocalEventRepository,
 } from "../../../src/application/ports/event-repository.js";
 import type {
+  ProjectionApplyReceiptV1,
   ProjectionChangeEventV1,
   ProjectionEnginePort,
   ProjectionIssueInputV1,
@@ -178,6 +179,7 @@ export class FakeProjection implements ProjectionEnginePort {
       case "list-validation-rules":
         return answer([]);
       case "list-formulas":
+      case "scalar-results":
         return answer([]);
       case "count-records":
         return answer(this.#live().length);
@@ -268,7 +270,7 @@ export class FakeProjection implements ProjectionEnginePort {
         readonly ProjectionIssueInputV1[]
       >;
     }[],
-  ): Promise<void> {
+  ): Promise<ProjectionApplyReceiptV1> {
     this.trace.push("apply");
     for (const entry of commits) {
       if (entry.commit.events.length !== entry.events.length) {
@@ -285,7 +287,12 @@ export class FakeProjection implements ProjectionEnginePort {
         );
       });
     }
-    return Promise.resolve();
+    return Promise.resolve({ recalculatedFieldIds: [] });
+  }
+
+  /** The fake holds no formula, so the clock never moves a value. */
+  refreshVolatile(): Promise<readonly FieldId[]> {
+    return Promise.resolve([]);
   }
 
   liveRecordIds(): readonly string[] {
@@ -469,6 +476,7 @@ export class FakeProjection implements ProjectionEnginePort {
       tableId: entry.record.tableId,
       recordRevision: entry.recordRevision,
       authoredValues: entry.record.values,
+      computed: new Map(),
       blockingIssueCount: entry.issues.filter(
         (issue) => issue.severity === "blocking",
       ).length,

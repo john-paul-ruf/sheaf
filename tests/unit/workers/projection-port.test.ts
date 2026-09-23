@@ -46,6 +46,9 @@ describe("the projection port and the projection engine", () => {
     // layers instantiate them, and the two instantiations must be one type.
     mutual<Events.DomainEventV1, Engine.DomainEventV1>(true);
     mutual<Events.RecordRuleIRV1, Engine.RecordRuleIRV1>(true);
+    mutual<Port.ProjectionComputedCellV1, Engine.ProjectionComputedCellV1>(true);
+    mutual<Port.ProjectionScalarResultV1, Engine.ProjectionScalarResultV1>(true);
+    mutual<Port.ProjectionApplyReceiptV1, Engine.ProjectionApplyReceiptV1>(true);
     mutual<Port.ProjectionIssueInputV1, Engine.ValidationIssueV1Input>(true);
     mutual<Port.ProjectionRecordV1, Engine.ProjectionRecordV1>(true);
     mutual<Port.ProjectionRecordPageV1, Engine.ProjectionRecordPageV1>(true);
@@ -119,7 +122,8 @@ describe("the projection port and the projection engine", () => {
       "list-inert-items": true,
       "list-inference-decisions": true,
       "list-formulas": true,
+      "scalar-results": true,
     };
-    expect(Object.keys(kinds)).toHaveLength(22);
+    expect(Object.keys(kinds)).toHaveLength(23);
   });
 });

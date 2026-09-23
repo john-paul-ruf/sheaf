@@ -266,6 +266,53 @@ DELETE FROM record_issues
  WHERE record_pk = ? AND field_id = ?
    AND issue_kind = 'formula' AND message_key IN (${RECALCULATED_ISSUE_KEYS});`;
 
+/** A removed or deactivated computed column keeps no lane and no flag. */
+export const DELETE_RECALCULATED_ISSUES_FOR_FIELD = `
+DELETE FROM record_issues
+ WHERE field_id = ?
+   AND issue_kind = 'formula' AND message_key IN (${RECALCULATED_ISSUE_KEYS});`;
+
+export const SELECT_RECALCULATED_ISSUES_FOR_RECORD = `
+SELECT field_id, message_key, message_parameters_cbor
+  FROM record_issues
+ WHERE record_pk = ?
+   AND issue_kind = 'formula' AND message_key IN (${RECALCULATED_ISSUE_KEYS});`;
+
+/** One computed lane, before recalculation re-derives it. */
+export const DELETE_COMPUTED_CELL = `
+DELETE FROM cells WHERE record_pk = ? AND field_id = ? AND origin = 'computed';`;
+
+export const DELETE_COMPUTED_CELLS_FOR_FIELD = `
+DELETE FROM cells WHERE field_id = ? AND origin = 'computed';`;
+
+export const SELECT_COMPUTED_CELLS_FOR_RECORD = `
+SELECT field_id, value_kind, text_value, decimal_value, integer_value, id_value
+  FROM cells
+ WHERE record_pk = ? AND origin = 'computed';`;
+
+/**
+ * A metric's or dashboard value's result, stamped with the session clock that
+ * produced it (D60). The table disappears on lock; nothing here is ever an
+ * event, a checkpoint, or an envelope (invariant 7).
+ */
+export const UPSERT_SCALAR_RESULT = `
+INSERT INTO scalar_formula_results (formula_id, status, value_cbor, evaluated_at_ms)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (formula_id) DO UPDATE SET
+  status = excluded.status, value_cbor = excluded.value_cbor,
+  evaluated_at_ms = excluded.evaluated_at_ms;`;
+
+export const DELETE_SCALAR_RESULT = `
+DELETE FROM scalar_formula_results WHERE formula_id = ?;`;
+
+export const SELECT_SCALAR_RESULTS = `
+SELECT formula_id, status, value_cbor, evaluated_at_ms
+  FROM scalar_formula_results
+ ORDER BY formula_id;`;
+
+export const SELECT_SCALAR_RESULT = `
+SELECT status, value_cbor FROM scalar_formula_results WHERE formula_id = ?;`;
+
 /**
  * `record_search` is contentless with `contentless_delete=1`, so a row is
  * replaced by deleting and re-inserting it at the same rowid — the rowid is
@@ -494,6 +541,10 @@ SELECT record_pk, table_id, record_revision, created_commit_id, authored_cbor
 /** Bounded by one table; used to rebuild search text after an enum rename. */
 export const SELECT_RECORDS_FOR_TABLE = `
 SELECT record_pk, authored_cbor FROM records WHERE table_id = ? ORDER BY record_pk;`;
+
+/** One table's rows as recalculation reads them: key, identity, authored state. */
+export const SELECT_RECORD_ROWS_FOR_TABLE = `
+SELECT record_pk, record_id, authored_cbor FROM records WHERE table_id = ? ORDER BY record_pk;`;
 
 export const SELECT_PROJECTION_APP_ID =
   "SELECT app_id FROM projection_meta WHERE singleton = 1;";

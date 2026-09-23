@@ -295,7 +295,7 @@ async function runWorkbook(input: { readonly variant: Variant }): Promise<Outcom
     return lines;
   };
 
-  const handle = await projection.openProjection({ sha256: hash.sha256 });
+  const handle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
 
   if (input.variant === "non-key-relationship") {
     const failure = await projection.hydrateApp(handle, checkpoint()).then(
@@ -361,7 +361,7 @@ async function runWorkbook(input: { readonly variant: Variant }): Promise<Outcom
   projection.disposeProjection(handle);
 
   // Restart: a fresh projection from the same checkpoint.
-  const restarted = await projection.openProjection({ sha256: hash.sha256 });
+  const restarted = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   await projection.hydrateApp(restarted, checkpoint());
   const restartDump = dump(restarted);
 

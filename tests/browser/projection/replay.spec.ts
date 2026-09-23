@@ -445,7 +445,7 @@ async function runReplay(input: {
     const tail = await buildTail("none");
 
     // Path A: the checkpoint and its tail in one call.
-    const withTailHandle = await projection.openProjection({ sha256: hash.sha256 });
+    const withTailHandle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
     await projection.hydrateApp(withTailHandle, checkpoint(), tail);
     const withTail = snapshot(withTailHandle);
     projection.disposeProjection(withTailHandle);
@@ -455,7 +455,7 @@ async function runReplay(input: {
     // at a running app. Equality therefore proves more than that one function
     // calls another: it proves the batch boundary changes nothing, including
     // the per-device chain check that spans the two calls.
-    const appliedHandle = await projection.openProjection({ sha256: hash.sha256 });
+    const appliedHandle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
     await projection.hydrateApp(appliedHandle, checkpoint());
     const sameTail = await buildTail("none");
     await projection.applyEvents(appliedHandle, sameTail.slice(0, 2));
@@ -466,7 +466,7 @@ async function runReplay(input: {
     return { withTail, tailApplied, failure: "", refusedAfterFailure: "" };
   }
 
-  const handle = await projection.openProjection({ sha256: hash.sha256 });
+  const handle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   const failure = await projection
     .hydrateApp(handle, checkpoint(), await buildTail(input.mutation))
     .then(

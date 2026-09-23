@@ -130,7 +130,7 @@ const buildCheckpoint = (): ProjectionCheckpointV1 => {
 };
 
 const probe = async (): Promise<ProjectionWorkerResultV1> => {
-  const handle = await openProjection({ sha256 });
+  const handle = await openProjection({ sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   await hydrateApp(handle, buildCheckpoint());
 
   const value = (sql: string): number =>

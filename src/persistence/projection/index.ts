@@ -21,6 +21,7 @@ export type {
 export { hydrateApp } from "./hydrate.js";
 export { applyEvents } from "./apply-events.js";
 export { executeQuery } from "./query-exec.js";
+export { refreshVolatile } from "./recalc.js";
 
 export {
   DECIMAL_ORDER_KEY_BYTES,
@@ -31,6 +32,8 @@ export {
 export type {
   ChangeHistoryCursorV1,
   ChangeSubjectKindV1,
+  DomainEventV1,
+  ProjectionApplyReceiptV1,
   ProjectionAppStateV1,
   ProjectionCellRowV1,
   ProjectionChangeEventV1,
@@ -38,6 +41,7 @@ export type {
   ProjectionChangeSummaryV1,
   ProjectionCheckpointV1,
   ProjectionCommitV1,
+  ProjectionComputedCellV1,
   ProjectionIssueRowV1,
   ProjectionQueryKindV1,
   ProjectionQueryResultsV1,
@@ -55,11 +59,13 @@ export type {
   ProjectionRelatedChildrenPageV1,
   ProjectionRelatedParentV1,
   ProjectionRelationshipV1,
+  ProjectionScalarResultV1,
   ProjectionSheetListingV1,
   ProjectionSheetSnapshotV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,
   RecordRevalidatorV1,
+  RecordRuleIRV1,
   SheetClassificationV1,
   Sha256Fn,
   ValidationIssueV1Input,

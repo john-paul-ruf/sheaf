@@ -40,6 +40,8 @@ import {
 } from "./engine.js";
 import {
   DELETE_AUTHORED_CELLS_FOR_RECORD,
+  DELETE_COMPUTED_CELL,
+  DELETE_RECALCULATED_ISSUES_FOR_CELL,
   DELETE_SEARCH_ROW,
   DELETE_VALIDATOR_ISSUES_FOR_RECORD,
   INSERT_CELL,
@@ -229,12 +231,14 @@ const cellParameters = (
   recordPk: number,
   field: FieldDefV1,
   cell: CellLaneV1,
+  // An authored field's lane is written with the record; a computed field's
+  // lane only by recalculation (D51, invariant 7). Migration 005's trigger
+  // ties the origin to the field, so neither can pose as the other.
+  origin: "authored" | "computed" = "authored",
 ): readonly SqlParam[] => [
   recordPk,
   field.fieldId,
-  // Only an authored field gets a lane here; a computed field's lane is
-  // recalculation's, with `origin = 'computed'` (D51, invariant 7).
-  "authored",
+  origin,
   cell.valueKind,
   cell.textValue,
   cell.textSortKey,
@@ -320,6 +324,54 @@ function writeRecordContents(
     recordPk,
     searchableTextFor(handle.schema, record.record),
   ]);
+}
+
+/**
+ * `record_issues.issue_id` for a recalculated issue: the row key, a marker
+ * byte no validator ordinal can reach, and the first bytes of the computed
+ * field's ID. One per (record, computed field), stable across replays.
+ */
+export function computedIssueId(recordPk: number, fieldId: Uint8Array): Uint8Array {
+  const id = new Uint8Array(16);
+  new DataView(id.buffer).setBigUint64(0, BigInt(recordPk));
+  id[8] = 0xff;
+  id.set(fieldId.subarray(0, 7), 9);
+  return id;
+}
+
+/**
+ * Writes one computed cell as recalculation decided it: a computed lane when
+ * there is a value that fits one, and the recalculated `formula` issue when
+ * there is one. Returns false when a value was meant to take a lane but the
+ * lane refused it (a decimal outside the order-key domain), so the caller
+ * can say so rather than leave the cell looking empty.
+ */
+export function writeComputedCell(
+  handle: ProjectionHandleV1,
+  recordPk: number,
+  field: FieldDefV1,
+  lane: CellValueV1 | null,
+  issue: { readonly messageKey: string; readonly messageParameters: Readonly<Record<string, string>> } | null,
+): boolean {
+  run(handle, DELETE_COMPUTED_CELL, [recordPk, field.fieldId]);
+  run(handle, DELETE_RECALCULATED_ISSUES_FOR_CELL, [recordPk, field.fieldId]);
+  const projected = lane === null ? null : projectCellValue(field, lane).lane;
+  if (projected !== null) {
+    run(handle, INSERT_CELL, cellParameters(recordPk, field, projected, "computed"));
+  }
+  if (issue !== null) {
+    run(handle, INSERT_RECORD_ISSUE, [
+      computedIssueId(recordPk, field.fieldId),
+      recordPk,
+      field.fieldId,
+      null,
+      "formula",
+      "warning",
+      issue.messageKey,
+      encodeMessageParameters(issue.messageParameters),
+    ]);
+  }
+  return lane === null || projected !== null;
 }
 
 /**

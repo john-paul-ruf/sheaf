@@ -60,6 +60,7 @@ import {
   withTransaction,
   type ProjectionHandleV1,
 } from "./engine.js";
+import { recalculate } from "./recalc.js";
 import { idKey, insertRecord } from "./record-rows.js";
 import {
   DECIMAL_ORDER_KEY_VERSION,
@@ -125,6 +126,9 @@ export async function hydrateApp(
       }
     });
   }
+
+  // Load order step 6: every formula, once the whole graph is present (D60).
+  await withTransaction(handle, () => recalculate(handle, { kind: "all" }));
 
   for (const entry of checkpoint.frontier) {
     handle.frontier.set(idKey(entry.deviceId), entry);

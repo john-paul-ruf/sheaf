@@ -38,6 +38,7 @@ import type {
   DeviceId,
   EventId,
   FieldId,
+  FormulaId,
   InertItemId,
   RecordId,
   RelationshipId,
@@ -325,6 +326,16 @@ export interface ProjectionIssueRowV1 {
   >;
 }
 
+/**
+ * A computed cell as a read reports it (CA-26): each result state distinct,
+ * a value only where one exists. `unsupported` and `frozen` carry the
+ * record's authored literal; `unsupported-new-row` never becomes a zero.
+ */
+export type ProjectionComputedCellV1 =
+  | { readonly state: "ok" | "frozen" | "unsupported"; readonly value: CellValueV1 }
+  | { readonly state: "type" | "empty" | "cycle" | "unsupported-new-row" }
+  | { readonly state: "error"; readonly code: string };
+
 export interface ProjectionRecordSummaryV1 {
   /** The session row key. Stable within one projection; never durable. */
   readonly recordPk: number;
@@ -333,8 +344,27 @@ export interface ProjectionRecordSummaryV1 {
   readonly recordRevision: bigint;
   /** Complete authored state, including the values that have no typed lane. */
   readonly authoredValues: ReadonlyMap<FieldId, CellValueV1>;
+  /** Every active computed column's current result, keyed by the schema's field IDs. */
+  readonly computed: ReadonlyMap<FieldId, ProjectionComputedCellV1>;
   readonly blockingIssueCount: number;
   readonly warningIssueCount: number;
+}
+
+/**
+ * One `scalar_formula_results` row: a table metric's or dashboard value's
+ * current result, evaluated at the session clock (D60). Ephemeral.
+ */
+export interface ProjectionScalarResultV1 {
+  readonly formulaId: FormulaId;
+  readonly status: "ok" | "empty" | "unsupported" | "cycle" | "error";
+  readonly value: CellValueV1 | null;
+  readonly code: string | null;
+  readonly evaluatedAtMs: number;
+}
+
+/** What `applyEvents` reports: the computed columns its commits re-derived. */
+export interface ProjectionApplyReceiptV1 {
+  readonly recalculatedFieldIds: readonly FieldId[];
 }
 
 export interface ProjectionRecordDetailV1 extends ProjectionRecordSummaryV1 {
@@ -536,7 +566,9 @@ export type ProjectionQueryV1 =
       readonly decisionKind: DecisionKindV1 | null;
     }
   /** A table's formulas (column, metric, table-scoped dashboard), or all when null. */
-  | { readonly kind: "list-formulas"; readonly tableId: TableId | null };
+  | { readonly kind: "list-formulas"; readonly tableId: TableId | null }
+  /** Every metric and dashboard value's current result. */
+  | { readonly kind: "scalar-results" };
 
 export interface ProjectionQueryResultsV1 {
   readonly "app-state": ProjectionAppStateV1;
@@ -562,6 +594,7 @@ export interface ProjectionQueryResultsV1 {
   readonly "list-inert-items": readonly ProjectionInertItemV1[];
   readonly "list-inference-decisions": readonly ProjectionInferenceDecisionV1[];
   readonly "list-formulas": readonly ProjectionFormulaV1[];
+  readonly "scalar-results": readonly ProjectionScalarResultV1[];
 }
 
 export type ProjectionQueryKindV1 = ProjectionQueryV1["kind"];

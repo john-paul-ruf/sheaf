@@ -45,9 +45,12 @@ import {
 import type { EnumOptionDefV1 } from "../../domain/model/schema.js";
 import type { EventClassV1 } from "../../migrations/004_event_format_v1.js";
 import type { SqlValue } from "@sqlite.org/sqlite-wasm";
+import { decodeBase64Url } from "../../domain/model/bytes.js";
+import { readComputedCells } from "./recalc.js";
 import {
   decodeAppTheme,
   decodeAuthoredRecord,
+  decodeScalarValue,
   decodeOpaque,
   decodeSnapshotAnchor,
   decodeChangeSummary,
@@ -94,6 +97,7 @@ import {
   SELECT_RECORD_STATE_BY_ID,
   SELECT_RELATIONSHIPS_FOR_TABLE,
   SELECT_RULES_FOR_TABLE,
+  SELECT_SCALAR_RESULTS,
   SELECT_SHEET_SNAPSHOTS,
   toFtsMatchQuery,
 } from "./statements.js";
@@ -118,6 +122,7 @@ import type {
   ProjectionRelatedChildrenPageV1,
   ProjectionRelatedParentV1,
   ProjectionRelationshipV1,
+  ProjectionScalarResultV1,
   ProjectionSheetListingV1,
   ProjectionTableSummaryV1,
   ProjectionValidationRuleV1,
@@ -256,6 +261,19 @@ function runQuery(
       );
     case "list-formulas":
       return answer(listFormulas(handle, query.tableId));
+    case "scalar-results":
+      return answer(
+        selectRows(handle, SELECT_SCALAR_RESULTS).map((row): ProjectionScalarResultV1 => {
+          const result = decodeScalarValue(textAt(row, 1), optionalBytes(row, 2));
+          return {
+            formulaId: asDomainId("formula", bytesAt(row, 0)),
+            status: result.kind,
+            value: result.kind === "ok" ? result.value : null,
+            code: result.kind === "error" ? result.code : null,
+            evaluatedAtMs: numberAt(row, 3),
+          };
+        }),
+      );
     default: {
       const unreachable: never = query;
       return unreachable;
@@ -378,15 +396,29 @@ function toRecordSummary(
   row: Row,
 ): ProjectionRecordSummaryV1 {
   const authored = decodeAuthoredRecord(bytesAt(row, 4));
+  const recordPk = numberAt(row, 0);
+  const tableId = asDomainId("table", bytesAt(row, 2));
+  const computed = readComputedCells(
+    handle,
+    recordPk,
+    tableId,
+    new Map([...authored.values].map(([fieldId, value]) => [idKey(fieldId), value])),
+  );
   return {
-    recordPk: numberAt(row, 0),
+    recordPk,
     recordId: asDomainId("record", bytesAt(row, 1)),
-    tableId: asDomainId("table", bytesAt(row, 2)),
+    tableId,
     recordRevision: BigInt(numberAt(row, 3)),
     authoredValues: new Map(
       [...authored.values].map(([fieldId, value]) => [
         canonicalFieldId(handle, fieldId),
         value,
+      ]),
+    ),
+    computed: new Map(
+      [...computed].map(([fieldKey, cell]) => [
+        handle.schema.fields.get(fieldKey)?.fieldId ?? asDomainId("field", decodeBase64Url(fieldKey)),
+        cell,
       ]),
     ),
     blockingIssueCount: numberAt(row, 5),

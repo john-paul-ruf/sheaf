@@ -38,6 +38,7 @@ import type {
   EventCommitV1,
   FrontierEntryV1,
 } from "../../migrations/004_event_format_v1.js";
+import type { EvaluationClockReadingV1 } from "../../domain/formulas/evaluate.js";
 import type { ProjectionSchemaCacheV1, Sha256Fn } from "./types.js";
 import { READ_USER_VERSION } from "./statements.js";
 
@@ -51,6 +52,13 @@ export interface OpenProjectionInitV1 {
    * no key material of any kind.
    */
   readonly sha256: Sha256Fn;
+  /**
+   * The session clock, the only source of `TODAY()`/`NOW()` (D60). The data
+   * worker supplies its `ClockPort`, read in local time; a reading is used
+   * for one recalculation and never stored anywhere but the ephemeral
+   * `scalar_formula_results.evaluated_at_ms`.
+   */
+  readonly clock: () => EvaluationClockReadingV1;
 }
 
 /**
@@ -60,6 +68,9 @@ export interface OpenProjectionInitV1 {
 export interface ProjectionHandleV1 {
   readonly database: Database;
   readonly sha256: Sha256Fn;
+  readonly clock: () => EvaluationClockReadingV1;
+  /** The clock reading the volatile formulas were last evaluated at. */
+  volatileReading: EvaluationClockReadingV1 | null;
   readonly statements: Map<string, PreparedStatement>;
   readonly schema: ProjectionSchemaCacheV1;
   /**
@@ -98,6 +109,8 @@ export async function openProjection(
   const handle: ProjectionHandleV1 = {
     database,
     sha256: init.sha256,
+    clock: init.clock,
+    volatileReading: null,
     statements: new Map(),
     schema: {
       tables: new Map(),

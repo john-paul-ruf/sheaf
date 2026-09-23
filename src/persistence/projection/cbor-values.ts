@@ -30,7 +30,12 @@ import {
   type FieldChangeV1,
   type FormulaMetadataV1,
 } from "../../domain/model/events.js";
-import type { FormulaIRDocumentV1, FormulaIRV1 } from "../../domain/formulas/ir.js";
+import type {
+  FormulaErrorCodeV1,
+  FormulaIRDocumentV1,
+  FormulaIRV1,
+} from "../../domain/formulas/ir.js";
+import type { EvaluationResultV1, FormulaResultValueV1 } from "../../domain/formulas/evaluate.js";
 import {
   asDomainId,
   compareDomainIds,
@@ -512,6 +517,50 @@ export function encodeFormulaMetadata(metadata: FormulaMetadataV1): Uint8Array {
       ["importedValuePolicy", metadata.importedValuePolicy],
     ]),
   );
+}
+
+// ---------------------------------------------------------- scalar results --
+
+/**
+ * `scalar_formula_results.value_cbor`: the value of an `ok` result, the code
+ * of an `error`, nothing for the rest. Ephemeral, like the table it lives in:
+ * lock destroys it and nothing durable is ever built from it (invariant 7).
+ */
+export function encodeScalarValue(result: EvaluationResultV1): Uint8Array | null {
+  switch (result.kind) {
+    case "ok":
+      return encodeCanonical(encodeCellValue(result.value));
+    case "error":
+      return encodeCanonical(new Map<string, CborValue>([["code", result.code]]));
+    case "empty":
+    case "cycle":
+    case "unsupported":
+      return null;
+    default: {
+      const unreachable: never = result;
+      return unreachable;
+    }
+  }
+}
+
+export function decodeScalarValue(status: string, bytes: Uint8Array | null): EvaluationResultV1 {
+  switch (status) {
+    case "ok":
+      if (bytes === null) throw new CodecError("an ok scalar result has no value");
+      return { kind: "ok", value: decodeCellValue(decodeCanonical(bytes)) as FormulaResultValueV1 };
+    case "error":
+      if (bytes === null) throw new CodecError("an error scalar result has no code");
+      return {
+        kind: "error",
+        code: readText(asMap(decodeCanonical(bytes), "scalar error"), "code") as FormulaErrorCodeV1,
+      };
+    case "empty":
+    case "cycle":
+    case "unsupported":
+      return { kind: status };
+    default:
+      throw new CodecError("scalar result status is not in the closed v1 list");
+  }
 }
 
 // -------------------------------------------------- messages and summaries --

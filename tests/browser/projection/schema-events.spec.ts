@@ -440,7 +440,7 @@ async function replaySchemaEvents(): Promise<ReplayReport> {
     return { commit: sealed, events: typed, revalidate };
   };
 
-  const handle = await projection.openProjection({ sha256: hash.sha256 });
+  const handle = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   await projection.hydrateApp(handle, checkpoint());
   let previous: Uint8Array = new Uint8Array(32).fill(0x0c);
   for (const [index, events] of commits.entries()) {
@@ -473,7 +473,7 @@ async function replaySchemaEvents(): Promise<ReplayReport> {
   projection.disposeProjection(handle);
 
   // Negative: a formula whose computed-column field does not name it.
-  const refused = await projection.openProjection({ sha256: hash.sha256 });
+  const refused = await projection.openProjection({ sha256: hash.sha256, clock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }) });
   await projection.hydrateApp(refused, checkpoint());
   let chain: Uint8Array = new Uint8Array(32).fill(0x0c);
   let refusal = "replayed";
@@ -542,8 +542,12 @@ test("closes the computed field ↔ formula cycle and stores every formula with 
     `${hexOf(0x07).toUpperCase()}|field|${hexOf(0x12).toUpperCase()}`,
     `${hexOf(0x08).toUpperCase()}|formula|${hexOf(0x07).toUpperCase()}`,
   ]);
-  // No computed value was written anywhere: every lane is authored.
-  expect(report.lanes.every((lane) => lane.endsWith("|authored"))).toBe(true);
+  // Only the computed column's lanes are recalculation's; every other lane
+  // is authored, and no authored lane was written for the computed field.
+  const balanceLanes = report.lanes.filter((lane) => lane.startsWith(hexOf(0x15)));
+  expect(balanceLanes.length).toBeGreaterThan(0);
+  expect(balanceLanes.every((lane) => lane.endsWith("|computed"))).toBe(true);
+  expect(report.lanes.filter((lane) => !lane.startsWith(hexOf(0x15))).every((lane) => lane.endsWith("|authored"))).toBe(true);
 });
 
 test("upserts a v2 rule and retires it, and removes a relationship after disabling it (CA-27)", () => {

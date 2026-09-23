@@ -42,7 +42,9 @@
  */
 
 import { IntegrityError } from "../../domain/model/errors.js";
-import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
+import { asDomainId, compareDomainIds, type TableId } from "../../domain/model/ids.js";
+import { F04_SCHEMA_EVENT_KINDS } from "../../domain/model/events.js";
+import { recalculate } from "./recalc.js";
 import type {
   AuthoredRecordV1,
   FieldChangeV1,
@@ -105,10 +107,13 @@ import {
 import {
   DEACTIVATE_FORMULA,
   DEACTIVATE_VALIDATION_RULE,
+  DELETE_COMPUTED_CELLS_FOR_FIELD,
   DELETE_ENUM_OPTIONS_FOR_FIELD,
   DELETE_FORMULA_DEPENDENCIES,
+  DELETE_RECALCULATED_ISSUES_FOR_FIELD,
   DELETE_RECORD,
   DELETE_RELATIONSHIP,
+  DELETE_SCALAR_RESULT,
   DELETE_SEARCH_ROW,
   INSERT_CHANGE_HISTORY,
   INSERT_SEARCH_ROW,
@@ -130,6 +135,7 @@ import {
 import type {
   ChangeSubjectKindV1,
   DomainEventV1,
+  ProjectionApplyReceiptV1,
   ProjectionChangeSummaryV1,
   ProjectionCommitV1,
   ProjectionTableSummaryV1,
@@ -150,6 +156,30 @@ interface CommitShapeV1 {
   readonly reshaped: Set<string>;
   /** Tables this commit itself created (an append, D38). */
   readonly created: Set<string>;
+  /** Any schema, rule, formula or option edit: every formula recalculates. */
+  isSchema: boolean;
+  /** Fields whose values a record event moved (all of a table's on insert/delete). */
+  readonly changedFields: Map<string, FieldId>;
+  /** Records a record event left live. */
+  readonly recordKeys: Set<string>;
+  readonly insertedTables: Map<string, TableId>;
+}
+
+const SCHEMA_KINDS: ReadonlySet<DomainEventV1["kind"]> = new Set([
+  "table.created",
+  "field.created",
+  "enum.changed",
+  ...F04_SCHEMA_EVENT_KINDS,
+]);
+
+/** Every field of a table moved, as far as an aggregate can tell. */
+function touchTable(handle: ProjectionHandleV1, shape: CommitShapeV1, tableId: TableId, inserted: boolean): void {
+  for (const field of handle.schema.fieldsByTable.get(idKey(tableId)) ?? []) {
+    shape.changedFields.set(idKey(field.fieldId), field.fieldId);
+  }
+  if (inserted) {
+    shape.insertedTables.set(idKey(tableId), tableId);
+  }
 }
 
 const EMPTY_SUMMARY: ProjectionChangeSummaryV1 = Object.freeze({
@@ -166,13 +196,13 @@ const EMPTY_SUMMARY: ProjectionChangeSummaryV1 = Object.freeze({
 export async function applyEvents(
   handle: ProjectionHandleV1,
   commits: readonly ProjectionCommitV1[],
-): Promise<void> {
+): Promise<ProjectionApplyReceiptV1> {
   assertUsable(handle);
   if (!handle.hydrated) {
     throw new IntegrityError("projection holds no app to replay onto");
   }
   if (commits.length === 0) {
-    return;
+    return { recalculatedFieldIds: [] };
   }
 
   // Canonical presentation order, M09's comparator — the same order replay
@@ -189,11 +219,19 @@ export async function applyEvents(
     throw cause;
   }
 
-  await withTransaction(handle, () => {
+  return withTransaction(handle, () => {
     let schemaRevision = readSchemaRevision(handle);
+    const recalculated = new Map<string, FieldId>();
     for (const entry of ordered) {
       const { commit } = entry;
-      const shape: CommitShapeV1 = { reshaped: new Set(), created: new Set() };
+      const shape: CommitShapeV1 = {
+        reshaped: new Set(),
+        created: new Set(),
+        isSchema: false,
+        changedFields: new Map(),
+        recordKeys: new Set(),
+        insertedTables: new Map(),
+      };
       parkReorderedFields(handle, entry.events);
       for (const [index, event] of entry.events.entries()) {
         applyEvent(handle, entry, index, event, shape);
@@ -204,6 +242,22 @@ export async function applyEvents(
         if (!shape.created.has(tableKey)) {
           reindexTable(handle, tableKey, entry.revalidate);
         }
+      }
+      // Recalculation in the same transaction as the write (D60): every
+      // formula after a schema change, only what the moved fields reach after
+      // a record write. No event is written for it (invariant 7).
+      const outcome = shape.isSchema
+        ? recalculate(handle, { kind: "all" })
+        : shape.changedFields.size > 0
+          ? recalculate(handle, {
+              kind: "records",
+              changedFieldIds: [...shape.changedFields.values()],
+              recordKeys: [...shape.recordKeys],
+              insertedTableIds: [...shape.insertedTables.values()],
+            })
+          : null;
+      for (const fieldId of outcome?.recalculatedFieldIds ?? []) {
+        recalculated.set(idKey(fieldId), fieldId);
       }
       handle.frontier.set(idKey(commit.deviceId), {
         deviceId: commit.deviceId,
@@ -219,6 +273,7 @@ export async function applyEvents(
     run(handle, UPDATE_PROJECTION_FRONTIER, [
       encodeFrontier([...handle.frontier.values()]),
     ]);
+    return { recalculatedFieldIds: [...recalculated.values()] };
   });
 }
 
@@ -306,8 +361,12 @@ function applyEvent(
   entry: ProjectionCommitV1,
   index: number,
   event: DomainEventV1,
-  { reshaped, created }: CommitShapeV1,
+  shape: CommitShapeV1,
 ): void {
+  const { reshaped } = shape;
+  if (SCHEMA_KINDS.has(event.kind)) {
+    shape.isSchema = true;
+  }
   const wire = entry.commit.events[index] as WireEventV1;
   const issues = entry.issuesByEventIndex?.get(index) ?? [];
   const commitId: CommitId = asDomainId("commit", entry.commit.commitId);
@@ -322,7 +381,7 @@ function applyEvent(
 
     case "table.created":
       applyTableCreated(handle, event.payload, wire);
-      created.add(idKey(event.payload.table.tableId));
+      shape.created.add(idKey(event.payload.table.tableId));
       summary = { ...EMPTY_SUMMARY, tableId: event.payload.table.tableId };
       break;
 
@@ -405,6 +464,8 @@ function applyEvent(
         updatedCommitId: commitId,
         issues,
       });
+      touchTable(handle, shape, created.tableId, true);
+      shape.recordKeys.add(idKey(created.recordId));
       summary = {
         fieldChanges: [],
         recordRevision: 0n,
@@ -428,6 +489,10 @@ function applyEvent(
         updatedCommitId: commitId,
         issues,
       });
+      for (const change of event.payload.changes) {
+        shape.changedFields.set(idKey(change.fieldId), change.fieldId);
+      }
+      shape.recordKeys.add(idKey(event.payload.recordId));
       summary = {
         fieldChanges: event.payload.changes,
         recordRevision: event.payload.recordRevision,
@@ -447,6 +512,8 @@ function applyEvent(
       // explicitly — a search hit for a deleted record would be a lie.
       run(handle, DELETE_SEARCH_ROW, [state.recordPk]);
       run(handle, DELETE_RECORD, [state.recordPk]);
+      touchTable(handle, shape, event.payload.tableId, false);
+      shape.recordKeys.delete(idKey(event.payload.recordId));
       summary = {
         fieldChanges: [],
         recordRevision: state.recordRevision,
@@ -476,6 +543,8 @@ function applyEvent(
         updatedCommitId: commitId,
         issues,
       });
+      touchTable(handle, shape, restored.tableId, true);
+      shape.recordKeys.add(idKey(restored.recordId));
       summary = {
         fieldChanges: [],
         recordRevision: restoredRevision,
@@ -897,6 +966,9 @@ function applyFieldChanged(
     after.fieldId,
   ]);
   cacheField(handle, after);
+  if (!after.isActive && after.formulaId !== undefined) {
+    clearResults(handle, after.formulaId, after.fieldId);
+  }
 }
 
 function applyRelationshipChanged(
@@ -983,7 +1055,28 @@ function applyFormulaRemoved(
   }
   run(handle, DEACTIVATE_FORMULA, [toSqlInteger(schemaRevision), formulaId]);
   handle.schema.formulas.set(idKey(formulaId), { ...existing, isActive: false, schemaRevision });
+  clearResults(handle, existing.formula.formulaId, targetFieldOf(existing.formula));
 }
+
+/**
+ * A removed formula, or a deactivated computed column, keeps no lane, no
+ * recalculated flag and no scalar result: "no result is silently
+ * materialized" (database.md § `formula.removed`). Authored literals stay.
+ */
+function clearResults(
+  handle: ProjectionHandleV1,
+  formulaId: Uint8Array,
+  fieldId: Uint8Array | null,
+): void {
+  run(handle, DELETE_SCALAR_RESULT, [formulaId]);
+  if (fieldId !== null) {
+    run(handle, DELETE_COMPUTED_CELLS_FOR_FIELD, [fieldId]);
+    run(handle, DELETE_RECALCULATED_ISSUES_FOR_FIELD, [fieldId]);
+  }
+}
+
+const targetFieldOf = (formula: FormulaDefinitionV1): Uint8Array | null =>
+  formula.target.kind === "computed-column" ? formula.target.fieldId : null;
 
 /**
  * Rebuilds a re-shaped table's lanes and search text from its authored

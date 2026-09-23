@@ -215,6 +215,7 @@ export function createRecordHandlers(
     );
     const session = await openAppSession({
       ports: deps.ports,
+      clock: deps.clock,
       session: deps.getContext,
       deviceId: deviceIdOf(context),
       appKey,

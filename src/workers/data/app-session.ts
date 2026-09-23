@@ -77,6 +77,7 @@ import {
   changeProvenance,
   validateAgainstProjection,
 } from "../../application/commands/execute-command.js";
+import type { ClockPort } from "../../application/ports/clock.js";
 import type { EnvelopeKeyRefV1 } from "../../application/ports/envelope-crypto.js";
 import type {
   ProjectionEnginePort,
@@ -98,6 +99,7 @@ import {
   executeQuery,
   hydrateApp,
   openProjection,
+  refreshVolatile,
   type ProjectionCheckpointV1,
   type ProjectionCommitV1,
   type ProjectionHandleV1,
@@ -145,6 +147,8 @@ export interface AppSessionV1 {
 
 export interface OpenAppSessionInputV1 {
   readonly ports: AppStoragePortsV1;
+  /** The worker's clock, the only source of `TODAY()`/`NOW()` (D60). */
+  readonly clock: ClockPort;
   readonly session: () => WorkerSessionContextV1;
   readonly deviceId: DeviceId;
   readonly appKey: EnvelopeKeyRefV1;
@@ -159,7 +163,7 @@ export async function openAppSession(
   const checkpoint = resolveCheckpointManifest(loaded.checkpoint);
   const contexts = tableContexts(checkpoint, checkpointResolver(loaded));
 
-  const handle = await openProjection({ sha256 });
+  const handle = await openProjection({ sha256, clock: () => localClockReading(input.clock) });
   try {
     await hydrateApp(
       handle,
@@ -201,6 +205,19 @@ export async function openAppSession(
   };
 }
 
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * A clock reading for formulas: the instant, and the **local** calendar day it
+ * falls on — `TODAY()` is the day a person sees on their device, not the
+ * UTC day (D60). Read fresh for each recalculation, never stored.
+ */
+export function localClockReading(clock: ClockPort): { readonly epochMs: number; readonly epochDay: number } {
+  const epochMs = clock.nowEpochMs();
+  const offsetMs = new Date(epochMs).getTimezoneOffset() * 60_000;
+  return { epochMs, epochDay: Math.floor((epochMs - offsetMs) / MS_PER_DAY) };
+}
+
 /** M12 behind M07's port. The two vocabularies are structurally identical. */
 function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
   return {
@@ -212,8 +229,11 @@ function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
       // is what keeps them that way.
       return executeQuery(handle, query);
     },
-    applyEvents(commits): Promise<void> {
+    applyEvents(commits) {
       return applyEvents(handle, commits);
+    },
+    refreshVolatile(maxAgeMs) {
+      return refreshVolatile(handle, maxAgeMs);
     },
   };
 }

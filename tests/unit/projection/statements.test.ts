@@ -51,6 +51,16 @@ const EXPECTED_PARAMETERS: Readonly<Record<string, number>> = {
   INSERT_RECORD_ISSUE: 8,
   DELETE_VALIDATOR_ISSUES_FOR_RECORD: 1,
   DELETE_RECALCULATED_ISSUES_FOR_CELL: 2,
+  DELETE_RECALCULATED_ISSUES_FOR_FIELD: 1,
+  SELECT_RECALCULATED_ISSUES_FOR_RECORD: 1,
+  DELETE_COMPUTED_CELL: 2,
+  DELETE_COMPUTED_CELLS_FOR_FIELD: 1,
+  SELECT_COMPUTED_CELLS_FOR_RECORD: 1,
+  UPSERT_SCALAR_RESULT: 4,
+  DELETE_SCALAR_RESULT: 1,
+  SELECT_SCALAR_RESULTS: 0,
+  SELECT_SCALAR_RESULT: 1,
+  SELECT_RECORD_ROWS_FOR_TABLE: 1,
   INSERT_SEARCH_ROW: 2,
   DELETE_SEARCH_ROW: 1,
   INSERT_CHANGE_HISTORY: 12,
@@ -113,6 +123,7 @@ const ALLOWED_LITERALS = new Set([
   "'record.deleted'",
   "'id'",
   "'authored'",
+  "'computed'",
   "'formula'",
   ...RECALCULATED_KEYS.map((key) => `'${key}'`),
 ]);
@@ -158,6 +169,8 @@ describe("projection statements", () => {
     for (const sql of [
       statements.DELETE_VALIDATOR_ISSUES_FOR_RECORD,
       statements.DELETE_RECALCULATED_ISSUES_FOR_CELL,
+      statements.DELETE_RECALCULATED_ISSUES_FOR_FIELD,
+      statements.SELECT_RECALCULATED_ISSUES_FOR_RECORD,
     ]) {
       const named = (sql.match(/'[a-z-]+'/g) ?? []).filter((literal) => literal !== "'formula'");
       expect(named.sort()).toEqual(RECALCULATED_KEYS.map((key) => `'${key}'`).sort());
