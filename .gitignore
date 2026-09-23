@@ -38,3 +38,5 @@ yarn-error.log*
 /program/sheaf/demiurge.yaml
 /program/sheaf/img-source/
 
+/program/sheaf/runs/
+/program/sheaf/STATE.md
