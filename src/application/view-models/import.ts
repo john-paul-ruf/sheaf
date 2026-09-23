@@ -29,15 +29,18 @@
 import type { SnapshotFrom } from "xstate";
 import type { ImportFailureDetailV1 } from "../../workers/protocol/import-messages.js";
 import type {
-  EvidenceWireV1,
-  ImportDiagnosticWireV1,
-  InferenceStatementWireV1,
-  InferenceSubjectWireV1,
+  FieldTypeWireV1,
+  ImportDiagnosticWireV2,
+  PreservedPartKindWireV1,
+  PreservedReasonKeyWireV1,
   ProposedFieldTypeWireV1,
-  ProposedFieldWireV1,
-  RecordIssueViewV1,
-  ReviewEditKindWireV1,
-  SourceValueFormatWireV1,
+  ProposedTableWireV2,
+  ProposedWorkbookWireV1,
+  WorkbookEvidenceWireV1,
+  WorkbookInferenceSubjectWireV1,
+  WorkbookReviewEditKindWireV1,
+  WorkbookSourceValueFormatWireV1,
+  WorkbookStatementWireV1,
 } from "../../workers/protocol/messages.js";
 import {
   APPEND_EVENT_CAP,
@@ -50,8 +53,8 @@ import {
   type ImportWorkbookFactsV1,
   type importMachine,
 } from "../workflows/import.machine.js";
-import { singleTableProposal } from "../workflows/import-services.js";
 import { selectAppChoices, type AppChoiceVm } from "./library.js";
+import { toIssueVm, type RecordIssueTokenV1 } from "./records.js";
 
 type ImportSnapshot = SnapshotFrom<typeof importMachine>;
 
@@ -67,10 +70,11 @@ export interface ImportRowCountVm {
 }
 
 /**
- * S03's closed rejection list, restated as a literal union because a view
- * model may not import the inference module and the wire widened `reason` to
- * `string`. `tests/unit/view-models/import.test.ts` pins the two together, so
- * a divergence is a compile error there rather than a wrong sentence here.
+ * S02's closed workbook rejection list (F02's nine, then the workbook edits'
+ * own), restated as a literal union because a view model may not import the
+ * inference module and the wire widened `reason` to `string`.
+ * `tests/unit/view-models/import.test.ts` pins the two together, so a
+ * divergence is a compile error there rather than a wrong sentence here.
  */
 export const REVIEW_EDIT_REJECTION_TOKENS = Object.freeze([
   "unknown-column",
@@ -82,6 +86,15 @@ export const REVIEW_EDIT_REJECTION_TOKENS = Object.freeze([
   "no-enum-options",
   "duplicate-enum-option",
   "too-many-enum-options",
+  "unknown-table",
+  "unknown-relationship",
+  "unknown-statement",
+  "statement-not-rejectable",
+  "field-is-reference",
+  "retarget-not-evidenced",
+  "parent-key-changed",
+  "key-used-by-relationship",
+  "regions-not-joinable",
 ] as const);
 
 export type ReviewEditRejectionTokenV1 =
@@ -473,14 +486,15 @@ export type ReviewSectionIdV1 =
  */
 export type ReviewEmptinessV1 = "not-applicable-value-only" | "none-found";
 
-/** CA-16: projected, never reshaped. Every statement keeps its evidence. */
+/** CA-19: projected, never reshaped. Every statement keeps its evidence. */
 export interface ReviewStatementVm {
   readonly statementId: string;
-  readonly subject: InferenceSubjectWireV1;
+  readonly subject: WorkbookInferenceSubjectWireV1;
   /** The edit that changes it; `null` when nothing here is editable. */
-  readonly editKind: ReviewEditKindWireV1 | null;
+  readonly editKind: WorkbookReviewEditKindWireV1 | null;
+  readonly targetKey: string | null;
   readonly columnIndex: number | null;
-  readonly evidence: readonly EvidenceWireV1[];
+  readonly evidence: readonly WorkbookEvidenceWireV1[];
   readonly disposition: "accepted" | "rejected" | "edited";
 }
 
@@ -493,11 +507,16 @@ export interface ReviewViolationsVm {
 }
 
 export interface ReviewFieldVm {
+  readonly tableKey: string;
+  readonly columnKey: string;
   readonly columnIndex: number;
   readonly fieldName: string;
   readonly isNameGenerated: boolean;
-  readonly type: ProposedFieldTypeWireV1;
-  readonly sourceFormat: SourceValueFormatWireV1;
+  /** What the field will be: a reference for a connection's child column. */
+  readonly type: FieldTypeWireV1;
+  /** What its values look like, which is what "change type" edits. */
+  readonly valueType: ProposedFieldTypeWireV1;
+  readonly sourceFormat: WorkbookSourceValueFormatWireV1;
   readonly enumOptions: readonly {
     readonly label: string;
     readonly occurrences: number;
@@ -510,25 +529,93 @@ export interface ReviewFieldVm {
   readonly violations:
     | { readonly kind: "measured"; readonly value: ReviewViolationsVm }
     | { readonly kind: "not-measured-yet" };
+  /** The workbook formula this column came from, preserved (D33); `null` for none. */
+  readonly formulaText: string | null;
+  readonly statements: readonly ReviewStatementVm[];
+}
+
+/** A region folded into the table above it (a spacer merge, S02). */
+export interface ReviewJoinedRegionVm {
+  readonly tableKey: string;
+  readonly tableName: string;
+  readonly headerRowIndex: number | null;
+  readonly rowCount: ImportRowCountVm;
   readonly statements: readonly ReviewStatementVm[];
 }
 
 export interface ReviewTableVm {
+  readonly tableKey: string;
   readonly tableName: string;
+  readonly sheetName: string;
+  /** The workbook's own declared table, by its declared name, or a region. */
+  readonly declaredTableName: string | null;
   /** `null` when no row looked like a header; the rows below start the table. */
   readonly headerRowIndex: number | null;
+  /** Exact: the records it will become, joined regions included. */
   readonly rowCount: ImportRowCountVm;
   readonly discardedRowCount: number;
   readonly discardedRows: readonly {
     readonly rowIndex: number;
-    readonly reason: "above-header" | "empty-row";
+    readonly reason: "above-header" | "empty-row" | "totals-row";
     readonly cells: readonly string[];
   }[];
   readonly leadingRows: readonly {
     readonly rowIndex: number;
     readonly cells: readonly string[];
   }[];
+  readonly joined: readonly ReviewJoinedRegionVm[];
+  readonly keyFieldName: string | null;
+  readonly labelFieldName: string | null;
   readonly statements: readonly ReviewStatementVm[];
+  readonly fields: readonly ReviewFieldVm[];
+}
+
+/** One connection, named by its tables and fields, applied or rejected (CA-19). */
+export interface ReviewConnectionVm {
+  readonly relationshipKey: string;
+  readonly fromTableName: string;
+  readonly fromFieldName: string;
+  readonly toTableKey: string;
+  readonly toTableName: string;
+  readonly toFieldName: string;
+  /** The parent's label field, which the child shows instead of the raw key. */
+  readonly toLabelFieldName: string | null;
+  readonly detectionSource: "lookup-formula" | "key-match" | "user";
+  /** `false` is the user's stored rejection: shown as a choice, never hidden. */
+  readonly isApplied: boolean;
+  /** Distinct child keys that matched no parent row: kept and flagged (D36). */
+  readonly brokenReferenceCount: number;
+  /** Evidenced alternatives a retarget may choose (S02 candidates). */
+  readonly retargets: readonly { readonly toTableKey: string; readonly toTableName: string }[];
+  readonly statement: ReviewStatementVm | null;
+}
+
+/** A column that came from a formula: results kept as values, formula preserved (D33). */
+export interface ReviewCalculationVm {
+  readonly tableName: string;
+  readonly fieldName: string;
+  readonly formulaText: string;
+}
+
+export interface ReviewInertItemVm {
+  readonly kind: PreservedPartKindWireV1;
+  readonly location: string;
+  readonly reasonKey: PreservedReasonKeyWireV1;
+}
+
+export type ReviewSheetClassificationV1 = Exclude<
+  ProposedWorkbookWireV1["sheets"][number]["classification"][number],
+  "excluded"
+>;
+
+export interface ReviewSheetVm {
+  readonly sheetKey: string;
+  readonly name: string;
+  /** Unselected sheets are listed as excluded by the user's choice (D39). */
+  readonly isSelected: boolean;
+  readonly classification: readonly ReviewSheetClassificationV1[];
+  readonly statements: readonly ReviewStatementVm[];
+  readonly inertItems: readonly ReviewInertItemVm[];
 }
 
 export interface ReviewSectionVm {
@@ -544,14 +631,17 @@ export interface ReviewSectionVm {
  * Why "Create app" is off. `no-fields-found` is the empty-`.csv` case: a
  * proposal with no columns would build an app with nothing in it, so the
  * affordance is disabled with the fact stated rather than offering a create
- * whose result is not an app anyone asked for. Composed from facts — no flow
- * and no hierarchy is invented (S03 followUp 13).
+ * whose result is not an app anyone asked for.
  */
 export type PromotionBlockerV1 = "no-fields-found";
 
 export interface ImportPromotionConfirmVm {
-  /** The name the app will be created under, exactly as it will be used. */
+  /** A new app, or a new table added to an app on this device (D38). */
+  readonly kind: "create-app" | "add-table";
+  /** The new app's name, or the name of the app the table is added to. */
   readonly appName: string;
+  /** The table an append adds; `null` for a new app. */
+  readonly tableName: string | null;
   readonly canCreate: boolean;
   readonly blocker: PromotionBlockerV1 | null;
   readonly busy: boolean;
@@ -559,27 +649,49 @@ export interface ImportPromotionConfirmVm {
   readonly assurance: string;
 }
 
+/**
+ * A refused promotion's issues, one group per field (F02 S07 obligation).
+ * The field is the promotion's own id: the stage minted it and wrote nothing,
+ * so no name reaches the page for it (reported as a seam) — the group
+ * says how many values in one field broke which rule.
+ */
+export interface PromotionIssueGroupVm {
+  readonly fieldId: string | null;
+  readonly token: RecordIssueTokenV1;
+  readonly sentence: string;
+  readonly severity: "warning" | "blocking";
+  readonly count: number;
+}
+
 export interface ImportReviewVm {
   readonly screen: "SCR-023";
   readonly step: "inferring" | "reviewing" | "applyingEdit" | "promoting";
   readonly fileName: string;
   readonly appName: string;
-  readonly table: ReviewTableVm | null;
-  readonly fields: readonly ReviewFieldVm[];
+  readonly isDelimited: boolean;
+  /** An Excel workbook (xlsx, xlsb, xls), whose validations are Excel's own. */
+  readonly isExcelWorkbook: boolean;
+  readonly appStatements: readonly ReviewStatementVm[];
+  readonly tables: readonly ReviewTableVm[];
+  readonly connections: readonly ReviewConnectionVm[];
+  readonly calculations: readonly ReviewCalculationVm[];
+  /** Every preserved formula region, in a table column or not (D33). */
+  readonly formulaRegionCount: number;
+  readonly sheets: readonly ReviewSheetVm[];
   readonly sections: readonly ReviewSectionVm[];
-  readonly diagnostics: readonly ImportDiagnosticWireV1[];
+  readonly diagnostics: readonly ImportDiagnosticWireV2[];
   /**
-   * Derived by summing the measured violations — never invented, and never a
-   * count of what was not measured (CA-16).
+   * Measured violations plus broken references — never invented, and
+   * never a count of what was not measured (CA-16).
    */
   readonly needsAttentionCount: number;
   /** False when any field's violations were nulled by a header-row edit. */
   readonly isNeedsAttentionExact: boolean;
+  readonly brokenReferenceCount: number;
   readonly editRejection: ReviewEditRejectionVm | null;
-  /** A promotion that refused wrote nothing; its issues name every field. */
-  readonly promotionIssues: readonly RecordIssueViewV1[];
   /** Why the last promotion refused, as a closed token; `null` when none did. */
   readonly promotionRejection: PromotionRejectionVm | null;
+  readonly promotionIssues: readonly PromotionIssueGroupVm[];
   readonly confirm: ImportPromotionConfirmVm;
   readonly announcement: string;
 }
@@ -633,47 +745,6 @@ const SECTION_LABELS: Readonly<Record<ReviewSectionIdV1, string>> =
     "live-calculations": "Live calculations",
     "sheets-and-snapshots": "Sheets & snapshots",
   });
-
-function toStatement(
-  statement: InferenceStatementWireV1,
-): ReviewStatementVm {
-  return {
-    statementId: statement.statementId,
-    subject: statement.subject,
-    editKind: statement.editKind,
-    columnIndex: statement.columnIndex,
-    evidence: statement.evidence,
-    disposition: statement.disposition,
-  };
-}
-
-function toField(
-  field: ProposedFieldWireV1,
-  statements: readonly InferenceStatementWireV1[],
-): ReviewFieldVm {
-  return {
-    columnIndex: field.columnIndex,
-    fieldName: field.fieldName,
-    isNameGenerated: field.isNameGenerated,
-    type: field.type,
-    sourceFormat: field.sourceFormat,
-    enumOptions: field.enumOptions,
-    violations:
-      field.violations === null
-        ? { kind: "not-measured-yet" }
-        : { kind: "measured", value: field.violations },
-    statements: statements
-      .filter((statement) => statement.columnIndex === field.columnIndex)
-      .map(toStatement),
-  };
-}
-
-const TABLE_SUBJECTS: ReadonlySet<InferenceSubjectWireV1> = new Set([
-  "app-name",
-  "table-name",
-  "header-row",
-  "discarded-rows",
-]);
 
 export function selectImportVm(snapshot: ImportSnapshot): ImportVm {
   const { context } = snapshot;
@@ -1162,43 +1233,186 @@ function announceEnded(
   }
 }
 
+const toStatement = (statement: WorkbookStatementWireV1): ReviewStatementVm => ({
+  statementId: statement.statementId,
+  subject: statement.subject,
+  editKind: statement.editKind,
+  targetKey: statement.targetKey,
+  columnIndex: statement.columnIndex,
+  evidence: statement.evidence,
+  disposition: statement.disposition,
+});
+
+function toField(
+  field: ProposedTableWireV2["fields"][number],
+  tableKey: string,
+  statementsFor: (targetKey: string) => readonly ReviewStatementVm[],
+): ReviewFieldVm {
+  return {
+    tableKey,
+    columnKey: field.columnKey,
+    columnIndex: field.columnIndex,
+    fieldName: field.fieldName,
+    isNameGenerated: field.isNameGenerated,
+    type: field.type,
+    valueType: field.valueType,
+    sourceFormat: field.sourceFormat,
+    enumOptions: field.enumOptions,
+    violations:
+      field.violations === null
+        ? { kind: "not-measured-yet" }
+        : { kind: "measured", value: field.violations },
+    formulaText: field.formulaText,
+    statements: statementsFor(field.columnKey),
+  };
+}
+
+/**
+ * The proposal as the one review reads it (CA-19). Statements are attached to
+ * what they are about by their own target key — a table, a column, a
+ * relationship, a sheet — and never re-derived; a region joined to the
+ * table above it is shown inside that table, because promotion builds them as
+ * one (S02).
+ */
+function reviewOf(proposal: ProposedWorkbookWireV1) {
+  const statements = proposal.statements.map(toStatement);
+  const statementsFor = (targetKey: string): readonly ReviewStatementVm[] =>
+    statements.filter((statement) => statement.targetKey === targetKey);
+  const sheetNameOf = (sheetKey: string): string =>
+    proposal.sheets.find((sheet) => sheet.sheetKey === sheetKey)?.name ?? "";
+  const headOf = (tableKey: string): ProposedTableWireV2 | undefined => {
+    const table = proposal.tables.find((candidate) => candidate.tableKey === tableKey);
+    const headKey = table?.joinedToTableKey ?? null;
+    return headKey === null ? table : proposal.tables.find((candidate) => candidate.tableKey === headKey);
+  };
+  const fieldNameIn = (table: ProposedTableWireV2 | undefined, columnKey: string | null): string | null =>
+    table?.fields.find((field) => field.columnKey === columnKey)?.fieldName ?? null;
+
+  const tables: ReviewTableVm[] = proposal.tables
+    .filter((table) => table.joinedToTableKey === null)
+    .map((head) => {
+      const joined = proposal.tables.filter((table) => table.joinedToTableKey === head.tableKey);
+      return {
+        tableKey: head.tableKey,
+        tableName: head.tableName,
+        sheetName: sheetNameOf(head.sheetKey),
+        declaredTableName: head.source.kind === "declared-table" ? head.source.name : null,
+        headerRowIndex: head.headerRowIndex,
+        rowCount: exact(joined.reduce((sum, table) => sum + table.rowCount, head.rowCount)),
+        discardedRowCount: head.discardedRowCount,
+        discardedRows: head.discardedRows,
+        leadingRows: head.leadingRows,
+        joined: joined.map((table) => ({
+          tableKey: table.tableKey,
+          tableName: table.tableName,
+          headerRowIndex: table.headerRowIndex,
+          rowCount: exact(table.rowCount),
+          statements: statementsFor(table.tableKey),
+        })),
+        keyFieldName: fieldNameIn(head, head.keyColumnKey),
+        labelFieldName: fieldNameIn(head, head.labelColumnKey),
+        statements: statementsFor(head.tableKey),
+        fields: head.fields.map((field) => toField(field, head.tableKey, statementsFor)),
+      };
+    });
+
+  const connections: ReviewConnectionVm[] = proposal.relationships.map((relationship) => {
+    const from = proposal.tables.find((table) => table.tableKey === relationship.fromTableKey);
+    const to = proposal.tables.find((table) => table.tableKey === relationship.toTableKey);
+    const retargets = new Map<string, string>();
+    for (const candidate of relationship.candidates) {
+      if (candidate.toTableKey === relationship.toTableKey) continue;
+      retargets.set(candidate.toTableKey, headOf(candidate.toTableKey)?.tableName ?? candidate.toTableKey);
+    }
+    return {
+      relationshipKey: relationship.relationshipKey,
+      fromTableName: headOf(relationship.fromTableKey)?.tableName ?? relationship.fromTableKey,
+      fromFieldName: fieldNameIn(from, relationship.fromColumnKey) ?? relationship.fromColumnKey,
+      toTableKey: relationship.toTableKey,
+      toTableName: headOf(relationship.toTableKey)?.tableName ?? relationship.toTableKey,
+      toFieldName: fieldNameIn(to, relationship.toColumnKey) ?? relationship.toColumnKey,
+      toLabelFieldName: fieldNameIn(to, to?.labelColumnKey ?? null),
+      detectionSource: relationship.detectionSource,
+      isApplied: relationship.isApplied,
+      brokenReferenceCount: relationship.brokenReferenceCount,
+      retargets: [...retargets].map(([toTableKey, toTableName]) => ({ toTableKey, toTableName })),
+      statement: statementsFor(relationship.relationshipKey)[0] ?? null,
+    };
+  });
+
+  const calculations: ReviewCalculationVm[] = tables.flatMap((table) =>
+    table.fields.flatMap((field) =>
+      field.formulaText === null
+        ? []
+        : [{ tableName: table.tableName, fieldName: field.fieldName, formulaText: field.formulaText }],
+    ),
+  );
+
+  const sheets: ReviewSheetVm[] = proposal.sheets.map((sheet) => ({
+    sheetKey: sheet.sheetKey,
+    name: sheet.name,
+    isSelected: sheet.isSelected,
+    classification: sheet.classification.filter(
+      (entry): entry is ReviewSheetClassificationV1 => entry !== "excluded",
+    ),
+    // A classification statement targets `<sheetKey>.<classification>`.
+    statements: statements.filter(
+      (statement) =>
+        statement.subject === "sheet-classification" &&
+        statement.targetKey?.startsWith(`${sheet.sheetKey}.`) === true,
+    ),
+    inertItems: proposal.inertItems
+      .filter((item) => item.sheetKey === sheet.sheetKey)
+      .map((item) => ({ kind: item.kind, location: item.location, reasonKey: item.reasonKey })),
+  }));
+
+  return {
+    appStatements: statements.filter((statement) => statement.subject === "app-name"),
+    tables,
+    connections,
+    calculations,
+    sheets,
+  };
+}
+
+/** A refused promotion's issues, grouped by field and reason (F02 S07). */
+function issueGroupsOf(rejection: ImportSnapshot["context"]["promotionRejection"]): readonly PromotionIssueGroupVm[] {
+  const groups = new Map<string, PromotionIssueGroupVm>();
+  for (const issue of rejection?.issues ?? []) {
+    const vm = toIssueVm({ ...issue, messageParameters: {} });
+    const key = `${issue.fieldId ?? "record"}|${vm.token}`;
+    const group = groups.get(key);
+    groups.set(
+      key,
+      group === undefined
+        ? { fieldId: issue.fieldId, token: vm.token, sentence: vm.sentence, severity: vm.severity, count: 1 }
+        : { ...group, count: group.count + 1, severity: group.severity === "blocking" ? "blocking" : vm.severity },
+    );
+  }
+  return [...groups.values()];
+}
+
 function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
   const { context } = snapshot;
-  // This page reviews one delimited table (D48). A proposal with no one-table
-  // view never reaches review — the machine fails closed on it — so here it
-  // reads as "nothing proposed yet" rather than as part of an app.
-  const proposal = context.proposal === undefined ? undefined : (singleTableProposal(context.proposal) ?? undefined);
-  const statements = proposal?.statements ?? [];
-  const fields = (proposal?.table.fields ?? []).map((field) =>
-    toField(field, statements),
-  );
+  const proposal = context.proposal;
+  const review = proposal === undefined ? null : reviewOf(proposal);
+  const tables = review?.tables ?? [];
+  const fields = tables.flatMap((table) => table.fields);
+  const connections = review?.connections ?? [];
+  const sheets = review?.sheets ?? [];
+  const isDelimited = proposal?.isDelimited ?? true;
 
-  const measured = fields.filter(
-    (field) => field.violations.kind === "measured",
-  );
-  const needsAttentionCount = measured.reduce(
-    (total, field) =>
-      total +
-      (field.violations.kind === "measured"
-        ? field.violations.value.count
-        : 0),
+  const measured = fields.filter((field) => field.violations.kind === "measured");
+  const violationCount = measured.reduce(
+    (total, field) => total + (field.violations.kind === "measured" ? field.violations.value.count : 0),
     0,
   );
-
-  const table: ReviewTableVm | null =
-    proposal === undefined
-      ? null
-      : {
-          tableName: proposal.table.tableName,
-          headerRowIndex: proposal.headerRowIndex,
-          rowCount: exact(proposal.rowCount),
-          discardedRowCount: proposal.discardedRowCount,
-          discardedRows: proposal.discardedRows,
-          leadingRows: proposal.leadingRows,
-          statements: statements
-            .filter((statement) => TABLE_SUBJECTS.has(statement.subject))
-            .map(toStatement),
-        };
+  const brokenReferenceCount = connections
+    .filter((connection) => connection.isApplied)
+    .reduce((total, connection) => total + connection.brokenReferenceCount, 0);
+  const formulaRegionCount = proposal?.inertCounts.formula ?? 0;
+  const selectedSheetCount = sheets.filter((sheet) => sheet.isSelected).length;
+  const structure: ReviewEmptinessV1 = isDelimited ? "not-applicable-value-only" : "none-found";
 
   const step = snapshot.matches("promoting")
     ? "promoting"
@@ -1209,41 +1423,48 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
         : "reviewing";
 
   const appName = proposal?.appName ?? context.appName;
+  const { destination } = context;
+  const targetApp =
+    destination.kind === "existing-app" && context.library.kind === "listed"
+      ? context.library.apps.find((app) => app.appId === destination.appId)
+      : undefined;
 
   return {
     screen: "SCR-023",
     step,
     fileName: context.fileName,
     appName,
-    table,
-    fields,
+    isDelimited,
+    isExcelWorkbook: ["xlsx", "xlsb", "xls"].includes(context.workbook?.report.format ?? ""),
+    appStatements: review?.appStatements ?? [],
+    tables,
+    connections,
+    calculations: review?.calculations ?? [],
+    formulaRegionCount,
+    sheets,
     sections: [
-      section("tables-and-rows", table === null ? 0 : 1, "none-found"),
+      section("tables-and-rows", tables.length, "none-found"),
       section("fields-and-choices", fields.length, "none-found"),
-      section("connections", 0, "not-applicable-value-only"),
-      section("live-calculations", 0, "not-applicable-value-only"),
-      section("sheets-and-snapshots", 0, "not-applicable-value-only"),
+      section("connections", connections.length, structure),
+      section("live-calculations", formulaRegionCount, structure),
+      section("sheets-and-snapshots", isDelimited ? 0 : selectedSheetCount, structure),
     ],
     diagnostics: proposal?.diagnostics ?? [],
-    needsAttentionCount,
+    needsAttentionCount: violationCount + brokenReferenceCount,
     isNeedsAttentionExact: measured.length === fields.length,
+    brokenReferenceCount,
     editRejection:
       context.editRejection === undefined
         ? null
         : toReviewEditRejectionVm(context.editRejection),
     promotionRejection:
       context.promotionRejection === undefined ? null : toPromotionRejectionVm(context.promotionRejection.reason),
-    promotionIssues: (context.promotionRejection?.issues ?? []).map((issue) => ({
-      fieldId: issue.fieldId,
-      kind: issue.kind,
-      severity: issue.severity,
-      messageKey: issue.messageKey,
-      messageParameters: {},
-    })),
+    promotionIssues: issueGroupsOf(context.promotionRejection),
     confirm: {
-      appName,
-      canCreate:
-        snapshot.can({ type: "CREATE_APP" }) && fields.length > 0,
+      kind: destination.kind === "existing-app" ? "add-table" : "create-app",
+      appName: destination.kind === "existing-app" ? (targetApp?.displayName ?? "") : appName,
+      tableName: destination.kind === "existing-app" ? (tables[0]?.tableName ?? null) : null,
+      canCreate: snapshot.can({ type: "CREATE_APP" }) && fields.length > 0,
       blocker: fields.length === 0 && proposal !== undefined ? "no-fields-found" : null,
       busy: snapshot.matches("promoting"),
       // review.html, verbatim.
@@ -1251,8 +1472,9 @@ function selectReviewVm(snapshot: ImportSnapshot): ImportReviewVm {
     },
     announcement: announceReview(
       snapshot.matches("inferring"),
+      tables.length,
       fields.length,
-      needsAttentionCount,
+      violationCount + brokenReferenceCount,
     ),
   };
 }
@@ -1272,6 +1494,7 @@ function section(
 
 function announceReview(
   inferring: boolean,
+  tableCount: number,
   fieldCount: number,
   needsAttention: number,
 ): string {
@@ -1282,9 +1505,11 @@ function announceReview(
     // The empty-.csv case, composed from the one fact there is.
     return "Sheaf found no columns in this file, so there is nothing to create an app from.";
   }
+  const found =
+    tableCount > 1
+      ? `${String(tableCount)} tables with ${String(fieldCount)} fields were found.`
+      : `${String(fieldCount)} fields were found.`;
   return needsAttention === 0
-    ? `${String(fieldCount)} fields were found. Nothing needs your attention.`
-    : `${String(fieldCount)} fields were found. ${String(
-        needsAttention,
-      )} values need your attention.`;
+    ? `${found} Nothing needs your attention.`
+    : `${found} ${String(needsAttention)} values need your attention.`;
 }

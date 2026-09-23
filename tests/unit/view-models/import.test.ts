@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import { createActor } from "xstate";
-import { REVIEW_EDIT_REJECTIONS } from "../../../src/import/inference/review-edits.js";
+import { WORKBOOK_REVIEW_EDIT_REJECTIONS } from "../../../src/import/inference/review-edits.js";
 import {
   PROMOTION_REJECTIONS,
   type PromotionRejectionV1,
@@ -36,7 +36,7 @@ import {
   type SheetEstimateVm,
   type WorkbookPreflightVm,
 } from "../../../src/application/view-models/import.js";
-import type { ReviewEditRejectionV1 } from "../../../src/import/inference/review-edits.js";
+import type { WorkbookReviewEditRejectionV1 as ReviewEditRejectionV1 } from "../../../src/import/inference/review-edits.js";
 import {
   cleanupReceipt,
   fakeImportServices,
@@ -530,11 +530,13 @@ describe("the review (SCR-023)", () => {
     const { actor } = await toReview(proposal);
     const vm = reviewVm(vmOf(actor));
 
-    expect(vm.fields[0]?.statements).toEqual([
+    expect(vm.tables[0]?.fields[0]?.statements).toEqual([
       {
         statementId: "st-1",
         subject: "field-type",
         editKind: "override-type",
+        // S02's key for the statement's column, carried unreshaped (CA-19).
+        targetKey: "s0.r0.c0",
         columnIndex: 0,
         evidence: [
           {
@@ -559,7 +561,7 @@ describe("the review (SCR-023)", () => {
     const { actor } = await toReview(proposal);
     const vm = reviewVm(vmOf(actor));
 
-    expect(vm.fields[0]?.violations).toEqual({ kind: "not-measured-yet" });
+    expect(vm.tables[0]?.fields[0]?.violations).toEqual({ kind: "not-measured-yet" });
     expect(vm.isNeedsAttentionExact).toBe(false);
     expect(vm.needsAttentionCount).toBe(0);
   });
@@ -631,7 +633,7 @@ describe("the review (SCR-023)", () => {
     const { actor } = await toReview(
       wireProposal({ table: { tableName: "Visits", fields: [field()] } }),
     );
-    expect(reviewVm(vmOf(actor)).table?.rowCount).toEqual({
+    expect(reviewVm(vmOf(actor)).tables[0]?.rowCount).toEqual({
       kind: "exact",
       value: 40,
     });
@@ -643,7 +645,7 @@ describe("the review (SCR-023)", () => {
     );
     const vm = reviewVm(vmOf(actor));
 
-    expect(vm.fields).toEqual([]);
+    expect(vm.tables.flatMap((table) => table.fields)).toEqual([]);
     expect(vm.confirm.canCreate).toBe(false);
     expect(vm.confirm.blocker).toBe("no-fields-found");
     expect(vm.announcement).toBe(
@@ -699,9 +701,9 @@ describe("the review (SCR-023)", () => {
 });
 
 describe("the review-edit rejection list", () => {
-  it("is exactly S03's closed list, in both directions", () => {
+  it("is exactly S02's closed workbook list, in both directions", () => {
     expect([...REVIEW_EDIT_REJECTION_TOKENS]).toEqual([
-      ...REVIEW_EDIT_REJECTIONS,
+      ...WORKBOOK_REVIEW_EDIT_REJECTIONS,
     ]);
 
     // Assignability both ways: a member added on either side, or a spelling

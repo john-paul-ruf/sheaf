@@ -18,11 +18,7 @@ import {
   selectionFits,
 } from "../../../src/application/workflows/import.machine.js";
 import { APPEND_MAX_EVENTS } from "../../../src/import/staging/append.js";
-import {
-  singleTableProposal,
-  workbookEditOf,
-  type ImportServices,
-} from "../../../src/application/workflows/import-services.js";
+import type { ImportServices } from "../../../src/application/workflows/import-services.js";
 import {
   cleanupReceipt,
   fakeImportServices,
@@ -34,7 +30,6 @@ import {
   stageAbsent,
   stagePresent,
   wireProposal,
-  workbookWire,
   workerError,
   inventoriedSheet,
   libraryApp,
@@ -729,85 +724,6 @@ describe("import helpers", () => {
         detected: { kind: "pdf" },
       }),
     ).toBeNull();
-  });
-});
-
-describe("the one-table projection the delimited review still reads (D48)", () => {
-  it("fails closed on a workbook-only member, and projects a delimited proposal exactly", () => {
-    const f02 = {
-      fileName: "f.csv",
-      appName: "F",
-      table: {
-        tableName: "F",
-        fields: [
-          {
-            columnIndex: 0,
-            fieldName: "Site",
-            isNameGenerated: false,
-            type: { kind: "text" } as const,
-            sourceFormat: { kind: "text" } as const,
-            enumOptions: [],
-            violations: null,
-          },
-        ],
-      },
-      headerRowIndex: 0,
-      leadingRows: [],
-      discardedRows: [],
-      discardedRowCount: 0,
-      rowCount: 3,
-      isRowCountExact: true as const,
-      statements: [],
-      diagnostics: [],
-    };
-    const wire = workbookWire(f02);
-    expect(singleTableProposal(wire)).toEqual(f02);
-    const reference = { ...wire, tables: [{ ...wire.tables[0], fields: [{ ...wire.tables[0]!.fields[0]!, type: { kind: "reference" as const } }] }] } as typeof wire;
-    expect(singleTableProposal(reference)).toBeNull();
-  });
-
-  it("addresses an F02 edit to the one table by its keys (CA-19)", () => {
-    const wire = workbookWire({
-      fileName: "f.csv",
-      appName: "F",
-      table: {
-        tableName: "F",
-        fields: [
-          {
-            columnIndex: 2,
-            fieldName: "Amount",
-            isNameGenerated: false,
-            type: { kind: "number" },
-            sourceFormat: { kind: "decimal", currencySymbol: null },
-            enumOptions: [],
-            violations: null,
-          },
-        ],
-      },
-      headerRowIndex: 0,
-      leadingRows: [],
-      discardedRows: [],
-      discardedRowCount: 0,
-      rowCount: 3,
-      isRowCountExact: true,
-      statements: [],
-      diagnostics: [],
-    });
-    expect(workbookEditOf(wire, { kind: "override-type", columnIndex: 2, type: { kind: "text" } })).toEqual({
-      kind: "override-type",
-      tableKey: "s0.r0",
-      columnKey: "s0.r0.c2",
-      type: { kind: "text" },
-    });
-    expect(workbookEditOf(wire, { kind: "set-header-row", rowIndex: 1 })).toEqual({
-      kind: "set-header-row",
-      regionKey: "s0.r0",
-      rowIndex: 1,
-    });
-    // A column the table lacks is still addressed; the worker refuses it.
-    expect(workbookEditOf(wire, { kind: "rename-field", columnIndex: 9, fieldName: "X" })).toMatchObject({
-      columnKey: "s0.r0.c9",
-    });
   });
 });
 

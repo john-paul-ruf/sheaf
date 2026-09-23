@@ -45,10 +45,7 @@ import {
   importMachine,
   type ImportEvent,
 } from "../application/workflows/import.machine.js";
-import {
-  createImportServices,
-  workbookEditOf,
-} from "../application/workflows/import-services.js";
+import { createImportServices } from "../application/workflows/import-services.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import { spawnImportWorker } from "../bootstrap/import-worker.js";
 import type { CapabilityReport } from "../platform/capabilities.js";
@@ -651,10 +648,7 @@ function ImportArea({
   return (
     <ImportStageScreens
       onApplyEdit={(edit) => {
-        const { proposal } = snapshot.context;
-        if (proposal !== undefined) {
-          send({ type: "APPLY_EDIT", edit: workbookEditOf(proposal, edit) });
-        }
+        send({ type: "APPLY_EDIT", edit });
       }}
       onReturnToLibrary={goToLibrary}
       onSelectFiles={chooseFile}
