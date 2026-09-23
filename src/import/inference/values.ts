@@ -20,9 +20,15 @@
  * - an exponent (`1e3`) is **preserved as invalid**, because rewriting it would
  *   invent an authored spelling the user never wrote, and `1e300` would invent
  *   three hundred digits of it.
+ *
+ * A workbook (F03) adds one reading, `serial-date`: a date-formatted cell holds
+ * the day count from the workbook's epoch, not a spelled date. It is a member
+ * of {@link WorkbookSourceValueFormatV1} only, so the F02 proposal shape (and
+ * everything pinned against it) is unchanged; the converter accepts both.
  */
 
 import type { FieldTypeV1 } from "../../domain/model/schema.js";
+import type { DateSystemV1 } from "../facts/index.js";
 import {
   BLANK_VALUE,
   booleanValue,
@@ -56,10 +62,21 @@ export type SourceValueFormatV1 =
   | { readonly kind: "boolean" }
   | { readonly kind: "enum" };
 
+/**
+ * A workbook field's type: everything a value-only import can propose, plus
+ * `reference` — which only a relationship (FR-7) ever produces.
+ */
+export type ProposedWorkbookFieldTypeV1 = FieldTypeV1;
+
+/** {@link SourceValueFormatV1} plus the workbook's serial dates (additive). */
+export type WorkbookSourceValueFormatV1 =
+  | SourceValueFormatV1
+  | { readonly kind: "serial-date"; readonly system: DateSystemV1 };
+
 /** Everything conversion needs, without depending on the proposal's shape. */
 export interface SourceTypingV1 {
   readonly type: ProposedFieldTypeV1;
-  readonly sourceFormat: SourceValueFormatV1;
+  readonly sourceFormat: WorkbookSourceValueFormatV1;
   /** Option labels, for an enum field; empty otherwise. */
   readonly enumOptions: readonly string[];
 }
@@ -111,10 +128,35 @@ const epochDayOf = (year: number, month: number, day: number): number | null => 
   return epochDay < MIN_EPOCH_DAY || epochDay > MAX_EPOCH_DAY ? null : epochDay;
 };
 
+/** 1970-01-01 as a day serial in each epoch. */
+const UNIX_EPOCH_SERIAL: Readonly<Record<DateSystemV1, number>> = { "1900": 25_569, "1904": 24_107 };
+
+/**
+ * The day a whole serial names, or null. The 1900 system keeps Lotus's
+ * fictitious 29 February 1900 (serial 60), so it names no day, and serials
+ * before it are one day earlier. A fractional serial is a date *and* a time;
+ * storing its day alone would coerce it, so it does not fit (FR-6).
+ */
+export const serialToEpochDay = (text: string, system: DateSystemV1): number | null => {
+  if (!/^\d{1,9}$/.test(text)) {
+    return null;
+  }
+  const serial = Number(text);
+  if (system === "1900" && (serial === 0 || serial === 60)) {
+    return null;
+  }
+  const offset = system === "1900" && serial < 60 ? UNIX_EPOCH_SERIAL[system] - 1 : UNIX_EPOCH_SERIAL[system];
+  const epochDay = serial - offset;
+  return epochDay < MIN_EPOCH_DAY || epochDay > MAX_EPOCH_DAY ? null : epochDay;
+};
+
 const readDate = (
   text: string,
-  format: SourceValueFormatV1,
+  format: WorkbookSourceValueFormatV1,
 ): number | null => {
+  if (format.kind === "serial-date") {
+    return serialToEpochDay(text, format.system);
+  }
   if (format.kind === "iso-date") {
     const parts = ISO_DATE.exec(text);
     return parts === null
@@ -178,11 +220,12 @@ export const readDecimal = (text: string): string | null => {
 /** True when the text reads as this pattern; the inference evidence's predicate. */
 export const matchesPattern = (
   text: string,
-  format: SourceValueFormatV1,
+  format: WorkbookSourceValueFormatV1,
 ): boolean => {
   switch (format.kind) {
     case "iso-date":
     case "slash-date":
+    case "serial-date":
       return readDate(text, format) !== null;
     case "boolean": {
       const word = text.toLowerCase();
@@ -219,6 +262,37 @@ export const isTelephoneText = (text: string): boolean => {
   const digits = text.replace(/\D/g, "").length;
   return digits >= 7 && digits <= 15;
 };
+
+/**
+ * The source text of one typed workbook cell, as inference measures it and
+ * promotion converts it: a decimal's canonical spelling, `TRUE`/`FALSE`, a
+ * date's ISO day, an error or malformed value's original text. Absent cells
+ * read as `""`. Enum and reference values are never produced by an adapter;
+ * they read as `""` rather than inventing a spelling.
+ */
+export function sourceTextOfCellValue(value: CellValueV1): string {
+  switch (value.kind) {
+    case "text":
+      return value.text;
+    case "decimal":
+      return value.decimal;
+    case "boolean":
+      return value.boolean ? "TRUE" : "FALSE";
+    case "date":
+      return new Date(value.epochDay * 86_400_000).toISOString().slice(0, 10);
+    case "invalid-preserved":
+      return value.sourceText;
+    case "enum":
+    case "reference":
+    case "missing":
+    case "blank":
+      return "";
+    default: {
+      const unreachable: never = value;
+      return unreachable;
+    }
+  }
+}
 
 /**
  * Converts one source cell for a proposed field. Total: every text either
