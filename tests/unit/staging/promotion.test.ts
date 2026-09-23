@@ -31,6 +31,8 @@ import {
   allocateSchema,
   buildRecords,
   INERT_REASON_OF,
+  paginate,
+  paginateBaseline,
   promoteImport,
   PROMOTION_REJECTIONS,
 } from "../../../src/import/staging/promotion.js";
@@ -39,6 +41,12 @@ import {
   decodeAppHead,
   decodeCheckpointManifest,
   decodeRecordPage,
+  encodeBaselinePage,
+  encodeRecordPage,
+  PAGE_MAX_DECODED_BYTES,
+  RECORD_PAGE_MAX_RECORDS,
+  type BaselineEntryV1,
+  type StoredRecordV1,
 } from "../../../src/import/staging/roots.js";
 import { IMPORT_STAGE_PAYLOAD_KIND, IMPORT_STAGE_SCOPE } from "../../../src/import/staging/stage.js";
 import { decodeEventSegment } from "../../../src/persistence/codecs/event-commit.js";
@@ -429,5 +437,93 @@ describe("the row plan (CA-19)", () => {
     const entropy = new SequenceEntropy();
     const built = await buildRecords(entropy, proposal, allocateSchema(entropy, proposal), stream.items);
     expect(built.records).toHaveLength(72);
+  });
+});
+
+// ------------------------------------ pages inside their caps (the full demo) --
+
+/** Distinct ids however many are drawn (`SequenceEntropy` repeats after 256). */
+const countingEntropy = () => {
+  let next = 0;
+  return {
+    randomBytes(byteLength: number): Uint8Array {
+      next += 1;
+      const bytes = new Uint8Array(byteLength);
+      new DataView(bytes.buffer).setUint32(0, next);
+      return bytes;
+    },
+  };
+};
+
+const baselineOf = (records: readonly StoredRecordV1[]): BaselineEntryV1[] =>
+  records.map((record) => ({ tableId: record.tableId, recordId: record.recordId, state: "present", values: record.values }));
+
+const SCOPE = new Uint8Array(16).fill(7);
+
+/** Every page encodes inside both caps, and each is as full as they allow: the next item would not have fit. */
+function expectFullPages<T>(pages: readonly (readonly T[])[], encode: (items: readonly T[]) => Uint8Array): void {
+  pages.forEach((page, index) => {
+    expect(encode(page).byteLength).toBeLessThanOrEqual(PAGE_MAX_DECODED_BYTES);
+    const next = pages[index + 1]?.[0];
+    if (next !== undefined) expect(() => encode([...page, next])).toThrow(/exceeds/);
+  });
+}
+
+describe("pages inside their caps: the demo's full selection, Archive 2018 included", () => {
+  it("splits records and the original-import baseline into full pages under 512 KiB, every row once, in order", async () => {
+    const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx", { selection: [0, 1, 2, 3, 4, 5, 6] });
+    if (stream === null) throw new Error("the demo workbook did not size");
+    const proposal = inferWorkbook(stream.items, {
+      fileName: "fieldwork-q3.xlsx",
+      sheetSelection: null,
+      rejectionMemory: new Set(),
+      fingerprintOf: (input) => input,
+      existingApp: null,
+    });
+    const entropy = countingEntropy();
+    const built = await buildRecords(entropy, proposal, allocateSchema(entropy, proposal), stream.items);
+    expect(built.records.length).toBeGreaterThan(2_000);
+    const entries = baselineOf(built.records);
+
+    // The counterexample: the one baseline page promotion used to write does
+    // not fit its cap, and the data worker answered `integrity`.
+    expect(() => encodeBaselinePage({ pageVersion: 1, scopeId: SCOPE, entries })).toThrow(/512 KiB/);
+
+    const baseline = paginateBaseline(SCOPE, entries);
+    expect(baseline.length).toBeGreaterThan(1);
+    expect(baseline.flat()).toEqual(entries);
+    expectFullPages(baseline, (items) => encodeBaselinePage({ pageVersion: 1, scopeId: SCOPE, entries: items }));
+
+    const pages = paginate(built.records);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.flat()).toEqual(built.records);
+    expectFullPages(pages, (records) => encodeRecordPage({ pageVersion: 1, records }));
+  });
+
+  it("fills a record page to the byte cap when its rows are wide, and to 1,024 rows when they are narrow", () => {
+    const entropy = countingEntropy();
+    const tableId = entropy.randomBytes(16) as StoredRecordV1["tableId"];
+    const fieldId = entropy.randomBytes(16) as StoredRecordV1["values"][number]["fieldId"];
+    const recordsOf = (count: number, width: number): StoredRecordV1[] =>
+      Array.from({ length: count }, () => ({
+        recordId: entropy.randomBytes(16) as StoredRecordV1["recordId"],
+        tableId,
+        values: [{ fieldId, value: { kind: "text" as const, text: "x".repeat(width) } }],
+        issues: [],
+      }));
+
+    const wide = paginate(recordsOf(200, 10_000));
+    expect(wide.length).toBeGreaterThan(1);
+    expect(wide.every((page) => page.length < RECORD_PAGE_MAX_RECORDS)).toBe(true);
+    expectFullPages(wide, (records) => encodeRecordPage({ pageVersion: 1, records }));
+
+    const narrow = paginate(recordsOf(2_500, 1));
+    expect(narrow.map((page) => page.length)).toEqual([1_024, 1_024, 452]);
+    expectFullPages(narrow, (records) => encodeRecordPage({ pageVersion: 1, records }));
+
+    const wideBaseline = paginateBaseline(SCOPE, baselineOf(recordsOf(200, 10_000)));
+    expect(wideBaseline.length).toBeGreaterThan(1);
+    expectFullPages(wideBaseline, (items) => encodeBaselinePage({ pageVersion: 1, scopeId: SCOPE, entries: items }));
+    expect(paginateBaseline(SCOPE, [])).toEqual([[]]);
   });
 });

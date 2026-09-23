@@ -5,8 +5,8 @@
  * worker chose to report about them. Beside `readAppRoots` in `runtime.ts`,
  * which states F02's roots; this states the workbook app's: the checkpoint's
  * F03 keys, every record page, the event segment, the source manifest and one
- * of its chunks, and every snapshot manifest with one chunk each — each digest
- * recomputed from the bytes it names.
+ * of its chunks, every baseline page, and every snapshot manifest with one
+ * chunk each — each digest recomputed from the bytes it names.
  */
 
 import type { Page } from "@playwright/test";
@@ -47,6 +47,13 @@ export interface WorkbookRootsReportV1 {
     }[];
   };
   readonly pages: { readonly count: number; readonly records: number; readonly digestsMatch: boolean };
+  /** Every baseline page the head lists, decoded, with the largest one's decoded size. */
+  readonly baselines: {
+    readonly count: number;
+    readonly entries: number;
+    readonly digestsMatch: boolean;
+    readonly largestDecodedBytes: number;
+  };
   readonly events: {
     readonly commits: number;
     readonly kinds: readonly (readonly string[])[];
@@ -169,6 +176,17 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
       records += roots.decodeRecordPage(payload).records.length;
     }
 
+    // Every baseline page, each checked against the digest the head holds.
+    let baselineEntries = 0;
+    let baselineDigestsMatch = true;
+    let largestBaseline = 0;
+    for (const ref of head.baselinePages) {
+      const payload = await open(ref.storageId, "app.baselines", "app.baseline-page");
+      baselineDigestsMatch &&= same(await hash.sha256(payload), ref.semanticSha256);
+      baselineEntries += roots.decodeBaselinePage(payload).entries.length;
+      largestBaseline = Math.max(largestBaseline, payload.byteLength);
+    }
+
     // Every event segment, and the chain over all their commits.
     const segmentCommits = [];
     let segmentDigestsMatch = true;
@@ -258,6 +276,12 @@ export async function readWorkbookRoots(page: Page, passphrase: string): Promise
         })),
       },
       pages: { count: checkpoint.recordPages.length, records, digestsMatch },
+      baselines: {
+        count: head.baselinePages.length,
+        entries: baselineEntries,
+        digestsMatch: baselineDigestsMatch,
+        largestDecodedBytes: largestBaseline,
+      },
       events: {
         commits: segmentCommits.length,
         kinds: segmentCommits.map((commit) => commit.events.map((event) => event.kind)),

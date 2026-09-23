@@ -584,6 +584,14 @@ const decodeRecord = (value: DecodedValue): StoredRecordV1 => {
   };
 };
 
+/**
+ * The decoded bytes one record adds to a record page: its own canonical
+ * encoding, exactly as it sits inside the page's `records` array. Lets a
+ * writer fill pages to the cap by measuring each record once.
+ */
+export const recordPageEntryByteLength = (record: StoredRecordV1): number =>
+  encodeCanonical(encodeRecord(record)).byteLength;
+
 export function encodeRecordPage(page: RecordPageV1): Uint8Array {
   if (page.records.length > RECORD_PAGE_MAX_RECORDS) {
     throw new CodecError("a record page exceeds 1,024 records");
@@ -647,30 +655,32 @@ export interface BaselinePageV1 {
   readonly entries: readonly BaselineEntryV1[];
 }
 
+const encodeBaselineEntry = (entry: BaselineEntryV1): CborValue =>
+  cborMap([
+    ["tableId", entry.tableId],
+    ["recordId", entry.recordId],
+    ["state", entry.state],
+    [
+      "values",
+      entry.values.map((value) =>
+        cborMap([
+          ["fieldId", value.fieldId],
+          ["value", encodeCellValue(value.value)],
+        ]),
+      ),
+    ],
+  ]);
+
+/** The decoded bytes one entry adds to a baseline page, as {@link recordPageEntryByteLength} for records. */
+export const baselinePageEntryByteLength = (entry: BaselineEntryV1): number =>
+  encodeCanonical(encodeBaselineEntry(entry)).byteLength;
+
 export function encodeBaselinePage(page: BaselinePageV1): Uint8Array {
   const bytes = encodeCanonical(
     cborMap([
       ["pageVersion", page.pageVersion],
       ["scopeId", page.scopeId],
-      [
-        "entries",
-        page.entries.map((entry) =>
-          cborMap([
-            ["tableId", entry.tableId],
-            ["recordId", entry.recordId],
-            ["state", entry.state],
-            [
-              "values",
-              entry.values.map((value) =>
-                cborMap([
-                  ["fieldId", value.fieldId],
-                  ["value", encodeCellValue(value.value)],
-                ]),
-              ),
-            ],
-          ]),
-        ),
-      ],
+      ["entries", page.entries.map(encodeBaselineEntry)],
     ]),
   );
   if (bytes.byteLength > PAGE_MAX_DECODED_BYTES) {

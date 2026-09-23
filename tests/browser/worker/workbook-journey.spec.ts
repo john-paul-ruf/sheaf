@@ -25,6 +25,9 @@ import { installBytes, runWorkbookImport } from "./workbook-runtime.js";
 
 const JOURNEY_TIMEOUT_MS = 240_000;
 const WORKBOOK_FLOWS = ["delimited", "workbook"] as const;
+const ALL_SHEETS = [0, 1, 2, 3, 4, 5, 6];
+/** database.md § Checkpoint and page boundaries: baseline pages share the record pages' decoded cap. */
+const PAGE_MAX_DECODED_BYTES = 524_288;
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/harness.html");
@@ -44,6 +47,17 @@ async function ask<K extends DataWorkerRequestV1["kind"]>(
     throw new Error(`${request.kind} failed: ${JSON.stringify(answered)}`);
   }
   return answered.response as Extract<DataWorkerResponseV1, { kind: K }>;
+}
+
+/** Promotes a reviewed stage, recording how long the data worker took. */
+async function timedPromote(page: Page, stageId: string) {
+  const startedAt = Date.now();
+  const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: "Fieldwork Q3" });
+  test.info().annotations.push({ type: "promote-ms", description: String(Date.now() - startedAt) });
+  if (promoted.outcome !== "promoted") {
+    throw new Error(`promotion refused: ${promoted.reason} ${JSON.stringify(promoted.issues)}`);
+  }
+  return promoted;
 }
 
 /** Imports, reviews and promotes the demo workbook, Archive 2018 deselected. */
@@ -81,10 +95,7 @@ async function promotedDemo(page: Page): Promise<string> {
     false,
   );
 
-  const promoted = await ask(page, { kind: "promoteImport", stageId, acceptedName: "Fieldwork Q3" });
-  if (promoted.outcome !== "promoted") {
-    throw new Error(`promotion refused: ${promoted.reason} ${JSON.stringify(promoted.issues)}`);
-  }
+  const promoted = await timedPromote(page, stageId);
   expect(promoted.tableCount).toBe(5);
   // The broken customer key is kept and flagged, not refused (FR-4, D36).
   expect(promoted.flaggedRecordCount).toBeGreaterThan(0);
@@ -245,6 +256,7 @@ test("the first narrow journey: demo workbook → review → multi-table app →
   expect(roots.checkpoint.inert.every((item) => item.reason !== "visual-only")).toBe(true);
   expect(roots.pages.digestsMatch).toBe(true);
   expect(roots.pages.records).toBe(before.tables.reduce((sum, table) => sum + table.count, 0));
+  expect(roots.baselines).toMatchObject({ count: 1, entries: roots.pages.records, digestsMatch: true });
   expect(roots.events).toMatchObject({ commits: 1, chainOk: true, digestMatches: true });
   expect(roots.events.kinds[0]?.[0]).toBe("app.created");
   expect(roots.events.kinds[0]?.at(-1)).toBe("import.accepted");
@@ -262,6 +274,60 @@ test("the first narrow journey: demo workbook → review → multi-table app →
     expect(snapshot, snapshot.name).toMatchObject({ manifestDigestMatches: true, firstChunkDigestMatches: true });
   }
   expect(roots.snapshots.find((snapshot) => snapshot.name === "Jobs")?.firstChunkRows).toBeGreaterThan(0);
+});
+
+test("the full selection: all seven sheets, Archive 2018's 2,001 rows included, promote → restart → raw roots (CAP-21/CAP-23)", async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT_MS);
+  await unlockedPage(page);
+  await installFixture(page, "ooxml/fieldwork-q3.xlsx", "fieldwork-q3.xlsx");
+  const run = await runWorkbookImport(page, { flows: WORKBOOK_FLOWS, selection: ALL_SHEETS });
+  const preflight = run.events.find((event) => event.kind === "workbook-preflight");
+  if (preflight?.kind !== "workbook-preflight") throw new Error("no workbook pre-flight");
+  expect(preflight.report.sheets.map((sheet) => sheet.sheetIndex)).toEqual(ALL_SHEETS);
+  expect(run.events.some((event) => event.kind === "completed")).toBe(true);
+  const stageId = run.stageId as string;
+
+  const inferred = await ask(page, { kind: "runInference", stageId });
+  expect(inferred.proposal.sheets.every((sheet) => !sheet.classification.includes("excluded"))).toBe(true);
+  const promoted = await timedPromote(page, stageId);
+
+  const tables = async () =>
+    ((await ask(page, { kind: "openApp", appId: promoted.appId })).session?.tables ?? []).map((table) => ({
+      name: table.displayName,
+      count: table.recordCount,
+    }));
+  const before = await tables();
+  const recordCount = before.reduce((sum, table) => sum + table.count, 0);
+  expect(recordCount).toBe(promoted.rowCount);
+  // Archive 2018's rows are in the app, not only in its snapshot.
+  expect(recordCount).toBeGreaterThan(2_000);
+
+  await page.evaluate(() => {
+    window.__sheafApp?.dispose();
+  });
+  await page.goto("/harness.html");
+  await start(page);
+  expect((await command(page, { kind: "unlock", passphrase: PASSPHRASE })).ok).toBe(true);
+  expect(await tables()).toEqual(before);
+
+  const roots = await readWorkbookRoots(page, PASSPHRASE);
+  expect(roots.head.semanticMatches).toBe(true);
+  expect(roots.head.snapshotManifestCount).toBe(ALL_SHEETS.length);
+  expect(roots.checkpoint.semanticMatches).toBe(true);
+  expect(roots.pages).toMatchObject({ records: recordCount, digestsMatch: true });
+  expect(roots.pages.count).toBeGreaterThan(1);
+  // The original-import baseline holds every row, split under the page cap.
+  expect(roots.baselines).toMatchObject({ entries: recordCount, digestsMatch: true });
+  expect(roots.baselines.count).toBeGreaterThan(1);
+  expect(roots.baselines.largestDecodedBytes).toBeLessThanOrEqual(PAGE_MAX_DECODED_BYTES);
+  expect(roots.events).toMatchObject({ commits: 1, chainOk: true, digestMatches: true });
+  expect(roots.source).toMatchObject({ firstChunkDigestMatches: true, manifestDigestMatches: true });
+  expect(roots.snapshots.map((snapshot) => snapshot.name)).toContain("Archive 2018");
+  for (const snapshot of roots.snapshots) {
+    expect(snapshot, snapshot.name).toMatchObject({ manifestDigestMatches: true, firstChunkDigestMatches: true });
+  }
 });
 
 // ------------------------------------------------ CP4: every format (CAP-27) --

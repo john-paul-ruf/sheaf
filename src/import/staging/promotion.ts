@@ -122,6 +122,9 @@ import {
   encodeCheckpointManifest,
   encodeRecordPage,
   compareRecordKeys,
+  baselinePageEntryByteLength,
+  recordPageEntryByteLength,
+  PAGE_MAX_DECODED_BYTES,
   RECORD_PAGE_MAX_RECORDS,
   type AppHeadV1,
   type BaselineEntryV1,
@@ -580,34 +583,70 @@ export async function buildRecords(
   return { records: [...records].sort(compareRecordKeys), flaggedCount, firstBlockingReport, discarded };
 }
 
-/** Splits sorted records into pages inside both caps. */
-export function paginate(records: readonly StoredRecordV1[]): readonly StoredRecordV1[][] {
-  const pages: StoredRecordV1[][] = [];
-  let current: StoredRecordV1[] = [];
+/** Canonical CBOR's head for an array of `count` items (major type 4). */
+const arrayHeadByteLength = (count: number): number =>
+  count < 24 ? 1 : count <= 0xff ? 2 : count <= 0xffff ? 3 : 5;
 
-  for (const record of records) {
-    const candidate = [...current, record];
-    const overCount = candidate.length > RECORD_PAGE_MAX_RECORDS;
-    // The byte cap is on the decoded CBOR, so the encoder is its only honest measure.
-    let overBytes = false;
-    if (!overCount) {
-      try {
-        encodeRecordPage({ pageVersion: 1, records: candidate });
-      } catch {
-        overBytes = true;
-      }
-    }
-    if ((overCount || overBytes) && current.length > 0) {
+/**
+ * Greedy pages, in order, each inside `maxCount` items and
+ * {@link PAGE_MAX_DECODED_BYTES}. A page's decoded size is exact without
+ * encoding it: the empty page, less its empty array's one-byte head, plus the
+ * head for its item count and each item's own canonical encoding. So every
+ * item is measured once, not once per candidate page. The page encoders still
+ * enforce both caps when the pages are sealed.
+ */
+function pagesWithin<T>(
+  items: readonly T[],
+  emptyPageByteLength: number,
+  itemByteLength: (item: T) => number,
+  maxCount: number,
+): readonly T[][] {
+  const pages: T[][] = [];
+  let current: T[] = [];
+  let currentItemBytes = 0;
+  const byteLength = (count: number, itemBytes: number): number =>
+    emptyPageByteLength - 1 + arrayHeadByteLength(count) + itemBytes;
+
+  for (const item of items) {
+    const size = itemByteLength(item);
+    const fits =
+      current.length + 1 <= maxCount && byteLength(current.length + 1, currentItemBytes + size) <= PAGE_MAX_DECODED_BYTES;
+    if (!fits && current.length > 0) {
       pages.push(current);
-      current = [record];
-    } else {
-      current = candidate;
+      current = [];
+      currentItemBytes = 0;
     }
+    current.push(item);
+    currentItemBytes += size;
   }
   if (current.length > 0) {
     pages.push(current);
   }
   return pages.length === 0 ? [[]] : pages;
+}
+
+/** Splits sorted records into pages inside both caps. */
+export function paginate(records: readonly StoredRecordV1[]): readonly StoredRecordV1[][] {
+  return pagesWithin(
+    records,
+    encodeRecordPage({ pageVersion: 1, records: [] }).byteLength,
+    recordPageEntryByteLength,
+    RECORD_PAGE_MAX_RECORDS,
+  );
+}
+
+/**
+ * Splits a baseline's entries, in record-page key order, into pages inside the
+ * 512 KiB decoded cap baseline pages share with record pages (database.md
+ * § Checkpoint and page boundaries).
+ */
+export function paginateBaseline(scopeId: Uint8Array, entries: readonly BaselineEntryV1[]): readonly BaselineEntryV1[][] {
+  return pagesWithin(
+    entries,
+    encodeBaselinePage({ pageVersion: 1, scopeId, entries: [] }).byteLength,
+    baselinePageEntryByteLength,
+    Number.POSITIVE_INFINITY,
+  );
 }
 
 const pageKey = (record: StoredRecordV1): Uint8Array => {
@@ -928,11 +967,16 @@ export async function promoteImport(
     state: "present",
     values: record.values,
   }));
-  const baselineRef = await sealer.seal(
-    "app.baselines",
-    "app.baseline-page",
-    encodeBaselinePage({ pageVersion: 1, scopeId: lineageId, entries: baselineEntries }),
-  );
+  const baselineRefs: StorageRefV1[] = [];
+  for (const entries of paginateBaseline(lineageId, baselineEntries)) {
+    baselineRefs.push(
+      await sealer.seal("app.baselines", "app.baseline-page", encodeBaselinePage({ pageVersion: 1, scopeId: lineageId, entries })),
+    );
+  }
+  const [firstBaselineRef] = baselineRefs;
+  if (firstBaselineRef === undefined) {
+    throw new Error("a promoted app has no baseline page");
+  }
 
   const chunkedSha256 = await chunkedSourceDigest(ports.crypto, input.sourceChunks);
   const sourceManifestRef = await sealer.seal(
@@ -1030,7 +1074,8 @@ export async function promoteImport(
       sourceManifestStorageId: decodeStorageId16(sourceManifestRef.storageId),
       snapshotManifestStorageId: decodeStorageId16(firstSnapshot.manifest.storageId),
       checkpointManifestStorageId: decodeStorageId16(checkpointRef.storageId),
-      originalBaselineStorageId: decodeStorageId16(baselineRef.storageId),
+      // The event names one baseline root (M01); the head lists every page.
+      originalBaselineStorageId: decodeStorageId16(firstBaselineRef.storageId),
     },
     sheetSnapshots: snapshots.map((entry) => ({
       sheetKey: entry.sheetKey,
@@ -1061,7 +1106,7 @@ export async function promoteImport(
     checkpoint: checkpointRef,
     eventSegments: [segmentRef],
     frontier,
-    baselinePages: [baselineRef],
+    baselinePages: baselineRefs,
     // Explicitly empty, not omitted: this app has these roots and they hold
     // nothing (database.md § `AppHeadV1`).
     conflictPages: [],
