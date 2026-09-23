@@ -70,3 +70,14 @@ the two, the re-export is the only sanctioned duplicate path.
 
 **M65 — Workbook facts (`src/import/facts/`)**
 - Every consumer now imports the vocabulary from M65 (the seven F02 importers migrated at 4287569). `formats/delimited/facts.ts` is no longer imported by any `src/` file; it survives only because S01's `tests/unit/import/facts/workbook-facts.test.ts` still pins the re-export (owner correction requested: delete the file and that assertion together). No M65 export changed.
+
+<!-- workbook-fidelity OWNER-IMPORT-F03-SEAMS -->
+### workbook-fidelity OWNER-IMPORT-F03-SEAMS (2026-09-23, commits 3a32561, 87da253)
+
+**M65 / M19**
+
+- No vocabulary change. Fact counts per sheet and kind are unchanged for every ODS fixture. Only the position of `declared-table` moved. `fieldwork-jobs-customers.ods` now infers `s0.t0` (60 rows) and `s1.t0` (12 rows), and promotion writes 72 records, the same as before.
+
+## D32
+
+- `src/import/formats/delimited/facts.ts` (the V1 re-export) is deleted together with its pin. M65 `src/import/facts/` is the only home of the fact vocabulary.
