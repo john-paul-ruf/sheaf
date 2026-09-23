@@ -133,6 +133,8 @@ describe("selectImpactVm (MOD-014, CA-28)", () => {
       wasStale: true,
     });
     expect(refused.blocker).toBe("Sheaf does not know the name “Qoted” in this app.");
+    // A refused change was not counted, so no count is shown.
+    expect(refused.counts).toEqual([]);
     expect(refused.staleNote).toBe("This app changed on this device after the last preview. These are the counts now.");
     const large = selectImpactVm({ change, preview: preview("rename-field", {}, { isTooLarge: true, eventCount: 10_001 }), structure: structure(), wasStale: false });
     expect(large.blocker).toContain("10001 changes at once");
@@ -143,6 +145,11 @@ describe("selectImpactVm (MOD-014, CA-28)", () => {
     expect(describeSchemaRefusal({ kind: "invalid-change", reason: "target-has-no-key" })).toContain("has no key");
     expect(describeSchemaRefusal({ kind: "validation", recordCount: 3 })).toBe("After this change 3 records would fail the app's rules, so it cannot be applied.");
     expect(describeSchemaRefusal({ kind: "formula", reason: "cell-reference", detail: "A1", position: 0 })).toContain("square brackets");
+    // S03 refuses Text → Choice list with no choices named: said, not "inconsistent".
+    expect(
+      describeSchemaRefusal({ kind: "transition", refusals: [{ kind: "schema-invalid", fieldId: null, messageKey: "schema.enum-field-without-options" }] }),
+    ).toBe("A choice list needs its choices, and this change names none. This change cannot be applied.");
+    expect(describeSchemaRefusal({ kind: "transition", refusals: [{ kind: "x", fieldId: null, messageKey: null }] })).toContain("inconsistent (1 problem)");
   });
 });
 

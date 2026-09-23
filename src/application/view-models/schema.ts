@@ -671,6 +671,18 @@ const FORMULA_REASON: Readonly<Record<string, (detail: string | null) => string>
   "number-out-of-range": () => "A number here is larger than Sheaf holds exactly.",
 });
 
+/** The structure rules a change can break, as a person reads them (M02's schema message keys). */
+const TRANSITION_SENTENCE: Readonly<Record<string, string>> = Object.freeze({
+  "schema.enum-field-without-options": "A choice list needs its choices, and this change names none.",
+  "schema.option-on-non-enum-field": "Only a choice list can keep choices.",
+  "schema.relationship-target-not-key": "A connection must point at the other table's key.",
+  "schema.relationship-source-not-reference": "A connected field must hold connections.",
+  "schema.table-has-no-fields": "A table needs at least one field it shows.",
+  "schema.missing-table-label": "Every table needs a name.",
+  "schema.missing-field-label": "Every field needs a name.",
+  "schema.missing-option-label": "Every choice needs a name.",
+});
+
 /** Why a change cannot be made, in plain words (CA-28's typed refusal; no cell value). */
 export function describeSchemaRefusal(refusal: SchemaRefusalWireV1): string {
   switch (refusal.kind) {
@@ -680,8 +692,12 @@ export function describeSchemaRefusal(refusal: SchemaRefusalWireV1): string {
       return INVALID_CHANGE_SENTENCE[refusal.reason];
     case "formula":
       return (FORMULA_REASON[refusal.reason] ?? (() => "Sheaf cannot calculate this."))(refusal.detail);
-    case "transition":
-      return `This change would leave the app's structure inconsistent (${plural(refusal.refusals.length, "problem", "problems")}), so it cannot be applied.`;
+    case "transition": {
+      const said = [...new Set(refusal.refusals.map((entry) => (entry.messageKey === null ? undefined : TRANSITION_SENTENCE[entry.messageKey])))];
+      return said.every((sentence) => sentence !== undefined)
+        ? `${said.join(" ")} This change cannot be applied.`
+        : `This change would leave the app's structure inconsistent (${plural(refusal.refusals.length, "problem", "problems")}), so it cannot be applied.`;
+    }
     case "validation":
       return `After this change ${plural(refusal.recordCount, "record", "records")} would fail the app's rules, so it cannot be applied.`;
     default: {
@@ -762,7 +778,8 @@ export function selectImpactVm(input: {
   const flags = impact.keptAndFlagged + impact.missingNow + impact.onRemovedOptions + impact.unmatchedKeys;
   return {
     title: describeChange(change, structure),
-    counts: countsFor(change, impact, structure).filter((line) => line !== ""),
+    // A refused change was not counted: its report is empty, and saying "0" would be a guess.
+    counts: preview.refusal === null ? countsFor(change, impact, structure).filter((line) => line !== "") : [],
     preservation: "Sheaf keeps every existing value. Nothing is discarded.",
     applyLabel: flags > 0 && change.kind !== "set-table-key" ? "Apply and flag" : "Apply",
     blocker:
