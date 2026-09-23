@@ -47,11 +47,13 @@ import type {
   FieldChangeV1,
 } from "../../domain/model/events.js";
 import type { ValueProvenanceV1 } from "../../domain/model/provenance.js";
-import type {
-  EnumOptionDefV1,
-  FieldDefV1,
-  TableDefV1,
+import {
+  isComputedField,
+  type EnumOptionDefV1,
+  type FieldDefV1,
+  type TableDefV1,
 } from "../../domain/model/schema.js";
+import type { EvaluationClockReadingV1 } from "../../domain/formulas/index.js";
 import type { ValidationReport } from "../../domain/validation/rules.js";
 import {
   validateRecord,
@@ -72,6 +74,7 @@ import {
   buildAuthoredCommit,
   type AuthoredEventDraftV1,
 } from "./build-commit.js";
+import { frozenLiteral, ProjectionRows, projectionFormulaEnv } from "./formula-env.js";
 
 /** How far back a restore looks for the delete it undoes. */
 const RESTORE_HISTORY_LIMIT = 256;
@@ -107,6 +110,11 @@ export interface CommandAcceptedV1 {
   readonly tableId: TableId;
   readonly recordRevision: bigint;
   readonly commit: CommitReceiptV1 | null;
+  /**
+   * The computed columns the commit re-derived (D60's `recalculated`
+   * notice): field IDs only, never their values. Empty for a no-op.
+   */
+  readonly recalculatedFieldIds: readonly FieldId[];
 }
 
 /**
@@ -137,6 +145,27 @@ export interface CommandDependenciesV1 {
   readonly repository: LocalEventRepository;
   /** SHA-256 over the record's canonical form; M09 + M08 supply it. */
   readonly recordDigest: (record: AuthoredRecordV1) => Promise<Uint8Array>;
+  /**
+   * The clock a frozen formula's one evaluation reads: `TODAY()` in local
+   * time, which the data worker derives from its `ClockPort`. Absent, the
+   * UTC day of `clock` stands in.
+   */
+  readonly formulaClock?: () => EvaluationClockReadingV1;
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** The formula clock a command evaluates with. */
+export function formulaClockOf(
+  deps: Pick<CommandDependenciesV1, "clock" | "formulaClock">,
+): () => EvaluationClockReadingV1 {
+  return (
+    deps.formulaClock ??
+    (() => {
+      const epochMs = deps.clock.nowEpochMs();
+      return { epochMs, epochDay: Math.floor(epochMs / MS_PER_DAY) };
+    })
+  );
 }
 
 export async function executeCommand(
@@ -171,8 +200,10 @@ async function createRecord(
   }
 
   const recordId = createDomainId("record", deps.entropy);
-  const values = completeValues(context.table.fields, command.values);
-  const provenance = provenanceFor(values);
+  const authored = completeValues(context.table.fields, command.values);
+  const frozen = frozenLiterals(deps, context.table, recordId, authored);
+  const values = new Map([...authored, ...frozen.values]);
+  const provenance = new Map([...provenanceFor(authored), ...frozen.provenance]);
   const report = validateRecord(context, {
     recordId,
     tableId: context.table.tableId,
@@ -190,7 +221,7 @@ async function createRecord(
     provenance,
   };
 
-  const commit = await commitEvents(
+  const committed = await commitEvents(
     deps,
     [
       {
@@ -202,8 +233,7 @@ async function createRecord(
         },
       },
     ],
-    issuesOf(report),
-    liveRecordCount(deps.projection) + 1,
+    { issues: issuesOf(report), rowCountAfter: liveRecordCount(deps.projection) + 1 },
   );
 
   return {
@@ -211,7 +241,7 @@ async function createRecord(
     recordId,
     tableId: context.table.tableId,
     recordRevision: 0n,
-    commit,
+    ...committed,
   };
 }
 
@@ -274,6 +304,7 @@ async function patchRecord(
       tableId: current.tableId,
       recordRevision: current.recordRevision,
       commit: null,
+      recalculatedFieldIds: [],
     };
   }
 
@@ -285,7 +316,7 @@ async function patchRecord(
     provenance: patchedProvenance(context.table.fields, current, changes),
   };
 
-  const commit = await commitEvents(
+  const committed = await commitEvents(
     deps,
     [
       {
@@ -306,8 +337,7 @@ async function patchRecord(
         },
       },
     ],
-    issuesOf(report),
-    liveRecordCount(deps.projection),
+    { issues: issuesOf(report), rowCountAfter: liveRecordCount(deps.projection) },
   );
 
   return {
@@ -315,7 +345,7 @@ async function patchRecord(
     recordId: current.recordId,
     tableId: context.table.tableId,
     recordRevision,
-    commit,
+    ...committed,
   };
 }
 
@@ -340,7 +370,7 @@ async function deleteRecord(
     provenance: new Map(current.provenance),
   };
 
-  const commit = await commitEvents(
+  const committed = await commitEvents(
     deps,
     [
       {
@@ -359,8 +389,7 @@ async function deleteRecord(
         },
       },
     ],
-    undefined,
-    Math.max(0, liveRecordCount(deps.projection) - 1),
+    { rowCountAfter: Math.max(0, liveRecordCount(deps.projection) - 1) },
   );
 
   return {
@@ -368,7 +397,7 @@ async function deleteRecord(
     recordId: current.recordId,
     tableId: current.tableId,
     recordRevision: current.recordRevision,
-    commit,
+    ...committed,
   };
 }
 
@@ -390,6 +419,7 @@ async function restoreRecord(
       tableId: live.tableId,
       recordRevision: live.recordRevision,
       commit: null,
+      recalculatedFieldIds: [],
     };
   }
 
@@ -433,7 +463,7 @@ async function restoreRecord(
     provenance,
   };
 
-  const commit = await commitEvents(
+  const committed = await commitEvents(
     deps,
     [
       {
@@ -447,8 +477,7 @@ async function restoreRecord(
         },
       },
     ],
-    issuesOf(report),
-    liveRecordCount(deps.projection) + 1,
+    { issues: issuesOf(report), rowCountAfter: liveRecordCount(deps.projection) + 1 },
   );
 
   return {
@@ -457,50 +486,135 @@ async function restoreRecord(
     tableId: context.table.tableId,
     // The projection puts a restored record one revision past its delete.
     recordRevision: (deleted.summary.recordRevision ?? 0n) + 1n,
-    commit,
+    ...committed,
   };
 }
 
 // ------------------------------------------------------------------ shared --
 
+export interface CommitOptionsV1 {
+  /** The validator's verdict for the record the first event leaves behind. */
+  readonly issues?: readonly ProjectionIssueInputV1[];
+  readonly rowCountAfter: number;
+  /**
+   * A schema commit: the schema revision advances by one, and every record
+   * of a table it re-shapes is re-judged through the shared validator once
+   * its events land (invariant 5).
+   */
+  readonly isSchemaChange?: boolean;
+}
+
+export interface CommittedV1 {
+  readonly commit: CommitReceiptV1;
+  readonly recalculatedFieldIds: readonly FieldId[];
+}
+
 /**
  * Durable first, projection second, acknowledgement last (invariant 1). The
  * projection is brought forward with the commit as it was *written*, so its
- * hash and chain guards check the durable bytes.
+ * hash and chain guards check the durable bytes, and it recalculates in the
+ * same transaction (D60).
  */
-async function commitEvents(
-  deps: CommandDependenciesV1,
+export async function commitEvents(
+  deps: Pick<CommandDependenciesV1, "clock" | "entropy" | "projection" | "repository">,
   drafts: readonly AuthoredEventDraftV1[],
-  issues: readonly ProjectionIssueInputV1[] | undefined,
-  rowCountAfter: number,
-): Promise<CommitReceiptV1> {
+  options: CommitOptionsV1,
+): Promise<CommittedV1> {
   const plan = buildAuthoredCommit(
     { clock: deps.clock, entropy: deps.entropy },
     deps.repository.chainState(),
     drafts,
+    options.isSchemaChange === true,
   );
 
   const issuesByEventIndex =
-    issues === undefined || issues.length === 0
+    options.issues === undefined || options.issues.length === 0
       ? undefined
-      : new Map([[0, issues]]);
+      : new Map([[0, options.issues]]);
 
-  const receipt = await deps.repository.append({
+  const commit = await deps.repository.append({
     plan,
     ...(issuesByEventIndex === undefined ? {} : { issuesByEventIndex }),
-    rowCountAfter,
+    rowCountAfter: options.rowCountAfter,
   });
 
-  await deps.projection.applyEvents([
+  const applied = await deps.projection.applyEvents([
     {
-      commit: receipt.commit,
+      commit: commit.commit,
       events: plan.events.map((planned) => planned.event),
       ...(issuesByEventIndex === undefined ? {} : { issuesByEventIndex }),
+      ...(options.isSchemaChange === true ? { revalidate: projectionRevalidator(deps.projection) } : {}),
     },
   ]);
 
-  return receipt;
+  return { commit, recalculatedFieldIds: applied.recalculatedFieldIds };
 }
+
+/**
+ * The validator a re-shaped table's records are re-judged through, against
+ * the projection as the commit left it. A re-judgement authors nothing, so
+ * it claims no provenance — exactly as a command sees a record it did not
+ * touch (D36).
+ */
+export function projectionRevalidator(
+  projection: ProjectionEnginePort,
+): (record: AuthoredRecordV1) => readonly ProjectionIssueInputV1[] {
+  return (record) =>
+    validateAgainstProjection(projection, {
+      recordId: record.recordId,
+      tableId: record.tableId,
+      values: record.values,
+      provenance: new Map(),
+    })?.issues.map(toIssueInput) ?? [];
+}
+
+/**
+ * The literal each frozen column of a new record holds (D51): its formula
+ * evaluated exactly once, seeded by `EntropyPort`, with provenance
+ * `evidence.frozen` — the one user write to a computed field the validator
+ * accepts. An unsupported column gets nothing and is flagged by
+ * recalculation; a live column is never authored.
+ */
+function frozenLiterals(
+  deps: CommandDependenciesV1,
+  table: TableDefV1,
+  recordId: RecordId,
+  values: ReadonlyMap<FieldId, CellValueV1>,
+): {
+  readonly values: ReadonlyMap<FieldId, CellValueV1>;
+  readonly provenance: ReadonlyMap<FieldId, ValueProvenanceV1>;
+} {
+  const formulas = deps.projection
+    .execute({ kind: "list-formulas", tableId: table.tableId })
+    .filter((entry) => entry.isActive && entry.formula.disposition === "frozen");
+  const literals = new Map<FieldId, CellValueV1>();
+  const provenance = new Map<FieldId, ValueProvenanceV1>();
+  if (formulas.length === 0) {
+    return { values: literals, provenance };
+  }
+  const rows = new ProjectionRows(deps.projection);
+  const env = projectionFormulaEnv(deps.projection, rows, formulaClockOf(deps));
+  const row = {
+    recordId,
+    values: new Map([...values].map(([fieldId, value]) => [encodeDomainId(fieldId), value])),
+    computed: new Map(),
+  };
+  for (const { formula } of formulas) {
+    if (formula.target.kind !== "computed-column") continue;
+    const field = canonicalField(table.fields, formula.target.fieldId);
+    const literal = field?.isActive === true ? frozenLiteral(formula, row, deps.entropy, env) : null;
+    if (field === undefined || literal === null) continue;
+    literals.set(field.fieldId, literal);
+    provenance.set(field.fieldId, { source: "user", evidence: { frozen: formula.originalText } });
+  }
+  return { values: literals, provenance };
+}
+
+const canonicalField = (
+  fields: readonly FieldDefV1[],
+  fieldId: FieldId,
+): FieldDefV1 | undefined =>
+  fields.find((field) => encodeDomainId(field.fieldId) === encodeDomainId(fieldId));
 
 /**
  * The table, its fields, its option sets, and its rules — every input
@@ -629,14 +743,18 @@ export function rekeyByFields<T>(
   );
 }
 
-/** Every active field named, so an absent value is `missing` and says so. */
+/**
+ * Every active authored field named, so an absent value is `missing` and says
+ * so. A computed field is not completed: its value is not the author's to
+ * give (D51), and naming it here would read as authoring it.
+ */
 function completeValues(
   fields: readonly FieldDefV1[],
   values: ReadonlyMap<FieldId, CellValueV1>,
 ): Map<FieldId, CellValueV1> {
   const rekeyed = rekeyByFields(fields, values);
   for (const field of fields) {
-    if (field.isActive && !rekeyed.has(field.fieldId)) {
+    if (field.isActive && !isComputedField(field) && !rekeyed.has(field.fieldId)) {
       rekeyed.set(field.fieldId, MISSING_VALUE);
     }
   }
@@ -661,19 +779,22 @@ function patchedProvenance(
   return provenance;
 }
 
+/** One validator issue in the shape the projection stores it. */
+const toIssueInput = (issue: ValidationReport["issues"][number]): ProjectionIssueInputV1 => ({
+  fieldId: issue.fieldId,
+  ruleId: issue.ruleId,
+  kind: issue.kind,
+  severity: issue.severity,
+  messageKey: issue.messageKey,
+  messageParameters: issue.messageParameters,
+});
+
 /** The validator's issues in the shape the projection stores them. */
-const issuesOf = (report: ValidationReport): readonly ProjectionIssueInputV1[] =>
-  report.issues.map((issue) => ({
-    fieldId: issue.fieldId,
-    ruleId: issue.ruleId,
-    kind: issue.kind,
-    severity: issue.severity,
-    messageKey: issue.messageKey,
-    messageParameters: issue.messageParameters,
-  }));
+export const issuesOf = (report: ValidationReport): readonly ProjectionIssueInputV1[] =>
+  report.issues.map(toIssueInput);
 
 /** The app's live record count, summed over its active tables (CA-14). */
-function liveRecordCount(projection: ProjectionEnginePort): number {
+export function liveRecordCount(projection: ProjectionEnginePort): number {
   return projection
     .execute({ kind: "list-tables" })
     .reduce(

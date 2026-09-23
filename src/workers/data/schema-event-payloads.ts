@@ -60,6 +60,7 @@ const CHANGE_KIND_PRESENCE: Readonly<Record<SchemaChangeKindV1, true>> = {
   "rename-app": true,
   "rename-table": true,
   "set-table-label": true,
+  "set-table-key": true,
   "create-field": true,
   "rename-field": true,
   "change-field-type": true,
@@ -107,7 +108,7 @@ const decodeImpact = (value: DecodedValue): SchemaImpactCountsV1 => {
   return { change: oneOf(field(map, "change"), CHANGE_KINDS, "a schema change kind"), ...counts };
 };
 
-const encodeTableDefinition = (table: TableDefinitionV1): CborValue =>
+export const encodeTableDefinition = (table: TableDefinitionV1): CborValue =>
   cborMap([
     ["tableId", table.tableId],
     ["displayName", table.displayName],

@@ -52,6 +52,12 @@ export type SchemaChangeV1 =
   | { readonly kind: "rename-app"; readonly name: string }
   | { readonly kind: "rename-table"; readonly tableId: TableId; readonly name: string }
   | { readonly kind: "set-table-label"; readonly tableId: TableId; readonly labelFieldId: FieldId | null }
+  /**
+   * The table's authored identity field (D64). A relationship still aimed at
+   * the old key makes the after-schema fail `validateSchema`'s endpoint rule,
+   * so a key moves only once nothing points at it.
+   */
+  | { readonly kind: "set-table-key"; readonly tableId: TableId; readonly keyFieldId: FieldId | null }
   | { readonly kind: "create-field"; readonly field: FieldDefV1; readonly enumOptions: readonly EnumOptionDefV1[] }
   | { readonly kind: "rename-field"; readonly fieldId: FieldId; readonly name: string }
   | { readonly kind: "change-field-type"; readonly fieldId: FieldId; readonly type: FieldTypeV1 }
@@ -99,6 +105,9 @@ export interface ValuePatchV1 {
  * - `remove-relationship`: `unlinkedReferences`.
  * - `save-rule` / `remove-rule`: `failingRule` (records the rule flags).
  * - `save-formula` on a computed column: `formulaErrors`.
+ * - `set-table-key`: `missingNow` (records with no key value) and
+ *   `keptAndFlagged` (records whose key value repeats an earlier record's):
+ *   both kept as they are, and both what key uniqueness will flag.
  */
 export interface ImpactReportV1 {
   readonly change: SchemaChangeKindV1;
@@ -347,6 +356,23 @@ export function analyzeSchemaChange(
           : (record) => {
               if (!ruleHolds(rule, record)) count("failingRule");
             };
+      }
+      case "set-table-key": {
+        if (change.keyFieldId === null) return null;
+        const keyFieldId = change.keyFieldId;
+        const options = optionsOf(schema, keyFieldId);
+        const seen = new Set<string>();
+        return (record) => {
+          const value = valueIn(record, keyFieldId);
+          const keyText = isAbsentCellValue(value) ? null : sourceTextOf(value, options)?.normalize("NFC").trim() ?? null;
+          if (keyText === null || keyText.length === 0) {
+            count("missingNow");
+          } else if (seen.has(keyText)) {
+            count("keptAndFlagged");
+          } else {
+            seen.add(keyText);
+          }
+        };
       }
       case "save-formula":
         return change.formula.target.kind === "computed-column"

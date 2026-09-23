@@ -289,9 +289,35 @@ export type AuthoredCellWireValueV1 = Exclude<
   { readonly kind: "invalid" }
 >;
 
+/**
+ * A computed cell's state (CA-26), beside its value. `CellWireValueV1` is not
+ * widened: `value` carries the result (or `missing`), and this says which of
+ * the eight states produced it. Only an `error` names anything more — its
+ * code, never a value.
+ */
+export interface ComputedCellWireV1 {
+  readonly state:
+    | "ok"
+    | "type"
+    | "empty"
+    | "error"
+    | "cycle"
+    | "unsupported"
+    | "unsupported-new-row"
+    | "frozen";
+  /** The error code (`#DIV/0!`, `#VALUE!`, …) for `state: "error"`. */
+  readonly code?: string;
+}
+
 export interface CellWireEntryV1 {
   readonly fieldId: string;
   readonly value: CellWireValueV1;
+  /**
+   * Present exactly for a computed field (F04): the value above is the
+   * recalculated result, never authored. Absent means an authored field,
+   * so every F02/F03 reader still types.
+   */
+  readonly computed?: ComputedCellWireV1;
 }
 
 export interface AuthoredCellWireEntryV1 {
@@ -454,6 +480,118 @@ export interface ListInertItemsRequestV1 {
   readonly sheetId: string | null;
 }
 
+// --- the app's structure (F04: CAP-35, CAP-36; CA-28) -----------------------
+
+/** A record-rule clause (D52): structured, never free text; IDs as text. */
+export type RuleConditionWireV1 =
+  | { readonly kind: "field-present" | "field-absent"; readonly fieldId: string }
+  | { readonly kind: "field-equals"; readonly fieldId: string; readonly value: CellWireValueV1 }
+  | { readonly kind: "all" | "any"; readonly conditions: readonly RuleConditionWireV1[] }
+  | { readonly kind: "not"; readonly condition: RuleConditionWireV1 }
+  | {
+      readonly kind: "compare";
+      readonly left: string;
+      readonly op: "lt" | "le" | "gt" | "ge" | "eq" | "ne";
+      readonly right: { readonly field: string } | { readonly value: CellWireValueV1 };
+      readonly measure?: "text-length";
+    }
+  | {
+      readonly kind: "between" | "not-between";
+      readonly fieldId: string;
+      readonly low: CellWireValueV1;
+      readonly high: CellWireValueV1;
+      readonly measure?: "text-length";
+    };
+
+/** Where a saved formula lives; a new computed column names its new field. */
+export type FormulaTargetWireV1 =
+  | {
+      readonly kind: "computed-column";
+      readonly tableId: string;
+      /** The computed field re-saved, or null for a new column (then `newField`). */
+      readonly fieldId: string | null;
+      readonly newField: { readonly displayName: string; readonly type: FieldTypeWireV1 } | null;
+    }
+  | { readonly kind: "table-metric"; readonly tableId: string }
+  | { readonly kind: "dashboard-value"; readonly tableId: string | null };
+
+/** D59's closed change union, as the structure editor sends it (IDs as text). */
+export type SchemaChangeWireV1 =
+  | { readonly kind: "rename-app"; readonly name: string }
+  | { readonly kind: "rename-table"; readonly tableId: string; readonly name: string }
+  | { readonly kind: "set-table-label"; readonly tableId: string; readonly labelFieldId: string | null }
+  | { readonly kind: "set-table-key"; readonly tableId: string; readonly keyFieldId: string | null }
+  | {
+      readonly kind: "create-field";
+      readonly tableId: string;
+      readonly displayName: string;
+      readonly type: FieldTypeWireV1;
+      readonly isRequired: boolean;
+      readonly optionLabels: readonly string[];
+    }
+  | { readonly kind: "rename-field"; readonly fieldId: string; readonly name: string }
+  | { readonly kind: "change-field-type"; readonly fieldId: string; readonly type: FieldTypeWireV1 }
+  | { readonly kind: "set-required"; readonly fieldId: string; readonly isRequired: boolean }
+  | { readonly kind: "deactivate-field" | "reactivate-field"; readonly fieldId: string }
+  | { readonly kind: "reorder-fields"; readonly tableId: string; readonly fieldIds: readonly string[] }
+  | {
+      readonly kind: "set-enum-options";
+      readonly fieldId: string;
+      readonly options: readonly { readonly optionId: string | null; readonly label: string; readonly isActive: boolean }[];
+    }
+  | {
+      readonly kind: "set-relationship";
+      readonly relationshipId: string | null;
+      readonly fromFieldId: string;
+      readonly toTableId: string;
+      readonly isActive: boolean;
+    }
+  | { readonly kind: "remove-relationship"; readonly relationshipId: string }
+  | {
+      readonly kind: "save-rule";
+      readonly ruleId: string | null;
+      readonly tableId: string;
+      readonly displayName: string;
+      readonly condition: RuleConditionWireV1;
+      readonly severity: "warning" | "blocking";
+    }
+  | { readonly kind: "remove-rule"; readonly ruleId: string }
+  | {
+      readonly kind: "save-formula";
+      readonly formulaId: string | null;
+      readonly target: FormulaTargetWireV1;
+      readonly displayName: string | null;
+      readonly text: string;
+    }
+  | { readonly kind: "remove-formula"; readonly formulaId: string };
+
+/** The app's schema, rules, relationships and formulas (SCR-035). */
+export interface GetAppStructureRequestV1 {
+  readonly kind: "getAppStructure";
+  readonly appId: string;
+}
+
+/** MOD-014's counted impact of one change, at the revision it names. */
+export interface PreviewSchemaChangeRequestV1 {
+  readonly kind: "previewSchemaChange";
+  readonly appId: string;
+  readonly change: SchemaChangeWireV1;
+}
+
+/** Applies a previewed change; refused `stale-preview` if the revision moved. */
+export interface ApplySchemaChangeRequestV1 {
+  readonly kind: "applySchemaChange";
+  readonly appId: string;
+  readonly change: SchemaChangeWireV1;
+  readonly previewedSchemaRevision: number;
+}
+
+/** Table metrics and dashboard values, with each result's status (CA-26). */
+export interface GetAppMetricsRequestV1 {
+  readonly kind: "getAppMetrics";
+  readonly appId: string;
+}
+
 export type DataWorkerRequestV1 =
   | SetupRequestV1
   | UnlockRequestV1
@@ -490,7 +628,11 @@ export type DataWorkerRequestV1 =
   | ListSheetSnapshotsRequestV1
   | GetSnapshotPageRequestV1
   | FindInSnapshotRequestV1
-  | ListInertItemsRequestV1;
+  | ListInertItemsRequestV1
+  | GetAppStructureRequestV1
+  | PreviewSchemaChangeRequestV1
+  | ApplySchemaChangeRequestV1
+  | GetAppMetricsRequestV1;
 
 export type DataWorkerRequestKindV1 = DataWorkerRequestV1["kind"];
 
@@ -1436,6 +1578,15 @@ export interface CommandReceiptViewV1 {
   readonly headRevision: number | null;
 }
 
+/**
+ * D60: the computed columns a write re-derived — their IDs, never their
+ * values. The page re-reads what it shows and announces it without stealing
+ * focus. Empty when nothing downstream moved.
+ */
+export interface RecalculatedNoticeV1 {
+  readonly fieldIds: readonly string[];
+}
+
 /** The whole report, so a surface can name every field at fault (D23). */
 export interface ValidationReportViewV1 {
   readonly isValid: false;
@@ -1448,7 +1599,12 @@ export interface ValidationReportViewV1 {
  * the schema will not take needs the fields named, not a category (D23/CA-04).
  */
 export type RecordCommandOutcomeV1 =
-  | { readonly outcome: "accepted"; readonly receipt: CommandReceiptViewV1 }
+  | {
+      readonly outcome: "accepted";
+      readonly receipt: CommandReceiptViewV1;
+      /** Always sent by the data worker (F04); optional so F02-era readers still type. */
+      readonly recalculated?: RecalculatedNoticeV1;
+    }
   | { readonly outcome: "rejected"; readonly report: ValidationReportViewV1 }
   | {
       readonly outcome: "unknown-subject";
@@ -1699,6 +1855,195 @@ export interface ListInertItemsResponseV1 {
   readonly items: readonly InertItemViewV1[] | null;
 }
 
+// --- the app's structure (F04) ----------------------------------------------
+
+export interface StructureEnumOptionViewV1 {
+  readonly optionId: string;
+  readonly label: string;
+  readonly optionOrdinal: number;
+  readonly isActive: boolean;
+}
+
+export interface StructureFieldViewV1 {
+  readonly fieldId: string;
+  readonly displayName: string;
+  readonly fieldOrdinal: number;
+  readonly type: FieldTypeWireV1;
+  readonly isRequired: boolean;
+  readonly isActive: boolean;
+  /** The formula computing this field, or null for an authored field (D51). */
+  readonly formulaId: string | null;
+  readonly enumOptions: readonly StructureEnumOptionViewV1[];
+}
+
+export interface StructureRuleViewV1 {
+  readonly ruleId: string;
+  readonly displayName: string;
+  readonly irVersion: 1 | 2;
+  readonly severity: "warning" | "blocking";
+  readonly condition: RuleConditionWireV1;
+}
+
+export interface StructureTableViewV1 {
+  readonly tableId: string;
+  readonly displayName: string;
+  readonly tableOrdinal: number;
+  readonly keyFieldId: string | null;
+  readonly labelFieldId: string | null;
+  readonly recordCount: number;
+  readonly fields: readonly StructureFieldViewV1[];
+  readonly rules: readonly StructureRuleViewV1[];
+}
+
+export interface StructureRelationshipViewV1 {
+  readonly relationshipId: string;
+  readonly fromTableId: string;
+  readonly fromFieldId: string;
+  readonly toTableId: string;
+  readonly toKeyFieldId: string;
+  readonly fromTableName: string;
+  readonly toTableName: string;
+  readonly detectionSource: "declared" | "lookup-formula" | "key-match" | "user";
+  readonly isActive: boolean;
+}
+
+export interface StructureFormulaViewV1 {
+  readonly formulaId: string;
+  readonly target: FormulaTargetViewV1;
+  readonly displayName: string | null;
+  /** The expression in the app's current names (D58, `renderFormula`). */
+  readonly text: string;
+  readonly disposition: "live" | "frozen" | "unsupported";
+  readonly determinism: "deterministic" | "clock-volatile" | "frozen-nondeterministic" | "unsupported";
+  readonly isActive: boolean;
+}
+
+export type FormulaTargetViewV1 =
+  | { readonly kind: "computed-column"; readonly tableId: string; readonly fieldId: string }
+  | { readonly kind: "table-metric"; readonly tableId: string }
+  | { readonly kind: "dashboard-value"; readonly tableId: string | null };
+
+export interface AppStructureViewV1 {
+  readonly appId: string;
+  readonly displayName: string;
+  readonly schemaRevision: number;
+  readonly tables: readonly StructureTableViewV1[];
+  readonly relationships: readonly StructureRelationshipViewV1[];
+  readonly formulas: readonly StructureFormulaViewV1[];
+}
+
+export interface GetAppStructureResponseV1 {
+  readonly kind: "getAppStructure";
+  /** Null when no app carries this id (CA-12). */
+  readonly structure: AppStructureViewV1 | null;
+}
+
+/** A change's counted impact (CA-28): counts only, never the values counted. */
+export interface ImpactReportWireV1 {
+  readonly change: SchemaChangeWireV1["kind"];
+  readonly total: number;
+  readonly affected: number;
+  readonly unchanged: number;
+  readonly converted: number;
+  readonly keptAndFlagged: number;
+  readonly missingNow: number;
+  readonly onRemovedOptions: number;
+  readonly matchedKeys: number;
+  readonly unmatchedKeys: number;
+  readonly unlinkedReferences: number;
+  readonly failingRule: number;
+  readonly formulaErrors: number;
+}
+
+/** Why a change cannot be made (typed; no cell value). */
+export type SchemaRefusalWireV1 =
+  | {
+      readonly kind: "unknown-subject";
+      readonly subject: "table" | "field" | "relationship" | "rule" | "formula" | "option";
+    }
+  | {
+      readonly kind: "invalid-change";
+      readonly reason:
+        | "empty-name"
+        | "not-an-enum"
+        | "not-a-permutation"
+        | "target-has-no-key"
+        | "not-a-computed-field"
+        | "computed-field"
+        | "target-mismatch"
+        | "no-new-field";
+    }
+  /** The formula editor's refusal: its reason, the name or token at fault, and where. */
+  | { readonly kind: "formula"; readonly reason: string; readonly detail: string | null; readonly position: number | null }
+  | {
+      readonly kind: "transition";
+      readonly refusals: readonly { readonly kind: string; readonly fieldId: string | null; readonly messageKey: string | null }[];
+    }
+  /** Converted values would leave this many records failing the validator. */
+  | { readonly kind: "validation"; readonly recordCount: number };
+
+export interface SchemaPreviewViewV1 {
+  /** The revision this preview counted at; `applySchemaChange` must name it. */
+  readonly schemaRevision: number;
+  readonly impact: ImpactReportWireV1;
+  readonly eventCount: number;
+  readonly refusal: SchemaRefusalWireV1 | null;
+  /** Past the segment cap (D38): the apply would be refused `too-large`. */
+  readonly isTooLarge: boolean;
+}
+
+export interface PreviewSchemaChangeResponseV1 {
+  readonly kind: "previewSchemaChange";
+  /** Null when no app carries this id. */
+  readonly preview: SchemaPreviewViewV1 | null;
+}
+
+export type SchemaApplyOutcomeV1 =
+  | {
+      readonly result: "applied";
+      readonly commitId: string;
+      readonly headRevision: number;
+      readonly schemaRevision: number;
+      readonly impact: ImpactReportWireV1;
+      readonly recalculated: RecalculatedNoticeV1;
+    }
+  | { readonly result: "stale-preview"; readonly schemaRevision: number }
+  | { readonly result: "refused"; readonly refusal: SchemaRefusalWireV1 }
+  | {
+      readonly result: "too-large";
+      readonly eventCount: number;
+      readonly byteLength: number;
+      readonly maxEvents: number;
+      readonly maxBytes: number;
+    }
+  | { readonly result: "unknown-app" };
+
+export interface ApplySchemaChangeResponseV1 {
+  readonly kind: "applySchemaChange";
+  readonly outcome: SchemaApplyOutcomeV1;
+}
+
+/** One metric or dashboard value and its truthful status (CA-26). */
+export interface MetricViewV1 {
+  readonly formulaId: string;
+  readonly displayName: string;
+  readonly status: "ok" | "empty" | "unsupported" | "cycle" | "error";
+  /** Present for `ok` only. */
+  readonly value: CellWireValueV1 | null;
+  readonly code: string | null;
+  readonly evaluatedAtEpochMs: number | null;
+}
+
+export interface AppMetricsViewV1 {
+  readonly tables: readonly { readonly tableId: string; readonly metrics: readonly MetricViewV1[] }[];
+  readonly dashboard: readonly MetricViewV1[];
+}
+
+export interface GetAppMetricsResponseV1 {
+  readonly kind: "getAppMetrics";
+  readonly metrics: AppMetricsViewV1 | null;
+}
+
 export type DataWorkerResponseV1 =
   | SetupResponseV1
   | UnlockResponseV1
@@ -1735,7 +2080,11 @@ export type DataWorkerResponseV1 =
   | ListSheetSnapshotsResponseV1
   | GetSnapshotPageResponseV1
   | FindInSnapshotResponseV1
-  | ListInertItemsResponseV1;
+  | ListInertItemsResponseV1
+  | GetAppStructureResponseV1
+  | PreviewSchemaChangeResponseV1
+  | ApplySchemaChangeResponseV1
+  | GetAppMetricsResponseV1;
 
 /** The response a given request kind produces; the client is typed by it. */
 export type ResponseForV1<K extends DataWorkerRequestKindV1> = Extract<

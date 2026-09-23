@@ -132,6 +132,7 @@ function harness(records: readonly AuthoredRecordV1[] = []) {
       projection,
       repository,
       recordDigest: fakeRecordDigest,
+      formulaClock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }),
     },
   };
 }
@@ -604,6 +605,7 @@ describe("references (D36, CA-21): the real resolver, by provenance", () => {
         projection,
         repository,
         recordDigest: fakeRecordDigest,
+        formulaClock: () => ({ epochDay: 20_000, epochMs: 1_728_000_000_000 }),
       },
     };
   };

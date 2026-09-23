@@ -75,6 +75,8 @@ import {
   type ImportSessionContextV1,
 } from "./import-handlers.js";
 import { createRecordHandlers } from "./record-handlers.js";
+import { createStructureHandlers } from "./structure-handlers.js";
+import type { SchemaCommitLimitsV1 } from "../../application/commands/schema-commands.js";
 import {
   isIdleTimeoutMinutesV1,
   type DataWorkerRequestV1,
@@ -108,6 +110,11 @@ export interface DataWorkerDependencies {
    * benchmark.
    */
   readonly calibration?: CalibrationOptions;
+  /**
+   * D38's segment cap for one schema commit. Production passes nothing (10,000
+   * events / 16 MiB); unit runs pin a small one to reach `too-large`.
+   */
+  readonly schemaCommitLimits?: SchemaCommitLimitsV1;
 }
 
 export interface DataWorkerCommandHandler {
@@ -151,6 +158,16 @@ export function createDataWorkerHandler(
     },
     getContext: () => importContext(requireUnlocked()),
     commitCatalog: (next) => commitCatalog(next),
+  });
+
+  const structure = createStructureHandlers({
+    clock: deps.clock,
+    entropy: deps.entropy,
+    appSession: (appId) => records.appSession(appId),
+    closeAppSession: (appId) => {
+      records.closeAppSession(appId);
+    },
+    ...(deps.schemaCommitLimits === undefined ? {} : { limits: deps.schemaCommitLimits }),
   });
 
   const now = (): number => deps.clock.nowEpochMs();
@@ -837,6 +854,14 @@ export function createDataWorkerHandler(
           return records.findInSnapshot(request);
         case "listInertItems":
           return records.listInertItems(request);
+        case "getAppStructure":
+          return structure.getAppStructure(request);
+        case "previewSchemaChange":
+          return structure.previewSchemaChange(request);
+        case "applySchemaChange":
+          return structure.applySchemaChange(request);
+        case "getAppMetrics":
+          return structure.getAppMetrics(request);
         default: {
           const unreachable: never = request;
           void unreachable;

@@ -9,9 +9,11 @@
  *   sequence one, which is the pairing M09's encoder enforces.
  * - `basisFrontier` is the frontier this device has actually applied. A commit
  *   may not claim to have observed a state the app has not.
- * - `eventClass` is `authored` and `schemaRevisionBefore === schemaRevisionAfter`:
- *   F02's CRUD changes rows, never the schema. Import promotion is the other
- *   class and lives on M23's path.
+ * - `eventClass` is `authored`. A record command leaves
+ *   `schemaRevisionBefore === schemaRevisionAfter`; a schema command (F04)
+ *   advances it by exactly one, which is what every later command and the
+ *   replay guard are judged against. Import promotion is the other class and
+ *   lives on M23's path.
  *
  * **Hybrid time is monotonic by construction.** Canonical commit order is
  * `(wall time, logical counter, device, sequence, commit id)` and the chain
@@ -80,6 +82,7 @@ export function buildAuthoredCommit(
   deps: BuildCommitDependenciesV1,
   chain: AppChainStateV1,
   drafts: readonly AuthoredEventDraftV1[],
+  isSchemaChange = false,
 ): CommitPlanV1 {
   if (drafts.length === 0) {
     throw new Error("an authored commit carries at least one event");
@@ -105,7 +108,7 @@ export function buildAuthoredCommit(
     eventClass: "authored",
     // CRUD never moves the schema; the pair being equal is what says so.
     schemaRevisionBefore: chain.schemaRevision,
-    schemaRevisionAfter: chain.schemaRevision,
+    schemaRevisionAfter: chain.schemaRevision + (isSchemaChange ? 1n : 0n),
     events,
   };
 }

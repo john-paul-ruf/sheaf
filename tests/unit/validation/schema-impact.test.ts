@@ -312,3 +312,66 @@ describe("validateSchemaTransition", () => {
     ]);
   });
 });
+
+describe("set-table-key (D64; CA-28 \"set key\" → table.changed)", () => {
+  it("counts records with no key value and records repeating an earlier key, changing none", () => {
+    const keyed = [
+      record(1, [[CUSTOMER, textValue("C-1")]]),
+      record(2, [[CUSTOMER, textValue(" C-1 ")]]),
+      record(3, [[CUSTOMER, textValue("C-2")]]),
+      record(4, []),
+      record(5, [[CUSTOMER, MISSING_VALUE]]),
+    ];
+    expect(analyzeSchemaChange({ kind: "set-table-key", tableId: JOBS, keyFieldId: CUSTOMER }, schema, keyed, env)).toEqual({
+      change: "set-table-key",
+      total: 5,
+      affected: 3,
+      unchanged: 2,
+      converted: 0,
+      keptAndFlagged: 1,
+      missingNow: 2,
+      onRemovedOptions: 0,
+      matchedKeys: 0,
+      unmatchedKeys: 0,
+      unlinkedReferences: 0,
+      failingRule: 0,
+      formulaErrors: 0,
+      patches: [],
+    });
+    // Clearing the key has nothing to count.
+    expect(analyzeSchemaChange({ kind: "set-table-key", tableId: JOBS, keyFieldId: null }, schema, keyed, env).affected).toBe(0);
+  });
+
+  it("refuses a key a relationship still points at, or one that is computed or inactive", () => {
+    const relationship: RelationshipDefV1 = {
+      relationshipId: LINK,
+      fromTableId: JOBS,
+      fromFieldId: CUSTOMER,
+      toTableId: CUSTOMERS,
+      toKeyFieldId: CUSTOMER_ID,
+      detectionSource: "user",
+      isActive: true,
+      schemaRevision: 2n,
+    };
+    const customers = schema.tables[1]!;
+    const second = { ...customers.fields[0]!, fieldId: id("field", 21), fieldOrdinal: 1 };
+    const before: SchemaSnapshotV1 = {
+      ...schema,
+      tables: [
+        { ...schema.tables[0]!, fields: schema.tables[0]!.fields.map((field) => (field.fieldId === CUSTOMER ? { ...field, type: { kind: "reference" } } : field)) },
+        { ...customers, fields: [...customers.fields, second] },
+      ],
+      relationships: [relationship],
+    };
+    const moved: SchemaSnapshotV1 = { ...before, tables: [before.tables[0]!, { ...before.tables[1]!, keyFieldId: second.fieldId }] };
+    expect(validateSchemaTransition(before, moved).refusals).toEqual([
+      { kind: "schema-invalid", fieldId: CUSTOMER, messageKey: "schema.relationship-target-not-key" },
+    ]);
+    // With nothing pointing at it, the same move is allowed.
+    const unlinked = { ...moved, relationships: [], tables: [schema.tables[0]!, moved.tables[1]!] };
+    expect(validateSchemaTransition({ ...before, relationships: [], tables: [schema.tables[0]!, before.tables[1]!] }, unlinked).isAllowed).toBe(true);
+
+    const onComputed: SchemaSnapshotV1 = { ...schema, tables: [{ ...schema.tables[0]!, keyFieldId: BALANCE }, schema.tables[1]!] };
+    expect(validateSchemaTransition(schema, onComputed).refusals.map((refusal) => refusal.kind)).toContain("key-field-computed");
+  });
+});

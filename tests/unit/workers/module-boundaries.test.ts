@@ -20,6 +20,11 @@ const WORKER_FILES = [
   "src/workers/data/catalog.ts",
   "src/workers/data/session.ts",
   "src/workers/data/import-handlers.ts",
+  // F04: the structure RPCs and the schema-event codec run in the same worker.
+  "src/workers/data/structure-handlers.ts",
+  "src/workers/data/schema-event-payloads.ts",
+  "src/workers/data/record-handlers.ts",
+  "src/workers/data/app-session.ts",
 ];
 
 /**
@@ -211,6 +216,16 @@ describe("the wire contract", () => {
     ]) {
       expect(messages).not.toContain(forbidden);
     }
+  });
+
+  it("detects a byte type or an import in the wire contract rather than passing it", () => {
+    // Negative control: the two rules above fire on the shapes they exist for.
+    const planted = `${code("src/workers/protocol/messages.ts")}\nexport interface Leak { readonly bytes: Uint8Array }\n`;
+    expect(planted).toContain("Uint8Array");
+    expect(importedModules('import type { X } from "../../domain/model/ids.js";\n')).toEqual(["../../domain/model/ids.js"]);
+    // A computed value crosses as `CellWireValueV1`, never widened (CA-26).
+    const messages = code("src/workers/protocol/messages.ts");
+    expect(messages).toContain("readonly computed?: ComputedCellWireV1;");
   });
 
   it("keeps the catalog's own types out of the response union", () => {

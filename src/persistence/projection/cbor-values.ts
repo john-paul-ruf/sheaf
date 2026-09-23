@@ -158,10 +158,25 @@ const encodeProvenance = (provenance: ValueProvenanceV1): CborValue => {
     map.set("sourceTimestampMs", provenance.sourceTimestampMs);
   }
   if (provenance.evidence !== undefined) {
-    map.set("evidence", provenance.evidence as CborValue);
+    map.set("evidence", evidenceValue(provenance.evidence));
   }
   return map;
 };
+
+/**
+ * A frozen literal's evidence is a plain `{frozen}` object in the domain —
+ * the shape the validator reads — and a map in CBOR; anything already
+ * decoded passes through as it was.
+ */
+const evidenceValue = (evidence: unknown): CborValue =>
+  evidence instanceof Map || typeof evidence !== "object" || evidence === null
+    ? (evidence as CborValue)
+    : new Map<string, CborValue>(Object.entries(evidence as Record<string, CborValue>));
+
+const evidenceOf = (value: DecodedValue): unknown =>
+  value instanceof Map && value.size === 1 && typeof value.get("frozen") === "string"
+    ? { frozen: value.get("frozen") as string }
+    : value;
 
 const decodeProvenance = (value: DecodedValue): ValueProvenanceV1 => {
   const map = asMap(value, "provenance");
@@ -184,7 +199,7 @@ const decodeProvenance = (value: DecodedValue): ValueProvenanceV1 => {
     ...(sourceTimestampMs === undefined
       ? {}
       : { sourceTimestampMs: asInteger(sourceTimestampMs, "sourceTimestampMs") }),
-    ...(evidence === undefined ? {} : { evidence }),
+    ...(evidence === undefined ? {} : { evidence: evidenceOf(evidence) }),
   };
 };
 

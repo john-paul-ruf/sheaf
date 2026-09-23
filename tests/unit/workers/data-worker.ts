@@ -20,6 +20,17 @@ import {
   createDataWorkerHandler,
   type DataWorkerCommandHandler,
 } from "../../../src/workers/data/handlers.js";
+import type { SchemaCommitLimitsV1 } from "../../../src/application/commands/schema-commands.js";
+import { MAX_SLICE_BYTES } from "../../../src/import/source/source.js";
+import type { DataWorkerRequestV1, DataWorkerResponseV1 } from "../../../src/workers/protocol/messages.js";
+import {
+  isStageChannelOutboundV1,
+  stageBatch,
+  stageSource,
+  type StageChannelInboundV1,
+} from "../../../src/workers/protocol/stage-channel.js";
+import { fixtureBytes } from "../import/fixtures.js";
+import { streamWorkbookFixture } from "../staging/workbook-streams.js";
 
 /** A derivation plus a commit; generous, and still far under a hang. */
 export const CRYPTO_TIMEOUT_MS = 60_000;
@@ -58,15 +69,108 @@ export interface TestHandler {
 }
 
 /** A worker's worth of state. A second call models a fresh worker. */
-export function createTestHandler(clock: FakeClock = new FakeClock()): TestHandler {
+export function createTestHandler(
+  clock: FakeClock = new FakeClock(),
+  schemaCommitLimits?: SchemaCommitLimitsV1,
+): TestHandler {
   return {
     clock,
     handler: createDataWorkerHandler({
       clock,
       entropy: realEntropy,
       calibration: PINNED_CALIBRATION,
+      ...(schemaCommitLimits === undefined ? {} : { schemaCommitLimits }),
     }),
   };
+}
+
+/** One request that must succeed, narrowed to the response it names. */
+export async function ask<K extends DataWorkerRequestV1["kind"]>(
+  handler: DataWorkerCommandHandler,
+  request: Extract<DataWorkerRequestV1, { kind: K }>,
+  ports?: readonly MessagePort[],
+): Promise<Extract<DataWorkerResponseV1, { kind: K }>> {
+  const response = await handler.handle(request, ports);
+  if (response.kind !== request.kind) {
+    throw new Error(`${request.kind} answered ${response.kind}`);
+  }
+  return response as Extract<DataWorkerResponseV1, { kind: K }>;
+}
+
+/** Posts one channel message and waits for the data worker's durable ack. */
+function sendAcked(port: MessagePort, message: StageChannelInboundV1, seq: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (event: MessageEvent<unknown>): void => {
+      if (!isStageChannelOutboundV1(event.data)) return;
+      port.removeEventListener("message", onMessage);
+      if (event.data.kind === "ack" && event.data.ackSeq === seq) resolve();
+      else reject(new Error(`batch ${seq} was not acked`));
+    };
+    port.addEventListener("message", onMessage);
+    port.postMessage(message);
+  });
+}
+
+/**
+ * The F03 demo workbook (`ooxml/fieldwork-q3.xlsx`) imported through the
+ * **real** data-worker handler, in node: the adapter's real fact stream is
+ * played over a real `MessageChannel` exactly as the import worker plays it
+ * (facts, then the source slices, each acked after its commit), then
+ * inference, the journey's review edit (Visits → Jobs rejected), and
+ * promotion. The handler must be unlocked. Returns the new app's id.
+ */
+export async function importDemoApp(handler: DataWorkerCommandHandler): Promise<string> {
+  const selection = [0, 1, 2, 3, 4, 5];
+  const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx", { selection });
+  if (stream === null) throw new Error("the demo workbook did not size");
+  const bytes = await fixtureBytes("ooxml/fieldwork-q3.xlsx");
+  const channel = new MessageChannel();
+  const begun = await ask(
+    handler,
+    {
+      kind: "beginImportStage",
+      fileName: "fieldwork-q3.xlsx",
+      detected: { kind: "workbook", format: stream.report.format },
+      preflight: {
+        kind: "workbook",
+        sheets: stream.report.sheets.map((sheet) => ({
+          sheetIndex: sheet.sheetIndex,
+          name: sheet.name,
+          sheetKind: sheet.kind,
+          visibility: sheet.visibility,
+          estimatedRowCount: sheet.estimatedRowCount,
+          estimatedCellCount: sheet.estimatedCellCount,
+        })),
+        selectedSheets: selection,
+        sourceByteLength: bytes.byteLength,
+        isEstimate: true,
+      },
+    },
+    [channel.port2],
+  );
+  const port = channel.port1;
+  port.start();
+  let seq = 0;
+  for (const item of stream.items) {
+    await sendAcked(port, stageBatch(seq, item), seq);
+    seq += 1;
+  }
+  for (let offset = 0, sequence = 0; offset < bytes.byteLength; offset += MAX_SLICE_BYTES, sequence += 1) {
+    await sendAcked(port, stageSource(seq, sequence, bytes.subarray(offset, offset + MAX_SLICE_BYTES)), seq);
+    seq += 1;
+  }
+  port.close();
+
+  await ask(handler, { kind: "runInference", stageId: begun.stageId });
+  const edited = await ask(handler, {
+    kind: "applyReviewEdit",
+    stageId: begun.stageId,
+    edit: { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" },
+  });
+  if (edited.outcome !== "applied") throw new Error("the review edit did not apply");
+  const promoted = await ask(handler, { kind: "promoteImport", stageId: begun.stageId, acceptedName: "Fieldwork Q3" });
+  if (promoted.outcome !== "promoted") throw new Error(`promotion refused: ${promoted.reason}`);
+  return promoted.appId;
 }
 
 export async function resetLocalDatabase(): Promise<void> {

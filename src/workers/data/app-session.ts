@@ -75,6 +75,7 @@ import {
 } from "../../domain/validation/validate-record.js";
 import {
   changeProvenance,
+  projectionRevalidator,
   validateAgainstProjection,
 } from "../../application/commands/execute-command.js";
 import type { ClockPort } from "../../application/ports/clock.js";
@@ -593,24 +594,6 @@ function toProjectionCommit(
     ...(issuesByEventIndex.size === 0 ? {} : { issuesByEventIndex }),
     revalidate: projectionRevalidator(projection),
   };
-}
-
-/**
- * The validator a schema commit's re-shaped tables are re-judged through,
- * against the projection as the commit left it. Nothing is authored by a
- * re-judgement, so no provenance is claimed — exactly as a command would
- * see a record it did not touch (D36).
- */
-export function projectionRevalidator(
-  projection: ProjectionEnginePort,
-): (record: AuthoredRecordV1) => readonly ValidationIssueV1Input[] {
-  return (record) =>
-    validateAgainstProjection(projection, {
-      recordId: record.recordId,
-      tableId: record.tableId,
-      values: record.values,
-      provenance: new Map(),
-    })?.issues.map(toIssueInput) ?? [];
 }
 
 /** The one shared validator, re-deciding exactly what it decided at write time. */

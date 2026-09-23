@@ -74,6 +74,7 @@ import {
   type RelatedParentV1,
 } from "../../application/queries/relationships.js";
 import type {
+  ProjectionComputedCellV1,
   ProjectionIssueRowV1,
   ProjectionLabeledRecordV1,
   ProjectionRecordSummaryV1,
@@ -120,7 +121,15 @@ import type {
   SearchReferenceCandidatesRequestV1,
 } from "../protocol/messages.js";
 import { DataWorkerCommandError } from "../protocol/redact.js";
-import { AppSessionRegistry, openAppSession, type AppSessionV1 } from "./app-session.js";
+import {
+  AppSessionRegistry,
+  localClockReading,
+  openAppSession,
+  type AppSessionV1,
+} from "./app-session.js";
+
+/** How long a `TODAY()` result may stand before a read refreshes it (D60). */
+const VOLATILE_MAX_AGE_MS = 60_000;
 import type { WorkerSessionContextV1 } from "./event-store.js";
 import {
   deviceOnlyChangeCount,
@@ -245,6 +254,7 @@ export function createRecordHandlers(
     repository: session.repository,
     recordDigest: (record: Parameters<typeof encodeAuthoredRecordBytes>[0]) =>
       sha256(encodeAuthoredRecordBytes(record)),
+    formulaClock: () => localClockReading(deps.clock),
   });
 
   async function runCommand<K extends string>(
@@ -285,6 +295,10 @@ export function createRecordHandlers(
                 : encodeBase64Url(result.commit.commit.commitId),
             headRevision:
               result.commit === null ? null : Number(result.commit.headRevision),
+          },
+          // D60: which computed columns moved, never their values.
+          recalculated: {
+            fieldIds: result.recalculatedFieldIds.map((fieldId) => encodeDomainId(fieldId)),
           },
         };
       case "rejected":
@@ -348,6 +362,7 @@ export function createRecordHandlers(
       if (tableId === undefined) {
         return { kind: "queryRecords", page: null };
       }
+      await session.projection.refreshVolatile(VOLATILE_MAX_AGE_MS);
 
       const page = planRecordPage(
         session.projection,
@@ -378,6 +393,7 @@ export function createRecordHandlers(
       if (session === undefined) {
         return { kind: "getRecord", record: null };
       }
+      await session.projection.refreshVolatile(VOLATILE_MAX_AGE_MS);
       const detail = session.projection.execute({
         kind: "record-by-id",
         recordId: recordIdOf(request.recordId),
@@ -831,22 +847,57 @@ const toReferenceView = (reference: RelatedParentV1): RecordReferenceViewV1 => {
     : { ...common, status: "broken", originalKey: reference.parent.originalKey };
 };
 
+/**
+ * A record on the wire: its authored values, then every computed column's
+ * result with its CA-26 state. A computed field's authored literal (frozen,
+ * unsupported) is not sent twice — it is the computed entry's value.
+ */
 const toSummaryView = (
   record: ProjectionRecordSummaryV1,
-): RecordSummaryViewV1 => ({
-  recordId: encodeDomainId(record.recordId),
-  tableId: encodeDomainId(record.tableId),
-  recordRevision: Number(record.recordRevision),
-  cursor: record.recordPk,
-  values: [...record.authoredValues].map(
-    ([fieldId, value]): CellWireEntryV1 => ({
-      fieldId: encodeDomainId(fieldId),
-      value: toWireValue(value),
-    }),
-  ),
-  blockingIssueCount: record.blockingIssueCount,
-  warningIssueCount: record.warningIssueCount,
-});
+): RecordSummaryViewV1 => {
+  const computed = new Set([...record.computed.keys()].map((fieldId) => encodeDomainId(fieldId)));
+  return {
+    recordId: encodeDomainId(record.recordId),
+    tableId: encodeDomainId(record.tableId),
+    recordRevision: Number(record.recordRevision),
+    cursor: record.recordPk,
+    values: [
+      ...[...record.authoredValues]
+        .filter(([fieldId]) => !computed.has(encodeDomainId(fieldId)))
+        .map(
+          ([fieldId, value]): CellWireEntryV1 => ({
+            fieldId: encodeDomainId(fieldId),
+            value: toWireValue(value),
+          }),
+        ),
+      ...[...record.computed].map(([fieldId, cell]): CellWireEntryV1 => toComputedEntry(fieldId, cell)),
+    ],
+    blockingIssueCount: record.blockingIssueCount,
+    warningIssueCount: record.warningIssueCount,
+  };
+};
+
+/** CA-26 on the wire: the value (or `missing`) and the state that produced it. */
+function toComputedEntry(fieldId: FieldId, cell: ProjectionComputedCellV1): CellWireEntryV1 {
+  const fieldText = encodeDomainId(fieldId);
+  switch (cell.state) {
+    case "ok":
+    case "frozen":
+    case "unsupported":
+      return { fieldId: fieldText, value: toWireValue(cell.value), computed: { state: cell.state } };
+    case "error":
+      return { fieldId: fieldText, value: { kind: "missing" }, computed: { state: "error", code: cell.code } };
+    case "type":
+    case "empty":
+    case "cycle":
+    case "unsupported-new-row":
+      return { fieldId: fieldText, value: { kind: "missing" }, computed: { state: cell.state } };
+    default: {
+      const unreachable: never = cell;
+      return unreachable;
+    }
+  }
+}
 
 const toIssueView = (issue: ProjectionIssueRowV1): RecordIssueViewV1 => ({
   fieldId: issue.fieldId === null ? null : encodeDomainId(issue.fieldId),

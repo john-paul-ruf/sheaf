@@ -644,3 +644,34 @@ describe("the F04 schema, rule and formula payloads (CA-25, CA-27, CA-28)", () =
     ]);
   });
 });
+
+describe("a frozen literal's provenance (D51)", () => {
+  it("carries the formula text it was frozen from, and still reads the three-key form", () => {
+    const fieldId = FIELDS[0] as FieldId;
+    const event: DomainEventV1 = {
+      kind: "record.patched",
+      payload: {
+        recordId: RECORD_ID,
+        tableId: TABLE_ID,
+        recordRevision: 2n,
+        changes: [
+          {
+            fieldId,
+            before: { kind: "missing" },
+            after: { kind: "decimal", decimal: "0.37" },
+            provenance: { source: "user", evidence: { frozen: "RAND()" } },
+          },
+        ],
+        resultingRecordSha256: new Uint8Array(32).fill(3),
+      },
+    };
+    const back = roundTrip(event);
+    expect(back.kind === "record.patched" && back.payload.changes[0]?.provenance).toEqual({
+      source: "user",
+      evidence: { frozen: "RAND()" },
+    });
+    // An F02/F03 patch has no evidence key, and decodes exactly as before.
+    const plain = roundTrip(EVENTS[1] as DomainEventV1);
+    expect(plain.kind === "record.patched" && Object.keys(plain.payload.changes[0]!.provenance)).toEqual(["source"]);
+  });
+});

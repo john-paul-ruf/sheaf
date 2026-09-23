@@ -74,6 +74,7 @@ import {
   exactKeys,
   field,
   list,
+  nfcText,
   oneOf,
 } from "../../import/staging/proposal-codec.js";
 import {
@@ -120,8 +121,24 @@ export function isTailEventKind(kind: string): kind is TailEventKindV1 {
 
 // --------------------------------------------------------------- provenance --
 
-const encodeProvenance = (provenance: ValueProvenanceV1): CborValue =>
-  cborMap([
+/**
+ * The one evidence a command writes on a value (D51): a frozen formula's
+ * literal names the formula text it was evaluated from, which is what lets
+ * the validator accept that one user write to a computed field. It travels
+ * as `evidence: {frozen}`; a provenance without it keeps the three keys it
+ * always had, so every earlier payload decodes unchanged.
+ */
+const frozenTextOf = (evidence: unknown): string | null =>
+  typeof evidence === "object" &&
+  evidence !== null &&
+  "frozen" in evidence &&
+  typeof (evidence as { readonly frozen: unknown }).frozen === "string"
+    ? (evidence as { readonly frozen: string }).frozen
+    : null;
+
+const encodeProvenance = (provenance: ValueProvenanceV1): CborValue => {
+  const frozen = frozenTextOf(provenance.evidence);
+  return cborMap([
     ["source", provenance.source],
     ["sourceId", provenance.sourceId ?? null],
     [
@@ -130,16 +147,24 @@ const encodeProvenance = (provenance: ValueProvenanceV1): CborValue =>
         ? null
         : provenance.sourceTimestampMs,
     ],
+    ...(frozen === null ? [] : [["evidence", cborMap([["frozen", frozen]])] as const]),
   ]);
+};
 
 const decodeProvenance = (value: DecodedValue): ValueProvenanceV1 => {
+  const raw = asMap(value, "a value provenance");
   const map = exactKeys(
-    asMap(value, "a value provenance"),
-    ["source", "sourceId", "sourceTimestampMs"],
+    raw,
+    raw.has("evidence")
+      ? ["source", "sourceId", "sourceTimestampMs", "evidence"]
+      : ["source", "sourceId", "sourceTimestampMs"],
     "a value provenance",
   );
   const sourceId = field(map, "sourceId");
   const timestamp = field(map, "sourceTimestampMs");
+  const evidence = map.has("evidence")
+    ? exactKeys(asMap(field(map, "evidence"), "value evidence"), ["frozen"], "value evidence")
+    : null;
   return {
     source: oneOf(field(map, "source"), PROVENANCE_SOURCES, "a provenance source"),
     // Absent stays absent: a null here would be a third state the domain type
@@ -150,6 +175,7 @@ const decodeProvenance = (value: DecodedValue): ValueProvenanceV1 => {
     ...(timestamp === null
       ? {}
       : { sourceTimestampMs: BigInt(count(timestamp, "a source timestamp")) }),
+    ...(evidence === null ? {} : { evidence: { frozen: nfcText(field(evidence, "frozen"), "frozen formula text") } }),
   };
 };
 

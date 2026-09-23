@@ -97,4 +97,22 @@ describe("redactError", () => {
       expect(DATA_WORKER_ERROR_KINDS_V1).toContain(wire.kind);
     }
   });
+
+  it("keeps a cell value, a formula text and a field name out of a schema command's error (CA-12)", () => {
+    // A schema change can fail deep in a codec or a replay guard, holding the
+    // very values it was converting. None of them may cross the boundary.
+    const value = "Quoted 12345.67 for Oak Street";
+    for (const cause of [
+      new CodecError(`a formula text ${value} is not NFC`),
+      new IntegrityError(`field.changed for ${value} does not name a field`),
+      new TypeError(`cannot read ${value}`),
+    ]) {
+      const wire = redactError(cause);
+      expect(Object.keys(wire)).toEqual(["kind"]);
+      expect(JSON.stringify(wire)).not.toContain("12345.67");
+      expect(JSON.stringify(wire)).not.toContain("Oak");
+    }
+    // A malformed structure request is refused by kind, never echoed.
+    expect(redactError(new DataWorkerCommandError("malformed-request"))).toEqual({ kind: "malformed-request" });
+  });
 });

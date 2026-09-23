@@ -71,6 +71,29 @@ describe("commands and queries", () => {
     }
   });
 
+  it("includes the F04 schema commands and structure reads in the sweep", () => {
+    expect(COMMANDS).toEqual(
+      expect.arrayContaining([
+        "src/application/commands/schema-commands.ts",
+        "src/application/commands/formula-env.ts",
+      ]),
+    );
+    expect(QUERIES).toContain("src/application/queries/structure.ts");
+  });
+
+  it("fails an infrastructure import rather than passing it", () => {
+    // Negative control: a planted persistence, worker or import-pipeline
+    // import is exactly what the sweep above refuses.
+    for (const planted of [
+      'import { executeQuery } from "../../persistence/projection/index.js";',
+      'import { toWireValue } from "../../workers/data/record-handlers.js";',
+      'import { workbookFingerprintInput } from "../../import/inference/statements.js";',
+    ]) {
+      const specifiers = importedModules(planted);
+      expect(specifiers.some((specifier) => FORBIDDEN.some((forbidden) => specifier.includes(forbidden)))).toBe(true);
+    }
+  });
+
   it("reach the effectful world only through src/application/ports/", () => {
     for (const file of [...COMMANDS, ...QUERIES]) {
       for (const specifier of importedModules(code(file))) {
