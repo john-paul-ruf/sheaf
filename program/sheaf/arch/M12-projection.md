@@ -2,7 +2,8 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / Projection and `specs/database.md` § In-Memory SQLite
-> Projection. Reconciled against the tree at `5ab3b07` (F02 final).
+> Projection. Reconciled against the tree at `425562d` (F03 final; code ≡
+> `30396a9`).
 
 ## Contract
 
@@ -62,10 +63,23 @@ Also exported: `TEXT_SORT_KEY_VERSION`, `DECIMAL_ORDER_KEY_VERSION`,
 `ChangeHistoryCursorV1`, `ChangeSubjectKindV1`, `SheetClassificationV1`,
 `Sha256Fn`).
 
-The query set is closed: `app-state`, `list-tables`, `list-fields`,
+**F02 query set (unchanged):** `app-state`, `list-tables`, `list-fields`,
 `list-enum-options`, `list-validation-rules`, `count-records`, `page-records`,
 `search-records`, `record-by-id`, `page-change-history`,
-`record-change-history`. Page sizes are bounded to 1–1024 and refused outside it.
+`record-change-history`. Page sizes are bounded to 1–1024 and refused outside
+it.
+
+**F03 additions:** `record-is-live`, `list-relationships{tableId|null}`,
+`related-parent{recordId, fieldId}`, `related-children{relationshipId,
+parentRecordId, afterRecordPk, limit}` (via `idx_cells_field_id`),
+`count-related-children`, `reference-candidates{relationshipId, text, limit}`
+(FTS over the parent table; a blank query browses), `deleted-record{recordId}`,
+`list-sheet-snapshots` (+ inert counts per kind via `idx_inert_content_sheet`),
+`list-inert-items{sheetId|null}`, `list-inference-decisions{decisionKind|null}`.
+Labels resolve as the label field else the key, as display text. `listTables`
+gained a variant taking `appId` (see the "Consumer note" below) — `openApp`
+already returned exact table counts, so this is a second read path, not a new
+fact.
 
 ## Internal modules
 
@@ -91,7 +105,7 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
 - **M12 → M01/M02**: domain ids, values, schema, events, provenance, and the
   validator's issue/rule vocabulary (types only — the projection never validates).
 - **M12 → `@sqlite.org/sqlite-wasm`.** M12 is the first product module that
-  imports it, and since S05 it is reachable from the production entry graph
+  imports it, reachable from the production entry graph since F02
   (`index.html` → app-bootstrap → the data-worker chunk).
 
 ## Dependency must-nots (ship as tests)
@@ -109,16 +123,16 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
   checkpoint pages and decoded commits. It holds no key; SHA-256 is injected.
 - **`ProjectionCommitV1` pairs the raw `EventCommitV1` with typed events.**
   `EventCommitV1.payload` is `unknown` by contract (M09 carries payloads as
-  opaque canonical CBOR), so the caller supplies the typed F02 events
-  alongside. The guard proves count, order, and *kind* agree — it cannot compare
-  payload bytes, so payload↔typed-event agreement stays the caller's obligation.
+  opaque canonical CBOR), so the caller supplies the typed events alongside.
+  The guard proves count, order, and *kind* agree — it cannot compare payload
+  bytes, so payload↔typed-event agreement stays the caller's obligation.
   M07's `LocalEventRepository` discharges it by deriving the wire payload from
   the typed event.
 - **Issues come from the one shared validator.** The checkpoint carries them per
   record; replay carries them in `issuesByEventIndex`. The engine authors exactly
   one issue of its own: `validation.decimal-out-of-domain` (warning, kind
   `type`) when a canonical decimal falls outside the v1 order-key exponent
-  domain — the value stays in `authored_cbor` and gets no decimal lane.
+  domain.
 - **`records.authored_cbor` is the record; `cells` is an index over it.** Values
   with no lane (missing, blank, invalid-preserved, wrong-typed, out-of-domain
   decimal) remain completely readable through `record-by-id`.
@@ -128,8 +142,7 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
   `list-fields`.
 - **Failure disposes everything.** A constraint, trigger, or replay-guard failure
   rolls the batch back and closes the database; every entry point then throws
-  `IntegrityError("projection has been disposed")`. Eighteen `IntegrityError`
-  classes; five disposal negatives proven in the browser.
+  `IntegrityError("projection has been disposed")`.
 - **`app_state`/theme comes from the checkpoint (D29).** Hydration composes no
   default theme.
 - **FTS5 detail=column cannot answer a phrase query.** Search issues per-word
@@ -137,24 +150,44 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
 - **`totalCount` on a search page is the TABLE count** (CA-14); the scope says
   which. There is no match-count field.
 - **An `app/table/field.created` arriving in a TAIL commit writes change history
-  only** — it creates no schema row. That is why M23's single import-class
-  commit must pair `app.created` with the initial checkpoint (CA-11): an
-  unknown table or field in replay disposes the projection.
+  only** — it creates no schema row, **except** F03's `table.created` tail
+  handler (below), which builds the row for the one case database.md's
+  append-table design requires.
+- **F03: `table.created` in a tail builds a real table, not just history.**
+  For an unknown table, the tail applies `table.created` (from `sourceSheet`)
+  by building the sheet row, the table row, its fields, and the key/label
+  refs — this is CAP-26's append path, and it is the one case a TAIL commit is
+  allowed to create schema, because M23's `sealImportCommit` always pairs a new
+  table's `table.created` with the app's `import.accepted` in one commit
+  (CA-11/CA-23). `field.created` for a *known* table inserts the field; for an
+  *unknown* table it still disposes — only the table-creating case is special.
+- **F03 relationships travel with the checkpoint, not the tail.**
+  `RelationshipDefV1` rows arrive only in `ProjectionCheckpointV1.relationships`
+  (CA-20); nothing in the tail creates or edits one.
 
 ## Known gaps with owners (recorded, not defects)
 
 - `schema_fields` has no `currencyCode` column, so a currency field cannot
   round-trip; `list-fields` refuses rather than guesses. First hurt: F04's
-  schema editor → DB re-entry at F04 planning.
-- `import_lineages` and `inference_decisions` have no constructible F02 input
-  (S01's payloads lack the fields); `applyEvents` records `change_history` only.
-  First consumer is F06 re-upload (or F03) → that feature names the producer.
-- The chain guard keeps the accumulated commit set in memory. Correct at F02
-  scale; revisit for long tails.
+  schema editor → DB re-entry at F04 planning. Unchanged by F03.
+- The chain guard keeps the accumulated commit set in memory. Correct at
+  current scale; revisit for long tails.
 - Test-time fixture output `dist/__projection__/` joins the F08 precache
   exclusion debt.
-- Deliberate absences with later owners: relationships, formulas, charts,
-  inert content, baselines, conflicts, merges.
+- Deliberate absences with later owners: formulas (live), charts, baselines'
+  full read path (F03 writes them; nothing reads a baseline page back through
+  the projection yet — the baseline is a recovery artifact, not a query
+  source), conflicts, merges.
+
+## Closed in F03 (was open at `5ab3b07`, resolved here — not re-carried)
+
+- **`import_lineages` and `inference_decisions` had no constructible F02
+  input**, so `applyEvents` recorded `change_history` only. Closed: F03's
+  checkpoint carries both as projectable roots (`ProjectionCheckpointV1 +=
+  relationships, inertItems, importLineages, inferenceDecisions`), M23's
+  promotion (`decisionsOf`, the import commit's `inference-decision.recorded`
+  events) and append path are the producers CA-23/CA-19 name, and
+  `list-inference-decisions`/rejection-memory reads consume them.
 
 ## Change History
 
@@ -170,11 +203,15 @@ The query set is closed: `app-state`, `list-tables`, `list-fields`,
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-02 staple folded
   into one description; the seeded export list corrected to include
   `openProjection`; consumer contracts and owned gaps stated once.
-
-<!-- workbook-fidelity SESSION-03 -->
-### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
-
-**M12 — Projection**
-- `ProjectionCheckpointV1` += `relationships`, `inertItems`, `importLineages`, `inferenceDecisions` (projectable only). Load order: sheets → tables → fields → key/label → options → relationships → rules → inert → lineages → decisions. Schema cache += `relationships` (keyed by reference field).
-- Tail (CA-23): `table.created` for an unknown table builds sheet row (from `sourceSheet`) + table + fields + key/label refs; `field.created` for a known table inserts the field; for an unknown table → integrity dispose. Summaries carry `tableId`.
-- New queries: `record-is-live`, `list-relationships{tableId|null}`, `related-parent{recordId, fieldId}`, `related-children{relationshipId, parentRecordId, afterRecordPk, limit}` (via `idx_cells_field_id`), `count-related-children` (count(*)), `reference-candidates{relationshipId, text, limit}` (FTS over parent table; blank browses), `deleted-record{recordId}`, `list-sheet-snapshots` (+ inert counts per kind via `idx_inert_content_sheet`), `list-inert-items{sheetId|null}`, `list-inference-decisions{decisionKind|null}`. Labels = label field else key, as display text.
+- 2026-09-23 — F03: checkpoint evolution (D37), the relationship/snapshot/inert/
+  decision/lineage query surface, and the append-table tail handler landed by
+  SESSION-03 (`f29ac33`..`a2c4cf0`), consumed by SESSION-06's promotion/append
+  writers (`4287569`..`677b947`).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
+  folded into the public API, tail-commit contract and internal-module
+  sections; the F02-recorded "no constructible input" gap for
+  `import_lineages`/`inference_decisions` moved to "Closed in F03" with its
+  producer; the tail-commit "no schema row" contract sentence corrected to
+  name F03's one exception (`table.created` in an append), which the F02 text
+  did not anticipate and would otherwise read as contradicting M23's landed
+  append path.

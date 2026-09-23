@@ -2,68 +2,71 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / Format adapters + § Import Architecture Stage 2.
-> Reconciled against the tree at `5ab3b07` (F02 final).
+> Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 ## Contract
 
 - **Owns:** Chunked CSV/TSV delimiter/encoding handling, row iteration, and
   value-only facts (FR-1: no structure assumed).
-- **Exports:** the shared `WorkbookFactV1` stream contract (value facts, row
-  facts, terminal summary), `ImportDiagnosticV1`,
-  `factStreamItemToCanonicalValue`, `parseDelimited`.
-- **Depends on:** M13 source primitives. Never UI, never persistence, never
-  crypto.
+- **Exports:** `parseDelimited`. The fact vocabulary itself (`WorkbookFactV1`/
+  `V2`, `ImportDiagnosticV1`, `factStreamItemToCanonicalValue`) moved to M65 in
+  F03 (D32, below); this module no longer owns it.
+- **Depends on:** M13 source primitives, M65 (facts). Never UI, never
+  persistence, never crypto.
 - **Contract:** Incremental and cancellable; bounded batches; quoted fields,
   embedded delimiters/newlines, and mixed line endings handled; malformed
   input degrades to preserved raw text values with diagnostics, never a crash
   and never a silent drop. The whole file is never required in memory (FR-3).
 - CSV/TSV emit **value-only** facts: no formula, validation, chart, or
   relationship structure is ever claimed (SCR-017 copy).
-- The fact vocabulary is **format-neutral on purpose** and is shared with F03's
-  OOXML/XLSB/BIFF/ODS/HTML adapters — `facts.ts` is the file to relocate
-  unchanged when they land, not to copy.
+- The fact vocabulary is **format-neutral by design** and is shared with F03's
+  OOXML/XLSB/BIFF/ODS/HTML adapters (M15–M18, M20) through M65.
 
-## Landed surface (F02, S03)
-
-`facts.ts`: `WorkbookFactV1 = row{rowIndex,cellCount} |
-value{rowIndex,columnIndex,value: CellValueV1} | diagnostic{...}`,
-`WorkbookFactBatchV1 {batchSeq, facts}`, `WorkbookSummaryV1
-{rowCount, columnCount, valueCount, batchCount, diagnostics}`,
-`WorkbookFactStreamItemV1`, `CancellationTokenV1 {aborted}`,
-`ImportDiagnosticV1` over `IMPORT_DIAGNOSTIC_CODES` (`text-normalized-nfc`,
-`unterminated-quote`, `quote-inside-unquoted-field`, `ragged-row`,
-`replacement-character`, `row-length-bound-reached`).
-
-**Sparsity is the contract.** A value fact exists only where a cell has a value.
-Below a row's `cellCount` with no value fact ⇒ `blank`; at or above it ⇒
-`missing`. The two absences stay distinct without a dense grid, and a hostile
-declared width cannot force one. **Never collapse them.**
-
-**Terminal summary ⇒ completed.** A cancelled stream ends with no summary. That
-is the only completion signal; no side channel. M21's `inferProposal` throws on
-a summary-less stream rather than synthesising one, and M36's cancel path awaits
-the parser's terminal event before invoking cleanup.
-
-`factStreamItemToCanonicalValue(item) → CanonicalFactValueV1` is the exact value
-M23 hands the canonical CBOR encoder (CA-10). It lives here, beside the types it
-mirrors, and states the CBOR value domain **structurally** so M19 keeps
-importing nothing from `src/persistence/`. All integers are `bigint` so a fact
-survives encode/decode unchanged.
+## Landed surface
 
 `parse.ts`: `parseDelimited(source, format, options?) →
-AsyncGenerator<WorkbookFactStreamItemV1>`. Bounds:
+AsyncGenerator<WorkbookFactStreamItemV2>`. Bounds:
 `DELIMITED_READ_CHUNK_BYTES = 65_536`, `DELIMITED_FACTS_PER_BATCH = 1024`
 (hard — a row's facts may span two batches), `DELIMITED_MAX_ROW_CHARACTERS =
 4_194_304` (an unterminated quote ends the row with a diagnostic instead of
-buffering the file; nothing is dropped). All three are overridable through
-`DelimitedParseOptionsV1` so the bounds are testable. **D28 lives here:** every
-cell is NFC-normalized at this boundary and the normalization is announced as an
-`ImportDiagnosticV1` (`text-normalized-nfc`), which is what keeps FR-4/FR-6
-non-silent; the raw source bytes stay byte-faithful in D21's encrypted source
-chunks. Diagnostics are aggregated — one fact at first occurrence per code, full
-tallies in the summary — so a hostile file cannot turn a bounded parse into an
-unbounded diagnostic list. Cancellation is checked between batches; a consumer
-that stops iterating leaves no read outstanding.
+buffering the file). All three are overridable through
+`DelimitedParseOptionsV1`. **D28 lives here:** every cell is NFC-normalized at
+this boundary and the normalization is announced as an `ImportDiagnosticV1`
+(`text-normalized-nfc`); the raw source bytes stay byte-faithful in D21's
+encrypted source chunks. Diagnostics are aggregated — one fact at first
+occurrence per code, full tallies in the summary. Cancellation is checked
+between batches.
+
+**F03: `parseDelimited` emits V2 items.** New option `sheetName?: string`:
+when given, the stream opens with one `sheet` fact (`sheetIndex 0`, the name,
+`worksheet`, `visible`, `declaredRange null`, `dateSystem "1900"`); every other
+fact is byte-identical to the V1 shape. The import worker passes the file
+stem; pre-flight's sample parse passes nothing (so a delimited sample stays a
+zero-`sheet` stream — see `delimitedStream` in M21).
+
+## D30/D32: `facts.ts` history (closed)
+
+F02 landed the fact vocabulary here as `facts.ts`. F03's S01 moved it to M65
+(the format-neutral home every adapter needs) and left `facts.ts` as a
+V1-only re-export so the seven F02 consumers compiled unchanged during the
+transition; S06 migrated every consumer to import from M65 directly. **The
+re-export is now deleted** (D32, closed by OWNER-IMPORT-F03-SEAMS `87da253`,
+together with the pin that had kept it alive in
+`tests/unit/import/facts/workbook-facts.test.ts`). M65 `src/import/facts/` is
+the sole home of the fact vocabulary; this module has no `facts.ts` file at
+`30396a9`.
+
+## Sparsity and terminal-summary rules (inherited from M65, restated here for
+this module's consumers)
+
+**Sparsity is the contract.** A value fact exists only where a cell has a
+value. Below a row's `cellCount` with no value fact ⇒ `blank`; at or above it
+⇒ `missing`. **Never collapse them.**
+
+**Terminal summary ⇒ completed.** A cancelled stream ends with no summary.
+M21's `inferWorkbook`/`inferProposal` throw on a stream with no summary rather
+than synthesising one; M36's cancel path awaits the parser's terminal event
+before invoking cleanup.
 
 ## Dependency must-nots (ship as tests)
 
@@ -82,26 +85,14 @@ that stops iterating leaves no read outstanding.
   in; the terminal-summary rule cross-referenced to its two consumers (M21, M36);
   the M58 fixture note that was stapled here moved to its own fragment,
   `M58-workbook-fixtures.md`.
-
-<!-- workbook-fidelity SESSION-01 -->
-### workbook-fidelity SESSION-01 (2026-09-22, commits dd1ff9e..64bc49a)
-
-**M19 — Delimited — `facts.ts` now a V1 re-export**
-- Re-exports the V1 names from M65; `IMPORT_DIAGNOSTIC_CODES` here is `IMPORT_DIAGNOSTIC_CODES_V1` so F02's exhaustive `SEVERITY` map stays exhaustive. S06 migrates consumers and deletes it.
-
-<!-- workbook-fidelity SESSION-06 -->
-### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
-
-**M19 — Delimited (`src/import/formats/delimited/`)**
-- `parseDelimited` emits V2 items (`WorkbookFactStreamItemV2`). New option `sheetName?: string`: when given, the stream opens with one `sheet` fact (`sheetIndex 0`, the name, `worksheet`, `visible`, `declaredRange null`, `dateSystem "1900"`); every other fact is byte-identical. The import worker passes the file stem; pre-flight's sample parse passes nothing.
-
-<!-- workbook-fidelity OWNER-IMPORT-F03-SEAMS -->
-### workbook-fidelity OWNER-IMPORT-F03-SEAMS (2026-09-23, commits 3a32561, 87da253)
-
-**M65 / M19**
-
-- No vocabulary change. Fact counts per sheet and kind are unchanged for every ODS fixture. Only the position of `declared-table` moved. `fieldwork-jobs-customers.ods` now infers `s0.t0` (60 rows) and `s1.t0` (12 rows), and promotion writes 72 records, the same as before.
-
-## D32
-
-- `src/import/formats/delimited/facts.ts` (the V1 re-export) is deleted together with its pin. M65 `src/import/facts/` is the only home of the fact vocabulary.
+- 2026-09-23 — F03: `facts.ts` became a V1 re-export at `dd1ff9e`..`64bc49a`
+  (SESSION-01, D32 in progress); `parseDelimited` moved to V2 items with the
+  `sheetName` option at `4287569`..`677b947` (SESSION-06); the re-export
+  deleted at `87da253` (OWNER-IMPORT-F03-SEAMS, D32 complete).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): the vocabulary-owning
+  claims removed from this fragment's Contract/Exports (M65 owns them now);
+  the D30/D32 transition folded into one closed history section instead of
+  three separate staples describing three different states of the same file;
+  the ODS-declared-table ordering counterexample that OWNER-IMPORT-F03-SEAMS
+  also fixed is recorded in `M18-ods.md` and `M65-workbook-facts.md`, where the
+  fix actually landed — not duplicated here.

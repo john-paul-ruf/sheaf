@@ -1,7 +1,7 @@
 # M07 — Application ports (`src/application/ports/`)
 
 Extracted from specs/architecture.md §Module Contracts (Application ports).
-Reconciled against the tree at `5ab3b07` (F02 final).
+Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 - **Owns:** Dependency-inversion contracts.
 - **Exports (full target):** LocalEventRepository, ProjectionEngine,
@@ -24,7 +24,7 @@ Reconciled against the tree at `5ab3b07` (F02 final).
 | `envelope-store.ts` | `EnvelopeStorePort` | M23 staging (F02) |
 | `envelope-crypto.ts` | `EnvelopeCryptoPort` | M23 staging (F02) |
 | `staging-catalog.ts` | `StagingCatalogPort` | M23 cancellation (F02) |
-| `projection.ts` | `ProjectionEnginePort` | M34/M35 (F02) |
+| `projection.ts` | `ProjectionEnginePort` | M34/M35 (F02, extended F03) |
 | `event-repository.ts` | `LocalEventRepository` | M34 commands (F02) |
 
 ### `envelope-store.ts` (F02, S04)
@@ -35,8 +35,8 @@ Reconciled against the tree at `5ab3b07` (F02 final).
 `RevisionPageV1`. `StoreCommitRequestV1` names `deleteStorageIds` because
 cancellation's step 1 must delete the workflow key-wrap in the same transaction
 that replaces the catalog and adds the cleanup ticket (database.md § Import
-staging). The matching M11 delete path **landed** at `978f4ff` (S04 lease r2) —
-the port is fully implemented.
+staging). The matching M11 delete path landed at `978f4ff` — the port is fully
+implemented.
 
 ### `envelope-crypto.ts` (F02, S04)
 
@@ -54,13 +54,14 @@ lists a staging transaction may move, so the four-step cancellation order can
 live in M23 (where database.md puts it) while the catalog's shape and its seven
 checks stay in M33 (where CA-03 puts them).
 
-### `projection.ts` (F02, S05)
+### `projection.ts` (F02, S05; extended F03 S03)
 
-`ProjectionEnginePort` — `execute` (**synchronous**, closed eleven-member query
-union) and `applyEvents`. It **restates M12's session vocabulary structurally**
-because M34/M35 may not import `src/persistence/`;
-`tests/unit/workers/projection-port.test.ts` pins every shape mutually
-assignable in both directions (with a firing negative control).
+`ProjectionEnginePort` — `execute` (**synchronous**, closed query union) and
+`applyEvents`. It **restates M12's session vocabulary structurally** because
+M34/M35 may not import `src/persistence/`; `tests/unit/workers/
+projection-port.test.ts` pins every shape mutually assignable in both
+directions (with a firing negative control), now over M12's full 21-kind F03
+query surface. `ProjectionChangeSummaryV1.tableId: TableId | null` (F03).
 
 ### `event-repository.ts` (F02, S05)
 
@@ -84,16 +85,9 @@ that were written.
   the F01 "repository/projection ports arrive with their first composer" note is
   superseded by the landed table; the `envelope-store` "M11 has no delete today"
   seam is closed and recorded as closed (`978f4ff`).
-
-<!-- workbook-fidelity SESSION-03 -->
-### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
-
-**M07 — Ports (`projection.ts`)**
-- Restates every new M12 shape/query (pinned both ways + exhaustive kind `Record` in `tests/unit/workers/projection-port.test.ts`; 21 query kinds).
-- `ProjectionChangeSummaryV1.tableId: TableId | null`.
-
-<!-- workbook-fidelity SESSION-06 -->
-### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
-
-**M07 / M53**
-- No change (`src/application/ports/**`, `src/bootstrap/import-worker.ts` untouched).
+- 2026-09-23 — F03: `projection.ts` restated over M12's 21-kind query surface,
+  `ProjectionChangeSummaryV1.tableId` added, by SESSION-03 (`f29ac33`..`a2c4cf0`).
+  `envelope-store.ts`/`event-repository.ts` and `src/bootstrap/import-worker.ts`
+  untouched by SESSION-06.
+- 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 and
+  SESSION-06 staples folded into the `projection.ts` row and its own section.

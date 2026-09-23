@@ -1,7 +1,7 @@
 # M32 — Worker protocol (`src/workers/protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC).
-Reconciled against the tree at `5ab3b07` (F02 final).
+Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 - **Owns:** Thread boundary semantics: versioned typed RPC, correlation,
   cancellation, progress, transfer ownership, error redaction.
@@ -32,129 +32,133 @@ Reconciled against the tree at `5ab3b07` (F02 final).
   `isIdleTimeoutMinutesV1`.
 - **Session requests (F01):** `setup`, `unlock`, `unlockWithRecoveryCode`,
   `changePassphrase`, `revealRecoveryCode`, `lock`,
-  **`updateSettings{idleTimeoutMinutes: 0|5|15|60}`** (D13/AD-7 — the literal
-  union, not `number`; rejected when locked), `resetLocked`, `resetReadable`,
-  `getStatus`.
-- **Import requests (F02, S04):** `beginImportStage{fileName, detected,
-  preflight}` → `{stageId}` only · `getImportStage{stageId}` → `{stage|null}`
-  (idempotent) · `runInference{stageId}` → `{proposal}` ·
-  `applyReviewEdit{stageId, edit}` → `applied{proposal} | rejected{reason}` ·
-  `promoteImport{stageId, acceptedName}` → `promoted{appId, rowCount,
-  tableCount, flaggedRecordCount} | rejected{reason, issues[]}` ·
-  `listLibrary{}` → `{apps: LibraryAppV1[]}` · `cancelImportStage{stageId}` →
+  `updateSettings{idleTimeoutMinutes: 0|5|15|60}`, `resetLocked`,
+  `resetReadable`, `getStatus`.
+- **Import requests (F02):** `beginImportStage{fileName, detected, preflight}`
+  → `{stageId}` · `getImportStage{stageId}` → `{stage|null}` (idempotent) ·
+  `runInference{stageId}` → `{proposal}` · `applyReviewEdit{stageId, edit}` →
+  `applied{proposal} | rejected{reason}` · `promoteImport{stageId,
+  acceptedName}` → `promoted{appId, rowCount, tableCount,
+  flaggedRecordCount} | rejected{reason, issues[]}` · `listLibrary{}` →
+  `{apps: LibraryAppV1[]}` · `cancelImportStage{stageId}` →
   `{receipt{reason, deletedCount, completed:true}}` (idempotent).
-- **App requests (F02, S05):** `openApp{appId}` → `{session:
-  AppSessionViewV1|null}` · `closeApp{appId}` → `{closed:true}` ·
-  `noteAppOpened{appId}` → `{lastOpenedAtEpochMs:number|null}` (operational, no
-  event) · `queryRecords{appId,tableId,cursor?,limit?,search?}` →
-  `{page: RecordPageViewV1|null}` · `getRecord{appId,recordId}` →
-  `{record: RecordDetailViewV1|null}` ·
-  `createRecord` / `patchRecord` / `deleteRecord` / `restoreRecord` →
-  `{outcome:"accepted",receipt} | {outcome:"rejected",report} |
-  {outcome:"unknown-subject",subject}` ·
-  `getChangeHistory{appId,cursor?,limit?}` → `{page: ChangeHistoryPageViewV1|null}`.
+- **App requests (F02):** `openApp`, `closeApp`, `noteAppOpened`,
+  `queryRecords`, `getRecord`, `createRecord`/`patchRecord`/`deleteRecord`/
+  `restoreRecord`, `getChangeHistory`.
+- **F03: additive app requests.** `getRelatedRecords`, `getRelatedChildren`,
+  `searchReferenceCandidates`, `getDeletedRecord`, `listTables{appId}`,
+  `listSheetSnapshots`, `getSnapshotPage`, `findInSnapshot`,
+  `listInertItems`. `RecordDetailViewV1.references?`,
+  `ChangeHistoryEntryViewV1.tableId?`.
+  `AuthoredCellWireValueV1` now admits `reference` (still excludes
+  `invalid`).
 - Response union `DataWorkerResponseV1` + `ResponseForV1<K>`; views
   `UnlockedSessionViewV1`, `LockedSessionViewV1`, `SessionStatusViewV1`,
   `LocalSettingsViewV1`, `ResetInventoryViewV1`, `ImportStageViewV1`,
   `LibraryAppV1`, `ImportCleanupReceiptViewV1`, `AppSessionViewV1`,
   `RecordPageViewV1`, `RecordDetailViewV1`, `ChangeHistoryPageViewV1`, and the
-  restated proposal shapes (`ProposedAppWireV1` and friends).
+  restated proposal shapes.
 - Error envelope `DataWorkerErrorV1 { kind, retryAfterMs? }` over the closed
   `DATA_WORKER_ERROR_KINDS_V1`.
 - Message envelopes + the `isDataWorker*MessageV1` guards.
 
 ### Two contracts the type system holds
 
-- **`DATA_WORKER_ERROR_KINDS_V1` is unchanged across all of F02** (CA-12
-  deviation, recorded and accepted). Validation failures cross as typed
+- **`DATA_WORKER_ERROR_KINDS_V1` is unchanged across all of F02 and F03**
+  (CA-12 deviation from F02, recorded and accepted; D42 reaffirms it for F03
+  — no new kind, no new `RefusalV1` kind). Validation failures cross as typed
   **results** carrying the whole `ValidationReport` (D23); absent-stage reads
   answer idempotently; M36 gates every *mutating* stage call on
   `getImportStage` so no caller reaches for a kind that does not exist. The
   union is keyed exhaustively by M37's `REFUSAL_ANNOUNCEMENT`, so extending it
-  is a cross-lease change — see FORGE-CONFIG's lease conventions.
-- **`CellWireValueV1` (pinned, S05).** `text` · `number{decimal}` (canonical
-  decimal **text**, never a float) · `boolean` · `option{optionId}` ·
-  `date{epochDay}` · `blank` · `missing` · `invalid{sourceText}` ·
-  `reference{recordId}`. The three absent states stay three.
-  `AuthoredCellWireValueV1 = Exclude<CellWireValueV1, {kind:"invalid"} |
-  {kind:"reference"}>` types every write, so a client **cannot author** a
-  preserved-invalid value or a reference (D25). D28: authored text is
-  NFC-normalized in the wire→domain mapping, silently (a keyboard artifact, so
-  no diagnostic).
+  is a cross-lease change — see PROGRAM-CONFIG's lease conventions. F03's
+  plan named the sole extender in advance (`PROMOTION_REJECTIONS` gains
+  `append-too-large`, co-leased with `M37`'s `import.ts` by S06) — the closed
+  union stayed intact and no cross-lease seam repeated.
+- **`CellWireValueV1` (pinned, F02 S05).** `text` · `number{decimal}` ·
+  `boolean` · `option{optionId}` · `date{epochDay}` · `blank` · `missing` ·
+  `invalid{sourceText}` · `reference{recordId}` (F03: now **authorable** —
+  see above). `AuthoredCellWireValueV1 = Exclude<CellWireValueV1,
+  {kind:"invalid"} | {kind:"reference"}>` in F02; F03 lifts the `reference`
+  exclusion (D25's type-exclusion of authored references is deliberately
+  narrowed to `invalid` only, now that CAP-24's reference picker exists). D28:
+  authored text is NFC-normalized in the wire→domain mapping, silently.
 
 The proposal shapes are restated structurally rather than imported, and
 `tests/unit/workers/proposal-wire.test.ts` pins them mutually assignable with
-M21's `ProposedAppV1`/`ReviewEditV1` at compile time (the `provenance.ts`
-idiom). That pin immediately caught a real widening: four closed sets had been
-typed `string`.
+M21's proposal types at compile time.
 
-## Import protocol and the stage channel (F02, S04)
+## Import protocol and the stage channel
 
-- `import-messages.ts` → `ImportWorkerRequestV1` (`startImport{file, fileName}`
-  carrying `port1` in its transfer list, `proceed{stageId}`, `cancelImport`)
-  and `ImportWorkerEventV1` (`progress`, `preflight`, `refused`, `completed`,
-  `cancelled`, `failed{parse-failed|stage-rejected|malformed-request}`). Byte
-  payloads live here, never in `messages.ts`.
-- `stage-channel.ts` → `STAGE_CHANNEL_VERSION = 1`, inbound
-  `{seq, batch} | {seq, sequence, bytes} | {abort}`, outbound `{ackSeq}`
-  ack/nack, and their guards.
+- `import-messages.ts` → `ImportWorkerRequestV1` (`startImport{file,
+  fileName}` carrying `port1` in its transfer list, `proceed{stageId}`,
+  `cancelImport`) and `ImportWorkerEventV1` (`progress`, `preflight`,
+  `refused`, `completed`, `cancelled`, `failed{parse-failed|stage-rejected|
+  malformed-request}`). Byte payloads live here, never in `messages.ts`.
+- `stage-channel.ts` → `STAGE_CHANNEL_VERSION = 1`, inbound `{seq, batch} |
+  {seq, sequence, bytes} | {abort}`, outbound `{ackSeq}` ack/nack.
+
+**F03: additive, `IMPORT_PROTOCOL_VERSION` still 1.** `IMPORT_FLOWS_V1`/
+`ImportFlowV1`; `StartImportRequestV1.acceptedFlows?` (default `["delimited"]`
+— a page must opt in to receive a workbook rather than
+`workbook-format-later-release`, D48); `ProceedImportRequestV1.selectedSheets?`;
+`ImportProgressEventV1.sheetOrdinal?/sheetCount?/sheetName?`;
+`ImportWorkbookPreflightEventV1`; `ImportFailedEventV1.detail?:
+ImportFailureDetailV1 {stage: container|sheet-stream|stage, sheetOrdinal|null,
+diagnostic: UnreadableDetailV1|"parse-failed"}`, `IMPORT_FAILURE_STAGES_V1`.
+`stage-channel.ts` batches are now `WorkbookFactStreamItemV2`.
+
+`messages.ts` gains (still import-free, byte-free):
+`BeginImportStageRequestV1.detected: DetectedDelimitedV1 | DetectedWorkbookV1`,
+`.preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1`, `.destination?:
+ImportDestinationWireV1`; `WorkbookFormatWireV1`, `WorkbookSheetSummaryWireV1`;
+the CA-19 wire `ProposedWorkbookWireV1` (+ its per-table/sheet/relationship/
+rule/statement/evidence wire families) and `WorkbookReviewEditWireV1`;
+`RunInferenceResponseV1.proposal`/`ApplyReviewEditResponseV1.proposal` are the
+workbook wire; `ApplyReviewEditRequestV1.edit` is
+`WorkbookReviewEditWireV1`. F02's `ProposedAppWireV1`/`ReviewEditWireV1`
+remain (the page's one-table view, derived from the workbook wire by M36's
+`singleTableProposal`).
+
+`PromoteImportResponseV1` rejected `issues[]` gain `columnKey?: string | null`
+(OWNER-PROMOTION-SEAMS `0634e81`): the reviewed column, `null` for a
+record-level issue, absent from an F02-era producer.
 
 **D17 as landed.** The page creates the `MessageChannel`, transfers `port2` in
 `beginImportStage`'s request and `port1` in `startImport`'s. **No response ever
-carries a port.** The port arrives at `MessageEvent.ports` and
-`DataWorkerCommandHandler.handle` gained an optional second parameter for it.
+carries a port.**
 
 ## Client
 
 `client.ts` → `DataWorkerClient` (correlation ids, per-request timeout,
 `transfer` list, `terminate()` failing everything in flight, `isRunning`),
-`DataWorkerRequestError`, `DEFAULT_REQUEST_TIMEOUT_MS = 60_000`. The worker is
-spawned on the first request, never at construction — and a terminated client
-never spawns another, which is why a lock is a *termination* for M54 (see
-M54's `app-runtime.tsx`).
+`DataWorkerRequestError`, `DEFAULT_REQUEST_TIMEOUT_MS = 60_000`.
 
 `redact.ts` → `DataWorkerCommandError(kind, {retryAfterMs?})` and
-`redactError(cause)`. No error message ever crosses the boundary; anything
-unrecognised becomes `internal`.
+`redactError(cause)`. No error message ever crosses the boundary.
 
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
 - 2026-09-08 — implemented by SESSION-05 F01 (`27ba411`). `updateSettings` is
-  new against the seeded contract, added by replan finding F-02 / D13 / AD-7 so
-  FR-22's idle timeout has a writer.
+  new against the seeded contract (replan finding F-02 / D13 / AD-7).
 - 2026-09-08 — CA-04's UI leg closed by SESSION-07 F01 (`9174b6d`, re-run at
   `2c0248a`).
 - 2026-09-08 — reconciled by Roshi (F01 final pass): head request union
   corrected to include `updateSettings`; staple merged.
 - 2026-09-08 — F02: import protocol, stage channel and the seven import
   commands by SESSION-04 (`cd74e6d`); the ten app commands and
-  `CellWireValueV1` by SESSION-05 (`d47b3d2`); consumed verbatim by M36/M37 and
-  the surfaces at `8a665c1`/`5ab3b07`.
+  `CellWireValueV1` by SESSION-05 (`d47b3d2`).
 - 2026-09-08 — reconciled by Roshi (F02 final pass): both session staples folded;
   the head's "`messages.ts` is the whole wire contract" corrected — the module is
   six files and the byte-carrying half is deliberately a different one; the
   closed-error-kind deviation stated where a future extender will read it.
-
-<!-- workbook-fidelity SESSION-03 -->
-### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
-
-**M32 — Protocol (`messages.ts`, additive; still imports nothing, no byte type)**
-- `AuthoredCellWireValueV1` now admits `reference` (still excludes `invalid`).
-- New requests/responses: `getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`, `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`, `findInSnapshot`, `listInertItems` (shapes in the SESSION-03 handoff). `RecordDetailViewV1.references?`, `ChangeHistoryEntryViewV1.tableId?` (optional on the type only for F02-era fixtures; always sent). No `DATA_WORKER_ERROR_KINDS_V1` change (D42).
-
-<!-- workbook-fidelity SESSION-06 -->
-### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
-
-**M32 — Protocol (`src/workers/protocol/`)**
-- `import-messages.ts` (CA-24, additive, `IMPORT_PROTOCOL_VERSION` still 1): `IMPORT_FLOWS_V1`/`ImportFlowV1`; `StartImportRequestV1.acceptedFlows?`; `ProceedImportRequestV1.selectedSheets?`; `ImportProgressEventV1.sheetOrdinal?/sheetCount?/sheetName?`; `ImportWorkbookPreflightEventV1`; `ImportFailedEventV1.detail?: ImportFailureDetailV1 {stage: container|sheet-stream|stage, sheetOrdinal|null, diagnostic: UnreadableDetailV1|"parse-failed"}`, `IMPORT_FAILURE_STAGES_V1`.
-- `stage-channel.ts`: batches are `WorkbookFactStreamItemV2`.
-- `messages.ts` (still import-free, byte-free): `BeginImportStageRequestV1.detected: DetectedDelimitedV1 | DetectedWorkbookV1`, `.preflight: ImportPreflightFactsV1 | WorkbookStageFactsV1`, `.destination?: ImportDestinationWireV1`; `WorkbookFormatWireV1`, `WorkbookSheetSummaryWireV1`; the CA-19 wire `ProposedWorkbookWireV1` (+ `ProposedSheetWireV1`, `ProposedTableWireV2`, `ProposedWorkbookFieldWireV1`, `ProposedRelationshipWireV1`, `ProposedRecordRuleWireV1`, `RuleValueWireV1`, `ProposedInertItemWireV1`, `WorkbookStatementWireV1`, `WorkbookEvidenceWireV1`, `WorkbookSourceValueFormatWireV1`, `ImportDiagnosticWireV2`, `RangeWireV1`, `PreservedPartKindWireV1`, `PreservedReasonKeyWireV1`, subject/edit-kind supersets) and `WorkbookReviewEditWireV1`; `RunInferenceResponseV1.proposal` and `ApplyReviewEditResponseV1.proposal` are the workbook wire; `ApplyReviewEditRequestV1.edit` is `WorkbookReviewEditWireV1`. F02's `ProposedAppWireV1`/`ReviewEditWireV1` remain (the page's one-table view).
-
-<!-- workbook-fidelity OWNER-PROMOTION-SEAMS -->
-### workbook-fidelity OWNER-PROMOTION-SEAMS (2026-09-23, commits cd4fe9d, 0634e81)
-
-**M32 Worker protocol (additive)**
-- `PromoteImportResponseV1` rejected `issues[]` gain `columnKey?: string | null`:
-  the reviewed column, `null` for a record-level issue, absent from an F02-era
-  producer. No new error kind or `RefusalV1` kind (D42).
+- 2026-09-23 — F03: additive app requests + `AuthoredCellWireValueV1`
+  reference admission by SESSION-03 (`f29ac33`..`a2c4cf0`); import-protocol v2
+  by SESSION-06 (`4287569`..`677b947`); `columnKey` by OWNER-PROMOTION-SEAMS
+  (`cd4fe9d`, `0634e81`).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): three staples folded
+  into the `messages.ts` section, the "two contracts" paragraph, and the
+  import-protocol section; the closed-union note updated to record that F03's
+  plan pre-named the sole extender (co-leased), which is why the pattern that
+  bit F02 twice did not recur here.

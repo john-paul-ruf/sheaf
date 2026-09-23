@@ -2,16 +2,16 @@
 
 > Seeded by Forge for F02 (csv-import-first-app) from `specs/architecture.md`
 > § Module Contracts / UI feature modules + `specs/design.md`. Reconciled
-> against the tree at `5ab3b07` (F02 final).
+> against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 ## Contract
 
-- **Owns (approved surfaces):** SCR-024–032 (non-chart); MOD-009–011;
-  SHT-001–010, SHT-016.
+- **Owns (approved surfaces):** SCR-024–032; MOD-009–011; SHT-001–010,
+  SHT-016.
 - **Exports:** Route components and typed user intents.
-- **Depends on:** M38 (`Button`, `Dialog`, `TextField`, `StatusBanner`,
-  `InlineLink`, `cx`, visually-hidden), M39 (`AppShell`), M40 (tokens), M37
-  (`src/application/view-models/records.js`).
+- **Depends on:** M38 (`Button`, `Dialog`, `TextField`, `Checkbox`,
+  `StatusBanner`, `InlineLink`, `cx`, visually-hidden), M39 (`AppShell`), M40
+  (tokens), M37 (`src/application/view-models/records.js`).
 - **Must not:** Acknowledge a save before `CommitConfirmed`, calculate merge
   eligibility, hide partial/broken/stale states, hold a state-machine runtime,
   or import anything but `react` and `react-aria-components` as packages
@@ -20,32 +20,45 @@
   (`AuthoredEntryIntentV1`, `FieldTypeVm`) are declared here and checked against
   the wire union at the route table.
 
-## Landed scope (F02, S08 @ `5ab3b07`)
+## Landed scope
 
-SCR-024 (app home — identity, table list, truthful scratch status; metrics and
-charts render truthful absence until F04), SCR-025 (records list + sticky
-search; typed filter chips and sort arrive F04 per FR-13), SCR-026 (empty +
-no-result variants), SCR-027 (record detail; no relationships section for
-value-only apps, D25), SCR-028/029 (create/edit with typed inputs), SCR-032
+F02 (S08 @ `5ab3b07`): SCR-024 (app home — identity, table list, truthful
+scratch status; metrics and charts render truthful absence until F04),
+SCR-025 (records list + sticky search), SCR-026 (empty + no-result variants),
+SCR-027 (record detail), SCR-028/029 (create/edit with typed inputs), SCR-032
 (change history + restore), MOD-009 (delete), MOD-010 (restore), SHT-001 (enum
-sheet), SHT-010. MOD-011 and SHT-002/008 remain F03+ (references), SHT-003–009
-F03/F04, SHT-016 F03.
+sheet), SHT-010.
 
-### Files (11)
+F03 (S08 @ `30396a9`): MOD-011 (repair a broken reference), SHT-002 (reference
+picker), SHT-003 (table switcher), SCR-030/031 (snapshots list + viewer),
+SHT-016 (snapshot options); SCR-027's relationships section
+("Belongs to"/"Has many"); the deleted-record read for MOD-010's original
+values; multi-table change history.
+
+### Files (17)
 
 `app-frame.tsx`, `app-home-screen.tsx`, `records-screen.tsx`,
 `record-detail-screen.tsx`, `record-form-screen.tsx`, `enum-picker-sheet.tsx`,
 `record-actions-sheet.tsx`, `delete-record-dialog.tsx`,
-`restore-record-dialog.tsx`, `change-history-screen.tsx`, `records.module.css`.
-Two are beyond the plan's Files table (Custom Rule 7):
+`restore-record-dialog.tsx`, `change-history-screen.tsx`, `records.module.css`,
+`values.ts` — plus six added by F03 (Custom Rule 7):
+`reference-picker-sheet.tsx` (SHT-002; `ReferencePickerSheet`, and
+`ReferenceSearchBody`, which MOD-011 shares), `repair-reference-dialog.tsx`
+(MOD-011), `table-switcher-sheet.tsx` (SHT-003; `TableSwitcherTrigger`,
+`TableSwitcherSheet`), `snapshots-screen.tsx` (SCR-030),
+`snapshot-viewer-screen.tsx` (SCR-031), `snapshot-options-sheet.tsx`
+(SHT-016).
+
+Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 
 - `app-frame.tsx` — the app area's shell composition. Every app-area surface
-  renders inside one identity + one set of destinations; a screen that built its
-  own frame would be free to disagree with the next one.
+  renders inside one identity + one set of destinations; a screen that built
+  its own frame would be free to disagree with the next one. F03 adds
+  `"snapshots"` to `AppArea`.
 - `values.ts` — the value/format helpers the screens share: `describeValue`,
   `formatCurrency`, `formatEpochDay`, `epochDayToIsoDate`, `isoDateToEpochDay`,
   `isCanonicalDecimalText`, `monogramFor`, `formatCount`, `describeRecordCount`,
-  `isAbsent`, `FieldTypeVm`.
+  `isAbsent`, `FieldTypeVm`; F03 adds `describeReference`.
 
 ### Exports
 
@@ -54,55 +67,71 @@ Two are beyond the plan's Files table (Custom Rule 7):
 `AuthoredValueIntentV1`, `intentFor`, `initialDraft`), `EnumPickerSheet`,
 `RecordActionsSheet`, `DeleteRecordDialog`, `RestoreRecordDialog`,
 `ChangeHistoryScreen` (+ `describeEvent`), `AppFrame` (+ `AppIdentity`,
-`AppNavigation`, `AppTableLink`, `AppArea`, `AppThemeVm`, `appThemeStyle`).
+`AppNavigation`, `AppTableLink`, `AppArea`, `AppThemeVm`, `appThemeStyle`), and
+(F03) `ReferencePickerSheet`, `ReferenceSearchBody`, `RepairReferenceDialog`,
+`TableSwitcherTrigger`, `TableSwitcherSheet`, `SnapshotsScreen`,
+`SnapshotViewerScreen`, `SnapshotOptionsSheet`.
 
 ## Decisions worth carrying forward
 
 - **`AppFrame` is a sibling of M41's `UnlockedFrame`, not a variant.** Inside an
-  app the destinations are the app's own (home, its tables, its change history)
-  plus "All apps". M39 still exposes exactly one primary navigation per layout
-  class, which `accessibility.spec.ts` asserts inside the app area as well as in
-  the shell.
+  app the destinations are the app's own (home, its tables, its change history,
+  and — F03 — its snapshots) plus "All apps". M39 still exposes exactly one
+  primary navigation per layout class, which `accessibility.spec.ts` asserts
+  inside the app area as well as in the shell.
 - **The app theme lands here.** `AppSessionViewV1.theme` (D29) becomes six
   `--app-*` custom properties on the frame's root, typed as
   `CSSProperties & Record<\`--app-${string}\`, string>` so a system-owned
   property cannot be written from a theme even by mistake.
-- **One list, densified — never a second copy of the rows.** `records.html`
-  draws phone cards and a desktop table separately; the accessibility contract
-  forbids the desktop table creating a second keyboard order, so the same list
-  is laid out as cards up to the desktop class and as dense rows above it.
+- **One list, densified — never a second copy of the rows.** The same list is
+  laid out as cards up to the desktop class and as dense rows above it.
 - **A number is a text input with `inputmode="decimal"`, not `type="number"`.**
-  CTL-030 requires an *invalid* state and `type="number"` cannot hold one (the
-  browser empties the field), and a float would round the value. What was typed
-  crosses as `{kind:"number"}` when it is a canonical decimal and as
-  `{kind:"text"}` when it is not — the one validator is what refuses it
-  (invariant 5, D23). `isCanonicalDecimalText` restates the domain's grammar and
-  fails *closed*: stricter means "refused visibly", never "written wrong".
-- **The success sentence is a prop the route sets from the receipt**, never from
-  a submit — invariant 1 at the surface.
-- **The maps handoff href is built here** from `record-edit.html`'s own approved
-  `href`, over M37's `{kind:"maps", query}` fact, because choosing a provider is
-  a platform decision M37 must not make.
+  What was typed crosses as `{kind:"number"}` when it is a canonical decimal
+  and as `{kind:"text"}` when it is not — the one validator refuses it
+  (invariant 5, D23). `isCanonicalDecimalText` fails *closed*.
+- **The success sentence is a prop the route sets from the receipt**, never
+  from a submit — invariant 1 at the surface.
+- **The maps handoff href is built here** over M37's `{kind:"maps", query}`
+  fact, because choosing a provider is a platform decision M37 must not make.
+- **A reference field opens SHT-002 from the record form** (F03); a broken
+  reference's original key is read straight from `ReferenceCellVm`'s broken
+  variant, never re-derived in the screen.
+- **The snapshot viewer never renders workbook markup.** SCR-031 reads only
+  M37's normalized cell text, merge ranges and inert anchors (D41); "Find in
+  sheet" moves focus via M38's `TextField.inputId`.
 
-## Known gaps with owners (open at `5ab3b07`)
+## Known gaps with owners (open at `30396a9`)
 
-- **MOD-010 shows what is knowable.** A deleted record answers `null` to
-  `getRecord` and F02 has no query for a deleted record's payload, so the dialog
-  names the record and when it was deleted and states the re-validation — it
-  does not invent "the original values" the atlas asks for. Owner: F03, with the
-  deleted-record read.
-- **`ChangeHistoryScreen` assumes one table** — a `tableId` on the history entry
-  is F03's multi-table work.
-- **`AppSessionViewV1` carries no glyph or accent**, so the app home computes its
-  monogram the way M23's `glyphForApp` does. If per-app identity grows (F04's
-  theme editor), promote it into the view model rather than duplicating the rule
-  a third time.
-- **`InlineLink`'s `externalHandoff` still throws** (M38 backlog), and paging is
-  exercised by unit tests only (50 > 40 rows) — the demo corpus is smaller than
-  a page.
-- **`top: 68px` is a literal** where M39 has no top-bar height token. Owner: M39.
-- Live-region pluralization ("1 values need attention") is M37's, deferred past
-  the gate with an owner.
+- **`InlineLink`'s `externalHandoff` still throws** (M38 backlog, unchanged
+  since F02) — paging elsewhere (records list) is exercised by unit tests only
+  where the demo corpus is smaller than a page.
+- **`AppSessionViewV1` carries no glyph or accent**, so the app home computes
+  its monogram the way M23's `glyphForApp` does. If per-app identity grows
+  (F04's theme editor), promote it into the view model rather than
+  duplicating the rule a third time.
+- **`top: 68px` is a literal** where M39 has no top-bar height token. Owner:
+  M39.
+- **CTL-044 (SCR-017's destination radio group) has no M38 wrapper** — still
+  composed in-place from React Aria's `RadioGroup`/`Radio` (M43, not M44).
+  Recorded once here for cross-reference; the owning gap lives in
+  `M38-ui-primitives.md`.
+
+## Closed in F03 (were open at `5ab3b07`, resolved here — not re-carried)
+
+- **MOD-010 showed only what was knowable, with no deleted-record read.**
+  Closed: S03 CP3 added the `getDeletedRecord` query/RPC; S08 CP3 consumes it
+  in `RestoreRecordDialog`, so the dialog now shows the record's original
+  values.
+- **`ChangeHistoryScreen` assumed one table.** Closed: every history entry
+  carries `tableId` and the screen names the table (S03 wire, S08 surface).
+- **Records-list paging was exercised by unit tests only (50 > 40 rows).**
+  Closed for the demo corpus: S08 CP4 exercises the Jobs table's paging past
+  50 rows through the real entry (`snapshots.spec.ts`/`relationships.spec.ts`
+  e2e); the general "demo corpus smaller than a page" caveat is retained above
+  only for `InlineLink`'s paragraph, which is a different surface.
+- Live-region pluralization ("1 values need attention" / "1 changes since…")
+  is M37's gap, and is recorded as closed there (S08 CP1) — not duplicated
+  here.
 
 ## Change History
 
@@ -110,23 +139,14 @@ Two are beyond the plan's Files table (Custom Rule 7):
 - 2026-09-08 — landed by SESSION-08 (`fe3a8d4`, `db48c4a`, `c46d3cb`, `4c7e1b0`,
   `6362e98`, `5ab3b07`): CAP-15/16/17 surfaces and CAP-13's restart leg verified
   through the real entry; the GATE-F02 demo journey runs at 320px; axe clean.
-- 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-08 staple folded
-  in; the seeded "F02 scope" paragraph rewritten as landed scope; the M54
-  section that was stapled into this fragment moved to `M54-routes.md`, where
-  CA-07's amendment belongs.
-
-<!-- workbook-fidelity SESSION-08 -->
-### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
-
-**M44 UI records — `src/ui/records/`**
-- New: `reference-picker-sheet.tsx` (SHT-002; `ReferencePickerSheet`, and
-  `ReferenceSearchBody`, which MOD-011 shares), `repair-reference-dialog.tsx`
-  (MOD-011), `table-switcher-sheet.tsx` (SHT-003; `TableSwitcherTrigger`,
-  `TableSwitcherSheet`), `snapshots-screen.tsx` (SCR-030),
-  `snapshot-viewer-screen.tsx` (SCR-031), `snapshot-options-sheet.tsx`
-  (SHT-016).
-- Modified: record detail ("Belongs to", "Has many", "Missing related
-  record"), record form (a reference field opens SHT-002), records/app home
-  (switcher and reference labels), change history (table names), restore
-  dialog (MOD-010 original values), app frame (`AppArea` adds `"snapshots"`),
-  and `values.ts` (`describeReference`).
+- 2026-09-08 — reconciled by Roshi (F02 final pass): the SESSION-08 staple
+  folded in; the seeded "F02 scope" paragraph rewritten as landed scope; the
+  M54 section that was stapled into this fragment moved to `M54-routes.md`.
+- 2026-09-23 — F03: relationships (MOD-011, SHT-002/003, "Belongs to"/"Has
+  many"), snapshots (SCR-030/031, SHT-016) and the deleted-record read landed
+  by SESSION-08 (`eba5790`..`30396a9`).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-08 staple
+  folded into Landed scope/Files/Exports; three gaps the F02 final pass had
+  recorded as open (MOD-010's missing deleted-record read, single-table change
+  history, unit-only paging) are moved to "Closed in F03" with their closing
+  evidence, rather than left standing beside the surfaces that closed them.

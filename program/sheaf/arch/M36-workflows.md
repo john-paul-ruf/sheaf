@@ -1,20 +1,17 @@
 # M36 — Workflows (`src/application/workflows/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workflows).
-Reconciled against the tree at `5ab3b07` (F02 final).
+Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 - **Owns:** Explicit lifecycle state for long operations and destructive gates.
 - **Depends on:** M32 (`workers/protocol/client.js` for
   `DataWorkerRequestError`, `messages.js` types), M07 (`ClockPort`), M53
-  (`LockReason`, **type-only** — erased at build, so there is no runtime edge
-  from application to bootstrap).
+  (`LockReason`, **type-only**).
 - **Must not:** import React or persistence/crypto; retain secrets in machine
-  context after the consuming transition; persist snapshots (nothing persists
-  one today; later persisted snapshots must be encrypted and value-free);
-  reorder FR-22's recovery-before-reset offer; read a wall clock directly. All
-  asserted by `tests/unit/workflows/module-boundaries.test.ts`, which checks its
-  file lists against the directories themselves so a new file cannot escape the
-  sweep.
+  context after the consuming transition; persist snapshots; reorder FR-22's
+  recovery-before-reset offer; read a wall clock directly. All asserted by
+  `tests/unit/workflows/module-boundaries.test.ts`, which checks its file
+  lists against the directories themselves.
 
 ## Landed exports
 
@@ -25,182 +22,141 @@ Reconciled against the tree at `5ab3b07` (F02 final).
   `PassphrasePolicyPort`, `PassphraseStrength`, `PassphraseMatch`,
   `wordCountPassphrasePolicy`, `PASSPHRASE_MINIMUM_WORDS`,
   `RecoveryCodeFormatPort`; plus (F02) `ApplicationServices` and
-  `createApplicationServices`, composing the security, records and import sets
-  from one worker client.
+  `createApplicationServices`.
 - Machines: `setupMachine`, `unlockMachine` (+ `UNLOCK_ROUTES_IN_ORDER`,
   `COUNTDOWN_TICK_MS`), `recoveryMachine`, `passphraseChangeMachine`,
   `revealCodeMachine`, `resetMachine` (+ `RESET_CONFIRMATION_PHRASE`,
   `isResetPhraseMatched`), `sessionMachine` (+ `IDLE_TIMEOUT_OPTIONS`,
-  `MINUTE_MS`, `isRetryableSettingsError`). Each machine also exports its
-  `*Input`, `*Context` and `*Event` types. `resetMachine` has the dual entry
-  (locked-generic / readable) with three explicit gate states and the typed
-  phrase.
+  `MINUTE_MS`, `isRetryableSettingsError`).
 
-### Import and records (F02)
+### Import and records (F02, import machine rewritten F03)
 
 - `import-services.ts` — `ImportServices`, `ImportWorkerPort`,
-  `ImportServicesOptions`,
-  `createImportServices({dataWorker, spawnImportWorker})`. Owns the run's
-  `MessageChannel` and the import worker's lifetime: spawned at `startImport`
-  (port1 in the transfer list), terminated on every terminal state of the
-  machine. `beginStage` transfers port2 in the `beginImportStage` request.
-  `spawnImportWorker` is **injected** — application code takes no edge to
-  `src/bootstrap/`.
+  `ImportServicesOptions`, `createImportServices({dataWorker,
+  spawnImportWorker})`. Owns the run's `MessageChannel` and the import
+  worker's lifetime. `ACCEPTED_FLOWS = ["delimited","workbook"]` sent on
+  `startImport` (F03, D48). `beginStage(Omit<BeginImportStageRequestV1,
+  "kind">)`, `proceed({stageId, selectedSheets?})`, `listLibrary()`,
+  `listTables({appId})` (F03).
 - `records-services.ts` — `RecordsServices`, `RecordsWorkerPort`,
-  `createRecordsServices(port)`: `listLibrary`, `openApp`, `closeApp`,
-  `noteAppOpened`, `queryRecords`, `getRecord`, `createRecord`, `patchRecord`,
-  `deleteRecord`, `restoreRecord`, `getChangeHistory`. **No machine**: these are
-  short-running request/response pairs with no lifecycle to remember.
+  `createRecordsServices(port)`: the F02 ten app commands, plus (F03, S08)
+  nine reads bound verbatim to S03's RPCs — `getRelatedRecords`,
+  `getRelatedChildren`, `searchReferenceCandidates`, `getDeletedRecord`,
+  `listTables`, `listSheetSnapshots`, `getSnapshotPage` (≤ 1,000 rows/page),
+  `findInSnapshot`, `listInertItems`. Each is a straight `port.send({kind,
+  ...})`, with no reshaping. No machine: short-running request/response pairs.
 - `import.machine.ts` — `importMachine` plus `ImportInput`, `ImportContext`,
-  `ImportEvent`, `ImportDetectedFactsV1`, `ImportRefusalFactsV1`,
-  `ImportDestinationV1`, `ImportFailureReasonV1`, `ImportPhaseV1`,
-  `ImportProgressFactsV1`, `ImportPromotionFactsV1`, `PromotionRejectionV1`,
-  `isChosenName`, `beginStageInput`, `PARSER_STOP_TIMEOUT_MS = 5_000`.
+  `ImportEvent`, `PARSER_STOP_TIMEOUT_MS = 5_000`.
 
-**Machine surface the surfaces bind to verbatim.** States: `choosingFile`,
-`detecting`, `delimitedTarget`, `fits`, `overBudget`, `refused`,
+**Machine surface — F03 rewrite (one machine, two branches).** `detecting`
+covers sniff and size for both delimited and workbook files; a workbook
+arrives as `workbook-preflight` and enters `workbookSizing.{routing →
+fits | subset | handoff}` (route is the pre-flight report's, D31); default
+selection is `report.defaultSelection` (D47). Delimited files still go
+through `delimitedTarget`/`fits`/`overBudget` unchanged.
+
+New events (F03): `SET_DESTINATION{destination}`, `TOGGLE_SHEET{sheetIndex}`,
+`SELECT_ALL`, `CLEAR_ALL`, `COPY_HANDOFF{result}`; `APPLY_EDIT.edit` is now
+`WorkbookReviewEditWireV1` (keys, never names). `CANCEL` in `workbookSizing`
+→ `choosingFile` (terminates the parser; nothing staged). `START` from
+`workbookSizing.fits|subset` is guarded by `selectionFits` (non-empty and ≤
+`report.budgets.maxEstimatedCells`, per-sheet estimates, null weighs 0 — the
+same arithmetic as `routeOf`). `handoff` accepts only
+`COPY_HANDOFF`/`CHOOSE_FILE`/`CANCEL`.
+
+Context adds (F03): `workbook`, `selectedSheets`, `handoffCopy`, `library:
+listing|listed{apps}|unlisted`, `destination: new-app | existing-app{appId}`,
+`progress.sheet {ordinal,count,name}|null`, `failureDetail`,
+`promoted.appendedTableId`.
+
+`delimitedTarget` invokes `listLibrary`; `SET_DESTINATION{existing-app}` only
+when the app is listed and `appendEventEstimate(facts) = estimatedRows +
+columns + 2 ≤ APPEND_EVENT_CAP (10,000)` (D38; test-pinned to M23
+`APPEND_MAX_EVENTS`). `beginStage` request: delimited (+ `destination` for an
+append) or workbook (every inventoried sheet, sorted `selectedSheets`);
+`proceed` carries `selectedSheets` for a workbook only. A
+`refused{workbook-format-later-release}` fails closed (`failing`,
+`service-error`) — the page accepts workbooks (D42/D48), so reaching this
+refusal at all would be a contract break, not a normal route. `promoting`
+accepts under `proposal.appName` (the reviewed name — regression fixed: the
+SCR-017 name used to win over a review rename). An append reads `listTables`
+before and after the commit and records the new table id.
+`PARSER_STOP_TIMEOUT_MS` stays 5,000 ms (measured xlsx cancel latency:
+13.5–17.9 ms, ~280× headroom).
+
+**States (full):** `choosingFile`, `detecting`, `delimitedTarget`, `fits`,
+`overBudget`, `workbookSizing.{routing,fits,subset,handoff}`, `refused`,
 `beginningStage`, `parsing`, `inferring`, `reviewing.{deciding,applyingEdit}`,
 `promoting`, `cancelling.{stopping,cleaning}`, `cancelled`, `failing`,
-`failed`, `done` (final). Events: `CHOOSE_FILE{file,fileName}`,
-`IMPORT_EVENT{event}`, `SET_APP_NAME{text}`, `SET_TABLE_NAME{text}`,
-`CONTINUE`, `BACK`, `START`, `CANCEL`, `APPLY_EDIT{edit}`, `CREATE_APP`.
+`failed`, `done` (final).
 
 ## Contracts worth recording
 
-- **Secret hygiene is structural.** A secret lives in a machine's `draft` field
-  only while the invoked service consuming it is in flight, and is cleared by
-  the transition that settles it (`clearDraft`). Recovery codes live in context
-  only while a display state is active. No machine persists a snapshot.
+- **Secret hygiene is structural.** A secret lives in a machine's `draft`
+  field only while the invoked service consuming it is in flight, and is
+  cleared by the transition that settles it. No machine persists a snapshot.
 - **Two ports exist because M36 may not import crypto.**
   `RecoveryCodeFormatPort` (wired by M54's `app-runtime.tsx` to M08's
-  `parseRecoveryCode` through a dynamic import) gives the recovery machine its
-  pre-KDF spelling check; `PassphrasePolicyPort` keeps strength policy out of
-  the machines. `wordCountPassphrasePolicy` is the default, implementing
-  setup.html's stated rule (four or more words) and injectable by the caller.
+  `parseRecoveryCode` through a dynamic import) and `PassphrasePolicyPort`.
 - **Persist-then-arm (D13/AD-7).** `sessionMachine.active` is a *parallel*
-  state with a `settings` region (`idle` / `savingIdleTimeout`) and an
-  `idleTimer` region (`deciding` / `disarmed` / `armed`). `SET_IDLE_TIMEOUT`
-  never touches the timer; only a successful `updateSettings` response
-  re-enters `idleTimer.deciding`, and the adopted value is the worker's, not
-  the optimistic one. A refused write leaves both the stored value and the
-  running countdown untouched. Proven by a parallel-state negative control.
-- **Delay schedule is rendered, never recomputed.** `unlockMachine` renders the
-  worker-supplied `retryAfterMs` (CA-05 / AD-5). No machine owns the schedule.
-- **`detecting` covers sniff *and* size; there is no separate `preflighting`
-  state.** `import.worker.ts` sniffs and sizes in one round trip before it
-  emits anything, so an over-budget file arrives as a `refused` event and a
-  fitting one as `preflight`. `fits` (SCR-018) is the user's confirmation of a
-  measurement pre-flight already made, not a second measurement (D20).
+  state; only a successful `updateSettings` response re-enters
+  `idleTimer.deciding`, and the adopted value is the worker's, not the
+  optimistic one.
+- **Delay schedule is rendered, never recomputed.** `unlockMachine` renders
+  the worker-supplied `retryAfterMs` (CA-05 / AD-5).
 - **A cancel waits for the parser before it cleans up.** `cancelling` is
-  `initial: "stopping"`: `stopping` waits for the parser's terminal
-  `IMPORT_EVENT` (`cancelled` | `completed` | `failed`) with
-  `after: { [PARSER_STOP_TIMEOUT_MS]: "cleaning" }` so a parser that never
-  answers cannot strand the cancel; `cleaning` then runs the cleanup invoke.
-  **Why it is not optional:** telling a parser across a worker boundary to stop
-  is not the same as it having stopped, and the batches already in flight keep
-  landing — cleaning into that race makes the envelope store answer
-  `revision-conflict`, and every cancel ended `cleanup-unconfirmed` instead of
-  printing MOD-007's "no partial app remains". SESSION-07 reproduced it 3/3
-  through the real entry (3,000 rows after 50 ms; 20,000 rows after 100 ms and
-  after 1.2 s). Three transitions target `cancelling.cleaning` **directly**,
-  because they already know the parser has finished: `parsing`'s `IMPORT_EVENT
-  cancelled` (that event *is* the terminal report), and `CANCEL` from
-  `inferring` and from `reviewing` (both reachable only through `completed`).
-- **Every terminal state runs cleanup and waits for the receipt.** `cancelled`
-  and `failed` are reached only through `cancelling`/`failing`, which invoke
-  `cancelImportStage` and assign its `ImportCleanupReceiptViewV1` before the
-  surface may claim anything (MOD-007, CA-10). A cleanup that does not answer
-  becomes `failure: "cleanup-unconfirmed"` with **no** receipt — the VM then
-  says cleanup could not be confirmed rather than "no partial app remains".
+  `initial: "stopping"`, with `after: {[PARSER_STOP_TIMEOUT_MS]: "cleaning"}`
+  as a fallback; three transitions target `cancelling.cleaning` directly
+  because they already know the parser has finished.
+- **Every terminal state runs cleanup and waits for the receipt.** A cleanup
+  that does not answer becomes `failure: "cleanup-unconfirmed"` with **no**
+  receipt.
 - **The M37 error-kind seam is cleared without widening
-  `DataWorkerErrorKindV1`.** Every mutating stage call (`runInference`,
-  `applyReviewEdit`, `promoteImport`) is gated on `getImportStage` first; a
-  `null` stage becomes `failure: "stage-missing"`, never the data worker's
-  `integrity` kind, whose copy ("the local store did not pass its integrity
-  check") is false after an ordinary reload-mid-import plus unlock sweep. No
-  kind was added, so M37's exhaustive `REFUSAL_ANNOUNCEMENT` map is unchanged.
-- **A typed promotion rejection returns to `reviewing`, not to `failed`.** A
-  refusal is a typed result that wrote nothing (D23); routing it to `failed`
-  would run cleanup and destroy the stage the user just reviewed. Only a
-  *service* failure fails the run.
-- **The source file is never retained in context.** A snapshot holds the file's
-  name and its measurements, never the `Blob`; "Retry same file" is the page
-  re-sending `CHOOSE_FILE` with the handle its picker still owns.
-- **The target screen's names enter the proposal as review edits.** `rename-app`
-  / `rename-table` are enqueued when inference returns, so what the user typed
-  is visible and undoable at review rather than silently overwriting it.
+  `DataWorkerErrorKindV1`.** Every mutating stage call is gated on
+  `getImportStage` first; a `null` stage becomes `failure: "stage-missing"`,
+  never the data worker's `integrity` kind. Unchanged by F03; the F03 workbook
+  stage calls (`runInference`/`applyReviewEdit`/`promoteImport`) are gated
+  the same way.
+- **A typed promotion rejection returns to `reviewing`, not to `failed`.**
+- **The source file is never retained in context.**
+- **The target screen's names enter the proposal as review edits.**
+  `rename-app`/`rename-table` are enqueued when inference returns.
 
-Each of the F02 contracts above ships with a non-vacuous negative control in
+Each F02 contract above ships with a non-vacuous negative control in
 `tests/unit/workflows/import.machine.test.ts`; the cancel-ordering suite (6
-cases: the no-terminal-event control, one per terminal kind, the `after`
-fallback under fake timers, and the already-finished path that must not wait)
-was verified to fail 5 of 6 against the pre-correction machine.
+cases) was verified to fail 5 of 6 against the pre-correction F02 machine.
+F03's rewrite kept every one of these tests green while replacing the
+single-table shape underneath them.
 
 ## Known gaps with owners
 
 - `recoveryMachine` exposes `retryAfterMs` but has **no ticking countdown
-  actor** — the countdown is `unlockMachine`'s only. Still harmless: F02 changed
-  no recovery flow and the delay remains unreachable from that route.
-  `COUNTDOWN_TICK_MS` is exported and consumed nowhere outside
-  `unlock.machine.ts`, which is where the lift would start. Owner: the next
-  session that touches the unlock/recovery machines (F05's vault-recovery work
-  at the latest). Dependents blocked by it: none.
-- `PARSER_STOP_TIMEOUT_MS = 5_000` is a fixed bound chosen to be generous
-  against a real parser; whether it should be tunable is an F03 glance, not an
-  open defect.
+  actor** — the countdown is `unlockMachine`'s only. Owner: the next session
+  that touches the unlock/recovery machines (F05's vault-recovery work at the
+  latest). Unchanged by F03 (F03 touched no recovery flow).
+- `PARSER_STOP_TIMEOUT_MS = 5_000` remains a fixed bound; F03 measured real
+  xlsx cancel latency (13.5–17.9 ms) and left it unchanged rather than tuning
+  it — ~280× headroom, not a defect.
 
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
 - 2026-09-08 — F01 implemented by SESSION-06 (`883f815`): seven machines + the
-  services layer, persist-then-arm proven via parallel state plus a negative
-  control; consumed by SESSION-07 (`9174b6d`) with the actors living in
-  `src/routes/`, not `src/ui/**`, because `tests/unit/ui/architecture.test.ts`
-  forbids a state-machine runtime inside the UI modules.
+  services layer; consumed by SESSION-07 (`9174b6d`).
 - 2026-09-08 — reconciled by Roshi (F01 final pass): the recoveryMachine
   countdown gap promoted from a session return into this fragment; staple merged.
 - 2026-09-08 — F02: `importMachine`, import/records services and
   `ApplicationServices` landed by SESSION-06 (`cc60008`); the cancel-ordering
-  correction by SESSION-07 under lease revision r2 (`b596dac`), after its own
-  e2e found the race — which is also what turned
-  `tests/e2e/import-flow.spec.ts`'s MOD-007 cleanup-receipt case from a
-  `test.fail()` marker into a genuine pass at `5867b02`.
-- 2026-09-08 — reconciled by Roshi (F02 final pass): two session staples folded;
-  the cancel-ordering fix stated as the module's contract rather than as a
-  correction note; the test-suite paragraphs that described M56/M61 work
-  compressed into the evidence sentence above, since they are proof of M36's
-  contract and not a second module's description.
-
-<!-- workbook-fidelity SESSION-06 -->
-### workbook-fidelity SESSION-06 (2026-09-23, commits 4287569..677b947)
-
-**M36 / M37 / M43 — mechanical adaptation (S07 replaces)**
-- `import-services.ts`: `applyReviewEdit` takes `WorkbookReviewEditWireV1`; new pure `singleTableProposal(wire) → ProposedAppWireV1 | null` (fails closed on >1 table or any workbook-only member; statement ids pass through) and `workbookEditOf(wire, f02Edit)` (addresses the one table by `tableKey`/`columnKey`).
-- `import.machine.ts`: `context.proposal: ProposedWorkbookWireV1`; fails closed (`service-error`) when inference/edit returns no one-table view; `workbook-preflight` in `detecting` fails closed (`malformed-request`); edits translated with `workbookEditOf`.
-- `view-models/import.ts`: review reads `singleTableProposal(context.proposal)`; `PROMOTION_REJECTION_TOKENS` (pinned ≡ `PROMOTION_REJECTIONS`, incl. `append-too-large`), `toPromotionRejectionVm`, `ImportReviewVm.promotionRejection` (token only; copy is S07's, D43).
-- `src/ui/import/**`: unchanged.
-
-<!-- workbook-fidelity SESSION-07 -->
-### workbook-fidelity SESSION-07 (2026-09-23, commits 2185774..e062f41)
-
-**M36 Workflows — `import.machine.ts`, `import-services.ts`**
-- One import machine, two branches. `detecting` + `workbook-preflight` → `workbookSizing.{routing → fits | subset | handoff}` (route is the report's, D31); default selection is `report.defaultSelection` (D47).
-- New events: `SET_DESTINATION{destination}`, `TOGGLE_SHEET{sheetIndex}`, `SELECT_ALL`, `CLEAR_ALL`, `COPY_HANDOFF{result: "copied"|"unavailable"}`; `APPLY_EDIT.edit` is now `WorkbookReviewEditWireV1` (keys, never names). `CANCEL` in `workbookSizing` → `choosingFile` (terminates the parser; nothing staged).
-- `START` from `workbookSizing.fits|subset` is guarded by `selectionFits` (non-empty and ≤ `report.budgets.maxEstimatedCells`, per-sheet estimates, null weighs 0 — same arithmetic as `routeOf`). `handoff` accepts only `COPY_HANDOFF` / `CHOOSE_FILE` / `CANCEL`.
-- Context adds `workbook`, `selectedSheets`, `handoffCopy`, `library: listing|listed{apps}|unlisted`, `destination: new-app | existing-app{appId}`, `progress.sheet {ordinal,count,name}|null`, `failureDetail`, `promoted.appendedTableId`.
-- `delimitedTarget` invokes `listLibrary`; `SET_DESTINATION{existing-app}` only when the app is listed and `appendEventEstimate(facts) = estimatedRows + columns + 2 ≤ APPEND_EVENT_CAP (10,000)` (D38; cap test-pinned to M23 `APPEND_MAX_EVENTS`).
-- `beginStage` request: delimited (+ `destination` for an append) or workbook (`detected {kind:"workbook", format}`, every inventoried sheet, sorted `selectedSheets`); `proceed` carries `selectedSheets` for a workbook only.
-- A `refused{workbook-format-later-release}` now fails closed (`failing`, `service-error`): the page accepts workbooks (D42/D48).
-- `promoting` accepts under `proposal.appName` (the reviewed name; regression fixed: the SCR-017 name used to win over a review rename). An append reads `listTables` before and after the commit and records the new table id.
-- `PARSER_STOP_TIMEOUT_MS` stays 5,000 ms (S06 measured xlsx cancel 13.5–17.9 ms, ~280× headroom).
-- Services: `ACCEPTED_FLOWS = ["delimited","workbook"]` sent on `startImport` (D48 flipped); `beginStage(Omit<BeginImportStageRequestV1,"kind">)`, `proceed({stageId, selectedSheets?})`, new `listLibrary()`, `listTables({appId})`. S06's mechanical `singleTableProposal` / `workbookEditOf` are removed.
-
-<!-- workbook-fidelity SESSION-08 -->
-### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
-
-**M36 Workflows — `src/application/workflows/records-services.ts`**
-- `RecordsServices` gains nine reads bound verbatim to S03's RPCs (CA-21/CA-22):
-  `getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`,
-  `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`
-  (≤ 1,000 rows/page), `findInSnapshot`, `listInertItems`. Each is a straight
-  `port.send({kind, ...})`, with no reshaping.
+  correction by SESSION-07 under lease revision r2 (`b596dac`).
+- 2026-09-08 — reconciled by Roshi (F02 final pass): two session staples
+  folded; the cancel-ordering fix stated as the module's contract.
+- 2026-09-23 — F03: mechanical single-table adaptation by SESSION-06
+  (`4287569`..`677b947`), replaced by the real two-branch rewrite by
+  SESSION-07 (`2185774`..`e062f41`); `RecordsServices`' nine relationship/
+  snapshot reads added by SESSION-08 (`eba5790`..`30396a9`).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): three staples (two of
+  which described the same file at two different, sequential states — S06's
+  mechanical adapter and S07's replacement of it) folded into one description
+  of the machine as it now stands, per Principle 2 ("the head contract is the
+  authoritative statement; a delta that supersedes it is folded in, not left
+  below it").

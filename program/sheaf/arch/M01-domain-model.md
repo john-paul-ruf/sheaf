@@ -1,7 +1,7 @@
 # M01 — Domain model (`src/domain/model/`)
 
 Extracted from specs/architecture.md §Module Contracts (Domain model).
-Reconciled against the tree at `5ab3b07` (F02 final).
+Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 
 - **Owns:** Stable identities and immutable semantic facts.
 - **Exports (full target):** AppId, TableId, FieldId, RecordId, ChartId,
@@ -31,11 +31,12 @@ Branded `StorageId16`, `asStorageId16`, `encodeStorageId16`,
 `decodeBase64Url`, `constantTimeEquals`, `STORAGE_ID_BYTE_LENGTH`,
 `STORAGE_ID_TEXT_LENGTH`.
 
-### `ids.ts` (F02)
+### `ids.ts` (F02, extended F03)
 
 Per-kind branded `DomainId<K>` over 16 CSPRNG bytes: `AppId`, `TableId`,
 `FieldId`, `RecordId`, `EventId`, `CommitId`, `DeviceId`, `SegmentId`,
-`OptionId`, `RuleId`, `LineageId`, `SheetId`, `AnyDomainId`; `DOMAIN_ID_KINDS`,
+`OptionId`, `RuleId`, `LineageId`, `SheetId`, and — added by F03 —
+`RelationshipId`, `InertItemId`, `DecisionId`; `DOMAIN_ID_KINDS`,
 `DOMAIN_ID_BYTE_LENGTH` (16), `DOMAIN_ID_TEXT_LENGTH` (22), `asDomainId` (the
 only branding path, length-checked), `createDomainId`, `encodeDomainId` /
 `decodeDomainId` (**non-durable** text spelling for map keys and redacted logs —
@@ -68,39 +69,51 @@ boundaries (D28), not here.** The only decimal rewrite is negative zero losing
 its sign; exponent, leading-zero, and bare-point spellings are rejected rather
 than reinterpreted.
 
-### `schema.ts` (F02)
+### `schema.ts` (F02, extended F03)
 
 `FieldTypeV1` (closed 11-kind union; `currency` carries `currencyCode`),
 `FIELD_TYPE_KINDS`, `StorageKindV1`, `STORAGE_KINDS`, `storageKindForFieldType`,
 `expectedCellKindForFieldType`, `FieldDefV1`, `EnumOptionDefV1`, `TableDefV1`.
 Both mappings are pinned against migration 005's row `CHECK` by test.
-**`FieldDefV1` deliberately declares no `isComputed`/`formulaId`**: F02 has no
-formula engine, so a writer cannot assert a computed field nothing can evaluate
-(invariant 7); the projection writes `is_computed = 0` and F04 adds the pair
-with its producer.
+`FieldDefV1` deliberately declares no `isComputed`/`formulaId` — F04 adds the
+pair with its producer.
+
+F03 adds `RELATIONSHIP_DETECTION_SOURCES` (= migration 005's CHECK: `declared`,
+`lookup-formula`, `key-match`, `user`) and `RelationshipDefV1 {relationshipId,
+fromTableId, fromFieldId, toTableId, toKeyFieldId, detectionSource, isActive,
+schemaRevision}`.
 
 Known gap with an owner: `schema_fields` (migration 005) has no column for a
 currency's `currencyCode`, so the type cannot round-trip through the projection —
 `list-fields` refuses rather than guesses. First hurt is F04's schema editor;
-routed to a DB re-entry at F04 planning.
+routed to a DB re-entry at F04 planning. Unchanged by F03.
 
 ### `provenance.ts` (F02)
 
 `ProvenanceSourceV1`, `PROVENANCE_SOURCES` (004's closed six),
-`ValueProvenanceV1`, structurally assignable to 004's `EventProvenanceV1`
-(asserted by test; the reverse direction is intentionally not assignable, since
-widening bytes to a branded ID must go through `asDomainId`).
+`ValueProvenanceV1`, structurally assignable to 004's `EventProvenanceV1`.
 
-### `events.ts` (F02)
+### `events.ts` (F02, extended F03)
 
-`F02_EVENT_KINDS` (the eleven kinds this feature authors, a proven subset of
-004's closed catalog), `F02EventKindV1`, `F02EventPayloadsV1`,
-`F02DomainEventV1` (kind paired with exactly its own payload),
-`AuthoredRecordV1`, `FieldChangeV1` (before **and** after, so a patch reads
-backwards), `AppThemeV1` + `APP_THEME_TOKENS` (design.md's six semantic app
-tokens; safety semantics are absent by construction), `DELETION_SOURCES`,
-`INFERENCE_DISPOSITIONS`, `Sha256V1`, and one payload interface per kind.
-Events that must not exist have no type here.
+`F02_EVENT_KINDS` (the eleven kinds F02 authors, a proven subset of 004's
+closed catalog), `F02EventKindV1`, `F02EventPayloadsV1`, `F02DomainEventV1`
+(kind paired with exactly its own payload), `AuthoredRecordV1`,
+`FieldChangeV1` (before **and** after), `AppThemeV1` + `APP_THEME_TOKENS`,
+`DELETION_SOURCES`, `INFERENCE_DISPOSITIONS`, `Sha256V1`, and one payload
+interface per kind. F03 extends this with `TableCreatedPayloadV1.sourceSheet:
+SheetDescriptorV1 | null` and `AppCreatedPayloadV1.relationships`.
+
+### `snapshots.ts` (new, F03)
+
+`SHEET_CLASSIFICATIONS` (M12 re-exports it), `SheetDescriptorV1` (+
+`classification`, `snapshotRevision`; storage id as text), `CellRangeV1`,
+`INERT_ITEM_KINDS` (D40, 16), `INERT_REASON_KEYS` (closed: formula-not-live-yet,
+chart-not-live-yet, object-not-rendered, link-not-followed,
+script-never-runs, formatting-not-reproduced, validation-not-expressible,
+kept-in-source), `InertItemV1`, `DECISION_KINDS` (= 005 CHECK),
+`InferenceDecisionRecordV1` (`decisionKind: DecisionKindV1 | null` — null =
+not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
+005 in `tests/unit/domain/snapshots.test.ts`.
 
 ## Change History
 
@@ -114,12 +127,7 @@ Events that must not exist have no type here.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the F01 "event unions and
   domain IDs arrive in F02" placeholder is superseded and removed; the landed
   surface is stated once, above.
-
-<!-- workbook-fidelity SESSION-03 -->
-### workbook-fidelity SESSION-03 (2026-09-22, commits f29ac33..a2c4cf0)
-
-**M01 — Domain model**
-- `ids.ts`: `DOMAIN_ID_KINDS` += `relationship`, `inert-item`, `decision`; types `RelationshipId`, `InertItemId`, `DecisionId`.
-- `schema.ts`: `RELATIONSHIP_DETECTION_SOURCES` (= 005 CHECK: declared, lookup-formula, key-match, user), `RelationshipDefV1 {relationshipId, fromTableId, fromFieldId, toTableId, toKeyFieldId, detectionSource, isActive, schemaRevision}`.
-- NEW `snapshots.ts`: `SHEET_CLASSIFICATIONS` (moved here from M12, which re-exports it), `SheetDescriptorV1` (+`classification`, `snapshotRevision`; storage id as text), `CellRangeV1`, `INERT_ITEM_KINDS` (D40, 16), `INERT_REASON_KEYS` (closed: formula-not-live-yet, chart-not-live-yet, object-not-rendered, link-not-followed, script-never-runs, formatting-not-reproduced, validation-not-expressible, kept-in-source), `InertItemV1`, `DECISION_KINDS` (= 005 CHECK), `InferenceDecisionRecordV1` (`decisionKind: DecisionKindV1 | null` — null = not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration 005 in `tests/unit/domain/snapshots.test.ts`.
-- `events.ts`: `TableCreatedPayloadV1.sourceSheet: SheetDescriptorV1 | null`; `AppCreatedPayloadV1.relationships`.
+- 2026-09-23 — F03: `ids.ts`/`schema.ts`/`events.ts` extended and new
+  `snapshots.ts` landed by SESSION-03 (`f29ac33`..`a2c4cf0`).
+- 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-03 staple
+  folded into the per-file sections above; nothing contradicted.

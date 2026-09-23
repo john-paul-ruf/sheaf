@@ -948,3 +948,310 @@ split avoidably across sessions beyond the architecture's own layering
 - Did not redesign the plan, edit a session file or `STATE.md`, choose
   product behavior, or clear dispatch. F1/F2 are reported for Orchestrator to
   route; neither changes a wave-1 lease, so nothing here need block S01 ∥ S03.
+---
+
+## 2026-09-23 — final pass, cycle **F03 / workbook-fidelity**
+
+Base `04e09b7` (planning review revision), final `425562d` (code ≡
+`30396a9`). Read in full before writing: `FINAL-REPORT.md`
+(`prompts/workbook-fidelity/`); `STATE.md` end to end (375 lines, all nine
+session handoffs, Capability Readiness, Contract Agreements, Current
+Blockers, Design Decisions D30–D48, Planning Review); all thirty-nine
+`arch/` fragments; `PROGRAM-CONFIG.md`; this log's F01, F02-interim and
+F02-final entries, and the F03 planning-completeness entry immediately
+above; `program-agents/ORCHESTRATOR.md` and `program-agents/PLANNER.md`
+(read for Principle 3 adoption checks, grepped for specific evidence, not
+skimmed). No product code read for correctness beyond spot checks already
+performed by the fragments' own session evidence and two independent greps
+(`@types/libsodium-wrappers-sumo` absence, the three snapshot/source-
+manifest decoders' consumers) reported below under the cleanup ledger.
+
+### Verdict on the cycle
+
+Eight Planner sessions, thirty-one planned checkpoints, two owner
+corrections, one crash recovery — zero sessions ended blocked at final
+receive, every planned checkpoint landed. All nine capabilities (CAP-19
+through CAP-27) and all eight new/amended contract agreements (CA-17..CA-24,
+CA-07 am.3) are verified at the F03 tier against current sources, per
+Orchestrator's own re-run gates recorded in STATE.md (typecheck 0, lint 0,
+155 files / 1728 passed / 3 skipped, 57 e2e passed at `30396a9`). The feature
+now halts at GATE-F03, a standing human product-design gate; nothing here
+changes that.
+
+### Drift found and reconciled (`arch/`)
+
+Thirty-one fragments touched by F03 deltas (seven new-module fragments
+seeded at planning — M03, M15, M16, M17, M18, M20, M65 — plus twenty-four
+extended F01/F02 fragments), all reconciled: every
+`<!-- workbook-fidelity SESSION-NN -->` / `<!-- workbook-fidelity OWNER-* -->`
+marker folded into its head contract and removed (verified by
+`grep -rl "<!--" arch/` returning nothing). Five were substantive rather than
+cosmetic:
+
+1. **`M12-projection.md` carried a closed gap as open.** The F02 final
+   fragment said `import_lineages`/`inference_decisions` had "no
+   constructible F02 input" and named F06/F03 as the feature that would
+   supply one. F03 did: the checkpoint carries both as projectable roots and
+   M23's promotion/append write them. Moved to a "Closed in F03" section with
+   the producer named, and the tail-commit "no schema row" sentence corrected
+   to name F03's one exception (`table.created` in an append tail, which the
+   F02 text predates and would otherwise read as contradicting M23's landed
+   append path).
+2. **`M37-view-models.md` carried two closed gaps as open and a file that
+   was never created as an unexplained absence.** The F02 final fragment's
+   "Known gaps" section listed live-region pluralization and the missing
+   `promotionIssues.fieldId` mapping as open; both closed inside F03 (S08 CP1;
+   S06's wire + OWNER-PROMOTION-SEAMS's field/table naming) without a return
+   trip through this file. Both moved to "Closed in F03" with their closing
+   commits. Separately, S08's own delta noted `view-models/snapshots.ts` "never
+   created — snapshot VMs live in `records.ts`" as a bare surprise; promoted
+   into the fragment's own Files/Contract section as the current, permanent
+   fact about the module's shape, not a residual curiosity.
+3. **`M44-ui-records.md` carried three closed gaps as open.** MOD-10's
+   missing deleted-record read, the single-table change history, and
+   unit-only paging were all F02-recorded gaps F03 closed (S03's query, S08's
+   consumption; S03/S08's `tableId`; S08 CP4's full-selection e2e exercising
+   Jobs' 61-row paging past 50). Moved to "Closed in F03".
+4. **`M36-workflows.md` and `M43-ui-import.md` each carried a delta that
+   described an already-superseded intermediate state as though it were the
+   landed one.** S06's mechanical single-table adaptation of the import
+   machine and review screen was staple #1 in both fragments; S07's real
+   two-branch/multi-table rewrite fully replaced that adaptation two
+   checkpoints later, staple #2. A reader taking either fragment top-down
+   would land on S06's now-superseded shape. Folded into one description of
+   the module as it now stands, per Principle 2 — "the head contract is the
+   authoritative statement; a delta that supersedes it is folded in, not left
+   below it" applies to a delta superseding a **sibling delta** exactly as it
+   applies to a delta superseding the seeded head.
+5. **`M18-ods.md` and `M65-workbook-facts.md` each described a defect and its
+   fix as two separate, chronologically ambiguous notes.** The ODS
+   declared-table-after-rows defect (S05's landed order) and its correction
+   (OWNER-IMPORT-F03-SEAMS) sat as sibling deltas with no stated relationship.
+   Folded into one "F03 correction" section per fragment stating the
+   **current**, corrected stream order once, with the defect's shape and
+   evidence kept as history underneath it — not the defective order followed
+   by a patch note a reader has to resolve themselves.
+
+Everything else was merge-and-normalize: session-level facts promoted into
+the fragment that owns them (M13's CFB no-ranged-read known limit
+cross-referenced from M17 rather than restated; M20's HTML key-match known
+limit cross-referenced from M21 rather than restated; M38's backlog carried
+forward with an explicit note that F03 touched the module twice without
+closing any of its three open items). No fragment was created by this pass
+(unlike F02's three moves) — **F03 needed no move**: every session's delta
+landed in the fragment its own module owns, confirmed by inspection of all
+thirty-one touched fragments.
+
+`PROGRAM-CONFIG.md`: added the F03 landed-modules table (seven new modules,
+twenty-four extended, nine unchanged, git-verified at `425562d`); corrected
+the Stack table's Containers row — **D30's fallback is what shipped**, not
+the primary plan (`@zip.js/zip.js` was never installed; `src/import/source/
+{zip,xml,cfb,opc}.ts` is a from-scratch reader with no third-party package),
+verified by `grep` finding no `@zip.js` entry in `package.json`/
+`pnpm-lock.yaml`; extended Custom Rule 7 with F03's first observed
+**mirror-direction** instance (a planned file, `view-models/snapshots.ts`,
+that no checkpoint needed — the rule already covers this without amendment);
+recorded F03 evidence for the three already-promoted Vow-4 conventions
+(closed-union-and-exhaustive-map held with zero new instances because D42
+named the sole extender at planning time; the lease/module-map rule held
+with zero new instances because S01's fixture toolkit was planned into its
+own lease from the start). No PROGRAM-CONFIG convention crossed a **new**
+promotion threshold this pass — see "Conventions promoted" below for why,
+stated rather than left to silence.
+
+### Findings reconciled outside `arch/` (reported to Orchestrator, not edited)
+
+Reported here because Roshi/Archivist does not edit `STATE.md`; both were
+already corrected before dispatch, at the F03 planning-completeness pass
+(this log, 2026-09-22, log commit `2b16638`), and are confirmed landed as
+recorded, not re-opened:
+
+- The Dependency Graph's four missing serial-handoff lines (source
+  directories listed without their paired test directories) — completed.
+- The stale `promotionIssues` inherited-obligation disposition (a satisfied
+  F02 obligation reading as open F03 work) — corrected.
+
+### Conventions promoted to PROGRAM-CONFIG (Vow 4)
+
+**None this pass.** Every pattern that fired in F03 either (a) is already
+promoted and held (zero new instances — the closed-union rule, the lease/
+module-map rule), (b) fired but stayed below both of Vow 4's axes (the
+sequential-delta-supersession shape in item 4 above: two instances, not
+three), or (c) is a planning-time documentation-completeness gap without a
+mechanically-checkable shape a `module-boundaries.test.ts`-style assertion
+could enforce (the serial-handoff paired-test-directory omission — see
+Proposed for the framework, below). Recording "none" here is a claim I can
+defend line by line, not a default.
+
+### Proposed for the framework (Vow 3 — recommendations only, never edits)
+
+Adoption checked by **reading the current text** of `program-agents/
+ORCHESTRATOR.md` and `program-agents/PLANNER.md` (this program's copies —
+`CODER.md`/`UI-CODER.md` were not implicated by any carried recommendation)
+and grepping for the specific substance each recommendation names, not by
+observing that Archivist did not write them. These files are untracked in
+this repository (`git log` on them returns nothing), so adoption is a claim
+about the human's action based on content read at this pass, exactly as
+every prior Roshi pass recorded it.
+
+**Now adopted — stop carrying:**
+
+- id `b06241fe8526baa2` **"Landed proof legs left in STATE's `planned:` list
+  at receive"** (F02, 13 in-cycle instances). `ORCHESTRATOR.md`'s "Receiving
+  a Coder" step 7 now reads: *"**CA/CAP status invariant — check before
+  commit.** No Contract Agreement row may read `Producer: planned` or `Proof:
+  planned` when the producer or proof has landed... This has been the
+  largest single-cycle drift row in the log."* The rule is stated, cites its
+  own evidence, and names the exact defect class D-01/S-02 recorded. **F03 is
+  positive corroborating evidence it worked**: across nine session receives
+  and two owner-correction receives, this pass found zero stale `planned:`
+  cells in F03's Capability Readiness or Contract Agreement tables — every
+  row I checked already named its landing commit. Row marked adopted.
+
+**Still open, re-checked and re-raised:**
+
+1. id `442cb40af6e1a830` **"No interim drift check scheduled below 16
+   sessions."** `ORCHESTRATOR.md:725-726` is unchanged: *"1-15 sessions: no
+   additional interim drift checks by default. 16+ sessions: run interim
+   Archivist after every completed wave..."* F01 and F02 each got an ad-hoc
+   interim check anyway (Jikijitsu/Orchestrator wrote one into the ledger by
+   hand, citing this very recommendation) and both caught real drift while
+   sessions were still live. **F03 did not get even the ad-hoc mitigation**:
+   Final Report states plainly, *"With 8 sessions, no interim drift checks
+   were configured."* This pass then found five fragments (M12, M37×2, M44×2)
+   still recording gaps their own F03 sessions had closed — exactly the
+   shape an interim check would have caught mid-run, as F01's four and F02's
+   ten instances already demonstrated. **3 cycles, 5 new in-cycle instances**
+   (15 total across F01+F02+F03). The pattern is not weakening; the ad-hoc
+   mitigation that partially covered it in the first two cycles did not fire
+   in the third.
+2. id `f1442f23b7f0949d` **"Archivist's envelope write set omits the cleanup
+   ledger `ARCHIVIST.md`/`ROSHI.md` requires it to own."** The final-pass
+   envelope template in `ORCHESTRATOR.md`'s "Calling Archivist" section
+   (~line 878) lists exactly `STATE.md`, `arch/`, `PROGRAM-CONFIG.md`,
+   `ARCHIVIST-LOG.md` — no `CLEANUP-LEDGER.md`. Resolved conservatively a
+   fourth time: this pass's cleanup findings are carried inside this entry
+   (below), and no file named `program/sheaf/CLEANUP-LEDGER.md` exists on
+   disk. It still costs nothing this cycle (no campaign crossed a briefing
+   threshold), but the gap between the role contract and the envelope
+   template has now stood through three full cycles unchanged. **3 cycles, 4
+   instances** (one per final/near-final pass that had to work around it).
+3. id `f279893d1ad0a40d` **"`Owns` authoritative, Files table indicative"**
+   — already promoted (Custom Rule 7); no new Vow-3 action needed, but F03
+   produced this rule's first confirmed **mirror-direction** instance (a
+   planned file no checkpoint needed, S08's `view-models/snapshots.ts`),
+   recorded in PROGRAM-CONFIG's Custom Rule 7 text itself rather than here,
+   since the promoted rule already covers it without amendment.
+4. **NEW — id `1f54dec2254e8f15`.** `PLANNER.md`: a declared serial-lease-
+   handoff line for a source directory should name its paired test-directory
+   handoff in the same line. The F03 planning-completeness pass (this log,
+   2026-09-22) found four instances of the same gap shape inside one
+   Dependency Graph: `src/import/inference/**` was listed for its S02→S06
+   handoff without `tests/unit/import/infer.test.ts`; the S01→S06 source
+   move omitted its three paired refusal/preflight/sniff test files; the
+   S03→S06 worker-file handoff omitted the three paired browser-worker
+   specs; the S07→S08 primitives move omitted `tests/unit/ui/primitives/**`.
+   None was a lease conflict (all four were already correctly sequenced by
+   the Dependency Graph's own topological order) — purely a documentation-
+   completeness gap in the plan's own summary, corrected before dispatch and
+   costing nothing. **1 cycle, 4 in-plan instances**, all within one
+   Dependency Graph — recorded once, per Vow 3's no-threshold rule, exactly
+   as that pass itself flagged it.
+5. **NEW — id `1c51a85390a3f964`.** `PLANNER.md`: when two sessions
+   scheduled in the **same wave** both produce into a shared fact vocabulary,
+   and a downstream consumer session states an ordering/shape rule for that
+   vocabulary, a rule one of the wave-mates discovers **mid-session** (not
+   already stated in either's own plan) has no channel to reach the other
+   wave-mate, because they are running concurrently by construction. F03's
+   S02 (inference) discovered, from reading M65's fact stream, that a
+   declared table's fact must precede its sheet's first row fact — and wrote
+   this into its own followUp for S06. S05 (ODS adapter), dispatched in the
+   **same wave** as S02, had no way to receive that followUp before building
+   its own adapter, and shipped an ODS stream with declared-table facts
+   *after* the rows — closed only by an owner correction
+   (OWNER-IMPORT-F03-SEAMS) after S06 caught the mismatch at the worker tier.
+   Contrast with D35 (M14 never imports an adapter): a *structural* rule the
+   plan stated in advance for every adapter session, and which held for all
+   five formats without incident. The lesson is about the *undeclared* rule a
+   sibling only discovers by doing the work — decomposition cannot always
+   see this in advance, but the plan can reduce the blast radius by
+   sequencing a wave so that a downstream consumer's own early checkpoint (if
+   one exists before the full wave completes) is available to writeback into
+   siblings' followUps, or by explicitly flagging "shared fact vocabulary,
+   ordering unconfirmed" as a checkpoint-0 cross-check for every adapter
+   session sharing one. **1 cycle, 1 instance** — recorded now because Vow 3
+   has no threshold and the next multi-adapter or multi-producer wave is
+   exactly where it can fire again.
+
+### Cleanup scout (read-only; nothing deleted, nothing rewritten)
+
+Spot-checked two standing ledger items directly in source at `30396a9`
+(not re-derived from a session's own claim):
+
+| ID | Finding | Evidence at `30396a9` | Confidence | Blast radius | Proposed check | Status |
+|---|---|---|---|---|---|---|
+| CL-01 | `@types/libsodium-wrappers-sumo` inert pin | **Resolved.** `grep -n "@types/libsodium" package.json` returns nothing; only the real runtime dependency `libsodium-wrappers-sumo@0.8.4` remains. STATE.md's inherited-obligations table assigned this to S01 CP1 (S01 held the root manifests in F03) and the pin is gone. | high | root manifest | `pnpm install --frozen-lockfile && pnpm typecheck` (confirmatory only, not required) | **retired — resolved** |
+| CL-02 | `tests/browser/fixtures/smoke.module.css` proves a **unit**-runner setting from the browser fixtures dir | Still present at `tests/browser/fixtures/smoke.module.css`; no F03 session touched `tests/browser/fixtures/**` | medium | one fixture + one include glob | relocate, then `pnpm test` | tracking |
+| CL-03 | F01 value exports with no consumer (~17 at F02 close) | **Not re-scanned this pass** — a full whole-word grep across `src/`+`tests/` for the F02 list was not repeated; not re-derived without doing the check | low | none today | re-scan at F04 planning; classify per module | tracking (unchanged) |
+| CL-04 | Source and snapshot manifest decoders had no consumer | **Resolved.** `grep -rn "decodeSourceManifest\|decodeSnapshotManifest\|decodeSnapshotChunk" src tests` shows `decodeSnapshotManifest`/`decodeSnapshotChunk` consumed by `src/import/snapshots/sheet-snapshot.ts` (F03's `readSnapshotPage`), and `decodeSourceManifest` consumed by `tests/unit/staging/promotion.test.ts` and `tests/browser/worker/workbook-roots.ts` (F03's worker-tier journey, which decodes it from raw IndexedDB). | high | none (was D21's recoverability claim; now proven) | none needed | **retired — resolved** |
+| CL-05 | Exported-but-unconsumed value surface growing (92 symbols at F02 close) | **Not re-scanned this pass** — F03 added a large new surface (M03, M15–M20, M65) that a fresh scan would need to classify; not re-derived without doing the check | low | none today | re-scan at F04 planning per the standing Forge cleanup brief ("Prove or name every unconsumed export") | tracking (unchanged; likely larger, not measured) |
+
+No campaign crosses a briefing threshold this pass (two items resolved, none
+newly high-confidence). **No new cleanup brief emitted.** The standing F02
+brief ("Prove or name every unconsumed export") remains open and unaccepted;
+its scope (CL-03/CL-05) is unchanged in status, only unmeasured this pass.
+
+### Standing recommendations (full open backlog — carried forward from here)
+
+| id | pattern | cycles | in-cycle instances | first seen | status |
+| --- | --- | ---: | ---: | --- | --- |
+| `27bf4a350ec2f23c` | A dependency must-not ships as a test, not a review note | 3 | 5(F01)+3(F02)+5(F03) | F01 | promoted → PROGRAM-CONFIG Conventions |
+| `33dba11758afa4e2` | Encode a must-not as a type or a runtime throw | 3 | 5(F01)+8(F02)+3(F03) | F01 | promoted → PROGRAM-CONFIG Conventions |
+| `3e30962a53a57c2f` | Test filters take no bare `--` | 1 | 3 | F01 | promoted → PROGRAM-CONFIG Conventions; no F02 or F03 instance |
+| `f279893d1ad0a40d` | `Owns` authoritative, Files table indicative | 3 | 7(F01)+9(F02)+12+(F03) | F01 | promoted → Custom Rule 7; F03's first mirror-direction instance recorded |
+| `3ddf907567cd76e6` | Arch fragment head contract superseded by its own delta | 3 | 4(F01)+6(F02)+6(F03) | F01 | promoted → fragment policy; still firing each cycle |
+| `b73d9bab7c196038` | Lease or boundary sweep drawn over the wrong tree | 2 | 3(F02) | F01 | promoted at F02 interim → PROGRAM-CONFIG Conventions; held — 0 new instances F03 |
+| `d7d81c3b2cf8e9c9` | Closed union and its exhaustive map split across leases | 1 | 3 | F02 | promoted → PROGRAM-CONFIG Conventions; held — 0 new instances F03 (D42 pre-named the extender) |
+| `f823e9a910b0a671` | A delta describing another module | 2 | 4(F01)+4(F02) | F01 | promoted → fragment policy; held — 0 new instances F03 |
+| `442cb40af6e1a830` | No interim drift check scheduled below 16 sessions | 3 | 4(F01)+10(F02)+5(F03) | F01 | open (Vow 3 → ORCHESTRATOR.md); worsened in F03 — no ad-hoc mitigation applied at all |
+| `f1442f23b7f0949d` | Archivist envelope write set omits the cleanup ledger it is asked to own | 3 | 1(F01)+2(F02)+1(F03) | F01 | open (Vow 3 → ORCHESTRATOR.md) |
+| `b06241fe8526baa2` | Landed proof legs left in STATE's `planned:` list at receive | 1 | 13 | F02 | **adopted** — ORCHESTRATOR.md's receive step 7 CA/CAP status invariant; F03 shows zero recurrence |
+| `b027c25ef168decb` | STATE table rows that lose a cell go unnoticed | 1 | 6 | F02 | open (Vow 3 → ORCHESTRATOR.md); no new instance found in F03 (not exhaustively checked) |
+| `06e04ece038e736d` | A module no session leased has no route into its own fragment | 1 | 6 | F02 | open (Vow 3 → ORCHESTRATOR.md); 0 new instances F03 |
+| `3261d808a9c412da` | FORGE-CONFIG Verification Commands has no post-baseline maintainer | 1 | 2 | F01 | adopted (rule + supersession text exist); table itself is now two cycles behind (`5ab3b07`, not `30396a9`) — reported to Forge/Jikijitsu per its own text, not re-opened as a new recommendation |
+| `1a8974acd0d1350e` | Checkpoint boundary blur: capability bodies and proofs split across checkpoints | 2 | 2(F01)+0(F02) | F01 | retired — settled negative at F02; no F03 instance found either (32+31 checkpoints, one crash-driven recovery, not a sizing failure) |
+| `26e3bdf9a1e6dd6f` | Authorized contract change breaks a consumer outside the lease | 1 | 1 | F02 | not proposed — substance already present in the role docs |
+| `6fdb29d40829b4ec` | Files staged in the shared index from outside any lease | 1 | 3 | F01 | retired as an agent concern (environmental, proven F01); do not re-raise |
+| `1f54dec2254e8f15` | A declared serial-lease-handoff line for a source directory should name its paired test-directory handoff | 1 | 4 | F03 | open (Vow 3 → PLANNER.md) |
+| `1c51a85390a3f964` | A rule a concurrently-dispatched sibling session discovers mid-run has no channel to reach another concurrently-dispatched sibling building against the same shared fact vocabulary | 1 | 1 | F03 | open (Vow 3 → PLANNER.md) |
+
+### Verification of this pass
+
+- Every claim above traces to `git`/`STATE.md`/a run report/a line of source
+  read at `30396a9`, or a grep re-run at this pass (the `@zip.js`,
+  `@types/libsodium-wrappers-sumo`, and the three snapshot/source-manifest
+  decoder consumer checks were each executed fresh, not taken from a
+  session's own report).
+- Fragments re-read after writing. Thirty-nine fragments total (thirty-one
+  reconciled, eight untouched — M08, M09, M11, M39, M40, M41, M42, M50,
+  M55, confirmed by their own F03 session notes reporting no change, or by
+  the absence of any F03 delta), zero remaining
+  `<!-- workbook-fidelity ... -->` markers (`grep -rl` confirms), one
+  `## Change History` section per touched fragment, no fragment contradicting
+  a sibling — cross-checked in particular for M12/M23 (checkpoint roots),
+  M32/M37 (the closed-union contract), and M36/M43 (the import machine/review
+  screen shape), which each describe the same landed fact from two module
+  fragments and now agree.
+- `program-agents/PLANNER.md`, `CODER.md`, `UI-CODER.md`, `ORCHESTRATOR.md`
+  and `ARCHIVIST.md` byte-identical to how this pass found them — verified by
+  reading them read-only and never invoking a write tool against
+  `program-agents/**`. Read for adoption via targeted `grep`, which is how
+  the `planned:` recommendation changed status and the interim-check and
+  cleanup-ledger recommendations did not.
+- `STATE.md`, `MASTER.md`, session prompts, `specs/`, `mocks/`, `src/**`,
+  `tests/**` and the run folder untouched. Only `arch/**` (31 files),
+  `PROGRAM-CONFIG.md`, and this log entry were written.
+- Archivist did not choose product behavior, clear dispatch, mark evidence
+  verified, re-slice anything, or turn a finding into a mid-run human prompt.
+  GATE-F03 remains ACTIVE and the human's, unchanged by this pass.
+
