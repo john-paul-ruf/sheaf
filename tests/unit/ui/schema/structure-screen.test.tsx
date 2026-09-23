@@ -19,6 +19,10 @@ async function renderStructure(fieldId: string | null = null) {
     <StructureScreen
       app={identity}
       nav={nav}
+      onAddRule={vi.fn()}
+      onEditRule={vi.fn()}
+      onOpenFieldActions={vi.fn()}
+      onPropose={vi.fn()}
       onSelectField={onSelectField}
       onSelectTable={onSelectTable}
       vm={selectStructureVm(structure(), { tableId: IDS.jobs, fieldId })}

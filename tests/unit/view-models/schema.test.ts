@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { selectStructureVm, typeLabel } from "../../../src/application/view-models/schema.js";
-import { IDS, structure } from "../ui/schema/fixtures.js";
+import {
+  describeSchemaRefusal,
+  ruleValueFrom,
+  selectImpactVm,
+  selectStructureVm,
+  typeChoicesFor,
+  typeLabel,
+} from "../../../src/application/view-models/schema.js";
+import { IDS, preview, structure } from "../ui/schema/fixtures.js";
 
 /**
  * SCR-035's view model (S06 CP1): tables and fields in order, types in a
@@ -89,5 +96,64 @@ describe("selectStructureVm", () => {
     const vm = selectStructureVm(structure(), { tableId: "table-renamed-away", fieldId: "gone" });
     expect(vm.table?.tableId).toBe(IDS.jobs);
     expect(vm.field?.fieldId).toBe(IDS.name);
+  });
+});
+
+describe("selectImpactVm (MOD-014, CA-28)", () => {
+  it("says the counts that matter for the change, in exact numbers", () => {
+    const vm = selectImpactVm({
+      change: { kind: "change-field-type", fieldId: IDS.paid, type: { kind: "text" } },
+      preview: preview("change-field-type", { converted: 1, keptAndFlagged: 1, unchanged: 3 }),
+      structure: structure(),
+      wasStale: false,
+    });
+    expect(vm).toEqual({
+      title: "Change Paid to Text",
+      counts: [
+        "1 value converts to Text.",
+        "1 value does not fit and is kept as it was, flagged for review.",
+        "3 records need no change.",
+      ],
+      preservation: "Sheaf keeps every existing value. Nothing is discarded.",
+      applyLabel: "Apply and flag",
+      blocker: null,
+      staleNote: null,
+    });
+  });
+
+  it("blocks apply for a refusal or a too-large change, and marks a re-counted preview", () => {
+    const change = { kind: "rename-field", fieldId: IDS.paid, name: "" } as const;
+    const refused = selectImpactVm({
+      change,
+      preview: preview("rename-field", {}, { refusal: { kind: "formula", reason: "unknown-name", detail: "Qoted", position: 1 } }),
+      structure: structure(),
+      wasStale: true,
+    });
+    expect(refused.blocker).toBe("Sheaf does not know the name “Qoted” in this app.");
+    expect(refused.staleNote).toBe("This app changed on this device after the last preview. These are the counts now.");
+    const large = selectImpactVm({ change, preview: preview("rename-field", {}, { isTooLarge: true, eventCount: 10_001 }), structure: structure(), wasStale: false });
+    expect(large.blocker).toContain("10001 changes at once");
+  });
+
+  it("names every refusal in plain words", () => {
+    expect(describeSchemaRefusal({ kind: "unknown-subject", subject: "relationship" })).toBe("That connection is no longer in this app.");
+    expect(describeSchemaRefusal({ kind: "invalid-change", reason: "target-has-no-key" })).toContain("has no key");
+    expect(describeSchemaRefusal({ kind: "validation", recordCount: 3 })).toBe("After this change 3 records would fail the app's rules, so it cannot be applied.");
+    expect(describeSchemaRefusal({ kind: "formula", reason: "cell-reference", detail: "A1", position: 0 })).toContain("square brackets");
+  });
+});
+
+describe("the editors' choices", () => {
+  it("offers the kinds a field can change to, keeping a money field's own currency", () => {
+    expect(typeChoicesFor({ kind: "text" }).map((choice) => choice.value)).not.toContain("reference");
+    expect(typeChoicesFor({ kind: "currency", currencyCode: "USD" })[0]).toEqual({ value: "currency", label: "Money (USD)" });
+  });
+
+  it("types a rule's value by the compared field, refusing what does not fit", () => {
+    expect(ruleValueFrom("2026-09-23", { kind: "date" })).toEqual({ kind: "date", epochDay: 20719 });
+    expect(ruleValueFrom("2026-02-30", { kind: "date" })).toBeNull();
+    expect(ruleValueFrom("12.50", { kind: "number" })).toEqual({ kind: "number", decimal: "12.50" });
+    expect(ruleValueFrom("1e3", { kind: "currency", currencyCode: "USD" })).toBeNull();
+    expect(ruleValueFrom("  open ", { kind: "text" })).toEqual({ kind: "text", text: "open" });
   });
 });

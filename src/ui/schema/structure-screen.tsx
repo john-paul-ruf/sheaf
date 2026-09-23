@@ -1,11 +1,15 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type {
+  SchemaChangeVm,
   StructureCalculationVm,
-  StructureFieldVm,
+  StructureRuleVm,
   StructureTableVm,
   StructureVm,
 } from "../../application/view-models/schema.js";
+import { Button } from "../primitives/button.js";
 import { cx } from "../primitives/class-names.js";
+import { TextField } from "../primitives/text-field.js";
+import { FieldEditor } from "./field-editor.js";
 import { AppFrame, type AppIdentity, type AppNavigation } from "../records/app-frame.js";
 import styles from "./schema.module.css";
 
@@ -17,6 +21,10 @@ import styles from "./schema.module.css";
  * rules across fields and its live calculations. What is shown is what the
  * structure read holds and nothing more: a field's type in a person's words,
  * a rule as its sentence, a calculation in the app's own names (D58).
+ *
+ * Every editor proposes one change and the route previews it (MOD-014): the
+ * screen never applies anything, and says nothing is saved until the worker
+ * has confirmed the commit (invariant 1).
  */
 
 export interface StructureScreenProps {
@@ -25,6 +33,14 @@ export interface StructureScreenProps {
   readonly nav: AppNavigation;
   readonly onSelectTable: (tableId: string) => void;
   readonly onSelectField: (fieldId: string) => void;
+  /** One D59 change, to be previewed with its counts before anything is applied. */
+  readonly onPropose: (change: SchemaChangeVm) => void;
+  /** SHT-014 for the chosen field. */
+  readonly onOpenFieldActions: () => void;
+  readonly onAddRule: () => void;
+  readonly onEditRule: (rule: StructureRuleVm) => void;
+  /** The live-calculation editor on a computed field's calculation. */
+  readonly onEditCalculation?: (calculation: StructureCalculationVm) => void;
   /** A confirmed change's sentence (said after the commit, never before). */
   readonly announcement?: string;
   readonly topBarActions?: ReactNode;
@@ -38,6 +54,11 @@ export function StructureScreen({
   nav,
   onSelectTable,
   onSelectField,
+  onPropose,
+  onOpenFieldActions,
+  onAddRule,
+  onEditRule,
+  onEditCalculation,
   announcement,
   topBarActions,
   overlays,
@@ -115,86 +136,33 @@ export function StructureScreen({
           </aside>
 
           <div className={cx(styles["stack"])}>
-            {field !== null && <FieldDetail field={field} />}
-            {table !== null && <RulesSection table={table} />}
+            {field !== null && (
+              <FieldEditor
+                field={field}
+                key={`${field.fieldId}:${String(vm.schemaRevision)}`}
+                onOpenActions={onOpenFieldActions}
+                onPropose={onPropose}
+                tables={vm.tables}
+                {...(field.calculation === null || onEditCalculation === undefined
+                  ? {}
+                  : { onEditCalculation: () => { if (field.calculation !== null) onEditCalculation(field.calculation); } })}
+              />
+            )}
+            {table !== null && (
+              <RulesSection onAddRule={onAddRule} onEditRule={onEditRule} onPropose={onPropose} table={table} />
+            )}
             {table !== null && <CalculationsSection calculations={[...table.metrics]} title="Table metrics" />}
             {vm.dashboardValues.length > 0 && (
               <CalculationsSection calculations={[...vm.dashboardValues]} title="Dashboard values" />
+            )}
+            {table !== null && (
+              <TableSection key={`${table.tableId}:${String(vm.schemaRevision)}`} onPropose={onPropose} table={table} />
             )}
           </div>
         </div>
       </div>
       {overlays}
     </AppFrame>
-  );
-}
-
-function FieldDetail({ field }: { readonly field: StructureFieldVm }): ReactNode {
-  return (
-    <section aria-labelledby="field-title" className={cx(styles["panel"])} data-structure-detail={field.fieldId}>
-      <div className={cx(styles["head"])}>
-        <div className={cx(styles["headText"])}>
-          <span className={cx(styles["eyebrow"])}>{field.position}</span>
-          <h2 className={cx(styles["sectionTitle"])} id="field-title">
-            {field.name}
-          </h2>
-        </div>
-        {field.calculation !== null && <span className={cx(styles["badge"])}>{field.calculation.badge}</span>}
-      </div>
-      <dl className={cx(styles["facts"])}>
-        <dt>What kind of information?</dt>
-        <dd>{field.typeLabel}</dd>
-        <dt>Required</dt>
-        <dd>{field.isRequired ? "Every record needs a value" : "A record may leave it empty"}</dd>
-        {(field.isKey || field.isLabel) && (
-          <>
-            <dt>Role in the table</dt>
-            <dd>
-              {[field.isKey ? "Key: what other tables connect to" : null, field.isLabel ? "Label: what a record is called" : null]
-                .filter((part) => part !== null)
-                .join(" · ")}
-            </dd>
-          </>
-        )}
-        {field.connection !== null && (
-          <>
-            <dt>Connects to</dt>
-            <dd>{field.connection.isActive ? field.connection.toTableName : `${field.connection.toTableName} (turned off)`}</dd>
-          </>
-        )}
-        {!field.isActive && (
-          <>
-            <dt>Removed</dt>
-            <dd>Records keep this field&apos;s values; it is no longer shown or asked for.</dd>
-          </>
-        )}
-      </dl>
-      {field.options.length > 0 && (
-        <div className={cx(styles["stack"])}>
-          <span className={cx(styles["listTitle"])}>Choices</span>
-          <ol className={cx(styles["rows"])}>
-            {field.options.map((option, index) => (
-              <li className={cx(styles["row"])} data-option={option.optionId} key={option.optionId}>
-                <span aria-hidden="true" className={cx(styles["leading"])}>
-                  {index + 1}
-                </span>
-                <span className={cx(styles["rowCopy"])}>
-                  <strong>{option.label}</strong>
-                  {!option.isActive && <span className={cx(styles["hint"])}>Removed · records that hold it are flagged</span>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {field.calculation !== null && <Calculation calculation={field.calculation} />}
-      {field.connection?.evidence != null && (
-        <div className={cx(styles["notice"])}>
-          <strong>Why Sheaf chose this</strong>
-          <span>{field.connection.evidence}</span>
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -207,14 +175,27 @@ function Calculation({ calculation }: { readonly calculation: StructureCalculati
   );
 }
 
-function RulesSection({ table }: { readonly table: StructureTableVm }): ReactNode {
+function RulesSection({
+  table,
+  onAddRule,
+  onEditRule,
+  onPropose,
+}: {
+  readonly table: StructureTableVm;
+  readonly onAddRule: () => void;
+  readonly onEditRule: (rule: StructureRuleVm) => void;
+  readonly onPropose: (change: SchemaChangeVm) => void;
+}): ReactNode {
   return (
     <section aria-labelledby="rules-title" className={cx(styles["card"])} data-section="rules">
-      <div className={cx(styles["headText"])}>
-        <span className={cx(styles["eyebrow"])}>Rules across fields</span>
-        <h2 className={cx(styles["sectionTitle"])} id="rules-title">
-          {`A valid ${table.name}`}
-        </h2>
+      <div className={cx(styles["head"])}>
+        <div className={cx(styles["headText"])}>
+          <span className={cx(styles["eyebrow"])}>Rules across fields</span>
+          <h2 className={cx(styles["sectionTitle"])} id="rules-title">
+            {`A valid ${table.name}`}
+          </h2>
+        </div>
+        <Button onPress={onAddRule}>Add rule</Button>
       </div>
       {table.rules.length === 0 ? (
         <p className={cx(styles["lede"])}>{`No rule compares fields of ${table.name} yet.`}</p>
@@ -229,10 +210,56 @@ function RulesSection({ table }: { readonly table: StructureTableVm }): ReactNod
                 <strong>{rule.sentence}</strong>
                 <span className={cx(styles["hint"])}>{rule.severityNote}</span>
               </span>
+              <div className={cx(styles["rowActions"])}>
+                {rule.isEditable ? (
+                  <Button onPress={() => { onEditRule(rule); }}>{`Edit rule ${String(index + 1)}`}</Button>
+                ) : (
+                  <Button disabledReason="This rule came from the workbook in a shape this editor does not build; it can be removed." isDisabled>
+                    {`Edit rule ${String(index + 1)}`}
+                  </Button>
+                )}
+                <Button onPress={() => { onPropose({ kind: "remove-rule", ruleId: rule.ruleId }); }}>
+                  {`Remove rule ${String(index + 1)}`}
+                </Button>
+              </div>
             </li>
           ))}
         </ol>
       )}
+    </section>
+  );
+}
+
+/** The table itself: its name (rename-table). Its key and label are chosen on a field. */
+function TableSection({
+  table,
+  onPropose,
+}: {
+  readonly table: StructureTableVm;
+  readonly onPropose: (change: SchemaChangeVm) => void;
+}): ReactNode {
+  const [name, setName] = useState(table.name);
+  const trimmed = name.normalize("NFC").trim();
+  return (
+    <section aria-labelledby="table-title" className={cx(styles["card"])} data-section="table">
+      <div className={cx(styles["headText"])}>
+        <span className={cx(styles["eyebrow"])}>Table</span>
+        <h2 className={cx(styles["sectionTitle"])} id="table-title">
+          {table.name}
+        </h2>
+      </div>
+      <div className={cx(styles["inlineForm"])}>
+        <TextField inputId="structure-table-name" label="Table name" onChange={setName} value={name} />
+        {trimmed === "" || trimmed === table.name ? (
+          <Button disabledReason={trimmed === "" ? "A name cannot be empty." : "Type a new name first."} isDisabled>
+            Rename table
+          </Button>
+        ) : (
+          <Button onPress={() => { onPropose({ kind: "rename-table", tableId: table.tableId, name: trimmed }); }}>
+            Rename table
+          </Button>
+        )}
+      </div>
     </section>
   );
 }

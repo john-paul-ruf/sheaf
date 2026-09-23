@@ -289,7 +289,33 @@
   align-items: center;
 }
 
+/* A field and the one action that proposes it; the action wraps under the field at 320px. */
+.inlineForm {
+  display: grid;
+  gap: var(--space-8) var(--space-12);
+  align-items: end;
+  min-width: 0;
+}
+
+.countList {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding-left: var(--space-20);
+  font-weight: var(--weight-control);
+  line-height: var(--line-height-body);
+}
+
+.failure {
+  color: var(--color-danger-ink);
+  font-size: var(--text-supporting);
+}
+
 @media (min-width: 600px) {
+  .inlineForm {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .facts {
     grid-template-columns: minmax(8rem, 0.4fr) minmax(0, 1fr);
   }
