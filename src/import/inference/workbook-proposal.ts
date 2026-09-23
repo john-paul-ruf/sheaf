@@ -179,6 +179,11 @@ export interface ProposedInertItemV1 {
 
 export interface ProposedWorkbookV1 {
   readonly fileName: string;
+  /**
+   * True for a delimited file: one sheet, one table, F02's statements and F02's
+   * fingerprint inputs (so F02 decisions keep matching).
+   */
+  readonly isDelimited: boolean;
   readonly appName: string;
   /** Every sheet of the workbook in workbook order, selected or not (D39). */
   readonly sheets: readonly ProposedSheetV1[];

@@ -754,6 +754,7 @@ function proposeDelimited(
 
   return {
     fileName: context.fileName,
+    isDelimited: true,
     appName: name,
     sheets: [
       {
@@ -1253,6 +1254,7 @@ function proposeWorkbook(
   return applyRejectionMemory(
     {
       fileName: context.fileName,
+      isDelimited: false,
       appName: titleize(context.fileName),
       sheets: proposedSheets,
       tables,
