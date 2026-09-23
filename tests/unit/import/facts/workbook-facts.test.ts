@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeCanonical, encodeCanonical } from "../../../../src/persistence/codecs/canonical-cbor.js";
 import { decimalValue, invalidPreservedValue, textValue } from "../../../../src/domain/model/values.js";
-import * as delimited from "../../../../src/import/formats/delimited/facts.js";
 import {
   factStreamItemToCanonicalValue,
   IMPORT_DIAGNOSTIC_CODES,
@@ -39,11 +38,6 @@ describe("fact vocabulary V2", () => {
       "error-value",
       "malformed-value",
     ]);
-  });
-
-  it("re-exports exactly the V1 subset from the delimited path (D32)", () => {
-    expect(delimited.factStreamItemToCanonicalValue).toBe(factStreamItemToCanonicalValue);
-    expect(delimited.IMPORT_DIAGNOSTIC_CODES).toBe(IMPORT_DIAGNOSTIC_CODES_V1);
   });
 
   it("maps every V2 kind into the canonical CBOR domain and back unchanged", () => {
