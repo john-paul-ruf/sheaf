@@ -141,3 +141,17 @@ reported in their sessions' handoffs per CA-07's own rule.
 
 **M54 Routes**
 - `route-table.tsx` composes `WorkbookPreflightScreen` (SCR-018/019 workbook steps), wires `SET_DESTINATION`, `TOGGLE_SHEET`, `CLEAR_ALL`, `COPY_HANDOFF` (via injected `copyText`), and sends review edits verbatim. Post-create landing: new app → `appPath(appId)`; append → `tablePath(appId, appendedTableId)`.
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M54 Routes — CA-07 amendment 3**
+- `APP_AREA_PATH` now matches eight shapes, adding `/app/{id}/snapshots` and
+  `/app/{id}/snapshots/{sheetId}`. Both are unlocked-only. New helpers:
+  `appSnapshotsPath` and `snapshotPath`.
+- An unknown sheet id renders the truthful notice "That sheet snapshot is not
+  in this app." at the path, with "All snapshots". This follows the amendment 2
+  precedent.
+- New files (CR7): `src/routes/app-area-hooks.tsx` (`AppAreaWiring`,
+  `useTableSwitcher`, `useListReferences`, `referenceSearchFor`) and
+  `src/routes/snapshot-routes.tsx` (`SnapshotsRoute`, `SnapshotViewerRoute`).

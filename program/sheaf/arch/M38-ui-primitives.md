@@ -97,3 +97,10 @@ this is a test-visibility constraint only.
 
 **M38 UI primitives**
 - New `checkbox.tsx` + `checkbox.module.css` (CTL-043): React Aria `Checkbox`, whole row is the 44px target; `isDisabled` requires `disabledReason` (type-held, like `Button`). No CTL-068 wrapper was needed (SCR-017's app list is CTL-044 radios).
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M38 UI primitives**
+- `TextField` gains an optional `inputId`, so a caller can move focus to the
+  input (the SHT-016 "Find in sheet" option).

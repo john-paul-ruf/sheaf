@@ -70,3 +70,16 @@ FORGE-CONFIG's corpus-owner rule.
 **M61 E2E**
 - New `workbook-import.spec.ts` (demo journey + reload, handoff + clipboard, subset, macro + unsafe refusals, workbook cancel, streamed failure naming stage + raw diagnostic, XLSB/XLS/ODS/HTML-as-XLS smokes, axe + 320px) and `append-import.spec.ts` (TSV into the demo app → lands on the new table → reload; over-segment file refused at pre-flight; axe + 320px). All run under `fixtures/no-network.ts`.
 - `import-flow.spec.ts` and `gate-f02-demo.spec.ts`: the `.xlsx` refusal legs now use `unsafe/payroll.xlsm` (headers state it); SCR-016 later-release and SCR-017 D18 copy assertions follow D19/D38.
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M61 E2E — `tests/e2e/`**
+- New shared fixture `fixtures/workbook.ts`. It holds S07's workbook steps,
+  moved out of `workbook-import.spec.ts`, plus `rejectConnection`,
+  `VISITS_TO_JOBS` and `importDemoWorkbook(page, {allSheets})`.
+- New specs: `relationships.spec.ts` (CAP-24), `snapshots.spec.ts` (CAP-25,
+  plus CAP-23's full 7-sheet selection with a reload) and
+  `gate-f03-demo.spec.ts` (the GATE-F03 script at 320 px with no network).
+  `route-guards.spec.ts` gains the amendment 3 rows.
+- Suite size: 57 e2e tests.

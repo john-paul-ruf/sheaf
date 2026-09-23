@@ -194,3 +194,13 @@ was verified to fail 5 of 6 against the pre-correction machine.
 - `promoting` accepts under `proposal.appName` (the reviewed name; regression fixed: the SCR-017 name used to win over a review rename). An append reads `listTables` before and after the commit and records the new table id.
 - `PARSER_STOP_TIMEOUT_MS` stays 5,000 ms (S06 measured xlsx cancel 13.5–17.9 ms, ~280× headroom).
 - Services: `ACCEPTED_FLOWS = ["delimited","workbook"]` sent on `startImport` (D48 flipped); `beginStage(Omit<BeginImportStageRequestV1,"kind">)`, `proceed({stageId, selectedSheets?})`, new `listLibrary()`, `listTables({appId})`. S06's mechanical `singleTableProposal` / `workbookEditOf` are removed.
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M36 Workflows — `src/application/workflows/records-services.ts`**
+- `RecordsServices` gains nine reads bound verbatim to S03's RPCs (CA-21/CA-22):
+  `getRelatedRecords`, `getRelatedChildren`, `searchReferenceCandidates`,
+  `getDeletedRecord`, `listTables`, `listSheetSnapshots`, `getSnapshotPage`
+  (≤ 1,000 rows/page), `findInSnapshot`, `listInertItems`. Each is a straight
+  `port.send({kind, ...})`, with no reshaping.

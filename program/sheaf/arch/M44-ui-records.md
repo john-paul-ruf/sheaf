@@ -114,3 +114,19 @@ Two are beyond the plan's Files table (Custom Rule 7):
   in; the seeded "F02 scope" paragraph rewritten as landed scope; the M54
   section that was stapled into this fragment moved to `M54-routes.md`, where
   CA-07's amendment belongs.
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M44 UI records — `src/ui/records/`**
+- New: `reference-picker-sheet.tsx` (SHT-002; `ReferencePickerSheet`, and
+  `ReferenceSearchBody`, which MOD-011 shares), `repair-reference-dialog.tsx`
+  (MOD-011), `table-switcher-sheet.tsx` (SHT-003; `TableSwitcherTrigger`,
+  `TableSwitcherSheet`), `snapshots-screen.tsx` (SCR-030),
+  `snapshot-viewer-screen.tsx` (SCR-031), `snapshot-options-sheet.tsx`
+  (SHT-016).
+- Modified: record detail ("Belongs to", "Has many", "Missing related
+  record"), record form (a reference field opens SHT-002), records/app home
+  (switcher and reference labels), change history (table names), restore
+  dialog (MOD-010 original values), app frame (`AppArea` adds `"snapshots"`),
+  and `values.ts` (`describeReference`).

@@ -178,3 +178,31 @@ exactly one consumer and depends on the fact beside it, so it lives on its VM
 - `PromotionIssueGroupVm` gains `columnKey`, `fieldName` and `tableName`, mapped
   through the current (reviewed) proposal's tables. They are `null` when the
   issue has no column or the review no longer has that column.
+
+<!-- workbook-fidelity SESSION-08 -->
+### workbook-fidelity SESSION-08 (2026-09-23, commits eba5790..30396a9)
+
+**M37 View models — `src/application/view-models/records.ts`**
+- **Snapshot VMs live in `records.ts`.** The planned `snapshots.ts` was not
+  created. Its unit test (`tests/unit/view-models/snapshots.test.ts`) imports
+  from `records.ts`.
+- Relationships: `RecordLabelV1` (branded; `toRecordLabel`, and
+  `UNLABELLED_RECORD` so an unresolved label never renders blank),
+  `ReferenceCellVm` = resolved `{label, href}` | broken `{originalKey,
+  relationName}` (type-held: a broken cell cannot exist without its key),
+  `toReferenceCell`, `BelongsToVm`, `MissingReferenceVm`, `HasManyVm` /
+  `selectHasManyVm`, `RelatedRecordVm`, `RecordDetailContext`,
+  `ReferencePickerVm` / `ReferenceCandidateVm` / `selectReferencePickerVm`,
+  `TableSwitcherVm` / `selectTableSwitcherVm`.
+- Snapshots: `SheetUseTagV1` + `SHEET_USE_LABEL` + `sheetUseTag`
+  ("Interactive table" / "Read-only snapshot" / "Mixed use"),
+  `selectSnapshotsListVm`, `inertKindName`, `describeInertCount`,
+  `INERT_REASON_SENTENCE` (exhaustive over the inert reason keys),
+  `toInertItemVm`, `columnLetters`, `SNAPSHOT_PAGE_ROWS = 50`,
+  `pageStartFor`, `selectSnapshotViewerVm` (CP4 adds
+  `previousFirstRow`/`nextFirstRow`, so the pager does not derive page size
+  from a short last page), `toSnapshotFindVm`, `liveTableForSheet`,
+  `selectSnapshotOptionsVm`, and `EXPORT_SHEET_LATER` ("Export arrives in a
+  later release.", owner F07).
+- The inherited plural fix (the "values need attention" and "changes since…"
+  live-region strings) plus history entries naming their table.
