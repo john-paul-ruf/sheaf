@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
  * dependency must-not ships as a test, not a review note". The rules are a
  * pure function over a source map so each has a negative control.
  */
-const MINIMUM_SOURCES = 12;
+const MINIMUM_SOURCES = 14;
 
 const readSources = async (directory: string): Promise<Map<string, string>> => {
   const sources = new Map<string, string>();
