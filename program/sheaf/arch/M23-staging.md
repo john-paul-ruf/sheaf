@@ -214,3 +214,8 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M09
   original single-page defect are stated as one history rather than as a
   standalone owner-correction note the reader has to reconstruct; carried
   debt consolidated into one list with owners.
+
+<!-- formulas-queries-charts SESSION-02 -->
+### F04 delta — SESSION-02 (M23 — staging (`src/import/staging/fact-codec.ts`))
+
+- Decodes the optional `definition` with exact keys and closed sets. A definition on any other part kind, or a chart definition on a pivot (or the reverse), is a `CodecError`. Absent stays absent, so pre-F04 staged chunks are byte-identical.

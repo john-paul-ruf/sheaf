@@ -95,3 +95,13 @@ checkpoint digest now goes through `checkpointSemanticBody`.
   F02 workaround note extended with F03's actual precedent (a shared,
   planned-for-reuse toolkit) as evidence the rule is being followed, not just
   cited.
+
+<!-- formulas-queries-charts SESSION-02 -->
+### F04 delta — SESSION-02 (M58 — fixtures)
+
+- `ooxml-builder.ts`:
+  - `ChartSpec extends AnchorSpec {type?, barDir?, grouping?, title?, series?: ChartSeriesSpec[]}` with `ChartSeriesSpec {name?, nameRef?, cat?, val?, x?, y?}`. Without `type`, the part keeps F03's empty `c:chart` bytes.
+  - `PivotSpec {name, ref, cache?: {fields, source: {sheet, ref} | {name}, rowFields?, colFields?, dataFields?: {name, fld, subtotal?}[]}}`. Without `cache`, the parts stay F03's bare shells.
+- New fixture `ooxml/charts.xlsx` (FIDELITY_WORKBOOKS): nine charts covering clustered/stacked/percentStacked bars, line, pie, doughnut, scatter, area, and a series spanning two sheets.
+- `ooxml/pivot-table.xlsx`: a real cache over `Data!A1:B4`, one row field, and data fields for sum (default) and count. The pivot is at `Summary!A3:C5`.
+- `ooxml/fieldwork-q3.xlsx`: the Overview chart is now a clustered column chart, "Quoted by status", with name `Jobs!$E$1`, cat `Jobs!$D$2:$D$61`, val `Jobs!$E$2:$E$61`. Every `DEMO_*` pin is unchanged.

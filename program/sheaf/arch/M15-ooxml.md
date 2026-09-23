@@ -66,3 +66,13 @@ the first narrow journey (S06 CP3) and every subsequent e2e/gate proof.
   adapter.
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-01 delta
   folded into "Landed surface"; no contradiction found.
+
+<!-- formulas-queries-charts SESSION-02 -->
+### F04 delta — SESSION-02 (M15 — OOXML adapter (`src/import/formats/ooxml/`))
+
+- New `charts.ts`: `readChartDefinition(zip, partPath) → PartDefinitionReadV1<ChartPartDefinitionV1>`. It does a bounded streaming read to the end of `c:chart`. The first `c:plotArea` plot element sets the type; a combo (more than one plot) → `other`. Cached points are never read.
+  - Also exports `PartDefinitionReadV1<T>` (`{definition, refusal: null} | {definition: null, refusal}`), `PartDefinitionRefusalV1` (`not-declared | over-bounds | unsupported-source | UnreadableDetailV1`) and `refusedDefinition`.
+  - A refusal (DTD, bounds, no plot) is contained: the fact stays F03's, without a definition.
+- New `pivots.ts`: `readPivotDefinition(zip, pivotPart)`. It reads `pivotTableDefinition` (rowFields/dataFields), follows the pivot part's own `pivotCacheDefinition` relationship, and reads `cacheSource`/`worksheetSource`/`cacheFields`. `pivotCacheRecords` is never opened.
+- `sheet.ts`: `preservedPart(...)` takes an optional 5th `definition` argument. The drawing (chart) and `pivottable` relationship cases attach definitions. Chart sheets reach charts through their drawing, so the same path applies.
+- No new import edges: the `ooxml` → M13 (`source/*`) and M65 (`facts/*`) edges already existed.

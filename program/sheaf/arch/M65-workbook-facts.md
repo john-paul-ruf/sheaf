@@ -114,3 +114,13 @@ fix.
   named F03 subsections, so the transition from "V1 lives in M19" to "V1 and
   V2 live only in M65" reads as one completed history rather than three
   separate, chronologically ambiguous notes.
+
+<!-- formulas-queries-charts SESSION-02 -->
+### F04 delta — SESSION-02 (M65 — workbook facts (`src/import/facts/workbook-facts.ts`) — additive public API)
+
+- `preserved-part` gains `readonly definition?: ChartPartDefinitionV1 | PivotPartDefinitionV1`. It is present only on `partKind` `chart` (chart definition) or `pivot-table` (pivot definition) whose part was read within its bounds. Otherwise the key is absent (never `undefined`). No new fact kind, reason key, or diagnostic code.
+- New closed sets: `CHART_PART_TYPES` (`bar|line|pie|scatter|area|other`), `CHART_BAR_DIRECTIONS` (`bar|col`), `CHART_GROUPINGS` (`clustered|stacked|percentStacked|standard`), `PIVOT_SUBTOTALS` (`sum|count|average|min|max`).
+- New types: `ChartPartSeriesV1 {name, categoriesRef, valuesRef, xRef, yRef}` (all `string|null`), `ChartPartDefinitionV1 {chartType, barDirection|null, grouping|null, title|null, series[]}`, `PivotPartDefinitionV1 {sourceSheet|null, sourceRef, rowFields: string[], dataFields: {cacheFieldName, subtotal}[]}`.
+- Bounds: `CHART_PART_MAX_SERIES` 64, `CHART_PART_MAX_REF_LENGTH` 1024, `CHART_PART_MAX_TITLE_LENGTH` 256 (code points, NFC), `PIVOT_PART_MAX_FIELDS` 256.
+- Guard: `isChartPartDefinition(definition)`.
+- Canonical mapping: the `definition` key is appended to the preserved-part map only when present. Chart map keys: `chartType, barDirection, grouping, title, series[{name, categoriesRef, valuesRef, xRef, yRef}]`. Pivot map keys: `sourceSheet, sourceRef, rowFields, dataFields[{cacheFieldName, subtotal}]`.
