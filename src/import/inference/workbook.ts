@@ -55,6 +55,7 @@ import {
   type WorkbookStructureFactV1,
 } from "../facts/index.js";
 import { classifySheet } from "./classify.js";
+import { CHART_PART_KINDS, deriveChartSurface, mapChartPart, type ChartTableV1 } from "./charts.js";
 import { countInert, refreshFormulas, type FormulaIdentitiesV1 } from "./formulas.js";
 import { chooseKey, chooseLabel, type KeyedColumnV1 } from "./keys.js";
 import {
@@ -92,6 +93,7 @@ import {
 } from "./types.js";
 import { readDecimal, serialToEpochDay, sourceTextOfCellValue } from "./values.js";
 import {
+  type ProposedChartV1,
   type ProposedFormulaV1,
   type ProposedInertItemV1,
   type ProposedRecordRuleV1,
@@ -920,6 +922,7 @@ function proposeDelimited(
     relationships: [],
     recordRules: [],
     formulas: [],
+    charts: [],
     inertItems: [],
     inertCounts: countInert([]),
     statements,
@@ -1128,6 +1131,36 @@ function proposeWorkbook(
   const tables: ProposedTableV2[] = [];
   const recordRules: ProposedRecordRuleV1[] = [];
   const formulas: ProposedFormulaV1[] = [];
+  const charts: ProposedChartV1[] = [];
+  // What a chart may plot: every standalone table, with its data rows and column types.
+  const chartTables: ChartTableV1[] = drafts
+    .filter((draft) => draft.candidate.joinedTo === null)
+    .map((draft) => {
+      const { measured, declared } = draft.candidate;
+      return {
+        tableKey: draft.candidate.tableKey,
+        tableName: draft.tableName,
+        sheetName: draft.candidate.sheet.info.name,
+        declaredName: declared?.name ?? null,
+        headerRowIndex: measured.headerRowIndex,
+        firstDataRow: (measured.headerRowIndex ?? measured.firstRowIndex - 1) + 1,
+        lastDataRow:
+          measured.dataRowCount === 0 ? null : declared === null ? measured.lastRowIndex : declared.range.lastRow - declared.totalsRowCount,
+        columns: draft.fields.map(({ field, stats }, relative) => ({
+          columnKey: field.columnKey,
+          columnIndex: field.columnIndex,
+          heading: (declared?.columns ?? measured.headerCells)?.[relative] ?? field.fieldName,
+          fieldName: field.fieldName,
+          typeKind: field.type.kind,
+          repeats: stats.distinctOverflow || stats.distinct.size < stats.nonEmpty,
+        })),
+      };
+    });
+  const definedNameRef = (name: string): string | null =>
+    (
+      definedNames.find((candidate) => sameName(candidate.name, name) && candidate.sheetIndex === null) ??
+      definedNames.find((candidate) => sameName(candidate.name, name))
+    )?.ref ?? null;
   const inertItems: ProposedInertItemV1[] = [];
   const roles = new Map<SheetState, readonly SheetRoleV1[]>();
 
@@ -1181,8 +1214,27 @@ function proposeWorkbook(
       say([sheetName, role], "sheet-classification", `${sheetKey}.${role}`, null, "reject-statement", evidence);
     }
 
+    // D55: a chart or pivot that maps faithfully is rebuilt; every other one,
+    // and every sparkline, is a snapshot with the F04 reason.
+    let chartOrdinal = 0;
     for (const part of sheet.preserved) {
-      inertItems.push({ kind: part.partKind, sheetKey, location: part.location, reasonKey: part.reasonKey, anchor: part.anchor });
+      if (part.partKind === "chart" || part.partKind === "pivot-table") {
+        const chart = mapChartPart(
+          { sheetKey, ordinal: chartOrdinal, partKind: part.partKind, location: part.location, anchor: part.anchor, definition: part.definition },
+          chartTables,
+          definedNameRef,
+        );
+        chartOrdinal += 1;
+        if (chart !== null) {
+          charts.push(chart);
+          say([sheetName, chart.chartKey.slice(sheetKey.length + 1)], "chart", chart.chartKey, null, "reject-statement", [
+            { kind: "preserved-part", partKind: part.partKind, count: 1 },
+          ]);
+          continue;
+        }
+      }
+      const reasonKey = CHART_PART_KINDS.has(part.partKind) ? "chart-not-rebuilt" : part.reasonKey;
+      inertItems.push({ kind: part.partKind, sheetKey, location: part.location, reasonKey, anchor: part.anchor });
     }
 
     for (const draft of onSheet) {
@@ -1448,6 +1500,7 @@ function proposeWorkbook(
       relationships: detected.relationships,
       recordRules,
       formulas,
+      charts,
       inertItems,
       inertCounts: countInert(inertItems),
       statements,
@@ -1458,5 +1511,5 @@ function proposeWorkbook(
     context.fingerprintOf,
   );
   // After the memory: a remembered rejection (a relationship, say) changes what a formula becomes.
-  return refreshFormulas(remembered, context.formulaIdentities);
+  return deriveChartSurface(refreshFormulas(remembered, context.formulaIdentities));
 }

@@ -242,6 +242,12 @@ export function describeStatement(
       return describeClassification(key, index.sheets);
     case "record-rule":
       return "A validation rule from the workbook will check every record.";
+    case "chart": {
+      const mapping = statement.evidence.find((evidence) => evidence.kind === "chart-mapping");
+      return mapping?.kind === "chart-mapping"
+        ? `“${mapping.chartName}” is rebuilt as a live chart from “${mapping.tableName}”.`
+        : "A workbook chart is rebuilt as a live chart.";
+    }
   }
 }
 

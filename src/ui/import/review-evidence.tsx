@@ -136,7 +136,33 @@ export function evidenceTag(evidence: EvidenceVm, isExcel = true): string {
         : evidence.disposition === "frozen"
           ? "Frozen at import"
           : "Needs attention";
+    case "chart-mapping":
+      return "Workbook chart";
   }
+}
+
+type ChartMappingVm = Extract<EvidenceVm, { kind: "chart-mapping" }>;
+
+/** D62's chart evidence line: what grouping does to a chart Excel drew row by row. */
+function describeMapping(evidence: ChartMappingVm): string {
+  if (evidence.chartType === "scatter") {
+    return `It plots “${evidence.yFieldName ?? ""}” against “${evidence.xFieldName ?? ""}” from “${evidence.tableName}”, one point per record.`;
+  }
+  const field = `“${evidence.measureFieldName ?? ""}”`;
+  const measure =
+    evidence.measure === "count"
+      ? "counts them"
+      : evidence.measure === "average"
+        ? `averages ${field}`
+        : evidence.measure === "min"
+          ? `keeps the lowest ${field}`
+          : evidence.measure === "max"
+            ? `keeps the highest ${field}`
+            : `adds ${field}`;
+  const group = `“${evidence.groupFieldName ?? ""}”`;
+  return evidence.categoriesRepeat
+    ? `Excel plotted each row; Sheaf groups rows with the same ${group} and ${measure}.`
+    : `It groups the rows of “${evidence.tableName}” by ${group} and ${measure}.`;
 }
 
 type FormulaOutcomeVm = Extract<EvidenceVm, { kind: "formula-outcome" }>;
@@ -294,6 +320,8 @@ export function describeEvidence(evidence: EvidenceVm): string {
       return "You rejected this in an earlier import, so it is proposed as rejected.";
     case "formula-outcome":
       return describeOutcome(evidence);
+    case "chart-mapping":
+      return describeMapping(evidence);
   }
 }
 

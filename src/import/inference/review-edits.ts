@@ -26,6 +26,7 @@
 
 import { isNfcText } from "../../domain/model/values.js";
 import type { DateSystemV1 } from "../facts/index.js";
+import { deriveChartSurface } from "./charts.js";
 import { refreshFormulas, type FormulaIdentitiesV1 } from "./formulas.js";
 import type { ProposedAppV1, ProposedFieldV1, ProposedRowV1 } from "./infer.js";
 import { fieldNamesFrom, type WorkbookDiscardedRowV1 } from "./regions.js";
@@ -462,7 +463,7 @@ export type WorkbookReviewEditV1 =
   | { readonly kind: "reject-relationship"; readonly relationshipKey: string }
   | { readonly kind: "restore-relationship"; readonly relationshipKey: string }
   | { readonly kind: "retarget-relationship"; readonly relationshipKey: string; readonly toTableKey: string }
-  /** For `table-split`, `table-merge`, `sheet-classification`, `record-rule` and `formula` statements. */
+  /** For `table-split`, `table-merge`, `sheet-classification`, `record-rule`, `formula` and `chart` statements. */
   | { readonly kind: "reject-statement"; readonly statementId: string }
   | { readonly kind: "restore-statement"; readonly statementId: string }
   | { readonly kind: "set-key"; readonly tableKey: string; readonly columnKey: string | null }
@@ -494,6 +495,7 @@ const REJECTABLE_SUBJECTS: ReadonlySet<WorkbookInferenceSubjectV1> = new Set([
   "sheet-classification",
   "record-rule",
   "formula",
+  "chart",
 ]);
 
 const refuse = (reason: WorkbookReviewEditRejectionV1): ReviewEditResultV2 => ({ kind: "rejected", reason });
@@ -671,9 +673,10 @@ export function applyWorkbookReviewEdit(
   formulaIdentities?: FormulaIdentitiesV1,
 ): ReviewEditResultV2 {
   const result = applyEdit(proposal, edit);
-  return result.kind === "applied" && formulaIdentities !== undefined
-    ? { kind: "applied", proposal: refreshFormulas(result.proposal, formulaIdentities) }
-    : result;
+  if (result.kind === "rejected") return result;
+  const formulas = formulaIdentities === undefined ? result.proposal : refreshFormulas(result.proposal, formulaIdentities);
+  // A rename or a type change moves what the chart evidence names.
+  return { kind: "applied", proposal: deriveChartSurface(formulas) };
 }
 
 function applyEdit(proposal: ProposedWorkbookV1, edit: WorkbookReviewEditV1): ReviewEditResultV2 {

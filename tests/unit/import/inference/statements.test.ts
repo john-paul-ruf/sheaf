@@ -45,6 +45,8 @@ describe("CA-19 — the decision-kind mapping", () => {
       "record-rule": "record-rule",
       "table-key": null,
       "table-label": null,
+      // F04 (S07): a rebuilt chart has no migration 005 decision kind.
+      chart: null,
     });
     // Total: every projectable kind is reached by exactly one subject.
     const reached = WORKBOOK_INFERENCE_SUBJECTS.map(decisionKindOf).filter((kind) => kind !== null);

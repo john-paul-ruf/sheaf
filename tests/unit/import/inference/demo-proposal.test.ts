@@ -229,8 +229,25 @@ const ALL_SHEETS = {
     ["s5.R5C2", "dashboard-value", "Paid total", "SUM(Jobs!F2:F61)", "Overview!B5", 1, "live", "deterministic", null, null, true],
     ["s5.R6C2", "dashboard-value", "Balance", "B4-B5", "Overview!B6", 1, "live", "deterministic", null, null, true],
   ],
-  // F04: formulas now live — the three formula items (two columns, the Overview cells) are gone.
-  inertCounts: { chart: 1, drawing: 2, "cell-styling": 7 },
+  // F04 (S07): the Overview chart, rebuilt (D55): a bar of the summed Quoted
+  // amount per Status, grouping the rows Excel plotted one by one.
+  charts: [
+    [
+      "s5.chart0",
+      "chart",
+      "Overview!D2:K18",
+      "Quoted by status",
+      "bar",
+      "s0.t0",
+      { kind: "field", columnKey: "s0.t0.c3" },
+      { kind: "sum", columnKey: "s0.t0.c4" },
+      true,
+      true,
+    ],
+  ],
+  // F04: formulas and the chart now live — the three formula items (two columns,
+  // the Overview cells) and the Overview chart are no longer inert.
+  inertCounts: { drawing: 2, "cell-styling": 7 },
   statements: [
     [
       "app-name",
@@ -975,6 +992,15 @@ const ALL_SHEETS = {
       ["preserved-part"],
       "accepted",
       "[\"sheaf.inference.v2\",\"sheet-classification\",\"Overview\",\"chart\",\"preserved-part\",\"chart\"]",
+    ],
+    // F04: the Overview chart is rebuilt (D55), its own rejectable statement.
+    [
+      "chart:s5.chart0",
+      "chart",
+      "reject-statement",
+      ["preserved-part", "chart-mapping"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"chart\",\"Overview\",\"chart0\",\"preserved-part\",\"chart\"]",
     ],
     // F04: the Overview summary formulas are dashboard values now, each its own statement.
     [
@@ -1321,8 +1347,25 @@ const ARCHIVE_DESELECTED = {
     ["s5.R5C2", "dashboard-value", "Paid total", "SUM(Jobs!F2:F61)", "Overview!B5", 1, "live", "deterministic", null, null, true],
     ["s5.R6C2", "dashboard-value", "Balance", "B4-B5", "Overview!B6", 1, "live", "deterministic", null, null, true],
   ],
-  // F04: formulas now live — the three formula items (two columns, the Overview cells) are gone.
-  inertCounts: { chart: 1, drawing: 2, "cell-styling": 6 },
+  // F04 (S07): the Overview chart, rebuilt (D55): a bar of the summed Quoted
+  // amount per Status, grouping the rows Excel plotted one by one.
+  charts: [
+    [
+      "s5.chart0",
+      "chart",
+      "Overview!D2:K18",
+      "Quoted by status",
+      "bar",
+      "s0.t0",
+      { kind: "field", columnKey: "s0.t0.c3" },
+      { kind: "sum", columnKey: "s0.t0.c4" },
+      true,
+      true,
+    ],
+  ],
+  // F04: formulas and the chart now live — the three formula items (two columns,
+  // the Overview cells) and the Overview chart are no longer inert.
+  inertCounts: { drawing: 2, "cell-styling": 6 },
   statements: [
     [
       "app-name",
@@ -2068,6 +2111,15 @@ const ARCHIVE_DESELECTED = {
       "accepted",
       "[\"sheaf.inference.v2\",\"sheet-classification\",\"Overview\",\"chart\",\"preserved-part\",\"chart\"]",
     ],
+    // F04: the Overview chart is rebuilt (D55), its own rejectable statement.
+    [
+      "chart:s5.chart0",
+      "chart",
+      "reject-statement",
+      ["preserved-part", "chart-mapping"],
+      "accepted",
+      "[\"sheaf.inference.v2\",\"chart\",\"Overview\",\"chart0\",\"preserved-part\",\"chart\"]",
+    ],
     // F04: the Overview summary formulas are dashboard values now, each its own statement.
     [
       "formula:s5.R3C2",
@@ -2124,14 +2176,14 @@ describe("CA-19 — the pinned demo proposal", () => {
   it("proposes exactly this for fieldwork-q3.xlsx with every sheet selected", async () => {
     const proposal = await proposeFixture(DEMO, [0, 1, 2, 3, 4, 5, 6]);
     expect(pinOf(proposal)).toEqual(ALL_SHEETS);
-    // F04: 108 → 112, the four Overview dashboard values each gain a statement.
-    expect(proposal.statements).toHaveLength(112);
+    // F04: 108 → 113: the four Overview dashboard values and the rebuilt chart each gain a statement.
+    expect(proposal.statements).toHaveLength(113);
   });
 
   it("proposes exactly this with Archive 2018 deselected", async () => {
     const proposal = await proposeFixture(DEMO, [0, 1, 2, 3, 4, 5]);
     expect(pinOf(proposal)).toEqual(ARCHIVE_DESELECTED);
-    // F04: 95 → 99, the four Overview dashboard values each gain a statement.
-    expect(proposal.statements).toHaveLength(99);
+    // F04: 95 → 100: the four Overview dashboard values and the rebuilt chart each gain a statement.
+    expect(proposal.statements).toHaveLength(100);
   });
 });

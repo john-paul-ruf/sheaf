@@ -380,6 +380,7 @@ export function workbookWire(f02: ProposedAppWireV1): ProposedWorkbookWireV1 {
     relationships: [],
     recordRules: [],
     formulas: [],
+    charts: [],
     inertItems: [],
     inertCounts: {
       formula: 0,

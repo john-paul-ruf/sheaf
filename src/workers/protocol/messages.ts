@@ -1184,7 +1184,8 @@ export type WorkbookInferenceSubjectWireV1 =
   | "sheet-classification"
   | "record-rule"
   | "table-key"
-  | "table-label";
+  | "table-label"
+  | "chart";
 
 export type WorkbookReviewEditKindWireV1 =
   | ReviewEditKindWireV1
@@ -1294,7 +1295,43 @@ export type WorkbookEvidenceWireV1 =
       readonly rowCount: number | null;
       readonly shapeBreakRowIndex: number | null;
       readonly relatedTableName: string | null;
+    }
+  | {
+      readonly kind: "chart-mapping";
+      readonly chartType: ChartTypeWireV1;
+      readonly chartName: string;
+      readonly tableName: string;
+      readonly groupFieldName: string | null;
+      readonly measure: "count" | "sum" | "average" | "min" | "max" | null;
+      readonly measureFieldName: string | null;
+      readonly xFieldName: string | null;
+      readonly yFieldName: string | null;
+      readonly categoriesRepeat: boolean;
     };
+
+/** migration 005's chart types (D54), restated. */
+export type ChartTypeWireV1 = "bar" | "line" | "pie" | "scatter" | "stacked";
+
+/** An OOXML chart or pivot rebuilt as a chart, by key (S07's `ProposedChartV1`, D55). */
+export interface ProposedChartWireV1 {
+  readonly chartKey: string;
+  readonly sheetKey: string;
+  readonly partKind: "chart" | "pivot-table";
+  readonly location: string;
+  readonly anchor: RangeWireV1 | null;
+  readonly name: string;
+  readonly type: ChartTypeWireV1;
+  readonly tableKey: string;
+  readonly groupBy: { readonly kind: "field" | "date"; readonly columnKey: string } | null;
+  readonly measure:
+    | { readonly kind: "count" }
+    | { readonly kind: "sum" | "average" | "min" | "max"; readonly columnKey: string }
+    | null;
+  readonly x: string | null;
+  readonly y: string | null;
+  readonly categoriesRepeat: boolean;
+  readonly isActive: boolean;
+}
 
 /** migration 005's formula target kinds, restated. */
 export type FormulaTargetKindWireV1 = "computed-column" | "table-metric" | "dashboard-value";
@@ -1478,6 +1515,7 @@ export interface ProposedWorkbookWireV1 {
   readonly relationships: readonly ProposedRelationshipWireV1[];
   readonly recordRules: readonly ProposedRecordRuleWireV1[];
   readonly formulas: readonly ProposedFormulaWireV1[];
+  readonly charts: readonly ProposedChartWireV1[];
   readonly inertItems: readonly ProposedInertItemWireV1[];
   readonly inertCounts: Readonly<Record<PreservedPartKindWireV1, number>>;
   readonly statements: readonly WorkbookStatementWireV1[];

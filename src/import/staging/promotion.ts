@@ -53,9 +53,11 @@ import {
   type DeviceId,
   type EventId,
   type FieldId,
+  type FormulaId,
   type LineageId,
   type OptionId,
   type RecordId,
+  type RelationshipId,
   type SheetId,
   type TableId,
 } from "../../domain/model/ids.js";
@@ -128,8 +130,8 @@ import {
   RECORD_PAGE_MAX_RECORDS,
   type AppHeadV1,
   type BaselineEntryV1,
-  type CheckpointManifestV1,
   type CheckpointValidationRuleV1,
+  type ResolvedCheckpointManifestV1,
   type PageRefV1,
   type StorageRefV1,
   type StoredRecordV1,
@@ -140,6 +142,7 @@ import { readProvisionalKeyBytes, stagedChunkStorageIds } from "./lifecycle.js";
 import { RowPlan, sourceTextAt, walkRows, type PlannedRowV1 } from "./row-plan.js";
 import { cborMap } from "./proposal-codec.js";
 import { EMPTY_IMPORT_CHAIN, sealImportCommit } from "./import-commit.js";
+import { importedChartsOf, importedFormulasOf, liveComputedFieldsOf } from "./live-structure.js";
 import { serializeEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
 
 const ID_BYTES = 16;
@@ -275,6 +278,14 @@ export interface AllocatedSchemaV2 {
   /** Parent table key → the relationship that points at it, by child column key. */
   readonly relationshipByChildColumn: ReadonlyMap<string, { readonly toTableKey: string }>;
   readonly rules: readonly CheckpointValidationRuleV1[];
+  /** Every identity a formula's translation names, by the proposal's keys (F04). */
+  readonly identities: {
+    readonly tables: ReadonlyMap<string, TableId>;
+    readonly fields: ReadonlyMap<string, FieldId>;
+    readonly relationships: ReadonlyMap<string, RelationshipId>;
+    /** Active formulas only: a declined one is never written. */
+    readonly formulas: ReadonlyMap<string, FormulaId>;
+  };
 }
 
 const roleOf = (role: ProposedSheetV1["classification"][number]): role is SheetRoleV1 => role !== "excluded";
@@ -297,11 +308,22 @@ export function allocateSchema(
     sheets.find((sheet) => sheet.proposed.sheetKey === sheetKey)?.sheetId ?? null;
 
   const enumOptions: EnumOptionDefV1[] = [];
+  // D51: a computed field names its formula; a declined formula leaves the field authored.
+  const formulaIds = new Map<string, FormulaId>(
+    proposal.formulas.filter((formula) => formula.isActive).map((formula) => [formula.formulaKey, createDomainId("formula", entropy)]),
+  );
+  const computedFormulaOf = (columnKey: string): FormulaId | undefined => {
+    const formula = proposal.formulas.find(
+      (candidate) => candidate.isActive && candidate.target.kind === "computed-column" && candidate.target.columnKey === columnKey,
+    );
+    return formula === undefined ? undefined : formulaIds.get(formula.formulaKey);
+  };
   const heads = proposal.tables.filter((table) => table.joinedToTableKey === null);
   const tables: TablePlanV1[] = heads.map((head, index) => {
     const tableId = createDomainId("table", entropy);
     const fields = head.fields.map((proposed, fieldOrdinal): FieldPlanV1 => {
       const fieldId = createDomainId("field", entropy);
+      const formulaId = computedFormulaOf(proposed.columnKey);
       const optionIds = new Map<string, OptionId>();
       if (proposed.type.kind === "enum") {
         proposed.enumOptions.forEach((option, optionOrdinal) => {
@@ -331,6 +353,7 @@ export function allocateSchema(
           isRequired: false,
           isActive: true,
           schemaRevision,
+          ...(formulaId === undefined ? {} : { formulaId }),
         },
       };
     });
@@ -362,6 +385,7 @@ export function allocateSchema(
   };
 
   const relationships: RelationshipDefV1[] = [];
+  const relationshipIds = new Map<string, RelationshipId>();
   const relationshipByChildColumn = new Map<string, { readonly toTableKey: string }>();
   for (const relationship of proposal.relationships) {
     if (!relationship.isApplied) continue;
@@ -372,8 +396,10 @@ export function allocateSchema(
     if (from === undefined || to === undefined || fromField === undefined || toField === undefined) {
       throw new Error("an applied relationship names a table or column the proposal does not have");
     }
+    const relationshipId = createDomainId("relationship", entropy);
+    relationshipIds.set(relationship.relationshipKey, relationshipId);
     relationships.push({
-      relationshipId: createDomainId("relationship", entropy),
+      relationshipId,
       fromTableId: from.table.tableId,
       fromFieldId: fromField.definition.fieldId,
       toTableId: to.table.tableId,
@@ -417,7 +443,28 @@ export function allocateSchema(
     ];
   });
 
-  return { sheets, tables, enumOptions, relationships, relationshipByChildColumn, rules };
+  // Every table and column key, a joined table's included: its rows and columns are its head's.
+  const tableIds = new Map<string, TableId>();
+  const fieldIds = new Map<string, FieldId>();
+  for (const table of proposal.tables) {
+    const plan = planOf(table.tableKey);
+    if (plan === undefined) continue;
+    tableIds.set(table.tableKey, plan.table.tableId);
+    for (const column of table.fields) {
+      const field = fieldIn(plan, column.columnKey);
+      if (field !== undefined) fieldIds.set(column.columnKey, field.definition.fieldId);
+    }
+  }
+
+  return {
+    sheets,
+    tables,
+    enumOptions,
+    relationships,
+    relationshipByChildColumn,
+    rules,
+    identities: { tables: tableIds, fields: fieldIds, relationships: relationshipIds, formulas: formulaIds },
+  };
 }
 
 // ------------------------------------------------------ record construction --
@@ -479,8 +526,12 @@ export async function buildRecords(
   proposal: ProposedWorkbookV1,
   schema: AllocatedSchemaV2,
   facts: readonly WorkbookFactStreamItemV2[],
-  /** An app the rows join (an append): its records resolve too. */
-  options: { readonly referenceExists?: ReferenceResolver } = {},
+  /**
+   * An app the rows join (an append): its records resolve too. `liveFieldIds`
+   * are the live computed columns (`encodeDomainId`), whose imported values
+   * are never written: the projection computes them (D51, invariant 7).
+   */
+  options: { readonly referenceExists?: ReferenceResolver; readonly liveFieldIds?: ReadonlySet<string> } = {},
 ): Promise<BuiltRecordsV2 & { readonly discarded: ReadonlyMap<number, ReadonlyMap<number, "above-header" | "empty-row">> }> {
   const stream = planningStream(proposal, facts);
   const extents = tableRowExtents(stream);
@@ -581,6 +632,7 @@ export async function buildRecords(
         const values = new Map<FieldId, CellValueV1>();
         const entries: { readonly fieldId: FieldId; readonly value: CellValueV1 }[] = [];
         for (const entry of plan.fields) {
+          if (options.liveFieldIds?.has(encodeDomainId(entry.definition.fieldId)) === true) continue;
           const value = valueOf(plan, entry, placement.table, row);
           values.set(entry.definition.fieldId, value);
           entries.push({ fieldId: entry.definition.fieldId, value });
@@ -965,7 +1017,8 @@ export async function promoteImport(
     return rejectedPromotion("schema-invalid", schemaReport, schema);
   }
 
-  const built = await buildRecords(entropy, proposal, schema, facts);
+  const formulas = importedFormulasOf(proposal, schema, SCHEMA_REVISION_AFTER);
+  const built = await buildRecords(entropy, proposal, schema, facts, { liveFieldIds: liveComputedFieldsOf(formulas) });
   if (built.firstBlockingReport !== null) {
     // A blocking issue is not an imported-invalid value (those are warnings
     // and are kept, FR-4): it is a schema the rows cannot satisfy at all.
@@ -1014,7 +1067,25 @@ export async function promoteImport(
     }),
   );
 
-  const inertItems = inertItemsOf(entropy, proposal, schema.sheets);
+  // A chart the validator refused stays the workbook's snapshot, and says so.
+  const charts = importedChartsOf(entropy, proposal, schema);
+  const inertItems = inertItemsOf(
+    entropy,
+    {
+      ...proposal,
+      inertItems: [
+        ...proposal.inertItems,
+        ...charts.kept.map((chart) => ({
+          kind: chart.partKind,
+          sheetKey: chart.sheetKey,
+          location: chart.location,
+          reasonKey: "chart-not-rebuilt" as const,
+          anchor: chart.anchor,
+        })),
+      ],
+    },
+    schema.sheets,
+  );
   const snapshots = await writeSnapshots({
     sealer,
     sha256,
@@ -1044,7 +1115,8 @@ export async function promoteImport(
   // The initial checkpoint. The imported rows live here, not in the tail.
   const theme: AppThemeV1 = DEFAULT_APP_THEME;
   const frontier = [{ deviceId: input.deviceId, commitSequence: 1n }];
-  const checkpointBody: Omit<CheckpointManifestV1, "semanticSha256"> = {
+  // Every root stated (D37): an import writes the resolved manifest, never a partial one.
+  const checkpointBody: Omit<ResolvedCheckpointManifestV1, "semanticSha256"> = {
     manifestVersion: 1,
     appId,
     schemaRevision: SCHEMA_REVISION_AFTER,
@@ -1070,6 +1142,8 @@ export async function promoteImport(
     inertItems,
     inferenceDecisions: decisions.map((decision) => decision.record),
     importLineages: [lineage],
+    formulas,
+    charts: charts.charts,
     recordPages: recordPageRefs,
   };
   const checkpointRef = await sealer.seal(

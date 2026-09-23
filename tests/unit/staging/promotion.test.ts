@@ -65,9 +65,27 @@ interface PromotedDemoV1 {
   readonly result: Awaited<ReturnType<typeof promoteImport>>;
 }
 
-async function stageDemo(harness: StagingHarnessV1): Promise<{ loaded: LoadedImportStageV1; facts: WorkbookFactStreamItemV2[]; proposal: ProposedWorkbookV1 }> {
-  const stream = await streamWorkbookFixture("ooxml/fieldwork-q3.xlsx", { selection: SELECTED });
-  if (stream === null) throw new Error("the demo workbook did not size");
+/** A workbook to promote: the demo by default, with the review edits it gets. */
+interface PromotableV1 {
+  readonly fixture: string;
+  readonly selected: readonly number[];
+  readonly edits: readonly Parameters<typeof applyWorkbookReviewEdit>[1][];
+}
+
+const DEMO_PROMOTION: PromotableV1 = {
+  fixture: "ooxml/fieldwork-q3.xlsx",
+  selected: SELECTED,
+  edits: [{ kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" }],
+};
+
+async function stageDemo(
+  harness: StagingHarnessV1,
+  promotable: PromotableV1 = DEMO_PROMOTION,
+): Promise<{ loaded: LoadedImportStageV1; facts: WorkbookFactStreamItemV2[]; proposal: ProposedWorkbookV1 }> {
+  const { fixture, selected } = promotable;
+  const fileName = fixture.split("/").at(-1) as string;
+  const stream = await streamWorkbookFixture(fixture, { selection: selected });
+  if (stream === null) throw new Error(`${fixture} did not size`);
   const inventory = stream.report.sheets.map((sheet) => ({
     sheetIndex: sheet.sheetIndex,
     name: sheet.name,
@@ -77,18 +95,22 @@ async function stageDemo(harness: StagingHarnessV1): Promise<{ loaded: LoadedImp
     estimatedCellCount: sheet.estimatedCellCount,
   }));
   const inferred = inferWorkbook(stream.items, {
-    fileName: "fieldwork-q3.xlsx",
-    sheetSelection: inventory.map((sheet) => ({ ...sheet, isSelected: SELECTED.includes(sheet.sheetIndex) })),
+    fileName,
+    sheetSelection: inventory.map((sheet) => ({ ...sheet, isSelected: selected.includes(sheet.sheetIndex) })),
     rejectionMemory: new Set(),
     fingerprintOf: (input) => input,
     formulaIdentities: testFormulaIdentities(),
     existingApp: null,
   });
-  const edited = applyWorkbookReviewEdit(inferred, { kind: "reject-relationship", relationshipKey: "rel:s3.t0.c1" });
-  if (edited.kind !== "applied") throw new Error(`edit rejected: ${edited.reason}`);
+  let proposal = inferred;
+  for (const edit of promotable.edits) {
+    const edited = applyWorkbookReviewEdit(proposal, edit, testFormulaIdentities());
+    if (edited.kind !== "applied") throw new Error(`edit rejected: ${edited.reason}`);
+    proposal = edited.proposal;
+  }
 
   const created = await createImportStage(harness.ports, harness.localRoot, {
-    fileName: "fieldwork-q3.xlsx",
+    fileName,
     format: "xlsx",
     destination: { kind: "new-app" },
     detected: { kind: "zip-container", container: "ooxml" },
@@ -96,7 +118,7 @@ async function stageDemo(harness: StagingHarnessV1): Promise<{ loaded: LoadedImp
     preflight: null,
     inventory,
     sourceByteLength: 3,
-    selectedSheets: SELECTED,
+    selectedSheets: [...selected],
   });
   // One retained source chunk, sealed like the data worker seals one.
   const revision = harness.catalog.expectation().transactionRevision + 1;
@@ -127,14 +149,14 @@ async function stageDemo(harness: StagingHarnessV1): Promise<{ loaded: LoadedImp
     harness.ports,
     harness.localRoot,
     sourced.loaded,
-    stageWithProposal(sourced.loaded.stage, edited.proposal),
+    stageWithProposal(sourced.loaded.stage, proposal),
   );
-  return { loaded: reviewed.loaded, facts: [...stream.items], proposal: edited.proposal };
+  return { loaded: reviewed.loaded, facts: [...stream.items], proposal };
 }
 
-async function promoteDemo(): Promise<PromotedDemoV1> {
+async function promoteDemo(promotable: PromotableV1 = DEMO_PROMOTION): Promise<PromotedDemoV1> {
   const harness = stagingHarness();
-  const { loaded, facts, proposal } = await stageDemo(harness);
+  const { loaded, facts, proposal } = await stageDemo(harness, promotable);
   const result = await promoteImport(
     {
       ports: harness.ports,
@@ -172,7 +194,7 @@ async function promoteDemo(): Promise<PromotedDemoV1> {
       loaded,
       facts,
       sourceChunks: loaded.stage.sourceChunks,
-      acceptedName: "Fieldwork Q3",
+      acceptedName: proposal.appName,
       deviceId: Uint8Array.from({ length: 16 }, (_, index) => index + 9) as never,
     },
   );
@@ -291,8 +313,8 @@ describe("promoting the demo workbook (CA-19/20/22)", () => {
     const { head, checkpoint, checkpointBytes } = await roots(demo);
 
     expect(checkpoint.inertItems.map((item) => item.kind)).toEqual(
-      // F04: formulas now live — the demo leaves no formula inert.
-      expect.arrayContaining(["chart", "drawing", "cell-styling"]),
+      // F04: formulas and the chart now live — the demo leaves neither inert.
+      expect.arrayContaining(["drawing", "cell-styling"]),
     );
     for (const item of checkpoint.inertItems) expect(INERT_REASON_KEYS).toContain(item.reasonKey);
 
@@ -579,5 +601,147 @@ describe("pages inside their caps: the demo's full selection, Archive 2018 inclu
     expect(wideBaseline.length).toBeGreaterThan(1);
     expectFullPages(wideBaseline, (items) => encodeBaselinePage({ pageVersion: 1, scopeId: SCOPE, entries: items }));
     expect(paginateBaseline(SCOPE, [])).toEqual([[]]);
+  });
+});
+
+describe("live structure at import (CA-25, CA-30, CA-31; D51, D55, D65)", () => {
+  const LIVE: PromotableV1 = { fixture: "ooxml/formulas-live.xlsx", selected: [0, 1, 2], edits: [] };
+  let live: PromotedDemoV1 | undefined;
+  const promotedLive = async (): Promise<PromotedDemoV1> => (live ??= await promoteDemo(LIVE));
+
+  const fieldsOf = (checkpoint: Awaited<ReturnType<typeof roots>>["checkpoint"], tableName: string) =>
+    new Map((checkpoint.tables.find((table) => table.displayName === tableName)?.fields ?? []).map((field) => [field.displayName, field]));
+
+  it("writes the formulas root: every formula once, never a value, with the imported-value policy of D51", async () => {
+    const { checkpoint } = await roots(await promotedLive());
+    expect(
+      checkpoint.formulas.map(({ formula, metadata, isActive }) => [
+        formula.originalText,
+        formula.target.kind,
+        formula.displayName,
+        formula.disposition,
+        formula.determinism,
+        formula.document === null,
+        metadata.source,
+        metadata.importedValuePolicy,
+        isActive,
+      ]),
+    ).toEqual([
+      ["B2-C2", "computed-column", null, "live", "deterministic", false, "imported", "none", true],
+      ["TODAY()", "computed-column", null, "live", "clock-volatile", false, "imported", "none", true],
+      ["RAND()", "computed-column", null, "frozen", "frozen-nondeterministic", false, "imported", "kept-as-literal", true],
+      ["OFFSET(B2,0,0)", "computed-column", null, "unsupported", "unsupported", true, "imported", "kept-as-literal", true],
+      ["B2*2", "computed-column", null, "unsupported", "unsupported", true, "imported", "kept-as-literal", true],
+      ["SUM(JobsTable[Quoted])", "table-metric", "Total Quoted", "live", "deterministic", false, "imported", "none", true],
+      ["B2+1", "dashboard-value", "Loop A", "live", "deterministic", false, "imported", "none", true],
+      ["B1+1", "dashboard-value", "Loop B", "live", "deterministic", false, "imported", "none", true],
+      ["SUM(Jobs!B2:B6)", "dashboard-value", "Quoted total", "live", "deterministic", false, "imported", "none", true],
+      ["SUM(B2:B4)", "table-metric", "Total Qty", "live", "deterministic", false, "imported", "none", true],
+    ]);
+    // Each computed column's field names its formula back (migration 005's insert guard).
+    const jobs = fieldsOf(checkpoint, "Jobs");
+    for (const entry of checkpoint.formulas) {
+      const target = entry.formula.target;
+      if (target.kind !== "computed-column") continue;
+      const field = [...jobs.values()].find((candidate) => compareDomainIds(candidate.fieldId, target.fieldId) === 0);
+      expect(field?.formulaId === undefined ? null : compareDomainIds(field.formulaId, entry.formula.formulaId)).toBe(0);
+    }
+    expect(jobs.get("Quoted")?.formulaId).toBeUndefined();
+    // The two loop values read each other: stored, flagged by the projection, never evaluated here.
+    const [loopA, loopB] = checkpoint.formulas.filter((entry) => entry.formula.target.kind === "dashboard-value");
+    expect(loopA?.formula.dependencies).toEqual([{ kind: "formula", formulaId: loopB?.formula.formulaId }]);
+    expect(loopB?.formula.dependencies).toEqual([{ kind: "formula", formulaId: loopA?.formula.formulaId }]);
+  });
+
+  it("writes no value of a live column into any record page; keeps frozen and unsupported values as literals", async () => {
+    const { checkpoint, records } = await roots(await promotedLive());
+    const jobs = fieldsOf(checkpoint, "Jobs");
+    const valuesOf = (name: string) =>
+      records.flatMap((record) => record.values.filter((entry) => compareDomainIds(entry.fieldId, jobs.get(name)?.fieldId as never) === 0));
+    expect(records.filter((record) => compareDomainIds(record.tableId, jobs.get("Job")?.tableId as never) === 0)).toHaveLength(5);
+    // Live: Balance and TODAY() are the projection's to compute (invariant 7).
+    expect(valuesOf("Balance")).toEqual([]);
+    expect(valuesOf("Checked")).toEqual([]);
+    // Frozen: each record keeps the value the workbook drew.
+    expect(valuesOf("Lucky").map((entry) => entry.value).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))).toEqual(
+      ["0.08", "0.17", "0.42", "0.61", "0.93"].map((decimal) => ({ kind: "decimal", decimal })),
+    );
+    // Unsupported: the imported values stay, and each column says why it is kept.
+    expect(valuesOf("Rate")).toHaveLength(5);
+    expect(valuesOf("Mixed")).toHaveLength(5);
+    expect(checkpoint.inertItems.filter((item) => item.kind === "formula").map((item) => [item.location, item.reasonKey])).toEqual([
+      ["Jobs!G2:G6", "formula-not-supported"],
+      ["Jobs!H2:H6", "formula-not-supported"],
+    ]);
+    // A totals row and a footer are metrics, never records.
+    expect(records.filter((record) => compareDomainIds(record.tableId, fieldsOf(checkpoint, "Stock").get("Qty")?.tableId as never) === 0)).toHaveLength(3);
+  });
+
+  it("writes the demo's rebuilt chart into the charts root, imported and pinned (CA-30, D65)", async () => {
+    const { checkpoint } = await roots(await promoted());
+    const jobs = fieldsOf(checkpoint, "Jobs");
+    expect(checkpoint.charts).toHaveLength(1);
+    const [chart] = checkpoint.charts;
+    expect(chart).toMatchObject({ ordinal: 0, provenance: "imported", chartRevision: 0n });
+    expect(chart?.definition).toMatchObject({
+      chartVersion: 1,
+      name: "Quoted by status",
+      type: "bar",
+      filters: [],
+      pinned: true,
+      groupBy: { kind: "field", fieldId: jobs.get("Status")?.fieldId },
+      seriesBy: null,
+      measure: { kind: "sum", fieldId: jobs.get("Quoted amount")?.fieldId },
+      sort: "category",
+    });
+    expect(checkpoint.inertItems.some((item) => item.kind === "chart")).toBe(false);
+    // The demo's formulas: Balance and the Customer lookup live; Overview's four values.
+    expect(checkpoint.formulas.map((entry) => [entry.formula.originalText, entry.formula.disposition])).toEqual([
+      ["VLOOKUP(B2,Customers!A:B,2,FALSE)", "live"],
+      ["E2-F2", "live"],
+      ['COUNTIF(Jobs!D2:D61,"In progress")', "live"],
+      ["SUM(Jobs!E2:E61)", "live"],
+      ["SUM(Jobs!F2:F61)", "live"],
+      ["B4-B5", "live"],
+    ]);
+    expect(checkpoint.formulas[0]?.formula.document?.root).toMatchObject({ kind: "related" });
+  });
+
+  it("names the formula of a computed field in its field.created event too (the second encoder is gone)", async () => {
+    const demo = await promoted();
+    const { head, checkpoint } = await roots(demo);
+    const balance = fieldsOf(checkpoint, "Jobs").get("Balance");
+    const segment = decodeEventSegment(await open(demo, head.eventSegments[0]?.storageId as string, "app.events"));
+    const created = (segment.commits[0]?.events ?? []).filter((event) => event.kind === "field.created");
+    const fields = created.map((event) => (event.payload as ReadonlyMap<string, unknown>).get("field") as ReadonlyMap<string, unknown>);
+    const withFormula = fields.filter((field) => field.has("formulaId"));
+    expect(withFormula).toHaveLength(2);
+    expect(withFormula.some((field) => compareDomainIds(field.get("fieldId") as Uint8Array, balance?.fieldId as never) === 0)).toBe(true);
+    expect(
+      withFormula.every((field) =>
+        checkpoint.formulas.some((entry) => compareDomainIds(entry.formula.formulaId, field.get("formulaId") as Uint8Array) === 0),
+      ),
+    ).toBe(true);
+  });
+
+  it("honours a declined formula and chart: authored values, no formula, the chart a snapshot", async () => {
+    const declined = await promoteDemo({
+      ...DEMO_PROMOTION,
+      edits: [
+        ...DEMO_PROMOTION.edits,
+        { kind: "reject-statement", statementId: "formula:s0.t0.c6" },
+        { kind: "reject-statement", statementId: "chart:s5.chart0" },
+      ],
+    });
+    const { checkpoint, records } = await roots(declined);
+    const balance = fieldsOf(checkpoint, "Jobs").get("Balance");
+    expect(balance?.formulaId).toBeUndefined();
+    expect(checkpoint.formulas.map((entry) => entry.formula.originalText)).not.toContain("E2-F2");
+    expect(records.filter((record) => record.values.some((entry) => compareDomainIds(entry.fieldId, balance?.fieldId as never) === 0))).toHaveLength(60);
+    expect(checkpoint.charts).toEqual([]);
+    expect(checkpoint.inertItems.filter((item) => item.kind === "chart" || item.kind === "formula").map((item) => [item.kind, item.reasonKey])).toEqual([
+      ["formula", "formula-not-live-yet"],
+      ["chart", "chart-not-rebuilt"],
+    ]);
   });
 });

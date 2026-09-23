@@ -235,6 +235,45 @@ export interface ProposedFormulaV1 {
   readonly isActive: boolean;
 }
 
+/** migration 005's chart types (D54), restated: M21 may not import the chart model. */
+export const PROPOSED_CHART_TYPES = Object.freeze(["bar", "line", "pie", "scatter", "stacked"] as const);
+
+export type ProposedChartTypeV1 = (typeof PROPOSED_CHART_TYPES)[number];
+
+export type ProposedChartMeasureV1 =
+  | { readonly kind: "count" }
+  | { readonly kind: "sum" | "average" | "min" | "max"; readonly columnKey: string };
+
+/**
+ * An OOXML chart or pivot table rebuilt as a chart (CA-31, D55), by key. Only
+ * a faithful mapping is proposed; anything else stays an inert item with
+ * `chart-not-rebuilt`. A category the workbook plotted row by row is grouped
+ * (`categoriesRepeat` says whether that changed what is drawn).
+ */
+export interface ProposedChartV1 {
+  /** `<sheetKey>.chart<n>`: the n-th chart or pivot part of its sheet. */
+  readonly chartKey: string;
+  readonly sheetKey: string;
+  readonly partKind: "chart" | "pivot-table";
+  readonly location: string;
+  readonly anchor: RangeV1 | null;
+  /** The chart's title, or one composed from its fields. */
+  readonly name: string;
+  readonly type: ProposedChartTypeV1;
+  readonly tableKey: string;
+  /** `null` for a scatter. A date category is grouped by day. */
+  readonly groupBy: { readonly kind: "field" | "date"; readonly columnKey: string } | null;
+  /** `null` for a scatter. */
+  readonly measure: ProposedChartMeasureV1 | null;
+  /** A scatter's axes; `null` otherwise. */
+  readonly x: string | null;
+  readonly y: string | null;
+  /** True when some category repeats, so rows are grouped where Excel plotted each. */
+  readonly categoriesRepeat: boolean;
+  /** `false` once the review declines it: it stays a snapshot. */
+  readonly isActive: boolean;
+}
+
 export interface ProposedInertItemV1 {
   readonly kind: PreservedPartKindV1;
   readonly sheetKey: string;
@@ -259,6 +298,8 @@ export interface ProposedWorkbookV1 {
   readonly recordRules: readonly ProposedRecordRuleV1[];
   /** Every formula a table column, totals row or summary sheet holds (F04). */
   readonly formulas: readonly ProposedFormulaV1[];
+  /** Every OOXML chart and pivot table that maps faithfully onto a chart (F04, D55). */
+  readonly charts: readonly ProposedChartV1[];
   readonly inertItems: readonly ProposedInertItemV1[];
   /** Inert items per kind, over every selected sheet (FR-9). */
   readonly inertCounts: Readonly<Record<PreservedPartKindV1, number>>;

@@ -50,7 +50,9 @@ import {
 import type { WorkbookSourceValueFormatV1 } from "../inference/values.js";
 import {
   FORMULA_KEEP_REASONS,
+  PROPOSED_CHART_TYPES,
   SHEET_ROLES,
+  type ProposedChartV1,
   type ProposedFormulaV1,
   type ProposedInertItemV1,
   type ProposedRecordRuleV1,
@@ -209,9 +211,25 @@ const WORKBOOK_EVIDENCE_KINDS = Object.freeze([
   "preserved-part",
   "previously-rejected",
   "formula-outcome",
+  "chart-mapping",
 ] as const);
 
 type WorkbookOnlyEvidenceKind = (typeof WORKBOOK_EVIDENCE_KINDS)[number];
+
+const CHART_MAPPING_KEYS = [
+  "kind",
+  "chartType",
+  "chartName",
+  "tableName",
+  "groupFieldName",
+  "measure",
+  "measureFieldName",
+  "xFieldName",
+  "yFieldName",
+  "categoriesRepeat",
+];
+
+const CHART_MEASURE_KINDS = Object.freeze(["count", "sum", "average", "min", "max"] as const);
 
 const FORMULA_OUTCOME_KEYS = [
   "kind",
@@ -332,6 +350,19 @@ export function encodeWorkbookEvidence(evidence: WorkbookEvidenceV1): CborValue 
         ["rowCount", integerOrNull(evidence.rowCount)],
         ["shapeBreakRowIndex", integerOrNull(evidence.shapeBreakRowIndex)],
         ["relatedTableName", evidence.relatedTableName],
+      ]);
+    case "chart-mapping":
+      return cborMap([
+        ["kind", evidence.kind],
+        ["chartType", evidence.chartType],
+        ["chartName", evidence.chartName],
+        ["tableName", evidence.tableName],
+        ["groupFieldName", evidence.groupFieldName],
+        ["measure", evidence.measure],
+        ["measureFieldName", evidence.measureFieldName],
+        ["xFieldName", evidence.xFieldName],
+        ["yFieldName", evidence.yFieldName],
+        ["categoriesRepeat", evidence.categoriesRepeat],
       ]);
     default:
       return encodeEvidence(evidence);
@@ -494,6 +525,22 @@ export function decodeWorkbookEvidence(value: DecodedValue): WorkbookEvidenceV1 
         rowCount: optionalCount(field(m, "rowCount"), "a row count"),
         shapeBreakRowIndex: optionalCount(field(m, "shapeBreakRowIndex"), "a row"),
         relatedTableName: optionalText(field(m, "relatedTableName"), "a table name"),
+      };
+    }
+    case "chart-mapping": {
+      const m = keyed(map, CHART_MAPPING_KEYS, "chart mapping evidence");
+      const measure = field(m, "measure");
+      return {
+        kind,
+        chartType: oneOf(field(m, "chartType"), PROPOSED_CHART_TYPES, "a chart type"),
+        chartName: text(field(m, "chartName"), "a chart name"),
+        tableName: text(field(m, "tableName"), "a table name"),
+        groupFieldName: optionalText(field(m, "groupFieldName"), "a field name"),
+        measure: measure === null ? null : oneOf(measure, CHART_MEASURE_KINDS, "a chart measure"),
+        measureFieldName: optionalText(field(m, "measureFieldName"), "a field name"),
+        xFieldName: optionalText(field(m, "xFieldName"), "a field name"),
+        yFieldName: optionalText(field(m, "yFieldName"), "a field name"),
+        categoriesRepeat: boolean(field(m, "categoriesRepeat"), "a repeat flag"),
       };
     }
     default: {
@@ -1097,6 +1144,100 @@ const decodeFormula = (value: DecodedValue): ProposedFormulaV1 => {
   };
 };
 
+// ------------------------------------------------------------------- charts --
+
+const CHART_KEYS = [
+  "chartKey",
+  "sheetKey",
+  "partKind",
+  "location",
+  "anchor",
+  "name",
+  "type",
+  "tableKey",
+  "groupBy",
+  "measure",
+  "x",
+  "y",
+  "categoriesRepeat",
+  "isActive",
+];
+
+const encodeChart = (chart: ProposedChartV1): CborValue =>
+  cborMap([
+    ["chartKey", chart.chartKey],
+    ["sheetKey", chart.sheetKey],
+    ["partKind", chart.partKind],
+    ["location", chart.location],
+    ["anchor", chart.anchor === null ? null : encodeRange(chart.anchor)],
+    ["name", chart.name],
+    ["type", chart.type],
+    ["tableKey", chart.tableKey],
+    [
+      "groupBy",
+      chart.groupBy === null
+        ? null
+        : cborMap([
+            ["kind", chart.groupBy.kind],
+            ["columnKey", chart.groupBy.columnKey],
+          ]),
+    ],
+    [
+      "measure",
+      chart.measure === null
+        ? null
+        : chart.measure.kind === "count"
+          ? cborMap([["kind", "count"]])
+          : cborMap([
+              ["kind", chart.measure.kind],
+              ["columnKey", chart.measure.columnKey],
+            ]),
+    ],
+    ["x", chart.x],
+    ["y", chart.y],
+    ["categoriesRepeat", chart.categoriesRepeat],
+    ["isActive", chart.isActive],
+  ]);
+
+const decodeChartMeasure = (value: DecodedValue): ProposedChartV1["measure"] => {
+  const map = asMap(value, "a chart measure");
+  const kind = oneOf(field(map, "kind"), CHART_MEASURE_KINDS, "a chart measure");
+  if (kind === "count") {
+    keyed(map, ["kind"], "a count measure");
+    return { kind };
+  }
+  return { kind, columnKey: text(field(keyed(map, ["kind", "columnKey"], "a chart measure"), "columnKey"), "a column key") };
+};
+
+const decodeChart = (value: DecodedValue): ProposedChartV1 => {
+  const map = exactKeys(asMap(value, "a proposed chart"), CHART_KEYS, "a proposed chart");
+  const groupBy = field(map, "groupBy");
+  const measure = field(map, "measure");
+  const group = groupBy === null ? null : keyed(asMap(groupBy, "a chart group"), ["kind", "columnKey"], "a chart group");
+  return {
+    chartKey: text(field(map, "chartKey"), "a chart key"),
+    sheetKey: text(field(map, "sheetKey"), "a sheet key"),
+    partKind: oneOf(field(map, "partKind"), ["chart", "pivot-table"] as const, "a chart part kind"),
+    location: text(field(map, "location"), "a location"),
+    anchor: optional(field(map, "anchor"), decodeRange),
+    name: nfcText(field(map, "name"), "a chart name"),
+    type: oneOf(field(map, "type"), PROPOSED_CHART_TYPES, "a chart type"),
+    tableKey: text(field(map, "tableKey"), "a table key"),
+    groupBy:
+      group === null
+        ? null
+        : {
+            kind: oneOf(field(group, "kind"), ["field", "date"] as const, "a chart group kind"),
+            columnKey: text(field(group, "columnKey"), "a column key"),
+          },
+    measure: measure === null ? null : decodeChartMeasure(measure),
+    x: optionalText(field(map, "x"), "a column key"),
+    y: optionalText(field(map, "y"), "a column key"),
+    categoriesRepeat: boolean(field(map, "categoriesRepeat"), "a repeat flag"),
+    isActive: boolean(field(map, "isActive"), "an active flag"),
+  };
+};
+
 // -------------------------------------------------------------- inert items --
 
 const encodeInert = (item: ProposedInertItemV1): CborValue =>
@@ -1149,8 +1290,8 @@ const PROPOSAL_KEYS = [
   "diagnostics",
 ];
 
-/** F04 adds the formulas; a proposal staged before F04 decodes with none. */
-const PROPOSAL_KEYS_F04 = [...PROPOSAL_KEYS, "formulas"];
+/** F04 adds the formulas and charts; a proposal staged before F04 decodes with none. */
+const PROPOSAL_KEYS_F04 = [...PROPOSAL_KEYS, "formulas", "charts"];
 
 export function encodeWorkbookProposal(proposal: ProposedWorkbookV1): CborValue {
   return cborMap([
@@ -1162,6 +1303,7 @@ export function encodeWorkbookProposal(proposal: ProposedWorkbookV1): CborValue 
     ["relationships", proposal.relationships.map(encodeRelationship)],
     ["recordRules", proposal.recordRules.map(encodeRule)],
     ["formulas", proposal.formulas.map(encodeFormula)],
+    ["charts", proposal.charts.map(encodeChart)],
     ["inertItems", proposal.inertItems.map(encodeInert)],
     ["inertCounts", encodeInertCounts(proposal.inertCounts)],
     ["statements", proposal.statements.map(encodeWorkbookStatement)],
@@ -1182,6 +1324,7 @@ export function decodeWorkbookProposal(value: DecodedValue): ProposedWorkbookV1 
     relationships: list(field(map, "relationships"), "relationships").map(decodeRelationship),
     recordRules: list(field(map, "recordRules"), "record rules").map(decodeRule),
     formulas: map.has("formulas") ? list(field(map, "formulas"), "formulas").map(decodeFormula) : [],
+    charts: map.has("charts") ? list(field(map, "charts"), "charts").map(decodeChart) : [],
     inertItems: list(field(map, "inertItems"), "inert items").map(decodeInert),
     inertCounts: decodeInertCounts(field(map, "inertCounts")),
     statements: list(field(map, "statements"), "statements").map(decodeWorkbookStatement),

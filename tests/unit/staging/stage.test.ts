@@ -305,14 +305,14 @@ describe("encodeImportStage / decodeImportStage", () => {
     const map = decodeCanonical(encodeImportStage(staged)) as Map<string, CborValue>;
     const f03 = map.get("proposal") as Map<string, CborValue>;
     f03.delete("formulas");
+    f03.delete("charts");
     for (const table of f03.get("tables") as Map<string, CborValue>[]) table.delete("lastDataRowIndex");
     const decoded = decodeImportStage(encodeCanonical(map)).proposal;
-    expect(decoded?.formulas).toEqual([]);
+    expect([decoded?.formulas, decoded?.charts]).toEqual([[], []]);
     // Declared tables end where they are declared; the demo's have no totals row.
     expect(decoded?.tables.map((table) => table.lastDataRowIndex)).toEqual(proposal.tables.map((table) => table.lastDataRowIndex));
     // A key set that is neither F03's nor F04's still refuses.
     f03.set("formulas", []);
-    f03.set("charts", []);
     expect(() => decodeImportStage(encodeCanonical(map))).toThrow(CodecError);
   });
 

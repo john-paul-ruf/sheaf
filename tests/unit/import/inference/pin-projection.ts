@@ -59,6 +59,18 @@ export const pinOf = (proposal: ProposedWorkbookV1) => ({
     formula.relationshipKey,
     formula.isActive,
   ]),
+  charts: proposal.charts.map((chart) => [
+    chart.chartKey,
+    chart.partKind,
+    chart.location,
+    chart.name,
+    chart.type,
+    chart.tableKey,
+    chart.groupBy,
+    chart.measure,
+    chart.categoriesRepeat,
+    chart.isActive,
+  ]),
   inertCounts: Object.fromEntries(Object.entries(proposal.inertCounts).filter(([, count]) => count > 0)),
   statements: proposal.statements.map((statement) => [
     statement.statementId,

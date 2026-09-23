@@ -8,7 +8,9 @@
  * is the mapping.
  *
  * Everything a payload names is either a 16-byte domain ID, a 32-byte digest,
- * text, or an integer. Nothing here is a float, a `Date`, or an object with a
+ * text, or an integer. A table or field is written by the checkpoint's own
+ * encoders (`roots.ts`), so a computed field's `formulaId` (D51) is carried
+ * wherever the field is, and an authored field's bytes are the F03 bytes. Nothing here is a float, a `Date`, or an object with a
  * prototype: a payload has to survive canonical encode/decode byte-identically
  * or the commit hash it is folded into stops meaning anything.
  */
@@ -30,41 +32,8 @@ import type { CborValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { WorkbookStatementV1 } from "../inference/statements.js";
 import type { ProposedWorkbookV1 } from "../inference/workbook-proposal.js";
 import { cborMap } from "./proposal-codec.js";
-import { encodeAppTheme, encodeRelationship, encodeSheetDescriptor } from "./roots.js";
+import { encodeAppTheme, encodeFieldDef, encodeRelationship, encodeSheetDescriptor, encodeTableDef } from "./roots.js";
 import { encodeWorkbookEvidence, encodeWorkbookStatement } from "./workbook-proposal-codec.js";
-
-const fieldType = (type: FieldDefV1["type"]): CborValue =>
-  type.kind === "currency"
-    ? cborMap([
-        ["kind", "currency"],
-        ["currencyCode", type.currencyCode],
-      ])
-    : cborMap([["kind", type.kind]]);
-
-const fieldDef = (definition: FieldDefV1): CborValue =>
-  cborMap([
-    ["fieldId", definition.fieldId],
-    ["tableId", definition.tableId],
-    ["displayName", definition.displayName],
-    ["fieldOrdinal", definition.fieldOrdinal],
-    ["type", fieldType(definition.type)],
-    ["isRequired", definition.isRequired],
-    ["isActive", definition.isActive],
-    ["schemaRevision", definition.schemaRevision],
-  ]);
-
-const tableDef = (table: TableDefV1): CborValue =>
-  cborMap([
-    ["tableId", table.tableId],
-    ["displayName", table.displayName],
-    ["tableOrdinal", table.tableOrdinal],
-    ["fields", table.fields.map(fieldDef)],
-    ["keyFieldId", table.keyFieldId],
-    ["labelFieldId", table.labelFieldId],
-    ["sourceSheetId", table.sourceSheetId],
-    ["isActive", table.isActive],
-    ["schemaRevision", table.schemaRevision],
-  ]);
 
 const enumOption = (option: EnumOptionDefV1): CborValue =>
   cborMap([
@@ -152,7 +121,7 @@ export const encodeImportEventPayload = {
   }): CborValue {
     return cborMap([
       ["displayName", payload.displayName],
-      ["tables", payload.tables.map(tableDef)],
+      ["tables", payload.tables.map(encodeTableDef)],
       ["enumOptions", payload.enumOptions.map(enumOption)],
       ["relationships", payload.relationships.map(encodeRelationship)],
       ["theme", encodeAppTheme(payload.theme)],
@@ -170,7 +139,7 @@ export const encodeImportEventPayload = {
     readonly sourceSheet: SheetDescriptorV1;
   }): CborValue {
     return cborMap([
-      ["table", tableDef(payload.table)],
+      ["table", encodeTableDef(payload.table)],
       ["sourceSheetId", payload.sourceSheet.sheetId],
       ["sourceSheet", encodeSheetDescriptor(payload.sourceSheet)],
     ]);
@@ -182,7 +151,7 @@ export const encodeImportEventPayload = {
     readonly statementId: string | null;
   }): CborValue {
     return cborMap([
-      ["field", fieldDef(payload.field)],
+      ["field", encodeFieldDef(payload.field)],
       ["evidence", payload.statementId],
     ]);
   },

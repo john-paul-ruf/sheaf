@@ -356,7 +356,7 @@ export const decodeFieldDef = (value: DecodedValue): FieldDefV1 => {
   };
 };
 
-const encodeTableDef = (table: TableDefV1): CborValue =>
+export const encodeTableDef = (table: TableDefV1): CborValue =>
   cborMap([
     ["tableId", table.tableId],
     ["displayName", table.displayName],

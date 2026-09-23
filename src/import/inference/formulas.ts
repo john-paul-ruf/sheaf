@@ -139,6 +139,7 @@ export function resolverFor(proposal: ProposedWorkbookV1, formula: ProposedFormu
     formulaAt(sheet, row, column) {
       const found = proposal.formulas.find(
         (candidate) =>
+          candidate.isActive &&
           candidate.target.kind !== "computed-column" &&
           candidate.rowIndex === row &&
           candidate.columnIndex === column &&

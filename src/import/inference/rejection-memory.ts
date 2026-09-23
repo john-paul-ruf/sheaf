@@ -15,6 +15,7 @@
  * exactly the same thing.
  */
 
+import { deriveChartSurface } from "./charts.js";
 import { deriveFormulaSurface } from "./formulas.js";
 import { decisionKindOf, type WorkbookStatementV1 } from "./statements.js";
 import {
@@ -162,6 +163,12 @@ export function statementEffect(proposal: ProposedWorkbookV1, statement: Workboo
       return deriveFormulaSurface({
         ...proposal,
         formulas: proposal.formulas.map((formula) => (formula.formulaKey === target ? { ...formula, isActive: !isRejected } : formula)),
+      });
+    case "chart":
+      // Declined, a chart stays the workbook's snapshot (D55).
+      return deriveChartSurface({
+        ...proposal,
+        charts: proposal.charts.map((chart) => (chart.chartKey === target ? { ...chart, isActive: !isRejected } : chart)),
       });
     default:
       return proposal;

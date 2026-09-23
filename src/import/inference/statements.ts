@@ -34,7 +34,7 @@ import type {
   ValidationOperatorV1,
   ValidationRuleV1,
 } from "../facts/index.js";
-import type { FormulaKeepReasonV1 } from "./workbook-proposal.js";
+import type { FormulaKeepReasonV1, ProposedChartTypeV1 } from "./workbook-proposal.js";
 
 export const INFERENCE_SUBJECTS = Object.freeze([
   "app-name",
@@ -207,6 +207,8 @@ export const WORKBOOK_INFERENCE_SUBJECTS = Object.freeze([
   "record-rule",
   "table-key",
   "table-label",
+  /** F04: an OOXML chart or pivot rebuilt as a chart (D55). */
+  "chart",
 ] as const);
 
 export type WorkbookInferenceSubjectV1 = (typeof WORKBOOK_INFERENCE_SUBJECTS)[number];
@@ -261,6 +263,9 @@ const DECISION_KIND_OF: Readonly<Record<WorkbookInferenceSubjectV1, InferenceDec
   "field-name": null,
   "table-key": null,
   "table-label": null,
+  // migration 005 has no chart decision kind: a chart choice is durable
+  // evidence, not a projected decision.
+  chart: null,
 });
 
 /**
@@ -363,6 +368,20 @@ export type WorkbookStructureEvidenceV1 =
       readonly shapeBreakRowIndex: number | null;
       /** The parent table a lookup reads through its relationship. */
       readonly relatedTableName: string | null;
+    }
+  | {
+      /** What an imported chart becomes (F04, D55), in the proposal's current names. */
+      readonly kind: "chart-mapping";
+      readonly chartType: ProposedChartTypeV1;
+      readonly chartName: string;
+      readonly tableName: string;
+      readonly groupFieldName: string | null;
+      readonly measure: "count" | "sum" | "average" | "min" | "max" | null;
+      readonly measureFieldName: string | null;
+      readonly xFieldName: string | null;
+      readonly yFieldName: string | null;
+      /** Excel plotted each row; Sheaf groups rows with the same category (D62). */
+      readonly categoriesRepeat: boolean;
     };
 
 export type WorkbookEvidenceV1 = EvidenceV1 | WorkbookStructureEvidenceV1;
@@ -405,8 +424,9 @@ const workbookTermsOf = (evidence: WorkbookEvidenceV1): readonly string[] => {
       // it is about; letting it in would change the fingerprint it matched.
       return [];
     case "formula-outcome":
-      // Derived from the text and the structure, and re-derived by review
-      // edits: the decision is about the formula text alone.
+    case "chart-mapping":
+      // Derived from the part and the structure, and re-derived by review
+      // edits: the decision is about the formula text or the chart part.
       return [];
     default:
       return fingerprintTermsOf(evidence);

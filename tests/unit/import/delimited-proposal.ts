@@ -86,7 +86,7 @@ const f02Discard = (row: WorkbookDiscardedRowV1): DiscardedRowV1 =>
 export function f02ViewOf(workbook: ProposedWorkbookV1): ProposedAppV1 {
   const [table] = workbook.tables;
   if (table === undefined || workbook.tables.length !== 1) return defect("table list");
-  if (workbook.formulas.length > 0) return defect("formula");
+  if (workbook.formulas.length > 0 || workbook.charts.length > 0) return defect("formula or chart");
   return {
     fileName: workbook.fileName,
     appName: workbook.appName,

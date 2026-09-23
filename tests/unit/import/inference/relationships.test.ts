@@ -78,12 +78,12 @@ describe("CAP-22 — keys, labels and relationships on the demo workbook", () =>
     expect(proposal.inertItems.filter((item) => item.sheetKey === "s5").map((item) => [item.kind, item.location, item.reasonKey])).toEqual([
       ["drawing", "Overview!D20:F24", "visual-only"],
       ["drawing", "Overview!H20:J24", "visual-only"],
-      ["chart", "Overview!D2:K18", "chart-not-live-yet"],
+      // F04: the chart is rebuilt live (D55), so it is no longer inert.
       ["cell-styling", "Overview", "formatting-not-reproduced"],
     ]);
     // F04: formulas now live — no formula is left inert on the demo.
     expect(proposal.inertItems.filter((item) => item.kind === "formula")).toEqual([]);
-    expect(proposal.inertCounts).toMatchObject({ formula: 0, chart: 1, drawing: 2, "cell-styling": 7, "unsupported-validation": 0 });
+    expect(proposal.inertCounts).toMatchObject({ formula: 0, chart: 0, drawing: 2, "cell-styling": 7, "unsupported-validation": 0 });
     expect(statementOf(proposal, "sheet-classification:s5.chart").evidence).toEqual([{ kind: "preserved-part", partKind: "chart", count: 1 }]);
     expect(statementOf(proposal, "sheet-classification:s4.lookup")).toMatchObject({ editKind: "reject-statement", evidence: [{ kind: "validation-rule", rule: "list" }] });
   });
