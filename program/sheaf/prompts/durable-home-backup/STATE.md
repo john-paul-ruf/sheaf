@@ -337,7 +337,7 @@ Plan HEAD and Author revision `afe37f391bb73e35a85d3c9631c632cd7d024bf9`; entire
 | `backup-graph.ts` current queue/owning PageRef/manifest readers | Every declared local historical head edge recursively walked; identical children dedup, cycles/alias conflicts reject. Leaf requires authenticated PageRef count/range/length or manifest source/sheet/ordinal/length/digest. Current checkpoint snapshot lookup uses root head; historical heads need their own context. Global traversed baselineCount must not size the selected-head baseline stream; retained history is not additional current rows/commits | S06 CP1 queue/context and descendants; missing/changed/wrong-owner/shared-child fixtures; no bare-leaf waiver |
 | Original commits in `event-commit.ts`, initial `promotion.ts` and `append.ts` | AuditPageV1 exact version/app/entries; CommitEvidenceRef exact segment/commitId/commitSha256, segment typed app.events. Original bytes/hashes/event IDs/sequence/hybrid/provenance preserved. Ordered by original compare tuple, not SHF1 revision; all covered commits including import, tail strictly later | S06 CP1 writer/resolver/pages; caps1024/524288bytes, segments10000events/16MiB; reject oversized original rather than split |
 | `promotion.ts` initial import; `import.accepted` checkpoint/source/snapshot/baseline IDs | Initial rows are pages, **no record.created events**. Preserve authenticated original import checkpoint and all PageRefs needed to reconstruct imported origins/history, matched to original event identity and existing typed digest authority. Carry exact required roots through later compactions, not all prior heads | S06 CP1 candidate/retained origin/history adapter; CP2 installed replay/restore; original V1 promotion remains read-only and byte-compatible |
-| `verifyBackupFrontier` and repository `chainState` | Current frontier check lacks nonnull-genesis rejection/basis coverage; chainState tail-only. Derive all contiguous original chains1→checkpoint→tail, original terminal hashes/hybrid times, basis coverage. Duplicate physical reachability differs from duplicate logical audit entry; supplied anchor alone not proof | S06 CP1 frontier/export/publication tests; CP2 repository and append chain, multi-device/two-compaction regression |
+| `verifyBackupFrontier` and repository `chainState` | Current frontier check already rejects nonnull genesis via encodeCommitBody (decoder also enforces); preserve and add frontier regression. Basis coverage is missing; chainState tail-only. Derive all contiguous original chains1→checkpoint→tail, original terminal hashes/hybrid times, basis coverage. Duplicate physical reachability differs from duplicate logical audit entry; supplied anchor alone not proof | S06 CP1 frontier/export/publication tests; CP2 repository and append chain, multi-device/two-compaction regression |
 | ConflictPageV1/EventEvidenceRefV1 first concrete forms | Exact page version/app/entries; entry conflictId/detected/resolved; event ref commit/eventId. Same app/conflict/kind; pending iff null; complete original alternatives/baseline/source/time/report/resolution preserved. Existing005 conflict status/FK/report/baseline constraints remain, no lifecycle addition | S06 CP1 codec/resolver and storage fixtures; separate conflict assertions, no successful F06 command double; CP2 preservation; CP4 vault report |
 | RecordPageV2 producer from projection SQL/port (planned) | Existing fields plus actual recordRevision/createdCommitId/updatedCommitId/provenance. EventProvenance optional-field presence and canonical evidence retained. V1 import-only defaults never applied to V2. Per-row IDs/history and original import origins agree | S06 CP1 bounded projection export, roots and event-provenance codecs, paired types/fixtures/selftests; CP2 app-session hydration |
 | `record-event-payloads.ts` and projection `cbor-values.ts` | Existing record-event map uses explicit optional nulls/frozen subset; EventProvenanceV1 is required source + absent optional fields/arbitrary evidence. These are distinct encodings, not an Author contradiction. Keep old event bytes, factor proper V2 codec and lossless projection adapter | S06 CP1/2 code/test lease covers both; optional absence/present evidence/null/bytes/nested canonical value round trips; no invented provenance |
@@ -357,7 +357,7 @@ No schema discrepancy is demonstrated: 003 already permits scopes/kinds,004 incl
 - Historical attempt4 nonempty format gap: **Author input closedafe37f3**, implementation assigned S06 CP1/2/4. Prior unresolved alternatives remain verbatim in historical handoffs/old PLAN-CHECK only.
 - r2 pin/append; r3/r4 bounded hash/CBOR/cursor/lifecycle/current graph; r9 hydration/count corrections: accepted S02 commits and evidence unchanged. S06 new-format preservation extends them; it does not reopen accepted checkpoints.
 - PC-F05-01 and PC-F05-04 history/restore seam: S06 CP1 candidate history, CP2 installed reader+UI, CP4 J3. PC-F05-02 countdown closedS02; PC-F05-03 parent-scope mapping retained; PC-F05-05 local security remains S07 CP1/5. F05-APPROVAL-01 actual-worker clock and -02 stale prose closedS03/documentation; J3 independently owns actual timer isolation.
-- New source-backed seams above (V1-only append, original import checkpoint origin, history hash incompleteness, logical-versus-physical audit order, genesis/basis validation, cleanup, nested decoder and fixture identities) are assigned within S06 CP1–4 with all consumer/test paths in its66-path lease. No competing finding backlog or deferred generic owner correction.
+- New source-backed seams above (V1-only append, original import checkpoint origin, history hash incompleteness, logical-versus-physical audit order, genesis/basis validation, cleanup, nested decoder and fixture identities) are assigned within S06 CP1–4 with all consumer/test paths in its68-path lease r2 (instruction revision r3). No competing finding backlog or deferred generic owner correction.
 - Provider registration/qualification INPUT-DROPBOX/ONEDRIVE and S07 cloud/J6 remain required. Design98ee79c ready. No live credential, OS save qualification or GATE-F05 verdict is inferred. Prior FINAL-REPORT input paragraph and .program/blockers historical summaries are superseded here; Orchestrator updates scratch/report after receive, outside this lease.
 - Broader F04 review debt, CL-03/05 export classification, AR-1 unavailable grammar source, M46/M39 inherited layout observations retain prior owners/resumption conditions. No unrelated cleanup or visual parity claim. Inspected review sources and limitations are in PLAN-CHECK.
 
@@ -1912,4 +1912,38 @@ I found a consumer missing from S06’s lease: the vault manifest codec rejects 
   **Inspection and verification limits:** Inspected the supplied planning/current records, applicable inherited findings, entire accepted F05 graph section, relevant requirements/architecture, producer-reader paths, sampled boundary tests and actual harness/configuration. The exact S06 Playwright selector currently discovers **8 tests in 4 files**; compaction specs are correctly still planned. Ran discovery and the bounded codec probe only—no build, application suite, browser journey, provider call or visual proof. Root’s typecheck/lint and prior **2461 unit/11 browser** results remain baseline evidence, not compaction proof. No full-repository audit or cleanup scout.
 
   **No files edited, commits created, or workers spawned. Pre-existing working-tree changes remain untouched.**
+
+
+
+### SESSION-06 r2 receive — declared-blocked CP0
+
+No files/commits; native ended. Independent two-file24-test rerun exit0; inspected frontier→encodeCommitBody existing genesis guard. Corrected premise in session/current mapping, basis coverage remains assigned. Same68-path lease; resume same context with instruction r3.
+
+I’ll read the session, program rules, and current evidence, then trace the storage boundaries before starting checkpoint 1.
+
+
+The accepted plan assigns the missing V2 codecs, graph readers, compactor, and scheduler to this session. I’m checking the original import and event evidence through publication and recovery, including the manifest ordering correction, before changing those paths.
+
+
+I found one contradicted correction premise: `verifyBackupFrontier` already rejects a genesis commit with a predecessor through `encodeCommitBody`. Basis-frontier coverage is still missing. I’ll verify both with a read-only probe so the handoff distinguishes the existing guard from the work still required.
+
+
+## Handoff
+
+- **session:** SESSION-06
+- **status:** blocked
+- **checkpoint:** 0/4; no commits.
+- **notes:** Lease r2; source `8e9ab8b64be1824fe6c6760b2b0ff7fe46bc6b49`. Found a contradicted CP1 correction premise affecting CA-35/41. No capability readiness changed.
+- **delivered:** Read-only source trace and executable counterexample.
+- **verification:** `pnpm exec vitest run tests/unit/sync/protocol/frontier.test.ts tests/unit/codecs/event-commit.test.ts` → **2 files, 24 passed**, exit 0. Read-only Node probe confirmed:
+  - Original chain accepted.
+  - `verifyBackupFrontier` rejects nonnull genesis predecessor.
+  - Commit decoder independently rejects it.
+  - Uncovered basis frontier remains accepted—the assigned coverage gap is real.
+- **surprises:** CP1 item 6 incorrectly states genesis rejection is absent. [frontier.ts:23](/Users/the.phoenix/WebstormProjects/sheaf/src/sync/protocol/frontier.ts:23) calls `encodeCommitBody`, whose existing guard rejects that pairing; decoding enforces it independently. Initial probe required Node’s `--experimental-transform-types`; corrected probe passed.
+- **followUp:** All four implementation checkpoints and candidate/installed/J3/J1 proofs remain pending. Missing V2 implementations remain assigned S06 work, not predecessor blockers.
+- **needsOwnerCorrection:** Orchestrator: correct SESSION-06 CP1 item 6 and STATE’s corresponding mapping to **preserve existing genesis enforcement, add frontier-boundary regression coverage, and implement missing basis coverage**. No lease expansion or Author change needed.
+- **needsDesignSource:** —
+- **blockedReason:** CODER’s checkpoint-0 contradictory-premise rule requires returning evidence for bounded prompt correction before dependent implementation.
+- **filesTouched:** —; existing workspace changes preserved.
 
