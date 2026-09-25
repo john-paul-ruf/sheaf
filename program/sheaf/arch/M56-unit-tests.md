@@ -39,43 +39,18 @@ Ignored evidence: `test-results/f05/s02/graph-current/evidence.json` and
 and recorded results, and did not rerun tests. Existing non-F05 unit coverage
 remains in its module contracts; aggregate counts do not close F05 capabilities.
 
+## Current F05 component and regression evidence
+
+Focused save tests cover verified fallback delivery, operation lifetime, confirmation rejection, actual MessagePort handlers, encrypted fake-indexeddb receipt reopen and forged completion. The Worker double transfers ports rather than passing references. These are component proofs, not native OS durability.
+
+`backup-app-session.test.ts` covers concurrent real handler reads, duplicate visit writes, cold restart, close/lock during a controlled read and missing-root no-change. Both concurrency regressions failed before `823012b`. Home-state tests pin all-device uncovered counts and reject ahead/absent receipt frontiers. Recovery machine/VM/screen tests cover exact countdown, early-request suppression and stop cleanup.
+
+Policy/workflow/structure/chart/reminder tests reopen and decrypt catalog state using production commands, crypto and SQLite over fake-indexeddb. They assert same-transaction triggering identity, escalation, stale dismissal, no-op/rejected no-write/count/history/reminder, and assignment suppression. M60/M61 own browser storage/transport and actual-worker time proofs. The report independently records 223 files / 2461 passing / 3 inherited skips and typecheck/lint exit 0 at `47a633b`; Archivist inspected evidence, reran no implementation suite.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+
 ## Change History
 
 - 2026-09-24 — S01/S02 unit deltas reconciled at F05 final; combined M56/M57 material split into the correct module documents.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M56 / M60 — CP3 evidence
-Focused component tests cover download handoff, operation lifetime, confirmation rejection, real MessagePort data/IO handlers, encrypted fake-indexeddb receipt reopen and existing forged-completion negative controls. The Worker double now transfers ports instead of passing them by reference. save-dialog fixtures build an isolated component page; they do not prove real-entry reachability, OS durability, or J1.
-
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M56 / M60 / M61 — proof surfaces
-
-`bundle-backup.spec.ts` uses the real built index, data/IO workers, MessagePorts and IndexedDB, captures actual fallback downloads, and separately doubles only the native destination. It proves edits between capture/confirmation remain pending, same-context page replacement preserves records/receipts, reset remedy refreshes durable facts, and scoped code rejection. The production decoder fixture verifies complete saved authored state in a fresh context. `sync/bundle.spec.ts` exercises complete graph recovery, malformed-output rejection, interrupted pending confirmation, reopen and retry while preserving prior bytes. `recovery-countdown.spec.ts` obtains an actual wrong code from another isolated device context and observes the real worker delay/replacement gate. Evidence records source/config/fixture/build-output hashes and served endpoints. Native OS save/share remains outside the destination double's claim.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-02 r10 -->
-## M56 / M60 — regression evidence
-
-`tests/unit/workers/backup-app-session.test.ts` exercises concurrent real
-handler reads, duplicate visit writes, cold restart, close/lock during a
-controlled storage read, and missing-root rejection without durable change.
-The concurrent-open and visit cases both failed before correction.
-`tests/browser/sync/bundle.spec.ts` retains the complete vault-only graph,
-malformed-output, interruption and restart assertions, and now checks import
-console/page errors, served build identity and the saved artifact hash.
-
-Independent receive at 823012b: typecheck/lint exit 0; 220 unit files, 2438 passed / 3 inherited skips; exact combined fresh-build browser gate 4 passed, exit 0. Prior r9 import counterexample closed by deterministic negative regressions and real import/artifact proof. Future S06 nonempty graphs and S07 provider/egress proofs remain separate.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M56 / M61 — proof mechanisms
-
-Unit tests independently reopen/decrypt persisted catalog state; test storage is fake-indexeddb, with production commands, crypto and SQLite projection. Browser J2 enters `/`, selects the unique emitted real data worker named by the built bootstrap, verifies served asset hashes, and changes only that live worker's dynamic Date.now. Acquisition/evaluation/readback/closure remain bounded at 10 seconds. Exact deadlines and all five dismissal/reopen cycles cross real RPC, production handlers, encrypted catalog and browser IndexedDB; a page-only clock negative control and separate real-clock journey remain distinct.
-
-`backup-status.spec.ts` proves shell/app/settings/detail agreement after reopen and explicit zero after a delivered-then-confirmed bundle. Responsive/axe/keyboard checks cover 320/600/900/1200px and a short phone. Existing journey adaptations dismiss only expected post-ack reminders and preserve their original assertions. J1's native destination remains the existing writable-handle fixture; browser download delivery and crypto/transport/persistence are real. Future provider states/connection proofs remain S07; nonempty graph publication remains S06.
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

@@ -1,7 +1,7 @@
 # M36 — Workflows (`src/application/workflows/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workflows).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled through production `47a633b` (F05 continuation).
 
 - **Owns:** Explicit lifecycle state for long operations and destructive gates.
 - **Depends on:** M32 (`workers/protocol/client.js` for
@@ -168,14 +168,19 @@ hooks, not a new XState machine.
 
 ## Known gaps with owners
 
-- `recoveryMachine` exposes `retryAfterMs` but has **no ticking countdown
-  actor** — the countdown is `unlockMachine`'s only. Explicit owner: F05
-  S02 CP5 (PC-F05-02, CAP-05), with clock wiring, machine/VM/UI tests and
-  real-entry recovery-countdown proof. Still unimplemented at `d75830d`;
-  native bundle receipt work does not close it.
+- The inherited CAP-05 recovery countdown gap is closed by F05 S02 CP5
+  (`f978eb3`), with current real-entry proof at `47a633b`; see the workflow contract below.
 - `PARSER_STOP_TIMEOUT_MS = 5_000` remains a fixed bound; F03 measured real
   xlsx cancel latency (13.5–17.9 ms) and left it unchanged rather than tuning
   it — ~280× headroom, not a defect.
+
+## Save, reminder and recovery workflows (F05)
+
+`DurabilityServices` and `durabilityMachine` model preparing, delivering, awaiting confirmation, confirming, native-saved, user-saved, cancelled, failed and interrupted states. They are transient workflow states; M54 mounts the real home/save journey and M33 authorizes receipts. `ReminderServices`/`createReminderServices` expose typed query/dismiss. `scratchReminderMachine` owns checking/ready/dismissing/failed, cancels obsolete results, rejects mismatched app/dismissal identity and ignores duplicate pending dismissal. `createChartServices(port, onAuthored?)` notifies only for saved non-null commits or deletion; no-op, stale, draft and query paths do not notify.
+
+`RecoveryInput` requires ClockPort from RecoveryRoute. Positive worker `retryAfterMs`, including an invalid-code refusal, starts an ephemeral deadline countdown. Ticks clamp at zero; waiting ignores submit/retry, clears drafts and cancels its timer on exit/stop. Expiry permits another request; the worker still enforces attempts and requires replacement-passphrase installation after recovery. CAP-05 is accepted through `f978eb3` and the current real-route gate.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
 
 ## Change History
 
@@ -214,24 +219,4 @@ hooks, not a new XState machine.
   `M07-ports.md` and `M35-queries.md` — see PROGRAM-CONFIG's Conventions for
   both.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M36 / M47 / M54 — CP3 confirmation component
-DurabilityServices, durabilityMachine and BundleSaveRoute provide transient preparing/delivering/awaiting-confirmation/confirming/native-saved/user-saved/cancelled/failed/interrupted states. BundleSaveDialog uses the accepted MOD-025 copy and a keyboard-dismissible, non-backdrop-dismissible modal. SecurityWiring.durability is composed from the current AppRuntime. CP4 still owns mounting the full home/vault/save journey and supplying authoritative receipt/count readers.
-
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M36 / M37 — recovery countdown and receipt views
-
-`RecoveryInput` requires `ClockPort`; RecoveryRoute supplies `wiring.clock`. Positive worker retryAfterMs (including invalid-recovery-code responses) enters an ephemeral deadline-based waiting state. Ticks clamp remaining time to zero; waiting ignores submit/retry, clears secret drafts, and cancels its timer on exit/stop. The recovery VM exposes canSubmit, remainingMs and remainingSeconds. Expiry permits a request and never grants authority; successful recovery still requires installing a replacement local passphrase.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M36 — workflows
-
-`ReminderServices` and `createReminderServices(port)` expose typed query/dismiss operations. `scratchReminderMachine` owns checking/ready/dismissing/failed states, cancels obsolete query results, rejects mismatched app and acknowledged dismissal identity, and ignores repeated dismissal while pending. `createChartServices(port, onAuthored?)` notifies only after saved non-null commits or deletion; drafts, queries, stale responses and no-op saves do not notify.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

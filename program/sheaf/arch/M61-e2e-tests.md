@@ -1,7 +1,7 @@
 # M61 — E2E tests (`tests/e2e/`)
 
 > Fragment created by Roshi at the F02 final pass. Reconciled against the tree
-> at `5bc19fb` (F04 final; formulas-queries-charts).
+> through production `47a633b` (F05 continuation).
 
 ## Contract
 
@@ -16,7 +16,7 @@
   builds exist.
 - **The filter form takes no bare `--`.**
 
-## Suites at `5bc19fb` (71 passing, no expected-failures)
+## Historical F04 suites at `5bc19fb` (71 passing, no expected-failures)
 
 | Spec | Proves |
 |---|---|
@@ -59,6 +59,20 @@ equivalent seam (see `M58-workbook-fixtures.md`'s corpus-owner note):
 also owned; F04's `structure.ts` was likewise S06's own lease to write,
 reused unmodified by S08's `gate-f04-demo.spec.ts` afterward.
 
+## F05 real-entry acceptance
+
+`bundle-backup.spec.ts` drives the built index, real data/IO workers, MessagePorts and IndexedDB. It captures actual fallback download bytes and separately doubles only the native destination; explicit confirmation advances the captured frontier, while an intervening edit stays pending. Same-context page replacement preserves records/receipts. Reset remedies refresh durable facts and local/vault codes reject cross-scope use. The production decoder fixture verifies the saved graph in fresh state. Actual OS file durability is outside this proof.
+
+`recovery-countdown.spec.ts` obtains a validly shaped wrong code from another isolated device context, exercises real worker throttling, observes countdown and completes the mandatory replacement-passphrase path. CAP-05 is closed, not transferred onward.
+
+`scratch-reminders.spec.ts` proves authored-family acknowledgement, exact 10m/1h/24h/daily deadlines and five dismissal/reopen cycles. `fixtures/durability.ts` enters `/`, selects the unique emitted data-worker URL named by the built bootstrap and verifies served asset hashes. It changes only that worker's dynamic `Date.now`, bounds acquisition/evaluation/readback/closure at 10 seconds, restores its descriptor and reacquires a new worker after page replacement in the same isolated context. A page-only clock negative control cannot advance eligibility; a separate real-clock journey verifies composition. Transport, encrypted catalog and browser IndexedDB remain real.
+
+`backup-status.spec.ts` proves shell/app/Settings/detail agreement after reopen and explicit zero after delivered-then-confirmed save. Responsive/axe/keyboard checks cover 320/600/900/1200px and a short phone. Existing journeys dismiss only expected post-ack reminders, preserving their assertions. Playwright builds before preview with `reuseExistingServer: false`; output/config/source identities accompany results.
+
+At `47a633b`, root independently passed the combined fresh-build selector `bundle-backup recovery-countdown sync/bundle scratch-reminders backup-status` across e2e/browser: 11 tests, no retries/skips. Full 81-test e2e success is Coder-reported at source-identical final code, with digests checked by root; root did not rerun the full 6.7-minute suite. The earlier r9 import failure is preserved in history and closed by `823012b` plus current proof. Required S06 J3/J1 extensions and S07 J4/J5/J6 remain future; no GATE-F05 verdict.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+
 ## Change History
 
 - 2026-09-08 — F01 suites landed by SESSION-07 (`9174b6d`).
@@ -86,20 +100,4 @@ reused unmodified by S08's `gate-f04-demo.spec.ts` afterward.
   list) and the Shared-fixtures section; the corpus-owner cross-reference
   extended with F04's own instance.
 
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M56 / M60 / M61 — proof surfaces
-
-`bundle-backup.spec.ts` uses the real built index, data/IO workers, MessagePorts and IndexedDB, captures actual fallback downloads, and separately doubles only the native destination. It proves edits between capture/confirmation remain pending, same-context page replacement preserves records/receipts, reset remedy refreshes durable facts, and scoped code rejection. The production decoder fixture verifies complete saved authored state in a fresh context. `sync/bundle.spec.ts` exercises complete graph recovery, malformed-output rejection, interrupted pending confirmation, reopen and retry while preserving prior bytes. `recovery-countdown.spec.ts` obtains an actual wrong code from another isolated device context and observes the real worker delay/replacement gate. Evidence records source/config/fixture/build-output hashes and served endpoints. Native OS save/share remains outside the destination double's claim.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M56 / M61 — proof mechanisms
-
-Unit tests independently reopen/decrypt persisted catalog state; test storage is fake-indexeddb, with production commands, crypto and SQLite projection. Browser J2 enters `/`, selects the unique emitted real data worker named by the built bootstrap, verifies served asset hashes, and changes only that live worker's dynamic Date.now. Acquisition/evaluation/readback/closure remain bounded at 10 seconds. Exact deadlines and all five dismissal/reopen cycles cross real RPC, production handlers, encrypted catalog and browser IndexedDB; a page-only clock negative control and separate real-clock journey remain distinct.
-
-`backup-status.spec.ts` proves shell/app/settings/detail agreement after reopen and explicit zero after a delivered-then-confirmed bundle. Responsive/axe/keyboard checks cover 320/600/900/1200px and a short phone. Existing journey adaptations dismiss only expected post-ack reminders and preserve their original assertions. J1's native destination remains the existing writable-handle fixture; browser download delivery and crypto/transport/persistence are real. Future provider states/connection proofs remain S07; nonempty graph publication remains S06.
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

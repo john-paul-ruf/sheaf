@@ -1,14 +1,14 @@
 # M33 — Worker entries (`src/workers/**`, minus `protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC) +
-§Runtime Topology. Reconciled against implementation `d75830d` (F05 partial; final report incomplete).
+§Runtime Topology. Reconciled against production `47a633b` (F05 continuation; overall F05 incomplete).
 
 - **Owns:** Per-worker composition roots and key confinement.
 - **Landed scope:** `data.worker.ts` (sole owner of the main IndexedDB
   database and of every unlocked key handle) and `import.worker.ts` (parse
   only, every accepted format), and `io.worker.ts` (F05 ciphertext bundle
   receiver). `export.worker` (F07) does not exist yet.
-- **Runtime dependencies:** M01, M02, M08–M24 where listed in the
+- **Runtime dependencies:** M01, M02, M05, M08–M24 where listed in the
   [current registry](MODULE-REGISTRY.md), M27, M32, M34 and M35. The registry
   derives each edge from source; M65 vocabulary is type-only in this module.
 - **Must not:** import DOM/React; send key bytes or catalog plaintext to the
@@ -144,35 +144,23 @@ and append both surface `columnKey`.
 
 ## Durable-home implementation (F05, current)
 
-`createDataWorkerHandler` composes `createBackupHandlers` with the production
-envelope store, crypto, clock, current session and vault crypto adapter. Its
-`backup` home creation/assignment member is worker-internal. A separate
-`prepareBundle` attach path now composes saving from bootstrap; home-choice
-RPC/UI exposure and status readers remain S02 work.
+`createDataWorkerHandler` composes backup handlers from envelope store, crypto, ClockPort, current session and vault crypto. Mounted typed RPC creates a bundle home and reveals its separate recovery code; reuse verifies the local secret again. `home-state.ts` encrypts independent vault bootstrap/recovery material, locally protected vault key, app-key wraps, pins and app-scoped receipts. Assignment atomically updates home/catalog with its authored event, clears scratch reminder state and invents no successful-backup time.
 
-`home-state.ts` owns the strict encrypted `local.home-state` payload: bundle
-home/vault identity, separate vault bootstrap/recovery material, locally
-protected vault key, app-key wraps and durable backup pins. Catalog identity
-is checked after authentication. Assignment ends scratch without setting a
-successful-backup timestamp.
+`AppEventStoreV1.appendHome` atomically commits assignment, new head, app-key wrap/home state and catalog under the current app/head/session revision. Superseded home envelopes are removed in that transaction; the tail codec checks assignment payload and wrap version. `pin` records the authenticated head before returning. `release` preserves current heads, peer pins and retained app roots, deleting only an otherwise retired head atomically with its pin update. Pins survive restart separately from import workflow/cleanup tickets.
 
-`AppEventStoreV1.appendHome` atomically commits assignment, new head, app-key
-wrap/home state and catalog. It checks app/head identity and current session
-revision. Replacing an existing home payload deletes its superseded envelope
-in the same transaction.
+`readAppHead` avoids eager graph loading during pin/release. `backup-graph.ts` authenticates every supported current-producer descendant and covered commit chain, retains the pinned source head, and independently reconstructs canonical authored state in SQLite. It rejects unsupported nonempty retained/conflict/audit roots without publication or cleanup. Exported keys/cursors have owned cancellation, error, release, lock, reset and replacement lifetimes; release cancels readers before dropping their retention roots. Event-store and import append consult the same durable pin decision.
 
-`pin` stores an authenticated current-head retention root before returning.
-`release` preserves current heads, other pins and roots retained by the app;
-otherwise it deletes the retired head atomically with the pin update. Pins
-survive worker restart and are separate from import workflows/cleanup tickets.
+`io.worker.ts` composes `receiveBundle`, holds ciphertext Blob parts and offers output only after second-pass verification; it has no key/store/projection path. `connectBundle` composes pin, graph, publication and transport. A correlated native or explicit post-delivery saved completion refreshes/authenticates the current catalog, checks session/epoch/app/home/artifact, frontier bounds and nonregression, and atomically records captured frontier/time with its own pin release. Newer edits remain pending. Valid non-saved completion and same-session graceful abort release their own pin. Lock, process termination or failed cleanup conservatively retain encrypted pins for `exportGraph`/`release` after unlock; no startup sweep, revived confirmation authority or peer-pin pruning is implied. F06 owns future recovery/adoption UI.
 
-Tail codec validates the assignment payload and supported wrap version.
+`readAppDurability` authenticates current app head and matching HomeState receipt for library, app session and reset inventory. `pendingChangeCount` sums uncovered sequences across every locally held device frontier and refuses absent/ahead-of-local confirmed entries. Absolute per-device chain sequence remains separate. Optional receipts remain backward-readable for pre-receipt homes.
 
-readAppHead removes eager graph loading from pin/release. backup-graph authenticates every current producer descendant and original covered chain, retains the source head, independently reconstructs authored state in SQLite, and rejects unsupported nonempty retained/conflict/audit roots without mutation. Backup handlers own app keys and active cursors through abort, error, release, lock, reset, session replacement and teardown. Release cancels readers before removing retention roots.
+M27's `openBundle` supplies a vault-only opaque app key and bounded frame reader. `recoverBackupGraph` follows its authenticated retained head, compares roots/frontier/padded size and reconstructed authored digest without local root/catalog/storage. This is current artifact recovery, not future adoption or positive nonempty graph proof.
 
-io.worker is a real dedicated worker composition root for receiveBundle, holds ciphertext Blob parts, and offers output only after second-pass verification. It has no key/store/projection path. backup.connectBundle composes durable pin, bounded graph, publication and ciphertext transport. Captured candidate/frontier/vault identity remain data-worker-owned. Native saved completion validates live session and home, checks frontier bounds/regression, and atomically commits receipt/time plus pin release. Invalid/interrupted operations preserve pins for recovery and do not advance confirmation. Valid non-saved completion releases its pin; the bootstrap abort path can retain one, whose recovery remains CP6. Worker lock/reset/session replacement/dispose abort transfers via existing backup.disposeAll. Optional HomeState receipts add app/operation/artifact/candidate/generation/frontier/time; pre-receipt homes decode unchanged. General status/count readers remain CP4/5 work.
+`AppSessionRegistry.open(appId, hydrate)` shares an in-flight hydration; close/dispose invalidate late results and dispose them instead of installing them. Failed opens are removed for a fresh request, `withApp` cleans failed keys, and overlapping `noteAppOpened` calls share one operational catalog write. Correction `823012b` closes the r9 disposed-projection/revision-conflict counterexample exposed by asynchronous receipt reads; it does not weaken cross-worker stale-write guards.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+`createEventStore.append` puts the latest authored triggering commit into the existing encrypted catalog in the same transaction. Import/reconciliation commits count for backup but do not prompt; dismissal progression survives later authored edits. Reminder query/dismiss refresh current context. Dismissal compares app/home/trigger/count/eligibility, uses worker time and writes encrypted operational state without an event. `handlers.ts` imports M05 policy at runtime. `getRecord` derives preserved-value source copy from projected provenance when present; legacy imports are not assigned invented provenance.
+
+Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-boundaries.md) records proof limits and owners.
 
 ## Change History
 
@@ -217,51 +205,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   cross-reference to `M01-domain-model.md`.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M32 / M33 — worker protocol and authenticated readers
-
-`createBundleHome` and `revealVaultRecoveryCode` are mounted typed RPCs. Reuse verifies the current local secret again; neither plaintext passphrase is retained. Local and vault recovery codes retain independent scopes. `AppDurabilityViewV1` carries authenticated home identity/name, app-scoped confirmation time and receipt-relative pending count. `readAppDurability` reads the durable head and matching HomeState receipt for open and closed apps; missing or ahead-of-local facts fail closed. Pending count sums uncovered commits across every locally held device frontier and rejects any receipt frontier absent from or ahead of the local head. Absolute device sequence and chainState are unchanged. `listLibrary`, `toSessionView`, and reset `inventoryOf` consume the same reader. Reset rows now require `confirmedAtMs: number | null`; reset confirmation remains bound to the current durable transaction.
-
-`refreshBackupContext` authenticates the latest bootstrap/catalog before save completion, preserving a concurrent newer edit as pending while rejecting writer-epoch or session replacement. `connectBundle` releases its own pin after a graceful cancellation when the same session is still available. Lock, process termination or failed cleanup conservatively retain encrypted pins; existing `exportGraph` and `release` recover/release them after unlock without inferring completion or pruning another operation. No blind startup sweep or age-based retention rule is introduced.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M27 / M33 — vault-only artifact recovery
-
-`openBundle` verifies framing/directory/object hashes, authenticates the vault index and app manifest with the vault passphrase or recovery code, checks index/manifest frontier and size agreement, and owns decoder-key disposal. Its worker-only app object exposes an opaque app key and bounded frame reader, never a page RPC key. `recoverBackupGraph` reconstructs the complete current-producer graph from the authenticated retained app head, compares manifest roots/frontier and padded size, and verifies the independently reconstructed canonical authored-state digest. It reads no local root/catalog/storage. Nonempty future conflict/audit/unscoped-retained branches remain fail-closed pending S06's owner proofs; this is not F06 adoption UI.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-02 r10 -->
-## M33 — app hydration lifecycle correction (r10)
-
-`AppSessionRegistry.open(appId, hydrate)` shares one in-flight hydration among
-concurrent app readers. `close` and `disposeAll` invalidate pending hydration;
-a late completed session is disposed rather than installed, and a failed open
-is removed so a subsequent explicit request can start fresh. `withApp` owns
-app-key cleanup when hydration fails. `noteAppOpened` coalesces overlapping
-notifications for the same app into one operational catalog write.
-
-The r9 receive refusal reproduced as `openApp` querying a disposed projection:
-concurrent route readers each hydrated and `registry.set` disposed the first
-session while CP4's receipt read awaited storage. The same remount also issued
-overlapping visit writes and caused `revision-conflict`. Durable formats,
-receipt/count meaning, and cross-worker stale-write guards are unchanged.
-
-
-Independent receive at 823012b: typecheck/lint exit 0; 220 unit files, 2438 passed / 3 inherited skips; exact combined fresh-build browser gate 4 passed, exit 0. Prior r9 import counterexample closed by deterministic negative regressions and real import/artifact proof. Future S06 nonempty graphs and S07 provider/egress proofs remain separate.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M33 — worker composition
-
-`createEventStore` persists the latest authored triggering commit in the existing encrypted catalog entry in the same atomic append transaction. It preserves prior dismissal progression; import/reconciliation commits remain counted but do not prompt. `createDataWorkerHandler` refreshes authoritative backup context before queries/dismissals. Dismissal compares app/home/trigger/count/eligibility, writes only encrypted operational catalog state, and authors no event. Existing home assignment clears scratch reminder state.
-
-`getRecord` enriches preserved-invalid issue parameters with `preservedSource` from actual projected field provenance when available. It does not fabricate provenance for older imports. New runtime edge M33 -> M05.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

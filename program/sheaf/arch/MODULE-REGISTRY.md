@@ -1,10 +1,8 @@
 # Current module registry
 
-Reconciled 2026-09-24 at implementation `d75830d`, receive `95a539d`. This is the current implementation inventory accompanying PROGRAM-CONFIG's planned registry and historical F01–F04 snapshots. PROGRAM-CONFIG remains untouched because its working changes are externally owned.
+Reconciled 2026-09-25 at production `47a633b`, final continuation envelope base `7743353`. PROGRAM-CONFIG's historical/planned registry remains externally owned and unchanged. Presence is not readiness: S01/S02/S03 are accepted 3/6/4 checkpoints, while required nonempty graph, provider and local security extensions remain incomplete. M05 and M47 now have source; use their tracked `*-f05-delta.md` current contracts, not the preserved external planning seeds. M25/M26/M29/M30/M64 remain unimplemented. See [F05 boundaries](F05-boundaries.md).
 
-Presence is not capability readiness. F05 is **BLOCKED/INCOMPLETE**: S01 3/3; S02 2/6 plus partial CP3; S03–S07 blocked. M24, M27, M59 and M62 now have source; M33 includes the IO worker. M05/M25/M26/M29/M30/M47/M64 seeds describe future work, not implemented modules. See [F05 current boundaries](F05-boundaries.md).
-
-Runtime edges below were derived with TypeScript AST traversal of **every non-test JS/TS source file in each registered module**, excluding `*.test.*`, `*.spec.*`, and declarations. `import type`, fully type-only named clauses, and type-only exports are excluded. Value `export … from`, side-effect and literal dynamic imports count. Relative `.js` specifiers resolve to their TS module owner. CSS imports count toward the target module when represented by a TS import. Package dependencies and same-module imports are not cross-module edges. Worker `new URL` construction is recorded separately, not mislabelled an import. No symbol-consumer grep was used to infer these edges. Test-module rows describe helper/fixture source only; test cases are deliberately excluded from this graph.
+Runtime edges derive from TypeScript AST traversal of **every non-test JS/TS file in every registered module**, excluding test/spec/declaration files. `import type`, fully type-only named clauses and type-only exports are stripped. Value re-exports, side-effect imports and literal dynamic imports count. Relative `.js` resolves to `.ts`/`.tsx`; CSS imports count toward their owner. Same-module and package imports do not create module edges. Worker URL construction is listed separately. No symbol grep establishes a module edge. Test-module rows enumerate helper/fixture source, excluding cases themselves.
 
 | ID | Module | Paths | Non-test source files | Present | Runtime module imports |
 | --- | --- | --- | ---: | --- | --- |
@@ -12,7 +10,7 @@ Runtime edges below were derived with TypeScript AST traversal of **every non-te
 | M02 | Validation | `src/domain/validation/` | 4 | yes | M01 |
 | M03 | Formulas | `src/domain/formulas/` | 17 | yes | M01 |
 | M04 | Capacity | `src/domain/capacity/` | 0 | no — planned | — |
-| M05 | Policy | `src/domain/policy/` | 0 | no — planned | — |
+| M05 | Policy | `src/domain/policy/` | 2 | yes | — |
 | M06 | Reconciliation | `src/domain/reconciliation/` | 0 | no — planned | — |
 | M07 | Application ports | `src/application/ports/` | 11 | yes | — |
 | M08 | Crypto | `src/crypto/` | 8 | yes | M01, M09, M10 |
@@ -35,48 +33,48 @@ Runtime edges below were derived with TypeScript AST traversal of **every non-te
 | M24 | Sync protocol | `src/sync/protocol/` | 3 | yes | M01, M09, M10 |
 | M25 | Dropbox adapter | `src/sync/providers/dropbox/` | 0 | no — planned | — |
 | M26 | OneDrive adapter | `src/sync/providers/onedrive/` | 0 | no — planned | — |
-| M27 | Bundle adapter | `src/sync/providers/bundle/` | 1 | yes | M01, M08, M09, M10 |
+| M27 | Bundle adapter | `src/sync/providers/bundle/` | 2 | yes | M01, M08, M09, M10, M24 |
 | M28 | Adoption | `src/sync/adoption/` | 0 | no — planned | — |
 | M29 | Sync scheduler | `src/sync/scheduler/` | 0 | no — planned | — |
 | M30 | Sync coordinator | `src/sync/coordinator/` | 0 | empty directory only — planned | — |
 | M31 | Export | `src/export/` | 0 | no — planned | — |
 | M32 | Worker protocol | `src/workers/protocol/` | 9 | yes | M01, M11 |
-| M33 | Worker entries | `src/workers/data.worker.ts`, `src/workers/data/`, `src/workers/import.worker.ts`, `src/workers/import/`, `src/workers/io.worker.ts`, `src/workers/io/`, `src/workers/export.worker.ts`, `src/workers/export/` | 22 | yes | M01, M02, M08, M09, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M24, M27, M32, M34, M35 |
+| M33 | Worker entries | `src/workers/data.worker.ts`, `src/workers/data/`, `src/workers/import.worker.ts`, `src/workers/import/`, `src/workers/io.worker.ts`, `src/workers/io/`, `src/workers/export.worker.ts`, `src/workers/export/` | 22 | yes | M01, M02, M05, M08, M09, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M24, M27, M32, M34, M35 |
 | M34 | Commands | `src/application/commands/` | 7 | yes | M01, M02, M03 |
 | M35 | Queries | `src/application/queries/` | 8 | yes | M01, M03 |
-| M36 | Workflows | `src/application/workflows/` | 13 | yes | M01, M32 |
-| M37 | View models | `src/application/view-models/` | 6 | yes | M01, M36 |
+| M36 | Workflows | `src/application/workflows/` | 15 | yes | M01, M32 |
+| M37 | View models | `src/application/view-models/` | 7 | yes | M01, M05, M36 |
 | M38 | UI primitives | `src/ui/primitives/` | 18 | yes | — |
 | M39 | UI layout | `src/ui/layout/` | 2 | yes | M38 |
 | M40 | UI theme | `src/ui/theme/` | 2 | yes | — |
-| M41 | UI security | `src/ui/security/` | 11 | yes | M37, M38, M39 |
-| M42 | UI library | `src/ui/library/` | 3 | yes | M38, M40, M41 |
+| M41 | UI security | `src/ui/security/` | 12 | yes | M37, M38, M39, M44, M47 |
+| M42 | UI library | `src/ui/library/` | 3 | yes | M37, M38, M40, M41 |
 | M43 | UI import | `src/ui/import/` | 11 | yes | M38, M41 |
 | M44 | UI records | `src/ui/records/` | 21 | yes | M37, M38, M39, M40, M45 |
 | M45 | UI charts | `src/ui/charts/` | 10 | yes | M37, M38, M44 |
 | M46 | UI schema | `src/ui/schema/` | 11 | yes | M37, M38, M40, M44 |
-| M47 | UI durability | `src/ui/durability/` | 0 | no — planned | — |
+| M47 | UI durability | `src/ui/durability/` | 3 | yes | M37, M38, M44 |
 | M48 | UI reconciliation | `src/ui/reconciliation/` | 0 | no — planned | — |
 | M49 | UI ownership | `src/ui/ownership/` | 0 | no — planned | — |
 | M50 | Config | `src/config/` | 1 | yes | M10 |
 | M51 | Platform | `src/platform/` | 4 | yes | — |
 | M52 | PWA | `src/pwa/` | 0 | no — planned | — |
 | M53 | Bootstrap | `src/bootstrap/` | 3 | yes | M32, M51 |
-| M54 | Routes | `src/routes/` | 9 | yes | M08, M36, M37, M38, M41, M42, M43, M44, M45, M46, M51, M53 |
+| M54 | Routes | `src/routes/` | 10 | yes | M08, M36, M37, M38, M41, M42, M43, M44, M45, M46, M47, M51, M53 |
 | M55 | Entry | `src/main.tsx` | 1 | yes | M40, M54 |
 | M56 | Unit tests | `tests/unit/` | 23 | yes | M01, M08, M09, M10, M11, M12, M13, M14, M15, M19, M21, M23, M32, M33, M36, M37, M58, M65 |
 | M57 | Property tests | `tests/property/` | 1 | yes | M03 |
 | M58 | Workbook fixtures | `tests/fixtures/workbooks/` | 21 | yes | M17 |
 | M59 | Vault fixtures | `tests/fixtures/vaults/` | 3 | yes | M01, M08, M09, M23, M24 |
-| M60 | Browser tests | `tests/browser/` | 11 | yes | M01, M08, M12 |
-| M61 | E2E tests | `tests/e2e/` | 6 | yes | — |
+| M60 | Browser tests | `tests/browser/` | 16 | yes | M01, M08, M09, M12, M27, M33, M40, M47 |
+| M61 | E2E tests | `tests/e2e/` | 7 | yes | — |
 | M62 | Provider contract | `tests/provider-contract/` | 1 | yes | M01, M08, M09 |
 | M63 | Performance | `tests/performance/` | 0 | no — planned | — |
 | M64 | Security tests | `tests/security/` | 0 | no — planned | — |
 
 ## Edge witnesses
 
-One source/specifier witness per mechanically discovered edge; all source files were scanned, not only these witnesses.
+One witness per mechanically discovered edge; the scan covered all files, not only these witnesses.
 
 ### M02
 
@@ -191,6 +189,7 @@ One source/specifier witness per mechanically discovered edge; all source files 
 - M08: `src/sync/providers/bundle/format.ts → ../../../crypto/hash.js`
 - M09: `src/sync/providers/bundle/format.ts → ../../../persistence/codecs/canonical-cbor.js`
 - M10: `src/sync/providers/bundle/format.ts → ../../../migrations/index.js`
+- M24: `src/sync/providers/bundle/reader.ts → ../../protocol/references.js`
 
 ### M32
 
@@ -201,6 +200,7 @@ One source/specifier witness per mechanically discovered edge; all source files 
 
 - M01: `src/workers/data/app-session.ts → ../../domain/model/bytes.js`
 - M02: `src/workers/data/app-session.ts → ../../domain/validation/validate-record.js`
+- M05: `src/workers/data/handlers.ts → ../../domain/policy/scratch-reminder.js`
 - M08: `src/workers/data.worker.ts → ../crypto/sodium.js`
 - M09: `src/workers/data/backup-graph.ts → ../../persistence/codecs/canonical-cbor.js`
 - M10: `src/workers/data/backup-handlers.ts → ../../migrations/index.js`
@@ -242,6 +242,7 @@ One source/specifier witness per mechanically discovered edge; all source files 
 ### M37
 
 - M01: `src/application/view-models/theme.ts → ../../domain/model/events.js`
+- M05: `src/application/view-models/durability.ts → ../../domain/policy/backup-freshness.js`
 - M36: `src/application/view-models/import.ts → ../workflows/import.machine.js`
 
 ### M39
@@ -253,9 +254,12 @@ One source/specifier witness per mechanically discovered edge; all source files 
 - M37: `src/ui/security/passphrase-change-screen.tsx → ../../application/view-models/security.js`
 - M38: `src/ui/security/frames.tsx → ../primitives/class-names.js`
 - M39: `src/ui/security/frames.tsx → ../layout/app-shell.js`
+- M44: `src/ui/security/reset-readable-screen.tsx → ../records/values.js`
+- M47: `src/ui/security/vault-dialogs.tsx → ../durability/durability.module.css`
 
 ### M42
 
+- M37: `src/ui/library/library-screen.tsx → ../../application/view-models/durability.js`
 - M38: `src/ui/library/empty-library-screen.tsx → ../primitives/button.js`
 - M40: `src/ui/library/library-screen.tsx → ../theme/app-theme.js`
 - M41: `src/ui/library/empty-library-screen.tsx → ../security/frames.js`
@@ -267,7 +271,7 @@ One source/specifier witness per mechanically discovered edge; all source files 
 
 ### M44
 
-- M37: `src/ui/records/change-history-screen.tsx → ../../application/view-models/records.js`
+- M37: `src/ui/records/app-frame.tsx → ../../application/view-models/durability.js`
 - M38: `src/ui/records/app-frame.tsx → ../primitives/class-names.js`
 - M39: `src/ui/records/app-frame.tsx → ../layout/app-shell.js`
 - M40: `src/ui/records/app-frame.tsx → ../theme/app-theme.js`
@@ -286,6 +290,12 @@ One source/specifier witness per mechanically discovered edge; all source files 
 - M40: `src/ui/schema/app-settings-screen.tsx → ../theme/app-theme.js`
 - M44: `src/ui/schema/app-settings-screen.tsx → ../records/app-frame.js`
 
+### M47
+
+- M37: `src/ui/durability/home-screen.tsx → ../../application/view-models/durability.js`
+- M38: `src/ui/durability/bundle-save-dialog.tsx → ../primitives/class-names.js`
+- M44: `src/ui/durability/home-screen.tsx → ../records/app-frame.js`
+
 ### M50
 
 - M10: `src/config/public-config.ts → ../migrations/index.js`
@@ -294,7 +304,7 @@ One source/specifier witness per mechanically discovered edge; all source files 
 
 - M32: `src/bootstrap/app-bootstrap.ts → ../workers/protocol/io-client.js`
 - M51: `src/bootstrap/app-bootstrap.ts → ../platform/file-save.js`
-- Worker construction (separate from imports), M33: `src/bootstrap/app-bootstrap.ts → ../workers/data.worker.ts`
+- Worker URL construction (not an import), M33: `src/bootstrap/app-bootstrap.ts → ../workers/data.worker.ts`
 
 ### M54
 
@@ -302,12 +312,13 @@ One source/specifier witness per mechanically discovered edge; all source files 
 - M36: `src/routes/app-runtime.tsx → ../application/workflows/services.js`
 - M37: `src/routes/app-area-hooks.tsx → ../application/view-models/records.js`
 - M38: `src/routes/chart-routes.tsx → ../ui/primitives/busy-indicator.js`
-- M41: `src/routes/route-table.tsx → ../ui/security/frames.js`
+- M41: `src/routes/durability-routes.tsx → ../ui/security/vault-dialogs.js`
 - M42: `src/routes/route-table.tsx → ../ui/library/empty-library-screen.js`
 - M43: `src/routes/route-table.tsx → ../ui/import/delimited-target-screen.js`
 - M44: `src/routes/app-area-hooks.tsx → ../ui/records/table-switcher-sheet.js`
 - M45: `src/routes/chart-routes.tsx → ../ui/charts/chart-builder-screen.js`
 - M46: `src/routes/schema-routes.tsx → ../ui/schema/app-settings-screen.js`
+- M47: `src/routes/durability-routes.tsx → ../ui/durability/bundle-save-dialog.js`
 - M51: `src/routes/route-table.tsx → ../platform/clipboard.js`
 - M53: `src/routes/app-runtime.tsx → ../bootstrap/app-bootstrap.js`
 
@@ -357,7 +368,12 @@ One source/specifier witness per mechanically discovered edge; all source files 
 
 - M01: `tests/browser/projection/fixtures/projection.worker.ts → ../../../../src/domain/model/ids.js`
 - M08: `tests/browser/projection/fixtures/projection.worker.ts → ../../../../src/crypto/hash.js`
+- M09: `tests/browser/sync/fixtures/bundle-reader.worker.ts → ../../../../src/persistence/codecs/canonical-cbor.js`
 - M12: `tests/browser/projection/fixtures/projection.worker.ts → ../../../../src/persistence/projection/index.js`
+- M27: `tests/browser/sync/fixtures/bundle-reader.worker.ts → ../../../../src/sync/providers/bundle/reader.js`
+- M33: `tests/browser/sync/fixtures/bundle-reader.worker.ts → ../../../../src/workers/data/import-handlers.js`
+- M40: `tests/browser/sync/fixtures/save-dialog.entry.tsx → ../../../../src/ui/theme/tokens.css`
+- M47: `tests/browser/sync/fixtures/save-dialog.entry.tsx → ../../../../src/ui/durability/bundle-save-dialog.js`
 
 ### M62
 
@@ -365,6 +381,8 @@ One source/specifier witness per mechanically discovered edge; all source files 
 - M08: `tests/provider-contract/shared/double.ts → ../../../src/crypto/hash.js`
 - M09: `tests/provider-contract/shared/double.ts → ../../../src/persistence/codecs/envelope-frame.js`
 
-## Scope of the registry
+## Scope and continuation changes
 
-Root manifests, `src/harness/**`, generated `dist/`, and public assets remain owner-seam paths defined by PROGRAM-CONFIG, not newly invented module IDs. Existing modules may implement only a subset of their planned surface. The graph records actual value coupling, not architectural permission or evidence of an externally qualified provider.
+New runtime edges include M27→M24 (artifact authentication), M33→M05 (reminder policy), M37→M05 (freshness), M42→M37 (status selector), M47→M37/M38/M44 (durability surfaces), M54→M47 (mounted routes), and M60's production decoder/UI fixture dependencies. M05 itself has no runtime imports. Edges describe actual coupling, not architectural permission or live provider qualification.
+
+Root manifests, `src/harness/**`, generated `dist/` and public assets remain owner-seam paths from PROGRAM-CONFIG, without new module IDs. An empty directory does not establish a producer.

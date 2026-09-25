@@ -1,14 +1,14 @@
 # M53 — Bootstrap (`src/bootstrap/`)
 
 Extracted from specs/architecture.md §Module Contracts (Browser bootstrap).
-Reconciled against `d75830d` (F05 partial).
+Reconciled against production `47a633b` (F05 continuation).
 
 - **Owns:** Runtime capability decision, lock lifetime, worker composition,
   lifecycle fan-out.
 - **Exports (landed):** `app-bootstrap.ts` → `startApp(options?):
   StartAppResult` (`{kind:'unsupported', missing, report}` |
   `{kind:'ready', report, app}`), `AppRuntime` (`client`, `lockNow(reason)`,
-  `onLock`, `setIdleTimeout(minutes)`, `noteActivity()`, `saveBundle(appId)`, `dispose()`),
+  `onLock`, `setIdleTimeout(minutes)`, `noteActivity()`, `saveBundle(appId, interaction?)`, `dispose()`),
   `LockReason` (`user` | `pagehide` | `idle-timeout`), `UnlockedSession`, and a
   `CapabilityReport` re-export; `import-worker.ts` → `spawnImportWorker()` and
   `createImportWorkerClient()` (F02, unchanged by F03).
@@ -37,9 +37,9 @@ Reconciled against `d75830d` (F05 partial).
 
 ## Durable-home implementation (F05, current)
 
-startApp owns AppRuntime.saveBundle, spawnIoWorker's literal Vite URL, and each transfer's AbortController. lock/pagehide/dispose cancel saves and terminate IO resources. The IO constructor is lazy until save; the data client retains its existing lazy lifecycle. Tests can inject destination and constructors.
+`startApp` composes `AppRuntime.saveBundle(appId, interaction?)`, the lazy IO worker and per-transfer AbortController. The data client retains its lazy lifetime. Native picker activation precedes asynchronous preparation. `prepareBundle` reports disposal; a verified delivered operation remains live while `interaction.confirmDelivery` awaits explicit confirmation. Dismissal, timeout, replacement, lock, pagehide or dispose invalidate it and release IO resources. Only that operation's correlated completion can reach M33's receipt transaction. No pending confirmation authority survives restart. Tests may inject external destination/worker constructors; real-entry proofs use built workers.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-boundaries.md) records proof limits and owners.
 
 ## Change History
 
@@ -62,7 +62,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   evidence, rather than left as a standalone staple with nothing to reconcile.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M32 / M53 — CP3 save lifetime
-prepareBundle optionally reports disposal to its owner. AppRuntime.saveBundle(appId, interaction?) keeps a verified delivered operation alive until explicit confirmation, dismissal, timeout, replacement or teardown. The worker's existing operation/app/home/artifact correlation and atomic receipt transaction remain authoritative. Native picker activation still precedes asynchronous preparation.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

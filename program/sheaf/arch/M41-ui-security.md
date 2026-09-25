@@ -1,17 +1,18 @@
 # M41 — UI security (`src/ui/security/`)
 
-Extracted from specs/architecture.md §Module Structure (UI modules). F01 scope.
-Reconciled against the tree at `2c0248a`.
+Extracted from specs/architecture.md §Module Structure (UI modules).
+Reconciled through production `47a633b` (F05 continuation).
 
 - **Owns surfaces:** SCR-001–009; MOD-022, MOD-032, MOD-033, MOD-037 (F01 set;
-  MOD-020/021/023/024 arrive with vaults in F05).
+  F05 adds the accepted named-vault create/reuse/recovery/re-view subset below).
 - **F01 exports (landed):** `WelcomeScreen`, `SetupScreen`, `UnlockScreen`,
   `RecoveryScreen`, `SecuritySettingsScreen`, `PassphraseChangeScreen`,
   `RecoveryCodesScreen` + `RevealCodeDialog`, `ResetLockedScreen`,
   `ResetReadableScreen`; plus `LockedFrame`, `UnlockedFrame`,
   `SecurityNavigation`, `ShellArea` (`frames.tsx`) and `PassphraseVerdict`
   (`verdict.tsx`).
-- **Depends on:** M38/M39/M40 + M37 VMs only. Machines are **not** imported
+- **Runtime imports:** M37/M38/M39, M44 value formatting and M47 durability
+  CSS; see the mechanically derived registry. Machines are **not** imported
   here — see the presentational contract below.
 - **Must not:** import worker/persistence/crypto internals **or a state-machine
   runtime**; acknowledge any state the machine has not confirmed; imply the
@@ -51,11 +52,9 @@ The design-fill list for F01 is **empty**.
   characters with **no prefix**, and local-recovery.html's "Starts with LCL" is
   dropped — the landed KAT-pinned format has no prefix and a display prefix
   would corrupt parsing (Crockford `L`→`1`). AD-10.
-- SCR-007's vault section renders a truthful "no durable home is connected to
-  this device yet" instead of the mock's two fictional vault rows (STA-025
-  forbids fictional data; dropping the section would hide a scope the screen
-  exists to explain). Per-home rows arrive at F05 and reopen D10 as a schema
-  re-entry.
+- SCR-007 renders actual connected-home rows in F05, or the truthful no-home
+  empty state. Fictional vault rows remain forbidden. The landed home state
+  and scoped recovery path resolved this extension without a migration change.
 - SCR-002's fields use the VM's scope-naming labels rather than the mock's
   shorter "New passphrase" / "Confirm passphrase", because design.md §Content
   Patterns requires the exact secret to be named.
@@ -68,6 +67,14 @@ The design-fill list for F01 is **empty**.
   retry action, because the remedy — a browser that provides the capability —
   is not a button.
 
+## Mounted vault, recovery and reset surfaces (F05)
+
+`vault-dialogs.tsx` supplies named-vault creation/reuse, separate labelled local/vault recovery cards and secret-confirmed vault-code review from accepted `f05-vault-security.html` (`58bffc8`). Recovery codes lists authenticated connected homes and scoped review links; an empty inventory retains truthful empty copy. Existing encrypted formats suffice; no schema re-entry was needed. MOD-022 remains local-code reveal.
+
+Readable reset shows the same app-scoped confirmed time and pending count as library/app, links to its backup route and re-enumerates on return; stale transaction confirmation is refused by the worker. RecoveryScreen renders the deadline VM, disables premature submit and clears entered codes. Mounted proof is accepted; page countdown expiry never grants recovery authority.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -79,10 +86,4 @@ The design-fill list for F01 is **empty**.
   the presentational contract and the recorded design deviations promoted from
   the session return into the fragment; session-delta staple merged.
 
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M41 / M42 / M44 / M47 / M54 — mounted durability and security surfaces
-
-`/app/:appId/backup` mounts SCR-038/SCR-039 with real home services, vault creation/reuse, separate labelled recovery cards, secret-confirmed vault-code review, and the existing operation-bound save flow. App home links to this route. Library and readable reset display the same confirmed timestamp and pending count. Reset offers the app backup route and re-enumerates on return. Recovery codes lists authenticated connected homes and links to scoped review. The countdown disables premature UI submission and clears entered codes.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

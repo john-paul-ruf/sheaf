@@ -1,10 +1,10 @@
 # M37 — View models (`src/application/view-models/`)
 
 Extracted from specs/architecture.md §Module Contracts (View models).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled through production `47a633b` (F05 continuation).
 
 - **Owns:** Minimum-data projections for approved surfaces + announcements.
-- **Depends on:** M36 (machine snapshot types + the ordering and phrase
+- **Depends on:** M05 freshness policy; M36 (machine snapshot types + the ordering and phrase
   constants), M32 protocol **types only**, M51 `CapabilityReport` **type
   only**. No runtime import from `src/workers/**`; asserted by
   `tests/unit/workflows/module-boundaries.test.ts`.
@@ -13,10 +13,10 @@ Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
   "your passphrase" unqualified (exact-secret scope strings live in the VM per
   design.md §Content Patterns).
 
-## Files (landed at `5bc19fb`)
+## Files (current through `47a633b`)
 
 `security.ts`, `library.ts`, `import.ts`, `records.ts`, and (F04, new)
-`schema.ts`, `theme.ts`. **There is no `snapshots.ts` or `charts.ts`.** Both
+`schema.ts`, `theme.ts`, plus F05 `durability.ts`. **There is no `snapshots.ts` or `charts.ts`.** Both
 were planned as their own files at some point (F03 for snapshots, F04 for
 charts) and both turned out to belong beside the records VMs they read
 alongside (`records.ts`), so neither file was created — a real structural
@@ -198,7 +198,7 @@ above (recorded once, there).
   future writer cannot fill one. No view-model file names a passphrase-bearing
   field. For F02: no fictional library tile state is constructible
   (`LibraryTileStatusV1` has no conflict / listed-only / too-large / backed-up
-  member — F05–F07); `RecordsListVm` has no match-count field (retired at F04
+  member; F05 receipt/freshness facts travel separately in durability data); `RecordsListVm` has no match-count field (retired at F04
   — it now has one, truthfully, per CAP-31); `AppHomeVm` had no metrics or
   chart field (F02/F03; both landed at F04, per CAP-29/32/33). For F03:
   `ReferenceCellVm`'s broken variant cannot be constructed without
@@ -310,6 +310,14 @@ targets.
   S05 (pinned charts).
 - **`RecordsListVm` had no match-count field** — closed by S04 (CAP-31).
 
+## Durability and preserved provenance (F05)
+
+`durability.ts` forwards authenticated `AppDurabilityViewV1` facts and exports `selectBackupStatus`: M05 freshness produces title, tone and remedy. Runtime M37→M05 is realized; wire references remain type-only. Library, app-home/frame, Settings and backup-detail consumers share the same receipt-relative facts, explicit zero and nullable confirmation time. `AppHomeVm.durability?` forwards them without supplying authority. Recovery VM exposes `canSubmit`, `remainingMs` and `remainingSeconds`; worker throttling remains authoritative. Reset uses current inventory facts.
+
+Schema zero-event preview says “No changes to save.” `toIssueVm` uses neutral preserved-value copy for known authored/other non-import provenance; initial-import/workbook-reupload and legacy absent provenance keep existing import wording. Source `d8b4e14`, paired VM/worker tests; no stored provenance rewrite.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -355,19 +363,4 @@ targets.
   Capability Readiness table so a reader does not find a gap already closed
   by CAP-29/31/32/33 still described as open.
 
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M36 / M37 — recovery countdown and receipt views
-
-`RecoveryInput` requires `ClockPort`; RecoveryRoute supplies `wiring.clock`. Positive worker retryAfterMs (including invalid-recovery-code responses) enters an ephemeral deadline-based waiting state. Ticks clamp remaining time to zero; waiting ignores submit/retry, clears secret drafts, and cancels its timer on exit/stop. The recovery VM exposes canSubmit, remainingMs and remainingSeconds. Expiry permits a request and never grants authority; successful recovery still requires installing a replacement local passphrase.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M37 — view models
-
-`selectBackupStatus(facts)` derives title, tone and remedy from M05 freshness; new runtime edge M37 -> M05. `AppHomeVm.durability?` forwards authoritative receipt facts. The schema VM represents a zero-event preview as “No changes to save.” `toIssueVm` uses neutral preserved-value wording for authored/other known non-import provenance; initial-import/workbook-reupload and legacy absent provenance retain existing import copy.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

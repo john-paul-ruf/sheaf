@@ -102,8 +102,8 @@ the next free ordinal at revision 0, provenance `user`; an edit is refused
 `stale-chart` unless `expectedRevision` matches the held revision),
 `setChartPin` (same definition with the pin flipped; no commit when it
 already stands), `deleteChart`, `readChartSchema`; results `saved | deleted |
-stale-chart | refused | unknown-chart`. All through `commitEvents`
-(invariant 1).
+stale-chart | refused | unknown-chart`. Actual mutations pass through
+`commitEvents` (invariant 1); unchanged definitions/pins return no commit.
 
 ### `theme-commands.ts` (new, SESSION-08)
 
@@ -125,6 +125,12 @@ A legacy `sheaf.built-in.v1` app accepts only a built-in palette key.
 `buildHomeAssignment` creates one authored commit and rejects an app that already has a home.
 
 Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
+## Authored no-change contract (F05)
+
+`SchemaApplyResultV1` includes `unchanged {schemaRevision}`. Unchanged normalized app/table/field names, required flags and existing field order yield no drafts or commit. Revision and validation guards run before no-op acceptance. Identical canonical chart definitions return `saved` with `commit: null`, as an already-set pin does. M32/M33/M37/M54 map no-change honestly; no authored count, history or reminder is manufactured, and historical commits are untouched. Source `59caafb`; paired structure/chart handler tests verify durable no-change and reopen.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
 
 ## Change History
 
@@ -148,11 +154,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   description updated to name every F04 file.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M34 — commands
-
-`SchemaApplyResultV1` adds `unchanged {schemaRevision}`. Unchanged normalized app/table/field names, required flags and current field ordering produce no draft/commit. Stale and validation guards still precede no-op acceptance. `ChartCommandResultV1.saved.commit === null` now also represents an identical canonical saved definition, not only an already-set pin. Historical commits are untouched.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

@@ -4,7 +4,7 @@
 > § Module Structure / UI modules ("SCR-035–037, MOD-014–015, and SHT-014:
 > schema, rule, formula, theme, and app-settings editors") and § Module
 > Contracts / UI feature modules, plus `specs/design.md`. Reconciled against
-> the tree at `5bc19fb` (F04 final).
+> production `47a633b` (F05 continuation).
 
 ## Contract
 
@@ -62,9 +62,15 @@ with the choices A, B"). Deriving choices from the column's distinct values
 was **not** chosen — that would be a product decision the plan did not make.
 
 **Truthful per feature (SCR-037):** re-upload / export / remove render as
-disabled `Button`s with `LATER_RELEASE` ("Arrives in a later release."); no
-backup action. The "Appearance → Theme & logo" card (S08) links SCR-036 and
+disabled `Button`s with `LATER_RELEASE` ("Arrives in a later release."). F05
+adds the shared backup status and working remedy described below. The "Appearance → Theme & logo" card (S08) links SCR-036 and
 shows the theme summary.
+
+## Backup status and no-change feedback (F05)
+
+Settings composes M44 `AppBackupStatus` with authoritative app facts and the mounted backup remedy. It shows explicit zero and no successful time until a receipt exists. Structure maps schema `unchanged` to no-change feedback without a saved acknowledgement. Paired screen/VM assertions preserve stale/refused behavior. The inherited cramped 600px Settings rows in `schema.module.css` remain next Planner UI-maintenance debt; no CSS cleanup is authorized by this note.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
 
 ## Change History
 
@@ -80,13 +86,4 @@ shows the theme summary.
   fragment-reconciliation note and `M38-ui-primitives.md`'s own Change
   History).
 
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M42 / M44 / M46 / M47 — surfaces
-
-M42 library tiles show receipt time, explicit pending count, freshness badge and the mounted backup remedy; safety warning colors use system tokens. M44 `AppIdentity.durability?` and exported `AppBackupStatus({facts, href, compact?})` provide shared detailed/compact receipt status to frame/home and M46 Settings. M47 backup detail uses the same status selector. No cloud connection or successful backup is synthesized.
-
-M47 adds `ScratchReminderDialog`: first/later approved copy, exact pending count, persistent loss warning, heading focus, two 44px actions, Escape dismissal, inert backdrop, phone sheet with 16px inner gutters. Shared React Aria focus containment/restoration remains the mechanism.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

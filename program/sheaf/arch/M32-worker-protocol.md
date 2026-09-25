@@ -1,7 +1,7 @@
 # M32 — Worker protocol (`src/workers/protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC).
-Reconciled against `d75830d` (F05 partial).
+Reconciled against production `47a633b` (F05 continuation).
 
 - **Owns:** Thread boundary semantics: versioned typed RPC, correlation,
   cancellation, progress, transfer ownership, error redaction.
@@ -195,9 +195,13 @@ carries a port.**
 
 ## Durable-home implementation (F05, current)
 
-DataWorkerClient.prepareBundle uses a separate ioVersion=1 attach message and two transferred ports; messages.ts remains byte-free. The worker-to-worker channel has sequential acknowledgements, refusal/timeout/abort handling. The page control channel binds operation/app/home/artifact hash, accepts one completion, and rejects mismatches/replays. io-client accepts only exact artifact/ready/completed shapes and owns termination/disposal.
+`DataWorkerClient.prepareBundle` uses a separate `ioVersion=1` attach message and two transferred ports; page RPC remains byte-free. Worker-to-worker chunks have sequential acknowledgement, refusal, timeout and abort handling. The control channel binds operation/app/home/artifact hash, accepts one completion and rejects mismatches/replays. `io-client.ts` validates exact ready/completed shapes, owns disposal and optionally notifies its owner. The owner M53 keeps the delivered operation alive for explicit confirmation.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+Mounted `createBundleHome` and `revealVaultRecoveryCode` requests keep local/vault scopes distinct. `AppDurabilityViewV1` carries home identity/name, nullable app-scoped confirmation time and receipt-relative pending count; open/closed readers and reset share these facts. Reset rows require `confirmedAtMs: number | null`, and confirmation remains transaction-bound. Reader/transaction enforcement lives in M33.
+
+`SchemaApplyOutcomeV1` includes `unchanged {schemaRevision}`. `getScratchReminder {appId}` and `dismissScratchReminder {appId, homeId, triggeringCommitId, dismissalCount}` return nullable `ScratchReminderViewV1`; dismissal also returns `dismissed | stale`. The view contains app/home/trigger identity, dismissal count/deadline, eligibility and pending count. Caller identity is compared with durable worker state; no test opcode, raw key or caller-authorized eligibility was added.
+
+Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-boundaries.md) records proof limits and owners.
 
 ## Change History
 
@@ -238,26 +242,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   than restated.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M32 / M53 — CP3 save lifetime
-prepareBundle optionally reports disposal to its owner. AppRuntime.saveBundle(appId, interaction?) keeps a verified delivered operation alive until explicit confirmation, dismissal, timeout, replacement or teardown. The worker's existing operation/app/home/artifact correlation and atomic receipt transaction remain authoritative. Native picker activation still precedes asynchronous preparation.
-
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M32 / M33 — worker protocol and authenticated readers
-
-`createBundleHome` and `revealVaultRecoveryCode` are mounted typed RPCs. Reuse verifies the current local secret again; neither plaintext passphrase is retained. Local and vault recovery codes retain independent scopes. `AppDurabilityViewV1` carries authenticated home identity/name, app-scoped confirmation time and receipt-relative pending count. `readAppDurability` reads the durable head and matching HomeState receipt for open and closed apps; missing or ahead-of-local facts fail closed. Pending count sums uncovered commits across every locally held device frontier and rejects any receipt frontier absent from or ahead of the local head. Absolute device sequence and chainState are unchanged. `listLibrary`, `toSessionView`, and reset `inventoryOf` consume the same reader. Reset rows now require `confirmedAtMs: number | null`; reset confirmation remains bound to the current durable transaction.
-
-`refreshBackupContext` authenticates the latest bootstrap/catalog before save completion, preserving a concurrent newer edit as pending while rejecting writer-epoch or session replacement. `connectBundle` releases its own pin after a graceful cancellation when the same session is still available. Lock, process termination or failed cleanup conservatively retain encrypted pins; existing `exportGraph` and `release` recover/release them after unlock without inferring completion or pruning another operation. No blind startup sweep or age-based retention rule is introduced.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M32 — worker protocol
-
-`SchemaApplyOutcomeV1` adds `unchanged {schemaRevision}`. New requests `getScratchReminder {appId}` and `dismissScratchReminder {appId, homeId, triggeringCommitId, dismissalCount}`. Both return nullable `ScratchReminderViewV1 {appId, homeId, triggeringCommitId, dismissalCount, nextEligibleAtEpochMs, eligible, deviceOnlyChangeCount}`; dismissal additionally returns `dismissed | stale`. No test-only opcode, key bytes or authority claim is introduced.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

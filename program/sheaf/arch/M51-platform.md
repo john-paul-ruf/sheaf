@@ -11,7 +11,7 @@ Baseline. Reconciled against the tree at `425562d` (F03 final; code ≡
   `CapabilityClassificationV1`, `CAPABILITY_IDS`; `file-pick.ts` →
   `WORKBOOK_FILE_EXTENSIONS`, `PickedWorkbookV1`, `pickWorkbookFile(files)`;
   `clipboard.ts` (F03) → `copyText(text) → Promise<"copied"|"unavailable">`;
-  `file-save.ts` (F05 partial CP3) → `createFileSavePort`.
+  `file-save.ts` (F05 full CP3) → `createFileSavePort`.
 - **Depends on:** browser APIs only.
 - **Must not:** user-agent sniff (feature-gate only); treat an optional
   capability as required; invent a device class.
@@ -49,9 +49,11 @@ handoff variant) reads the result through `COPY_HANDOFF{result}` instead.
 
 ## Durable-home implementation (F05, current)
 
-createFileSavePort feature-detects the native picker, opens it before awaiting bytes, writes and closes once, and never retains a writable handle. Only fulfilled write+close returns saved; cancellation/error/absence return cancelled/failed/unconfirmed. Abort rejects pending work and requests stream abort. No share/download confirmation or UI is implemented pending DEC-72.
+`createFileSavePort` feature-detects the native picker and invokes it in the gesture before awaiting prepared ciphertext. Only fulfilled write plus close returns `saved`; cancellation and errors return `cancelled`/`failed`. Aborts reject pending work, request stream abort and clear the writable handle.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+Without a picker, the adapter awaits the verified Blob, creates a temporary download anchor/object URL, delivers it and cleans both resources. It returns `unconfirmed`, never saved from a click or download start. Approved DEC-72 is completed by M53's live operation-bound explicit confirmation, not by this adapter. Native destination doubles and real browser downloads prove these branches; actual OS durability remains unqualified.
+
+Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-boundaries.md) records proof limits and owners.
 
 ## Change History
 
@@ -70,13 +72,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   folded into a new "Clipboard" section.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup APPROVAL-2026-09-24 -->
-## Approval continuation — 2026-09-24
-
-Supersedes prior-close references to pending DEC-71/72 and missing save/reminder design, while preserving that historical evidence. User approved the proposed schedule (first authored change, then 10m/1h/24h/daily after successive dismissals) and explicit “I saved this bundle” after unobservable delivery, recorded in 27e9a34. Designer save/reminder mocks and inventory landed 4c31ded. S02 CP3/4 still owns delivery, operation-bound confirmation and J1 proof; S03 CP1/2 owns encrypted reminder scheduling and J2. Approval/design readiness is not implementation or capability verification. Exact graph DB/Author contract and provider inputs remain separate owned prerequisites. Current plan 9749c76 governs continuation.
-
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M07 / M51 — CP3 save delivery
-BundleSaveInteractionV1 carries an invocation-local AbortSignal, delivery notification, and asynchronous explicit confirmation. FileSavePort's terminal union is unchanged. The no-picker adapter now downloads only the prepared Blob, releases its object URL/anchor, and returns unconfirmed; it never claims download initiation is saved.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

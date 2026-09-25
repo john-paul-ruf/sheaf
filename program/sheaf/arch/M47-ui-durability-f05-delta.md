@@ -1,24 +1,19 @@
+# M47 — Current durability UI (`src/ui/durability/`)
 
+Reconciled at production `47a633b`. This tracked document supersedes planned status for the implemented subset; externally owned `M47-ui-durability.md` remains a preserved planning seed.
 
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M36 / M47 / M54 — CP3 confirmation component
-DurabilityServices, durabilityMachine and BundleSaveRoute provide transient preparing/delivering/awaiting-confirmation/confirming/native-saved/user-saved/cancelled/failed/interrupted states. BundleSaveDialog uses the accepted MOD-025 copy and a keyboard-dismissible, non-backdrop-dismissible modal. SecurityWiring.durability is composed from the current AppRuntime. CP4 still owns mounting the full home/vault/save journey and supplying authoritative receipt/count readers.
+## Presentational contracts
 
+`bundle-save-dialog.tsx` renders the accepted MOD-025 preparation/delivery/explicit-confirmation and terminal outcome states. Escape dismisses; backdrop clicks do not. Callbacks reach M36/M54's live save operation, never fabricate a receipt.
 
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M41 / M42 / M44 / M47 / M54 — mounted durability and security surfaces
+`home-screen.tsx` renders SCR-038/SCR-039's current bundle subset with the shared M37 status selector: nullable confirmation time, explicit pending count, freshness and a working save remedy. M54 mounts it at `/app/:appId/backup`; M41 supplies scoped vault create/reuse/recovery/re-view dialogs. Cloud choices do not imply configured or qualified providers.
 
-`/app/:appId/backup` mounts SCR-038/SCR-039 with real home services, vault creation/reuse, separate labelled recovery cards, secret-confirmed vault-code review, and the existing operation-bound save flow. App home links to this route. Library and readable reset display the same confirmed timestamp and pending count. Reset offers the app backup route and re-enumerates on return. Recovery codes lists authenticated connected homes and links to scoped review. The countdown disables premature UI submission and clears entered codes.
+`scratch-reminder-dialog.tsx` renders approved first/later reminder copy, exact pending count and persistent loss warning. It focuses its heading, uses two 44px actions, Escape dismissal, inert backdrop and a phone sheet with 16px gutters. React Aria contains/restores focus. Dismissal postpones eligibility and leaves the scratch badge; accepted edits precede the prompt. M54 owns the single keyed route/machine instance and stale-response protection.
 
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+## Sources and proof
 
+Accepted vault design `58bffc8`, save/reminder design `4c31ded`, provider design `98ee79c` (future S07 consumer). Source S02 `a93a87c`/`7b1bb58`, S03 through `47a633b`; component assertions and real-entry J1/J2/status/a11y are distinguished in M56/M61. Provider composition/proof stays S07. See [F05 boundaries](F05-boundaries.md).
 
-<!-- durable-home-backup SESSION-03 r3 -->
-## M42 / M44 / M46 / M47 — surfaces
+## Change History
 
-M42 library tiles show receipt time, explicit pending count, freshness badge and the mounted backup remedy; safety warning colors use system tokens. M44 `AppIdentity.durability?` and exported `AppBackupStatus({facts, href, compact?})` provide shared detailed/compact receipt status to frame/home and M46 Settings. M47 backup detail uses the same status selector. No cloud connection or successful backup is synthesized.
-
-M47 adds `ScratchReminderDialog`: first/later approved copy, exact pending count, persistent loss warning, heading focus, two 44px actions, Escape dismissal, inert backdrop, phone sheet with 16px inner gutters. Shared React Aria focus containment/restoration remains the mechanism.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Final continuation reconciles S02/S03 receive deltas into one implemented-subset contract; preserved the external seed.

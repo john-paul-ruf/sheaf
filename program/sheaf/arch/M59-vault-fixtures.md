@@ -10,7 +10,9 @@ byte-exact deterministic producer known answers. `generate.ts` writes only those
 four names in its own directory. Tests regenerate in memory, detect a deliberately
 corrupted answer, and open the graph from the fixture vault passphrase/recovery
 via real crypto and existing checkpoint codecs. This is an empty-app fixture;
-full application reconstruction/storage/restart remains S02/S06 proof.
+full current-application reconstruction/storage/restart is separately accepted
+through S02 (`823012b`, rerun at `47a633b`). Positive future nonempty graph and
+compaction fixtures/proofs remain S06, behind the exact Author contract.
 
 ## Evidence and limits
 
@@ -20,3 +22,5 @@ Implementation: S01 `694c741` / `13e83f1` / `8674766`, S02 `c7e6507` / `d75830d`
 
 - 2026-09-24 — Planner seed at `2c35bfb` described future work.
 - 2026-09-24 — Final reconciliation replaced that planned status with the landed subset and folded received implementation deltas. No full F05 capability is claimed.
+
+- 2026-09-25 — Current application proof separated from empty KAT fixture and future S06 nonempty proof.

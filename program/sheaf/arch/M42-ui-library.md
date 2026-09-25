@@ -1,7 +1,7 @@
 # M42 — UI library (`src/ui/library/`)
 
 Extracted from specs/architecture.md §Module Structure (UI modules).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled through production `47a633b` (F05 continuation).
 
 - **Owns surfaces (full target):** SCR-010–015, MOD-003, SHT-011.
 - **Landed:** SCR-010 (populated library), SCR-011 (empty state), SCR-012
@@ -36,7 +36,9 @@ disabled branch is byte-for-byte the F01 Button (`disabledReason` +
   anywhere: the `import-not-available-in-this-release` token was removed from
   `LibraryActionReason`, so the copy became dead and was deleted. That is the
   point of the flip.
-- "Connect a durable home" is still disabled with its stated reason (F05/F06).
+- The global/empty-library "Connect a durable home" remains disabled with its
+  stated reason; per-app bundle backup is mounted. F06 Planner owns the
+  remaining global connection/adoption entry and unavailable-copy follow-up.
 - `onChooseWorkbook` is an optional prop defaulting to `navigateToUpload`,
   following the landed `recovery-code-card.tsx` idiom: a browser affordance
   called directly, injectable for tests, so no route owner has to pass a handler
@@ -57,17 +59,21 @@ tile state or copy changed — only which mark a themed app now draws.
   *pale* fill with its *ink* foreground (`--marigold-pale`/`--marigold-ink`, and
   the four siblings). Every value already exists in `tokens.css`; the app's
   identity and the product behaviour are unchanged.
-- **Absent by decision, not by omission:** `library.html`'s freshness banner and
-  its **Back up now** remedy (F02 writes no durable home and counts no
-  device-only changes); `library-search.html`'s **Check durable homes**
-  (F05/F06); `library-empty.html`'s "Open it by hand" (adopt.html, F05) and its
-  "Install is optional" MOD-003 note (PWA is F08).
+- Per-app freshness and **Back up now** are implemented in F05. Remaining
+  unavailable surfaces are `library-search.html`'s **Check durable homes**,
+  empty-library adoption (F06 Planner), and MOD-003 install education (F08).
 
 ## Residual debt (owners named)
 
-- F05/F06: enable "Connect a durable home"; restore "Open it by hand"; restore
-  the freshness banner once a durable home and a device-only count exist.
+- F06 Planner: global connection/adoption entry and inherited unavailable copy.
+  Per-app receipt/count/freshness and its bundle remedy are already accepted.
 - F08: restore the MOD-003 install-education note when the PWA manifest exists.
+
+## Per-app backup status (F05)
+
+Library tiles display authenticated receipt time, explicit pending count, freshness badge and a working `/app/:appId/backup` remedy. Warning colours use system safety tokens. `selectBackupStatus` supplies the shared local/bundle status vocabulary. Status remains consistent after reopen; it does not fabricate a provider connection. The separate empty-library/global connection and adoption controls remain unavailable and are carried to F06 Planner; their copy is not evidence of a missing per-app bundle writer.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
 
 ## Change History
 
@@ -92,21 +98,4 @@ tile state or copy changed — only which mark a themed app now draws.
 - 2026-09-23 — reconciled by Archivist (F04 final pass): the SESSION-08 delta
   folded into a new "Per-app identity on the tile" section.
 
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M41 / M42 / M44 / M47 / M54 — mounted durability and security surfaces
-
-`/app/:appId/backup` mounts SCR-038/SCR-039 with real home services, vault creation/reuse, separate labelled recovery cards, secret-confirmed vault-code review, and the existing operation-bound save flow. App home links to this route. Library and readable reset display the same confirmed timestamp and pending count. Reset offers the app backup route and re-enumerates on return. Recovery codes lists authenticated connected homes and links to scoped review. The countdown disables premature UI submission and clears entered codes.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M42 / M44 / M46 / M47 — surfaces
-
-M42 library tiles show receipt time, explicit pending count, freshness badge and the mounted backup remedy; safety warning colors use system tokens. M44 `AppIdentity.durability?` and exported `AppBackupStatus({facts, href, compact?})` provide shared detailed/compact receipt status to frame/home and M46 Settings. M47 backup detail uses the same status selector. No cloud connection or successful backup is synthesized.
-
-M47 adds `ScratchReminderDialog`: first/later approved copy, exact pending count, persistent loss warning, heading focus, two 44px actions, Escape dismissal, inert backdrop, phone sheet with 16px inner gutters. Shared React Aria focus containment/restoration remains the mechanism.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

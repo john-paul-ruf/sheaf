@@ -1,7 +1,7 @@
 # M54 — Routes (`src/routes/`)
 
 Extracted from specs/architecture.md §Module Contracts (Routes).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled through production `47a633b` (F05 continuation).
 
 - **Owns:** URL ↔ approved-SCR mapping, lock-state guards, (later) OAuth
   return routing.
@@ -28,9 +28,10 @@ Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
   - `schema-routes.tsx` (F04, new) → `StructureRoute`, `AppSettingsRoute`,
     `useSchemaChange(area)`.
   - `theme-routes.tsx` (F04, new) → `ThemeRoute`, `usePalettes`, `glyphOf`.
+  - `durability-routes.tsx` (F05) → `HomeDurabilityRoute`, `BundleSaveRoute`, `ScratchReminderRoute`.
 - **Depends on:** M53 (`startApp`, `spawnImportWorker`), M36 (all machines +
   `createImportServices`, and F04's `schema-services`/`theme-services`),
-  M37 (selectors), M41–M46 (F04 adds M45/M46), M38 (`Button`,
+  M37 (selectors), M41–M47 (F05 adds M47), M38 (`Button`,
   `BusyIndicator`), M51 (`file-pick.ts`, and F03 `clipboard.ts`),
   react-router 8 (`HashRouter`) and `@xstate/react`.
 - **Must not:** implement commands; infer state from provider availability;
@@ -50,7 +51,7 @@ app area matched by *shape*: `/app/:appId`, `/app/:appId/history`,
 `/app/:appId/snapshots`, `/app/:appId/snapshots/:sheetId` (F03), and (F04)
 `/app/:appId/charts`, `/app/:appId/charts/new`, `/app/:appId/charts/:chartId`,
 `/app/:appId/charts/:chartId/edit`, `/app/:appId/structure`,
-`/app/:appId/settings`, `/app/:appId/theme`.
+`/app/:appId/settings`, `/app/:appId/theme`, and F05 `/app/:appId/backup`.
 
 ## CA-07 guards
 
@@ -146,6 +147,14 @@ The full matrix is asserted case by case in `tests/e2e/route-guards.spec.ts`.
   built-in palette list once per app-theme session; `glyphOf` resolves the
   library-tile glyph the theme editor previews.
 
+## Mounted durability composition (F05)
+
+`/app/:appId/backup` mounts SCR-038/SCR-039 through `durability-routes.tsx`, real home services and vault create/reuse/re-view dialogs, plus the operation-bound `BundleSaveRoute`. `SecurityWiring.durability` supplies the runtime save service; `HomeDurabilityRoute` and `ScratchReminderRoute` construct home/reminder services from `app.client`. App-home and reset remedies reach this route; reset re-enumerates after return. RecoveryRoute injects `wiring.clock` into the countdown actor.
+
+`ScratchReminderRoute` mounts once per keyed opened app. Route/generation changes re-query; backup choice suppresses it so setup stays reachable. Dismissal goes through the machine, home choice navigates to backup, and closing falls back to the app heading if the launcher disappeared. Chart notifications join record/schema/theme refresh boundaries only after authored acknowledgement. Schema `unchanged` announces no change without fabricating saved state. Source `7b1bb58`, `f978eb3`, `a016752`, `d8b4e14`, `47a633b`; composed proof in M61.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -174,24 +183,4 @@ The full matrix is asserted case by case in `tests/e2e/route-guards.spec.ts`.
   amendment-4 notes, and the Structural-facts section; the Exports list
   updated to name every F04 file.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M36 / M47 / M54 — CP3 confirmation component
-DurabilityServices, durabilityMachine and BundleSaveRoute provide transient preparing/delivering/awaiting-confirmation/confirming/native-saved/user-saved/cancelled/failed/interrupted states. BundleSaveDialog uses the accepted MOD-025 copy and a keyboard-dismissible, non-backdrop-dismissible modal. SecurityWiring.durability is composed from the current AppRuntime. CP4 still owns mounting the full home/vault/save journey and supplying authoritative receipt/count readers.
-
-
-<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
-## M41 / M42 / M44 / M47 / M54 — mounted durability and security surfaces
-
-`/app/:appId/backup` mounts SCR-038/SCR-039 with real home services, vault creation/reuse, separate labelled recovery cards, secret-confirmed vault-code review, and the existing operation-bound save flow. App home links to this route. Library and readable reset display the same confirmed timestamp and pending count. Reset offers the app backup route and re-enumerates on return. Recovery codes lists authenticated connected homes and links to scoped review. The countdown disables premature UI submission and clears entered codes.
-
-Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
-
-
-<!-- durable-home-backup SESSION-03 r3 -->
-## M54 — routes
-
-`ScratchReminderRoute` is mounted once per keyed opened app. Route/generation changes re-query; backup choice suppresses the reminder so setup remains reachable. Dismissal uses the machine; home choice navigates to the existing app backup route. If the original launcher disappeared, closing focuses the app heading. Schema `unchanged` announces no changes without fabricating a saved receipt. Chart services notify the same refresh boundary as record/schema/theme actions.
-
-
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

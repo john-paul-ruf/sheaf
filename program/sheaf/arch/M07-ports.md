@@ -1,7 +1,7 @@
 # M07 — Application ports (`src/application/ports/`)
 
 Extracted from specs/architecture.md §Module Contracts (Application ports).
-Reconciled against `d75830d` (F05 partial implementation).
+Reconciled against production `47a633b` (F05 continuation).
 
 - **Owns:** Dependency-inversion contracts.
 - **Exports (full target):** LocalEventRepository, ProjectionEngine,
@@ -29,7 +29,7 @@ Reconciled against `d75830d` (F05 partial implementation).
 | `backup.ts` | `BackupAppGraphV1`, snapshot identity | M24 publication / M33 exporter (F05) |
 | `durable-home.ts` | `DurableHomePort` | M24 publication (F05; live adapters pending) |
 | `vault-crypto.ts` | `VaultCryptoPort` | M24 publication / M33 home state (F05) |
-| `file-save.ts` | `FileSavePort` | M53 native save (F05 partial CP3) |
+| `file-save.ts` | `FileSavePort` | M53 native/fallback save (F05) |
 
 ### `envelope-store.ts` (F02, S04)
 
@@ -110,33 +110,13 @@ union — see `M01-domain-model.md`'s "Type-held rule"), `RecordRuleIRV1`,
 
 ## Durable-home implementation (F05, current)
 
-`backup.ts`: `BackupAppGraphV1` is the worker-owned export contract.
-`BackupGraphObjectV1` contains metadata only: authenticated reference, expected
-payload kind and descendant references. `readObject(storageId, signal)` reads
-one pinned transport object; `canonicalAuthoredState(signal)` streams canonical
-CBOR reconstructed independently in SQLite. The graph's owned `AbortSignal`
-invalidates reads and publication when its lifetime ends. `checkpointChains`
-and `deviceChains` carry authenticated per-device sequence/hash evidence.
-`BackupSnapshotIdentityV1` binds app/home/vault IDs, generation, exact candidate
-head SHA-256, frontier, retained app and generation roots, and final device chains.
-It is not an external save receipt or proof of complete authored-state replay.
+`backup.ts` exposes worker-owned `BackupAppGraphV1`: authenticated reference/kind/descendant metadata, bounded `readObject(storageId, signal)`, streamed `canonicalAuthoredState(signal)` and an owned abort lifetime. `checkpointChains`/`deviceChains` carry authenticated per-device sequence/hash evidence. `BackupSnapshotIdentityV1` binds app/home/vault, generation, candidate digest, frontier and retained roots; it is not a save receipt. `ProjectionAuthoredStatePort` remains structurally checked against M12 in both directions.
 
-New `durable-home.ts`: `DurableHomePort.readHead/readObject/createObject/
-compareAndSwapHead`, `HeadObjectV1`, `HeadReceiptV1`. A constructed port is bound
-to one authenticated provider account/vault location. Object writes are immutable;
-null CAS revision means create-if-absent, never unconditional replace. Receipts
-name SHA-256 of the exact canonical head bytes plus opaque provider revision.
+`DurableHomePort.readHead/readObject/createObject/compareAndSwapHead` binds a constructed adapter to one authenticated account/location. Immutable objects and exact-byte digest/revision receipts distinguish create-if-absent from replacement. Live provider adapters remain S04/S05 outputs. `VaultCryptoPort` creates, opens, wraps and destroys opaque handles without a raw-key return.
 
-New `vault-crypto.ts`: opaque `VaultKeyRefV1`, `VaultSecretsV1`, `VaultCryptoPort`
-create/openWithPassphrase/openWithRecovery/wrapApp/openApp/protectLocally/
-openLocally/destroy. No raw-key return or provider SDK type. File-save and native transport/receipt production landed in partial S02 CP3;
-UI DTO/readers and J1 remain S02 CP4/5 outputs.
+`FileSavePort.save(Promise<Blob>, AbortSignal)` retains terminal `saved | cancelled | failed | unconfirmed`. `BundleSaveInteractionV1` supplies invocation-local signal, delivery notification and asynchronous explicit confirmation to `AppRuntime.saveBundle`; it does not add a durable lifecycle variant. M51 supplies verified download delivery as unconfirmed, M53 binds explicit confirmation to the live operation, and M33 alone records its captured frontier/time. Mounted readers and J1 are accepted, not future port outputs.
 
-ProjectionAuthoredStatePort is structurally checked against the engine in both directions.
-
-FileSavePort.save(Promise<Blob>, AbortSignal) returns saved/cancelled/failed/unconfirmed. Its first consumer is AppRuntime.saveBundle. Only ciphertext Blobs reach the platform adapter. No fallback policy is supplied.
-
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-boundaries.md) records proof limits and owners.
 
 ## Change History
 
@@ -168,7 +148,4 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   counts.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
-
-<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
-## M07 / M51 — CP3 save delivery
-BundleSaveInteractionV1 carries an invocation-local AbortSignal, delivery notification, and asynchronous explicit confirmation. FileSavePort's terminal union is unchanged. The no-picker adapter now downloads only the prepared Blob, releases its object URL/anchor, and returns unconfirmed; it never claims download initiation is saved.
+- 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.

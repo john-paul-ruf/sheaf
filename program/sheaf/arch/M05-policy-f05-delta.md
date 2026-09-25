@@ -1,14 +1,17 @@
-# M05 F05 policy delta
+# M05 — Current policy implementation (`src/domain/policy/`)
 
-Pre-existing untracked M05-policy.md remains untouched; this tracked delta records only accepted F05 work.
+Reconciled at production `47a633b`, F05 continuation. This tracked document records landed behavior; the externally owned `M05-policy.md` planning seed is preserved unchanged.
 
+## Contract
 
-<!-- durable-home-backup SESSION-03 r3 -->
-## M05 — policy
+`scratch-reminder.ts` exports `ScratchReminderState`, `scratchReminderSchedule(state, nowEpochMs)` and `dismissScratchReminder(state, nowEpochMs)`. An authored trigger with no deadline is immediately eligible. Acknowledged dismissals defer 600000ms, 3600000ms, then 86400000ms repeatedly. Dismissal time is clamped against prior dismissal time, so clock rollback does not shorten the deadline or reset escalation. The worker supplies ClockPort time and persists the result; policy imports no clock, storage or UI.
 
-New `scratch-reminder.ts`: `ScratchReminderState`, `scratchReminderSchedule(state, nowEpochMs)` and `dismissScratchReminder(state, nowEpochMs)`. An authored trigger with no deadline is immediately eligible; acknowledged dismissals defer 600000ms, 3600000ms, then 86400000ms repeatedly. Rollback never shortens a persisted deadline or resets escalation. Callers supply worker ClockPort time. No clock, storage or UI imports.
+`backup-freshness.ts` exports `backupFreshness({homeId, confirmedAtMs, deviceOnlyChangeCount})`: `scratch`, `never-confirmed`, `out-of-date`, `current`. Zero timestamp is a receipt; null is not. Freshness never changes authoritative count or dismisses the scratch badge. Removal/account-lifecycle policies remain future work.
 
-New `backup-freshness.ts`: `backupFreshness({homeId, confirmedAtMs, deviceOnlyChangeCount})` distinguishes `scratch`, `never-confirmed`, `out-of-date`, `current`; zero time is a receipt, null is not. Freshness never changes the authoritative count.
+## Consumers and evidence
 
+M33 `handlers.ts` consumes reminder policy; M37 `durability.ts` consumes freshness. Both runtime edges are derived from imports in [MODULE-REGISTRY.md](MODULE-REGISTRY.md). Producer/atomic persistence belongs to M33, route lifetime to M54. `tests/unit/policy/` and actual-worker J2 cover deadlines, rollback and restart; [F05 boundaries](F05-boundaries.md) separates accepted current behavior from future providers.
 
-Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
+## Change History
+
+- 2026-09-25 — S03 `59caafb`/`a016752`/`d8b4e14`/`47a633b` implemented and proved policy, persistence and consumers; final reconciliation replaces the receive delta.
