@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * GATE-F02 — the ROADMAP demo script, executable.
  *
@@ -191,6 +192,7 @@ test("GATE-F02 demo: a messy CSV becomes an app that survives a reload", async (
     timeout: PARSE_TIMEOUT_MS,
   });
   await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
+  await dismissExpectedScratchReminder(page);
   await expect(screen(page, "SCR-027")).toContainText("Complete");
 
   // --- reload: durable -----------------------------------------------------

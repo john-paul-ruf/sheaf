@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -36,6 +37,7 @@ for (const destination of ["download", "native"] as const) test(`J1 ${destinatio
     await page.getByLabel("Quoted amount", { exact: true }).fill("500");
     await page.getByRole("button", { name: "Save on this device" }).click();
     await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
+    await dismissExpectedScratchReminder(page);
     await followHash(page, appHash);
     await page.getByRole("link", { name: "Choose a durable home" }).click();
     await expect(screen(page, "SCR-038")).toBeVisible();

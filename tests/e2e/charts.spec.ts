@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-32 and CAP-33 through the real entry (S05 CP4; CA-29/30; D61, D63).
  *
@@ -166,6 +167,7 @@ test.describe("the charts journey", () => {
       // --- SCR-033: the saved chart, said once it is durable --------------------
       const detail = screen(page, "SCR-033");
       await expect(detail).toBeVisible();
+      await dismissExpectedScratchReminder(page);
       await expect(page.getByRole("status").filter({ hasText: "Saved on this device." })).toHaveCount(1);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Quoted by site");
       await expect(detail.locator('[data-scope="all"]')).toHaveText("Showing all 40 local rows");

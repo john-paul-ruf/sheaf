@@ -1,6 +1,7 @@
 import { createActor, waitFor } from "xstate";
 import { expect, it, vi } from "vitest";
-import { durabilityMachine } from "../../../src/application/workflows/durability.machine.js";
+import { durabilityMachine, scratchReminderMachine } from "../../../src/application/workflows/durability.machine.js";
+import type { ScratchReminderViewV1 } from "../../../src/workers/protocol/messages.js";
 import type { BundleSaveInteractionV1 } from "../../../src/application/ports/file-save.js";
 
 it("only accepts confirmation after delivery, exactly once, for the live actor", async () => {
@@ -55,4 +56,36 @@ it("keeps native saved separate from user-confirmed saved", async () => {
   } } }).start();
   try { actor.send({ type: "START" }); await waitFor(actor, (state) => state.matches("savedNative")); }
   finally { actor.stop(); }
+});
+
+it("ignores obsolete reminder queries and deduplicates dismissal while its acknowledgement is pending", async () => {
+  const reminder: ScratchReminderViewV1 = { appId: "a", homeId: null, triggeringCommitId: "c", dismissalCount: 0,
+    nextEligibleAtEpochMs: null, eligible: true, deviceOnlyChangeCount: 2 };
+  let resolveOld!: (value: { kind: "getScratchReminder"; reminder: ScratchReminderViewV1 }) => void;
+  let finishDismiss!: () => void;
+  const query = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+    .mockResolvedValue({ kind: "getScratchReminder", reminder });
+  const dismiss = vi.fn(async () => {
+    await new Promise<void>((resolve) => { finishDismiss = resolve; });
+    return { kind: "dismissScratchReminder" as const, outcome: "dismissed" as const,
+      reminder: { ...reminder, eligible: false, dismissalCount: 1, nextEligibleAtEpochMs: 600_000 } };
+  });
+  const actor = createActor(scratchReminderMachine, { input: { appId: "a", services: { query, dismiss } } }).start();
+  try {
+    actor.send({ type: "REFRESH" });
+    await waitFor(actor, (state) => state.matches("ready"));
+    resolveOld({ kind: "getScratchReminder", reminder: { ...reminder, appId: "another-app", triggeringCommitId: "old" } });
+    await Promise.resolve();
+    expect(actor.getSnapshot().context.reminder).toEqual(reminder);
+    actor.send({ type: "DISMISS" });
+    actor.send({ type: "DISMISS" });
+    actor.send({ type: "REFRESH" });
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(actor.getSnapshot().matches("dismissing")).toBe(true);
+    finishDismiss();
+    await waitFor(actor, (state) => state.matches("ready"));
+    actor.send({ type: "DISMISS" });
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(actor.getSnapshot().context.reminder?.eligible).toBe(false);
+  } finally { actor.stop(); }
 });

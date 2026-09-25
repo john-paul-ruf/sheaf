@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-37: semantic text on a dark app's background passes 4.5:1
  * (design.md § Built-in app palettes → System semantics in dark mode).
@@ -72,6 +73,7 @@ test("CAP-37: a danger issue line on a dark app's background, in Clay 300, passe
   await editor.getByText("Dark", { exact: true }).click();
   await editor.getByRole("button", { name: "Save theme locally" }).click();
   await expect(screen(page, "SCR-037")).toBeVisible();
+  await dismissExpectedScratchReminder(page);
   await expect(page.locator("[data-app-mode]:not([data-theme-preview])").first()).toHaveAttribute("data-app-mode", "dark");
 
   // Dark: the same line, in the system's dark-mode danger text, and axe passes.

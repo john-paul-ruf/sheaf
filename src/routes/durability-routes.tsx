@@ -1,15 +1,51 @@
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useMachine } from "@xstate/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { durabilityMachine } from "../application/workflows/durability.machine.js";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { durabilityMachine, scratchReminderMachine } from "../application/workflows/durability.machine.js";
 import type { DurabilityServices } from "../application/workflows/durability-services.js";
 import { BundleSaveDialog } from "../ui/durability/bundle-save-dialog.js";
-import { createHomeServices } from "../application/workflows/durability-services.js";
+import { createHomeServices, createReminderServices } from "../application/workflows/durability-services.js";
 import type { AppRuntime } from "../bootstrap/app-bootstrap.js";
 import type { AppAreaWiring } from "./app-area-hooks.js";
 import { HomeScreen } from "../ui/durability/home-screen.js";
 import { VaultDialog } from "../ui/security/vault-dialogs.js";
 import { formatInstant } from "../ui/records/values.js";
+import { ScratchReminderDialog } from "../ui/durability/scratch-reminder-dialog.js";
+
+export function ScratchReminderRoute({ app, appId, appName, generation }: {
+  readonly app: AppRuntime; readonly appId: string; readonly appName: string; readonly generation: number;
+}): ReactNode {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const services = useMemo(() => createReminderServices(app.client), [app]);
+  const [state, send] = useMachine(scratchReminderMachine, { input: { appId, services } });
+  useEffect(() => { send({ type: "REFRESH" }); }, [send, pathname, generation]);
+  const reminder = state.context.reminder;
+  const visible = (state.matches("ready") || state.matches("dismissing")) && reminder?.eligible === true &&
+    reminder.appId === appId && reminder.homeId === null && !pathname.endsWith("/backup");
+  const wasVisible = useRef(false);
+  useEffect(() => {
+    const closed = wasVisible.current && !visible;
+    wasVisible.current = visible;
+    if (!closed) return;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement === null) {
+        const heading = document.querySelector<HTMLElement>("main h1");
+        if (heading !== null) { heading.tabIndex = -1; heading.focus(); }
+      }
+    });
+    return () => { cancelAnimationFrame(frame); };
+  }, [visible]);
+  return <>
+    <span hidden data-reminder-state={String(state.value)} data-reminder-query={state.context.queryCount} data-reminder-trigger={reminder?.triggeringCommitId ?? ""}
+      data-reminder-dismissals={reminder?.dismissalCount ?? 0} data-reminder-count={reminder?.deviceOnlyChangeCount ?? 0}
+      data-reminder-deadline={reminder?.nextEligibleAtEpochMs ?? ""} />
+    {state.matches("failed") && <p role="alert">The backup reminder could not be updated. Your saved work is unchanged.</p>}
+    {visible && <ScratchReminderDialog appName={appName} count={reminder.deviceOnlyChangeCount} dismissalCount={reminder.dismissalCount}
+      busy={state.matches("dismissing")} onDismiss={() => { send({ type: "DISMISS" }); }}
+      onChooseHome={() => { void navigate(`/app/${encodeURIComponent(appId)}/backup`); }} />}
+  </>;
+}
 
 export function HomeDurabilityRoute({ area, app }: { readonly area: AppAreaWiring; readonly app: AppRuntime }): ReactNode {
   const location = useLocation();

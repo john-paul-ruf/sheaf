@@ -89,7 +89,8 @@ import type {
   RelatedRecordsViewV1,
   UnlockedSessionViewV1,
 } from "../workers/protocol/messages.js";
-import type { ChartServices, RecordsServices } from "../application/workflows/records-services.js";
+import type { RecordsServices } from "../application/workflows/records-services.js";
+import { createChartServices } from "../application/workflows/records-services.js";
 import type { SchemaServices } from "../application/workflows/schema-services.js";
 import type { ThemeServices } from "../application/workflows/theme-services.js";
 import { toSecurityError } from "../application/workflows/services.js";
@@ -139,7 +140,7 @@ import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
 import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { AppSettingsRoute, StructureRoute } from "./schema-routes.js";
 import { ThemeRoute } from "./theme-routes.js";
-import { HomeDurabilityRoute } from "./durability-routes.js";
+import { HomeDurabilityRoute, ScratchReminderRoute } from "./durability-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -497,7 +498,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
-      <AppArea app={app} charts={wiring.charts} records={wiring.records} schema={wiring.schema} theme={wiring.theme} topBarActions={lockAction}>
+      <AppArea app={app} records={wiring.records} schema={wiring.schema} theme={wiring.theme} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -904,7 +905,6 @@ function ImportStageScreens({
 function AppArea({
   app,
   records,
-  charts,
   schema,
   theme,
   topBarActions,
@@ -912,7 +912,6 @@ function AppArea({
 }: {
   readonly app: AppRuntime;
   readonly records: RecordsServices;
-  readonly charts: ChartServices;
   readonly schema: SchemaServices;
   readonly theme: ThemeServices;
   readonly topBarActions: ReactNode;
@@ -931,7 +930,6 @@ function AppArea({
     <OpenedApp
       app={app}
       appId={appId}
-      charts={charts}
       key={appId}
       records={records}
       schema={schema}
@@ -952,7 +950,6 @@ function OpenedApp({
   app,
   appId,
   records,
-  charts,
   schema,
   theme,
   topBarActions,
@@ -960,7 +957,6 @@ function OpenedApp({
   readonly app: AppRuntime;
   readonly appId: string;
   readonly records: RecordsServices;
-  readonly charts: ChartServices;
   readonly schema: SchemaServices;
   readonly theme: ThemeServices;
   readonly topBarActions: ReactNode;
@@ -1026,6 +1022,10 @@ function OpenedApp({
     setRecalculated(new Set());
   }, []);
 
+  const observedCharts = useMemo(() => createChartServices(app.client, (changedAppId) => {
+    if (changedAppId === appId) refresh();
+  }), [app, appId, refresh]);
+
   const announce = useCallback((sentence: string, recalculatedFieldIds: readonly string[] = []) => {
     setNotice(sentence);
     setRecalculated(new Set(recalculatedFieldIds));
@@ -1089,7 +1089,7 @@ function OpenedApp({
     identity,
     nav,
     records,
-    charts,
+    charts: observedCharts,
     schema,
     theme,
     session,
@@ -1101,6 +1101,8 @@ function OpenedApp({
   };
 
   return (
+    <>
+    <ScratchReminderRoute app={app} appId={appId} appName={session.displayName} generation={generation} />
     <Routes>
       <Route element={<AppHomeRoute area={area} />} path="/app/:appId" />
       <Route element={<HomeDurabilityRoute area={area} app={app} />} path="/app/:appId/backup" />
@@ -1156,6 +1158,7 @@ function OpenedApp({
       />
       <Route element={<Navigate replace to={appPath(appId)} />} path="*" />
     </Routes>
+    </>
   );
 }
 

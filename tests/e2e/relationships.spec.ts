@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-24 (and CAP-23's app-side leg) through the real entry — workbook-fidelity
  * SESSION-08 CP4, CA-21's consumer proof.
@@ -112,6 +113,7 @@ test("related records navigate both ways, broken ones repair, and it all survive
   await chooseCandidate(page, "Customer ID", "Harbor", "Harbor View Inn");
   await repair.getByRole("button", { name: "Point it at “Harbor View Inn”" }).click();
   await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
+  await dismissExpectedScratchReminder(page);
   await expect(page.locator("[data-belongs-to]")).toContainText("Harbor View Inn");
   await expect(page.locator("[data-missing]")).toHaveCount(0);
 

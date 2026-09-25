@@ -272,14 +272,22 @@ export interface ChartServices {
   readonly discardChartDraft: (input: { readonly appId: string }) => Promise<DiscardChartDraftResponseV1>;
 }
 
-export function createChartServices(port: RecordsWorkerPort): ChartServices {
+export function createChartServices(port: RecordsWorkerPort, onAuthored?: (appId: string) => void): ChartServices {
+  async function write<R extends SaveChartResponseV1 | SetChartPinResponseV1 | DeleteChartResponseV1>(
+    appId: string, pending: Promise<R>,
+  ): Promise<R> {
+    const response = await pending;
+    const { outcome } = response;
+    if ((outcome.result === "saved" && outcome.commitId !== null) || outcome.result === "deleted") onAuthored?.(appId);
+    return response;
+  }
   return {
     listCharts: ({ appId }) => port.send({ kind: "listCharts", appId }),
     getChart: ({ appId, chartId }) => port.send({ kind: "getChart", appId, chartId }),
     getChartDataset: (input) => port.send({ kind: "getChartDataset", ...input }),
-    saveChart: (input) => port.send({ kind: "saveChart", ...input }),
-    setChartPin: (input) => port.send({ kind: "setChartPin", ...input }),
-    deleteChart: (input) => port.send({ kind: "deleteChart", ...input }),
+    saveChart: (input) => write(input.appId, port.send({ kind: "saveChart", ...input })),
+    setChartPin: (input) => write(input.appId, port.send({ kind: "setChartPin", ...input })),
+    deleteChart: (input) => write(input.appId, port.send({ kind: "deleteChart", ...input })),
     getChartDraft: ({ appId }) => port.send({ kind: "getChartDraft", appId }),
     saveChartDraft: ({ appId, draft }) => port.send({ kind: "saveChartDraft", appId, draft }),
     discardChartDraft: ({ appId }) => port.send({ kind: "discardChartDraft", appId }),

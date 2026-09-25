@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-15, CAP-16 and CAP-17 through the real entry.
  *
@@ -117,6 +118,7 @@ test("a record is created, refused, corrected, deleted and restored", async ({
   });
   const detail = screen(page, "SCR-027");
   await expect(detail).toContainText("Created on this device.");
+  await dismissExpectedScratchReminder(page);
   await expect(detail).toContainText("Alder Court");
   await expect(detail).toContainText("Apr 20, 2026");
   await expect(detail).toContainText("$1,975.50");

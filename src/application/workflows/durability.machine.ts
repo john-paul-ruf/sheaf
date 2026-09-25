@@ -1,5 +1,38 @@
-import { fromCallback, sendTo, setup } from "xstate";
+import { assign, fromCallback, fromPromise, sendTo, setup } from "xstate";
 import type { DurabilityServices } from "./durability-services.js";
+import type { ReminderServices } from "./durability-services.js";
+import type { ScratchReminderViewV1 } from "../../workers/protocol/messages.js";
+
+interface ReminderInput { readonly appId: string; readonly services: ReminderServices }
+interface ReminderContext extends ReminderInput { readonly reminder: ScratchReminderViewV1 | null; readonly queryCount: number }
+
+export const scratchReminderMachine = setup({
+  types: { input: {} as ReminderInput, context: {} as ReminderContext,
+    events: {} as { readonly type: "REFRESH" | "DISMISS" } },
+  actors: {
+    query: fromPromise(async ({ input }: { input: ReminderInput }) => (await input.services.query(input.appId)).reminder),
+    dismiss: fromPromise(async ({ input }: { input: ReminderContext }) => {
+      const reminder = input.reminder;
+      if (reminder?.triggeringCommitId == null) throw new Error("missing reminder identity");
+      return input.services.dismiss({ appId: input.appId, homeId: reminder.homeId,
+        triggeringCommitId: reminder.triggeringCommitId, dismissalCount: reminder.dismissalCount });
+    }),
+  },
+}).createMachine({
+  id: "scratch-reminder",
+  context: ({ input }) => ({ ...input, reminder: null, queryCount: 0 }),
+  initial: "checking",
+  on: { REFRESH: { target: ".checking", reenter: true } },
+  states: {
+    checking: { invoke: { src: "query", input: ({ context }) => context,
+      onDone: { target: "ready", actions: assign({ reminder: ({ event }) => event.output,
+        queryCount: ({ context }) => context.queryCount + 1 }) }, onError: "failed" } },
+    ready: { on: { DISMISS: { target: "dismissing", guard: ({ context }) => context.reminder?.eligible === true } } },
+    dismissing: { on: { REFRESH: {} }, invoke: { src: "dismiss", input: ({ context }) => context,
+      onDone: { target: "ready", actions: assign({ reminder: ({ event }) => event.output.reminder }) }, onError: "failed" } },
+    failed: {},
+  },
+});
 
 export interface DurabilityInput {
   readonly appId: string;

@@ -800,6 +800,9 @@ export interface ChangeThemeRequestV1 {
 }
 
 export type DataWorkerRequestV1 =
+  | { readonly kind: "getScratchReminder"; readonly appId: string }
+  | { readonly kind: "dismissScratchReminder"; readonly appId: string; readonly homeId: string | null;
+      readonly triggeringCommitId: string; readonly dismissalCount: number }
   | CreateBundleHomeRequestV1
   | RevealVaultRecoveryCodeRequestV1
   | SetupRequestV1
@@ -2691,7 +2694,19 @@ export interface ChangeThemeResponseV1 {
   readonly outcome: ThemeOutcomeWireV1;
 }
 
+export interface ScratchReminderViewV1 {
+  readonly appId: string;
+  readonly homeId: string | null;
+  readonly triggeringCommitId: string | null;
+  readonly dismissalCount: number;
+  readonly nextEligibleAtEpochMs: number | null;
+  readonly eligible: boolean;
+  readonly deviceOnlyChangeCount: number;
+}
+
 export type DataWorkerResponseV1 =
+  | { readonly kind: "getScratchReminder"; readonly reminder: ScratchReminderViewV1 | null }
+  | { readonly kind: "dismissScratchReminder"; readonly outcome: "dismissed" | "stale"; readonly reminder: ScratchReminderViewV1 | null }
   | CreateBundleHomeResponseV1
   | RevealVaultRecoveryCodeResponseV1
   | SetupResponseV1

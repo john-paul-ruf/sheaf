@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createChartServices, type RecordsWorkerPort } from "../../../src/application/workflows/records-services.js";
 import type { ChartDefinitionWireV1, DataWorkerRequestV1 } from "../../../src/workers/protocol/messages.js";
 
@@ -12,7 +12,7 @@ function recordingPort(): { readonly port: RecordsWorkerPort; readonly sent: Dat
   const port: RecordsWorkerPort = {
     send: (request) => {
       sent.push(request);
-      return Promise.resolve({ kind: request.kind } as never);
+      return Promise.resolve({ kind: request.kind, outcome: { result: "unknown-chart" } } as never);
     },
   };
   return { port, sent };
@@ -31,6 +31,19 @@ const definition: ChartDefinitionWireV1 = {
 };
 
 describe("createChartServices", () => {
+  it("notifies the shared reminder boundary only after an authored commit", async () => {
+    const onAuthored = vi.fn();
+    const port: RecordsWorkerPort = { send: vi.fn().mockResolvedValueOnce({ kind: "setChartPin", outcome: { result: "saved", commitId: null } })
+      .mockResolvedValueOnce({ kind: "setChartPin", outcome: { result: "stale-chart", chartRevision: 3 } })
+      .mockResolvedValueOnce({ kind: "setChartPin", outcome: { result: "saved", commitId: "c" } }) };
+    const services = createChartServices(port, onAuthored);
+    const request = { appId: "a", chartId: "c", expectedRevision: 1, pinned: true };
+    await services.setChartPin(request);
+    await services.setChartPin(request);
+    expect(onAuthored).not.toHaveBeenCalled();
+    await services.setChartPin(request);
+    expect(onAuthored).toHaveBeenCalledExactlyOnceWith("a");
+  });
   it("sends each chart request exactly as named", async () => {
     const { port, sent } = recordingPort();
     const services = createChartServices(port);

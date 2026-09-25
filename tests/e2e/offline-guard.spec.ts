@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * Invariant 12 / FR-22 — the security journeys touch no network.
  *
@@ -133,6 +134,7 @@ test("import and CRUD leave this device entirely alone", async ({
     timeout: PARSE_TIMEOUT_MS,
   });
   await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
+  await dismissExpectedScratchReminder(page);
   expect(network.since()).toEqual([]);
 
   expect(network.unexpected).toEqual([]);

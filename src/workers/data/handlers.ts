@@ -98,6 +98,8 @@ import {
   type LocalCatalogV1,
 } from "./catalog.js";
 import { WorkerSession, type UnlockedState } from "./session.js";
+import { dismissScratchReminder, scratchReminderSchedule } from "../../domain/policy/scratch-reminder.js";
+import type { ScratchReminderViewV1 } from "../protocol/messages.js";
 
 /** The bootstrap's own scope; every other scope comes from a decrypted parent. */
 const CATALOG_SCOPE = "local.catalog";
@@ -812,6 +814,18 @@ export function createDataWorkerHandler(
 
   // --- status -------------------------------------------------------------
 
+  async function reminderView(appId: string): Promise<ScratchReminderViewV1 | null> {
+    const state = requireUnlocked();
+    const entry = state.catalog.apps.find((app) => app.appId === appId);
+    if (entry === undefined) return null;
+    const facts = await records.appDurabilityFacts(state.root, state.catalog);
+    const reminder = entry.scratchReminder;
+    return { appId, homeId: entry.homeId, triggeringCommitId: reminder?.triggeringCommitId ?? null,
+      dismissalCount: reminder?.dismissalCount ?? 0, nextEligibleAtEpochMs: reminder?.nextEligibleAtEpochMs ?? null,
+      eligible: entry.homeId === null && scratchReminderSchedule(reminder, now()),
+      deviceOnlyChangeCount: facts.get(appId)!.deviceOnlyChangeCount };
+  }
+
   async function getStatus(): Promise<DataWorkerResponseV1> {
     const state = session.state;
     if (state.kind === "unlocked") {
@@ -836,6 +850,23 @@ export function createDataWorkerHandler(
       ports: readonly MessagePort[] = [],
     ): Promise<DataWorkerResponseV1> {
       switch (request.kind) {
+        case "getScratchReminder":
+          await refreshBackupContext();
+          return { kind: "getScratchReminder", reminder: await reminderView(request.appId) };
+        case "dismissScratchReminder": {
+          await refreshBackupContext();
+          const state = requireUnlocked();
+          const entry = state.catalog.apps.find((app) => app.appId === request.appId);
+          const reminder = entry?.scratchReminder;
+          if (entry === undefined || entry.homeId !== null || request.homeId !== null || reminder == null ||
+              reminder.triggeringCommitId !== request.triggeringCommitId || reminder.dismissalCount !== request.dismissalCount ||
+              !scratchReminderSchedule(reminder, now())) {
+            return { kind: "dismissScratchReminder", outcome: "stale", reminder: await reminderView(request.appId) };
+          }
+          await commitCatalog({ ...state.catalog, catalogRevision: state.catalog.catalogRevision + 1,
+            apps: state.catalog.apps.map((app) => app === entry ? { ...app, scratchReminder: dismissScratchReminder(reminder, now()) } : app) });
+          return { kind: "dismissScratchReminder", outcome: "dismissed", reminder: await reminderView(request.appId) };
+        }
         case "createBundleHome": {
           requireUnlocked();
           if (typeof request.appId !== "string" || typeof request.displayName !== "string" ||

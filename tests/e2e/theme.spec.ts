@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-37 through the real entry (S08 CP4; CA-32, D56; SCR-036).
  *
@@ -85,6 +86,7 @@ test("CAP-37: Indigo, dark, compact and a logo, saved, persisted and on the tile
 
   await editor.getByRole("button", { name: "Save theme locally" }).click();
   await expect(screen(page, "SCR-037")).toBeVisible();
+  await dismissExpectedScratchReminder(page);
   await expect(page.getByRole("status").filter({ hasText: "Saved on this device." }).first()).toBeAttached();
 
   // The chrome is drawn from the saved theme: Indigo's dark set, compact, dark.
@@ -152,6 +154,7 @@ test("CAP-37 at desktop: axe in light and dark, and the focus ring visible on da
   await page.screenshot({ path: "test-results/theme/desktop-editor-light.png", fullPage: true });
   await editor.getByRole("button", { name: "Save theme locally" }).click();
   await expect(screen(page, "SCR-037")).toBeVisible();
+  await dismissExpectedScratchReminder(page);
   expect(await appVariable(page, "--app-primary")).toBe(INDIGO_LIGHT_PRIMARY);
   await auditable(page, "SCR-037");
 
@@ -159,6 +162,7 @@ test("CAP-37 at desktop: axe in light and dark, and the focus ring visible on da
   await screen(page, "SCR-036").getByText("Dark", { exact: true }).click();
   await page.getByRole("button", { name: "Save theme locally" }).click();
   await expect(screen(page, "SCR-037")).toBeVisible();
+  await dismissExpectedScratchReminder(page);
   await expect(appRoot(page)).toHaveAttribute("data-app-mode", "dark");
   await auditable(page, "SCR-037");
   await page.screenshot({ path: "test-results/theme/desktop-settings-dark.png", fullPage: true });

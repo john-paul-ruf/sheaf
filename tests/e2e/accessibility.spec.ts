@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * design.md §Accessibility Contract, checked on the real surfaces.
  *
@@ -171,6 +172,7 @@ test("axe: the change history, once something has changed", async ({ page }) => 
   await chooseOption(page, "Status", "Complete");
   await page.getByRole("button", { name: "Save on this device" }).click();
   await expect(screen(page, "SCR-027")).toBeVisible();
+  await dismissExpectedScratchReminder(page);
 
   await page.getByRole("button", { name: "Record actions…" }).click();
   await page.getByRole("button", { name: "Delete record…" }).click();

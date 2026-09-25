@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./durability.js";
 /**
  * The structure journey's plumbing (S06 CP4).
  *
@@ -63,6 +64,7 @@ export async function applyImpact(page: Page, counts: readonly string[], action 
   for (const line of counts) await expect(mod).toContainText(line);
   await page.getByRole("dialog").getByRole("button", { name: action }).click();
   await expect(mod).toHaveCount(0);
+  await dismissExpectedScratchReminder(page);
   await expect(page.getByRole("status").filter({ hasText: "Saved on this device." }).first()).toBeAttached();
 }
 

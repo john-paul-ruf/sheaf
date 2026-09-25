@@ -22,6 +22,9 @@ import {
   readClearBootstrapRow,
   resetLocalDatabase,
   type TestHandler,
+  ask,
+  importDemoApp,
+  readStoredCatalog,
 } from "./data-worker.js";
 
 const PASSPHRASE = "correct horse battery staple";
@@ -337,3 +340,54 @@ it("CAP-05 refuses a direct premature recovery request without changing durable 
   worker.clock.advance(1000);
   await expect(worker.handler.handle({ kind: "unlockWithRecoveryCode", recoveryCode: code })).resolves.toMatchObject({ session: { unlockedVia: "recovery-code" } });
 }, CRYPTO_TIMEOUT_MS);
+
+it("CA-37 rejects stale dismissal identities and persists progression through worker replacement", async () => {
+  await setup();
+  const appId = await importDemoApp(worker.handler);
+  const query = async () => (await ask(worker.handler, { kind: "getScratchReminder", appId })).reminder!;
+  expect(await query()).toMatchObject({ eligible: false, triggeringCommitId: null });
+  const rename = async (name: string) => {
+    const change = { kind: "rename-app", name } as const;
+    const { preview } = await ask(worker.handler, { kind: "previewSchemaChange", appId, change });
+    return ask(worker.handler, { kind: "applySchemaChange", appId, change, previewedSchemaRevision: preview!.schemaRevision });
+  };
+  await rename("Reminder app");
+  const first = await query();
+  expect(first.eligible).toBe(true);
+  await rename("Reminder app again");
+  const current = await query();
+  expect(current.triggeringCommitId).not.toBe(first.triggeringCommitId);
+  const before = await readClearBootstrapRow();
+  for (const wrong of [
+    { appId, homeId: null, triggeringCommitId: first.triggeringCommitId!, dismissalCount: 0 },
+    { appId: "another-app", homeId: null, triggeringCommitId: current.triggeringCommitId!, dismissalCount: 0 },
+    { appId, homeId: "another-home", triggeringCommitId: current.triggeringCommitId!, dismissalCount: 0 },
+    { appId, homeId: null, triggeringCommitId: current.triggeringCommitId!, dismissalCount: 1 },
+  ]) expect((await ask(worker.handler, { kind: "dismissScratchReminder", ...wrong })).outcome).toBe("stale");
+  expect(await readClearBootstrapRow()).toEqual(before);
+  let previous = current;
+  for (const delay of [600_000, 3_600_000, 86_400_000, 86_400_000, 86_400_000]) {
+    const request = { kind: "dismissScratchReminder", appId, homeId: null,
+      triggeringCommitId: previous.triggeringCommitId!, dismissalCount: previous.dismissalCount } as const;
+    expect((await ask(worker.handler, request)).outcome).toBe("dismissed");
+    const dismissed = await query();
+    const committed = await readClearBootstrapRow();
+    expect((await ask(worker.handler, request)).outcome).toBe("stale");
+    expect(await readClearBootstrapRow()).toEqual(committed);
+    worker.handler.dispose();
+    worker = createTestHandler(worker.clock);
+    await unlock();
+    expect(await query()).toEqual(dismissed);
+    worker.clock.advance(delay - 1);
+    expect((await query()).eligible).toBe(false);
+    worker.clock.advance(1);
+    previous = await query();
+    expect(previous.eligible).toBe(true);
+    expect(previous.deviceOnlyChangeCount).toBe(current.deviceOnlyChangeCount);
+  }
+  const home = await ask(worker.handler, { kind: "createBundleHome", appId, displayName: "Reminder bundle",
+    passphrase: "separate cedar lantern river", reuseLocalPassphrase: false });
+  expect(home.homeId).toBeTruthy();
+  expect(await query()).toMatchObject({ eligible: false, triggeringCommitId: null });
+  expect((await readStoredCatalog(PASSPHRASE)).apps.find((app) => app.appId === appId)?.scratchReminder).toBeNull();
+}, CRYPTO_TIMEOUT_MS * 4);

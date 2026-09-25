@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * GATE-F04 — the ROADMAP F04 demo script, verbatim, executable
  * (formulas-queries-charts SESSION-08 CP4).
@@ -109,6 +110,7 @@ test("GATE-F04: the F04 demo script, end to end at 320px, offline", async ({ pag
   await page.getByLabel("Quoted amount", { exact: true }).fill("500");
   await page.getByRole("button", { name: "Save on this device" }).click();
   await expect(detail).toContainText("Saved on this device.");
+  await dismissExpectedScratchReminder(page);
   await expect(balance).toContainText("$500.00");
   await followHash(page, appHash);
   await expect(home).toBeVisible();

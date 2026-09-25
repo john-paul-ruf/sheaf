@@ -1,3 +1,4 @@
+import { dismissExpectedScratchReminder } from "./fixtures/durability.js";
 /**
  * CAP-19, CAP-20, CAP-21, CAP-22 and CAP-23's create-lands-on-home leg,
  * through the real entry (workbook-fidelity SESSION-07 CP4).
@@ -238,6 +239,7 @@ test("CAP-38/CAP-34/CAP-29: the demo's formulas and chart are live — reviewed 
   await page.getByLabel("Quoted amount", { exact: true }).fill("500");
   await page.getByRole("button", { name: "Save on this device" }).click();
   await expect(detail).toContainText("Saved on this device.");
+  await dismissExpectedScratchReminder(page);
   await expect(detail.locator('[data-computed="ok"]').filter({ hasText: "$" })).toContainText("$500.00");
 
   // --- reload + unlock: recomputed from the roots, the edit kept ------------
