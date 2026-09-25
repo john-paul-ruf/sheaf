@@ -2,12 +2,15 @@ import type { VaultSecretsV1 } from "../../application/ports/vault-crypto.js";
 import type { WrappedKeyV1 } from "../../migrations/006_vault_format_v1.js";
 import { CURRENT_FORMAT_VERSIONS } from "../../migrations/index.js";
 import { CodecError, IntegrityError } from "../../domain/model/errors.js";
-import { decodeDomainId } from "../../domain/model/ids.js";
+import { decodeDomainId, encodeDomainId } from "../../domain/model/ids.js";
 import { decodeStorageId16, decodeBase64Url, encodeBase64Url } from "../../domain/model/bytes.js";
 import { asMap, bytesOfLength, count, exactKeys, field, list, nfcText } from "../../import/staging/proposal-codec.js";
 import { decodeCanonical, encodeCanonical, type DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import { readFrontier, vaultValue } from "../../persistence/codecs/vault.js";
-import type { LocalCatalogHomeEntryV1 } from "./catalog.js";
+import type { LocalCatalogAppEntryV1, LocalCatalogHomeEntryV1 } from "./catalog.js";
+import { openAppKey, readAppHead } from "./event-store.js";
+import { parseEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
+import type { AppDurabilityViewV1 } from "../protocol/messages.js";
 import type { AppStoragePortsV1, WorkerSessionContextV1 } from "./event-store.js";
 
 /** A committed retention root. No file handle or claimed save result is stored. */
@@ -162,4 +165,35 @@ export async function isBackupHeadPinned(ports: AppStoragePortsV1, context: Work
     if ((await readHomeState(ports, context, entry)).pins.some((pin) => pin.headStorageId === headStorageId)) return true;
   }
   return false;
+}
+
+export function pendingChangeCount(frontier: BundleReceiptV1["confirmedFrontier"],
+  deviceId: string, confirmed: BundleReceiptV1["confirmedFrontier"] = []): number {
+  const local = frontier.find((item) => encodeBase64Url(item.deviceId) === deviceId)?.commitSequence ?? 0n;
+  const saved = confirmed.find((item) => encodeBase64Url(item.deviceId) === deviceId)?.commitSequence ?? 0n;
+  const count = local - saved;
+  if (count < 0n || count > BigInt(Number.MAX_SAFE_INTEGER)) throw new IntegrityError("invalid pending frontier");
+  return Number(count);
+}
+
+/** Both closed and open app readers use the current durable head and app-scoped receipt. */
+export async function readAppDurability(ports: AppStoragePortsV1, context: WorkerSessionContextV1,
+  app: LocalCatalogAppEntryV1): Promise<AppDurabilityViewV1> {
+  let home: HomeStateV1 | undefined;
+  if (app.homeId !== null) {
+    const entry = context.catalog.homes.find((candidate) => candidate.homeId === app.homeId);
+    if (entry === undefined) throw new IntegrityError("app home is missing");
+    home = await readHomeState(ports, context, entry);
+    if (!home.appKeys.some((entry) => entry.appId === app.appId)) throw new IntegrityError("home does not contain app");
+  }
+  const receipt = home?.receipts?.find((entry) => entry.appId === app.appId);
+  if (app.appHeadStorageId === null) throw new IntegrityError("local app head is missing");
+  const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
+  try {
+    const head = await readAppHead(ports, key, app.appHeadStorageId);
+    if (encodeDomainId(head.appId) !== app.appId) throw new IntegrityError("backup status head belongs to another app");
+    return { homeId: home?.homeId ?? null, homeName: home?.displayName ?? null,
+      confirmedAtMs: receipt?.confirmedAtMs ?? null,
+      deviceOnlyChangeCount: pendingChangeCount(head.frontier, context.catalog.deviceId, receipt?.confirmedFrontier) };
+  } finally { ports.crypto.destroyKey(key); }
 }

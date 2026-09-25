@@ -70,6 +70,35 @@ it("propagates a transport refusal (negative control for the acknowledgement har
   finally { channel.port1.close(); channel.port2.close(); }
 });
 
+it("exposes scoped home creation and authenticated recovery review through RPC across restart", async () => {
+  await resetLocalDatabase();
+  worker = createTestHandler().handler;
+  const local = await ask(worker, { kind: "setup", passphrase: LOCAL });
+  const appId = await importCsv(worker);
+  const before = await readClearBootstrapRow();
+  await expect(ask(worker, { kind: "createBundleHome", appId, displayName: "Tools vault",
+    passphrase: VAULT, reuseLocalPassphrase: true })).rejects.toThrow();
+  expect(await readClearBootstrapRow()).toEqual(before);
+  expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.isScratch).toBe(true);
+  const home = await ask(worker, { kind: "createBundleHome", appId, displayName: "Tools vault",
+    passphrase: VAULT, reuseLocalPassphrase: false });
+  expect(home.localRecoveryCode).toBeNull();
+  expect(home.recoveryCode).not.toBe(local.recoveryCode);
+  const assigned = await readClearBootstrapRow();
+  await expect(ask(worker, { kind: "revealVaultRecoveryCode", homeId: home.homeId, passphrase: LOCAL })).rejects.toThrow();
+  expect(await readClearBootstrapRow()).toEqual(assigned);
+  worker.dispose();
+  worker = createTestHandler().handler;
+  await expect(ask(worker, { kind: "revealVaultRecoveryCode", homeId: home.homeId, passphrase: VAULT })).rejects.toThrow();
+  await ask(worker, { kind: "unlock", passphrase: LOCAL });
+  expect((await ask(worker, { kind: "revealVaultRecoveryCode", homeId: home.homeId, passphrase: VAULT })).recoveryCode).toBe(home.recoveryCode);
+  const second = await importCsv(worker);
+  const reused = await ask(worker, { kind: "createBundleHome", appId: second, displayName: "Second vault",
+    passphrase: LOCAL, reuseLocalPassphrase: true });
+  expect(reused.localRecoveryCode).toBe(local.recoveryCode);
+  expect(reused.recoveryCode).not.toBe(local.recoveryCode);
+}, 120_000);
+
 it("commits assignment atomically, retains pinned graphs across edits and CSV append, and releases safely after restart", async () => {
   await resetLocalDatabase();
   worker = createTestHandler().handler;
@@ -200,6 +229,12 @@ it("confirms exact native outcomes once, persists the captured frontier, and rej
   expect(confirmed.receipts).toHaveLength(1);
   expect(confirmed.receipts?.[0]?.operationId).toBe(success.identity.operationId);
   expect(confirmed.lastSuccessfulBackupMs).not.toBeNull();
+  expect((await ask(worker, { kind: "openApp", appId })).session).toMatchObject({
+    deviceOnlyChangeCount: 1, durability: { homeId: assigned.homeId, confirmedAtMs: confirmed.lastSuccessfulBackupMs, deviceOnlyChangeCount: 1 },
+  });
+  expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.durability).toMatchObject({
+    confirmedAtMs: confirmed.lastSuccessfulBackupMs, deviceOnlyChangeCount: 1,
+  });
   const receipts = confirmed.receipts;
   for (const outcome of ["cancelled", "failed", "unconfirmed"]) {
     const transfer = await preparedBundle(worker, appId);
@@ -232,6 +267,8 @@ it("confirms exact native outcomes once, persists the captured frontier, and rej
   await ask(worker, { kind: "unlock", passphrase: LOCAL });
   expect((await worker.backup.read(assigned.homeId)).receipts).toEqual(receipts);
   expect((await worker.backup.read(assigned.homeId)).lastSuccessfulBackupMs).toBe(confirmed.lastSuccessfulBackupMs);
+  expect((await ask(worker, { kind: "openApp", appId })).session?.deviceOnlyChangeCount).toBe(1);
+  expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.durability?.deviceOnlyChangeCount).toBe(1);
   const current = await worker.backup.pin(appId);
   const graph = await worker.backup.exportGraph(assigned.homeId, current.operationId, new AbortController().signal);
   try {

@@ -105,7 +105,7 @@ import type { ProjectionInferenceDecisionV1 } from "../../application/ports/proj
 import { asDomainId } from "../../domain/model/ids.js";
 import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { AppSessionV1 } from "./app-session.js";
-import { isBackupHeadPinned } from "./home-state.js";
+import { isBackupHeadPinned, readAppDurability } from "./home-state.js";
 import type { LoadedAppV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
 import { toThemeTileWire } from "./theme-handlers.js";
@@ -1490,11 +1490,12 @@ export function createImportHandlers(
       };
     },
 
-    listLibrary(): Promise<DataWorkerResponseV1> {
+    async listLibrary(): Promise<DataWorkerResponseV1> {
       const context = deps.getContext();
-      return Promise.resolve({
-        kind: "listLibrary",
-        apps: context.catalog.apps.map((app) => ({
+      const apps = [];
+      for (const app of context.catalog.apps) {
+        apps.push({
+          durability: await readAppDurability({ store, crypto, entropy: deps.entropy }, context, app),
           appId: app.appId,
           displayName: app.displayName,
           accentId: app.identity.accentId,
@@ -1507,8 +1508,9 @@ export function createImportHandlers(
           // truthfully until F05 gives the user somewhere to put it (D26).
           isScratch: app.homeId === null,
           ...(app.themeTile === undefined ? {} : { themeTile: toThemeTileWire(app.themeTile) }),
-        })),
-      });
+        });
+      }
+      return { kind: "listLibrary", apps };
     },
 
     async cancelImportStage(

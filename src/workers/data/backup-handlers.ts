@@ -22,6 +22,7 @@ export interface BackupHandlerDependenciesV1 {
   readonly clock: ClockPort;
   readonly vaultCrypto: VaultCryptoPort;
   readonly getContext: () => WorkerSessionContextV1;
+  readonly refreshContext: () => Promise<void>;
   readonly closeApp: (appId: string) => void;
 }
 
@@ -203,6 +204,8 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
         });
         assertSession();
         exported.dispose();
+        await deps.refreshContext();
+        assertSession();
         if (outcome["outcome"] === "saved") {
           const current = deps.getContext();
           const entry = homeEntry(current, homeId);
@@ -271,6 +274,16 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
         state.secrets.passphraseKdf, state.secrets.passphraseWrappedVaultKey);
       try { await assign(context, appId, state, key, entry); }
       finally { deps.vaultCrypto.destroy(key); }
+    },
+    async revealRecoveryCode(homeId: string, passphrase: string): Promise<string> {
+      const context = deps.getContext();
+      const state = await readHomeState(ports, context, homeEntry(context, homeId));
+      const key = await deps.vaultCrypto.openWithPassphrase(passphrase, decodeDomainId("vault", state.vaultId),
+        state.secrets.passphraseKdf, state.secrets.passphraseWrappedVaultKey);
+      try {
+        assertLive(context);
+        return state.secrets.recoveryCode;
+      } finally { deps.vaultCrypto.destroy(key); }
     },
     async read(homeId: string): Promise<HomeStateV1> {
       const context = deps.getContext();

@@ -66,6 +66,20 @@ export interface RevealRecoveryCodeRequestV1 {
   readonly currentPassphrase: string;
 }
 
+export interface CreateBundleHomeRequestV1 {
+  readonly kind: "createBundleHome";
+  readonly appId: string;
+  readonly displayName: string;
+  readonly passphrase: string;
+  readonly reuseLocalPassphrase: boolean;
+}
+
+export interface RevealVaultRecoveryCodeRequestV1 {
+  readonly kind: "revealVaultRecoveryCode";
+  readonly homeId: string;
+  readonly passphrase: string;
+}
+
 export interface LockRequestV1 {
   readonly kind: "lock";
 }
@@ -786,6 +800,8 @@ export interface ChangeThemeRequestV1 {
 }
 
 export type DataWorkerRequestV1 =
+  | CreateBundleHomeRequestV1
+  | RevealVaultRecoveryCodeRequestV1
   | SetupRequestV1
   | UnlockRequestV1
   | UnlockWithRecoveryCodeRequestV1
@@ -918,6 +934,19 @@ export interface ChangePassphraseResponseV1 {
 
 export interface RevealRecoveryCodeResponseV1 {
   readonly kind: "revealRecoveryCode";
+  readonly recoveryCode: string;
+}
+
+export interface CreateBundleHomeResponseV1 {
+  readonly kind: "createBundleHome";
+  readonly homeId: string;
+  readonly vaultId: string;
+  readonly recoveryCode: string;
+  readonly localRecoveryCode: string | null;
+}
+
+export interface RevealVaultRecoveryCodeResponseV1 {
+  readonly kind: "revealVaultRecoveryCode";
   readonly recoveryCode: string;
 }
 
@@ -1644,6 +1673,7 @@ export type ApplyReviewEditResponseV1 =
  * recompute from the decrypted head (check 7).
  */
 export interface LibraryAppV1 {
+  readonly durability?: AppDurabilityViewV1;
   readonly appId: string;
   readonly displayName: string;
   readonly accentId: string;
@@ -1845,6 +1875,7 @@ export interface AppTableViewV1 {
  * page at a time, so opening an app never puts a whole table in the page.
  */
 export interface AppSessionViewV1 {
+  readonly durability?: AppDurabilityViewV1;
   readonly appId: string;
   readonly displayName: string;
   readonly theme: AppThemeWireV1;
@@ -1859,6 +1890,13 @@ export interface AppSessionViewV1 {
   /** Commits this device holds that no durable home has (CA-09). */
   readonly deviceOnlyChangeCount: number;
   readonly tables: readonly AppTableViewV1[];
+}
+
+export interface AppDurabilityViewV1 {
+  readonly homeId: string | null;
+  readonly homeName: string | null;
+  readonly confirmedAtMs: number | null;
+  readonly deviceOnlyChangeCount: number;
 }
 
 export interface OpenAppResponseV1 {
@@ -2652,6 +2690,8 @@ export interface ChangeThemeResponseV1 {
 }
 
 export type DataWorkerResponseV1 =
+  | CreateBundleHomeResponseV1
+  | RevealVaultRecoveryCodeResponseV1
   | SetupResponseV1
   | UnlockResponseV1
   | UnlockWithRecoveryCodeResponseV1

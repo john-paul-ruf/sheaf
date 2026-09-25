@@ -147,6 +147,7 @@ import {
 import { encodeAuthoredRecordBytes } from "./record-event-payloads.js";
 import type { LocalCatalogAppEntryV1, LocalCatalogV1 } from "./catalog.js";
 import { toThemeWire } from "./theme-handlers.js";
+import type { AppDurabilityViewV1 } from "../protocol/messages.js";
 
 export interface RecordHandlerDependenciesV1 {
   readonly clock: ClockPort;
@@ -327,9 +328,10 @@ export function createRecordHandlers(
         return { kind: "openApp", session: null };
       }
       const entry = entryOf(deps.getContext(), request.appId);
+      const durability = await session.durability();
       return {
         kind: "openApp",
-        session: toSessionView(session, entry),
+        session: toSessionView(session, entry, durability),
       };
     },
 
@@ -808,6 +810,7 @@ export function createRecordHandlers(
 function toSessionView(
   session: AppSessionV1,
   entry: LocalCatalogAppEntryV1 | undefined,
+  durability: AppDurabilityViewV1,
 ): AppSessionViewV1 {
   const state = session.projection.execute({ kind: "app-state" });
   const tables = toTableViews(session);
@@ -822,7 +825,8 @@ function toSessionView(
     lastOpenedAtEpochMs: entry?.lastOpenedAtEpochMs ?? state.lastOpenedAtMs,
     // No home means scratch — the persistent fact, until F05 (D26).
     isScratch: (entry?.homeId ?? null) === null,
-    deviceOnlyChangeCount: session.deviceOnlyChangeCount(),
+    durability,
+    deviceOnlyChangeCount: durability.deviceOnlyChangeCount,
     tables,
   };
 }

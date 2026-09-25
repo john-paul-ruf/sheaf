@@ -21,6 +21,7 @@
  *    them. A count that was never cached crosses as `null`, never as `0`.
  */
 
+import type { AppDurabilityVm } from "./durability.js";
 import type { LibraryAppV1, LibraryThemeTileV1 } from "../../workers/protocol/messages.js";
 
 export type LibraryActionId = "choose-workbook" | "connect-durable-home";
@@ -79,6 +80,7 @@ export interface LibraryTileVm {
    */
   readonly themeTile?: LibraryThemeTileV1;
   readonly status: LibraryTileStatusV1;
+  readonly durability?: AppDurabilityVm;
   /** The catalog's cache. `null` is "not counted", never "no rows". */
   readonly rowCount: number | null;
   readonly tableCount: number;
@@ -151,6 +153,7 @@ function toTile(app: LibraryAppV1): LibraryTileVm {
     glyph: app.glyph,
     ...(app.themeTile === undefined ? {} : { themeTile: app.themeTile }),
     status: app.isScratch ? "scratch" : "not-stated",
+    ...(app.durability === undefined ? {} : { durability: app.durability }),
     rowCount: app.rowCountCache,
     tableCount: app.tableCount,
     createdAtEpochMs: app.createdAtEpochMs,

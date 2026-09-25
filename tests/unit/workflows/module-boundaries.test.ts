@@ -43,6 +43,7 @@ const WORKFLOW_FILES = [
 ];
 
 const VIEW_MODEL_FILES = [
+  "src/application/view-models/durability.ts",
   "src/application/view-models/security.ts",
   "src/application/view-models/library.ts",
   "src/application/view-models/import.ts",

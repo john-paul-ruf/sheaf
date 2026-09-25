@@ -46,6 +46,7 @@ async function renderHome(
       newRecordHref={newRecordHref}
       tableHref={tableHref}
       vm={vm}
+      backupHref={`#/app/${APP_ID}/backup`}
     />,
   );
 }
@@ -67,26 +68,26 @@ describe("SCR-024 — the app becomes a place", () => {
     expect(links).toContain("#/library");
   });
 
-  it("states the scratch fact and offers no backup it cannot perform (D26)", async () => {
+  it("states the scratch fact and links to the mounted durable-home chooser", async () => {
     await renderHome();
 
     const banner = query('[data-tone="warning"]');
     expect(banner.textContent).toContain("On this device only");
     expect(banner.textContent).toContain("1 change exists");
     expect(banner.textContent).toContain(
-      "Choosing a durable home and backing up arrive in a later release.",
+      "Choose a durable home",
     );
 
-    const buttons = queryAll("button").map((button) => button.textContent);
-    expect(buttons).not.toContain("Back up now");
+    expect(queryAll<HTMLAnchorElement>("a").find((link) => link.textContent === "Choose a durable home")?.getAttribute("href")).toBe(`#/app/${APP_ID}/backup`);
   });
 
-  it("says nothing at all when the app is not scratch", async () => {
+  it("links to backup detail when the app has a home", async () => {
     await renderHome(
       selectAppHomeVm(session({ isScratch: false, deviceOnlyChangeCount: 0 })),
     );
 
     expect(queryAll('[data-tone="warning"]')).toHaveLength(0);
+    expect(queryAll<HTMLAnchorElement>("a").find((link) => link.textContent === "Backup detail")?.getAttribute("href")).toBe(`#/app/${APP_ID}/backup`);
   });
 
   /** STA-025: the metrics and the pinned chart are F04's, and say so. */

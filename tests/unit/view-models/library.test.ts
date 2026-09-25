@@ -207,3 +207,8 @@ describe("selectLibraryVm", () => {
     expect(vm.screen).toBe("SCR-010");
   });
 });
+
+ it("preserves authenticated receipt and pending-change facts on the library tile", () => {
+  const durability = { homeId: "home-1", homeName: "Fieldwork bundle", confirmedAtMs: 1700000000000, deviceOnlyChangeCount: 1 };
+  expect(populated(selectLibraryVm([app({ isScratch: false, durability })])).tiles[0]?.durability).toEqual(durability);
+});

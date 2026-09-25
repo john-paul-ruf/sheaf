@@ -214,7 +214,7 @@ export function appHref(appId: string): string {
  * settings path and the theme path (D63).
  */
 const APP_AREA_PATH =
-  /^\/app\/[^/]+(?:\/history|\/structure|\/settings|\/theme|\/snapshots(?:\/[^/]+)?|\/charts(?:\/[^/]+(?:\/edit)?)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
+  /^\/app\/[^/]+(?:\/backup|\/history|\/structure|\/settings|\/theme|\/snapshots(?:\/[^/]+)?|\/charts(?:\/[^/]+(?:\/edit)?)?|\/t\/[^/]+(?:\/new|\/r\/[^/]+(?:\/edit)?)?)?$/u;
 
 export function isAppAreaPath(path: string): boolean {
   return APP_AREA_PATH.test(path);

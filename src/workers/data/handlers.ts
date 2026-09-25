@@ -170,6 +170,7 @@ export function createDataWorkerHandler(
     clock: deps.clock,
     vaultCrypto: createVaultCrypto(deps.entropy),
     getContext: () => importContext(requireUnlocked()),
+    refreshContext: refreshBackupContext,
     closeApp: (appId) => { records.closeAppSession(appId); },
   });
 
@@ -301,6 +302,18 @@ export function createDataWorkerHandler(
       CATALOG_PAYLOAD_KIND,
     );
     return decodeLocalCatalog(opened.payload);
+  }
+
+  /** A delivered snapshot can be confirmed after another tab commits an edit. */
+  async function refreshBackupContext(): Promise<void> {
+    const state = requireUnlocked();
+    const row = await requireBootstrap();
+    if (row.writerEpoch !== state.writerEpoch) throw new DataWorkerCommandError("integrity");
+    if (row.transactionRevision === state.transactionRevision) return;
+    const catalog = await readCatalog(row, state.root);
+    if (requireUnlocked() !== state || catalog.deviceId !== state.catalog.deviceId) throw new DataWorkerCommandError("integrity");
+    records.disposeAll();
+    session.update({ catalog, catalogStorageId: row.catalogStorageId, transactionRevision: row.transactionRevision });
   }
 
   /**
@@ -822,6 +835,32 @@ export function createDataWorkerHandler(
       ports: readonly MessagePort[] = [],
     ): Promise<DataWorkerResponseV1> {
       switch (request.kind) {
+        case "createBundleHome": {
+          requireUnlocked();
+          if (typeof request.appId !== "string" || typeof request.displayName !== "string" ||
+              request.displayName.trim().length === 0 || typeof request.passphrase !== "string" ||
+              request.passphrase.length === 0 || typeof request.reuseLocalPassphrase !== "boolean") {
+            throw new DataWorkerCommandError("malformed-request");
+          }
+          let localRecoveryCode: string | null = null;
+          if (request.reuseLocalPassphrase) {
+            const revealed = await revealRecoveryCode(request.passphrase);
+            if (revealed.kind !== "revealRecoveryCode") throw new DataWorkerCommandError("internal");
+            localRecoveryCode = revealed.recoveryCode;
+          }
+          const created = await backup.createBundleHome(request.appId, request.displayName, request.passphrase);
+          return { kind: "createBundleHome", ...created, localRecoveryCode };
+        }
+        case "revealVaultRecoveryCode": {
+          requireUnlocked();
+          assertAttemptAllowed();
+          if (typeof request.homeId !== "string" || typeof request.passphrase !== "string") {
+            throw new DataWorkerCommandError("malformed-request");
+          }
+          const recoveryCode = await backup.revealRecoveryCode(request.homeId, request.passphrase);
+          session.attempts.recordSuccess();
+          return { kind: "revealVaultRecoveryCode", recoveryCode };
+        }
         case "setup":
           return setup(request.passphrase);
         case "unlock":

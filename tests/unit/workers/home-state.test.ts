@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { encodeBase64Url } from "../../../src/domain/model/bytes.js";
 import { asDomainId, encodeDomainId } from "../../../src/domain/model/ids.js";
-import { encodeHomeState, decodeHomeState, type HomeStateV1, type BundleReceiptV1 } from "../../../src/workers/data/home-state.js";
+import { encodeHomeState, decodeHomeState, pendingChangeCount, type HomeStateV1, type BundleReceiptV1 } from "../../../src/workers/data/home-state.js";
 import { header, id, wrapped } from "../../fixtures/vaults/f05/helpers.js";
 
 const appId = encodeDomainId(asDomainId("app", id(1)));
@@ -30,4 +30,13 @@ it("rejects inconsistent and substituted receipt facts (codec negative controls)
   expect(() => encodeHomeState({ ...state, receipts: [receipt] })).toThrow();
   expect(() => encodeHomeState({ ...state, lastSuccessfulBackupMs: 999, receipts: [receipt] })).toThrow();
   expect(() => encodeHomeState({ ...state, lastSuccessfulBackupMs: 1000, receipts: [receipt, receipt] })).toThrow();
+});
+
+it("counts local changes relative to only this device's confirmed frontier and rejects regression", () => {
+  const local = { deviceId: id(5), commitSequence: 12n };
+  const other = { deviceId: id(6), commitSequence: 99n };
+  expect(pendingChangeCount([local, other], encodeBase64Url(id(5)), [{ ...local, commitSequence: 11n }, other])).toBe(1);
+  expect(pendingChangeCount([local], encodeBase64Url(id(5)), [local])).toBe(0);
+  expect(pendingChangeCount([local], encodeBase64Url(id(5)))).toBe(12);
+  expect(() => pendingChangeCount([local], encodeBase64Url(id(5)), [{ ...local, commitSequence: 13n }])).toThrow("invalid pending frontier");
 });

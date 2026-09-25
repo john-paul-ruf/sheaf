@@ -37,16 +37,15 @@ import styles from "./records.module.css";
  * absence of computed surfaces is *stated* rather than left as a hole
  * (STA-025).
  *
- * **The scratch fact is a status line, not a reminder.** D26 defers MOD-001/
- * MOD-002 and their durable-home chooser to F05, so the app says where it
- * lives and how many changes exist only here — and offers no "Back up now",
- * because in this release there is nowhere for that button to go.
+ * The scratch status links to the durable-home chooser; an assigned home
+ * links to the receipt and pending-change facts in Backup detail.
  *
  * Times are formatted here, from the reader's own locale: a view model holds
  * no clock (M37 must-not).
  */
 
 export interface AppHomeScreenProps {
+  readonly backupHref?: string;
   readonly vm: AppHomeVm;
   readonly nav: AppNavigation;
   /** Where a table's records list lives. */
@@ -68,6 +67,7 @@ export interface AppHomeScreenProps {
 }
 
 export function AppHomeScreen({
+  backupHref,
   vm,
   nav,
   tableHref,
@@ -164,9 +164,11 @@ export function AppHomeScreen({
                 ? "1 change exists"
                 : `${formatCount(vm.deviceOnlyChangeCount)} changes exist`
             } only here.`}{" "}
-            Choosing a durable home and backing up arrive in a later release.
+            {backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref }}>Choose a durable home</InlineLink>}
           </StatusBanner>
         )}
+
+        {!vm.isScratch && backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref }}>Backup detail</InlineLink>}
 
         {vm.metrics.length > 0 && (
           <section aria-labelledby="app-glance" data-section="glance">

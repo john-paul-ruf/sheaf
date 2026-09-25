@@ -116,6 +116,8 @@ import {
   type LoadedAppV1,
   type WorkerSessionContextV1,
 } from "./event-store.js";
+import { readAppDurability } from "./home-state.js";
+import type { AppDurabilityViewV1 } from "../protocol/messages.js";
 import { decodeTailEventPayload, isTailEventKind } from "./record-event-payloads.js";
 
 /** Everything `validateRecord` needs for one table, on one set of instances. */
@@ -136,6 +138,7 @@ export interface AppSessionV1 {
   readonly projection: ProjectionEnginePort;
   readonly repository: AppEventStoreV1;
   readonly deviceOnlyChangeCount: () => number;
+  readonly durability: () => Promise<AppDurabilityViewV1>;
   /**
    * Decrypts a snapshot manifest this app's head names, checked against the
    * head's digest, and hands back a loader that decrypts one chunk at a time
@@ -191,6 +194,12 @@ export async function openAppSession(
     appKey: input.appKey,
     projection: engineAdapter(handle),
     repository,
+    async durability() {
+      const context = input.session();
+      const entry = context.catalog.apps.find((app) => app.appId === encodeDomainId(loaded.appId));
+      if (entry === undefined) throw new IntegrityError("app is no longer in the catalog");
+      return readAppDurability(input.ports, context, entry);
+    },
     deviceOnlyChangeCount: (): number =>
       deviceOnlyChangeCount(repository.loaded().head.frontier, input.deviceId),
     openSnapshot: (manifestStorageId) =>

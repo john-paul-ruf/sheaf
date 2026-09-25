@@ -139,6 +139,7 @@ import { readFilterIntent, readFilterOrigin } from "./filter-intent.js";
 import { ChartBuilderRoute, ChartDetailRoute, ChartsIndexRoute, openMarkRecords, usePinnedCharts } from "./chart-routes.js";
 import { AppSettingsRoute, StructureRoute } from "./schema-routes.js";
 import { ThemeRoute } from "./theme-routes.js";
+import { HomeDurabilityRoute } from "./durability-routes.js";
 import { BusyIndicator } from "../ui/primitives/busy-indicator.js";
 import { Button } from "../ui/primitives/button.js";
 import { ErrorState } from "../ui/primitives/error-state.js";
@@ -496,7 +497,7 @@ function UnlockedArea({
       }}
       topBarActions={lockAction}
     >
-      <AppArea charts={wiring.charts} records={wiring.records} schema={wiring.schema} theme={wiring.theme} topBarActions={lockAction}>
+      <AppArea app={app} charts={wiring.charts} records={wiring.records} schema={wiring.schema} theme={wiring.theme} topBarActions={lockAction}>
       <Routes>
         <Route
           element={
@@ -901,6 +902,7 @@ function ImportStageScreens({
  * cannot tell an unknown app from an unknown route.
  */
 function AppArea({
+  app,
   records,
   charts,
   schema,
@@ -908,6 +910,7 @@ function AppArea({
   topBarActions,
   children,
 }: {
+  readonly app: AppRuntime;
   readonly records: RecordsServices;
   readonly charts: ChartServices;
   readonly schema: SchemaServices;
@@ -926,6 +929,7 @@ function AppArea({
   const appId = decodeURIComponent(path.split("/")[2] ?? "");
   return (
     <OpenedApp
+      app={app}
       appId={appId}
       charts={charts}
       key={appId}
@@ -945,6 +949,7 @@ type OpenedAppState =
   | { readonly kind: "failed"; readonly error: ErrorVm };
 
 function OpenedApp({
+  app,
   appId,
   records,
   charts,
@@ -952,6 +957,7 @@ function OpenedApp({
   theme,
   topBarActions,
 }: {
+  readonly app: AppRuntime;
   readonly appId: string;
   readonly records: RecordsServices;
   readonly charts: ChartServices;
@@ -1097,6 +1103,7 @@ function OpenedApp({
   return (
     <Routes>
       <Route element={<AppHomeRoute area={area} />} path="/app/:appId" />
+      <Route element={<HomeDurabilityRoute area={area} app={app} />} path="/app/:appId/backup" />
       <Route element={<RecordsRoute area={area} />} path="/app/:appId/t/:tableId" />
       <Route
         element={<RecordFormRoute area={area} mode="create" />}
@@ -1182,6 +1189,7 @@ function AppHomeRoute({ area }: { readonly area: AppAreaWiring }): ReactNode {
   });
   return (
     <AppHomeScreen
+      backupHref={hashHref(`${appPath(appId)}/backup`)}
       chartEditHref={(chartId) => hashHref(editChartPath(appId, chartId))}
       chartHref={(chartId) => hashHref(chartPath(appId, chartId))}
       nav={nav}
