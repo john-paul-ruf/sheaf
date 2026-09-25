@@ -213,3 +213,8 @@ hooks, not a new XState machine.
   `projection-port.test.ts`/`commands/fakes.ts` seam recorded in
   `M07-ports.md` and `M35-queries.md` — see PROGRAM-CONFIG's Conventions for
   both.
+
+
+<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
+## M36 / M47 / M54 — CP3 confirmation component
+DurabilityServices, durabilityMachine and BundleSaveRoute provide transient preparing/delivering/awaiting-confirmation/confirming/native-saved/user-saved/cancelled/failed/interrupted states. BundleSaveDialog uses the accepted MOD-025 copy and a keyboard-dismissible, non-backdrop-dismissible modal. SecurityWiring.durability is composed from the current AppRuntime. CP4 still owns mounting the full home/vault/save journey and supplying authoritative receipt/count readers.

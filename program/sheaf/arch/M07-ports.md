@@ -167,3 +167,8 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   chart-dataset), stated once rather than left as three separate running
   counts.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
+## M07 / M51 — CP3 save delivery
+BundleSaveInteractionV1 carries an invocation-local AbortSignal, delivery notification, and asynchronous explicit confirmation. FileSavePort's terminal union is unchanged. The no-picker adapter now downloads only the prepared Blob, releases its object URL/anchor, and returns unconfirmed; it never claims download initiation is saved.

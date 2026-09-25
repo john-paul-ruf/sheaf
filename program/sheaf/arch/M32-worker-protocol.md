@@ -237,3 +237,8 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   jointly in `M01-domain-model.md`) left as a one-line cross-reference rather
   than restated.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
+## M32 / M53 — CP3 save lifetime
+prepareBundle optionally reports disposal to its owner. AppRuntime.saveBundle(appId, interaction?) keeps a verified delivered operation alive until explicit confirmation, dismissal, timeout, replacement or teardown. The worker's existing operation/app/home/artifact correlation and atomic receipt transaction remain authoritative. Native picker activation still precedes asynchronous preparation.

@@ -42,3 +42,8 @@ remains in its module contracts; aggregate counts do not close F05 capabilities.
 ## Change History
 
 - 2026-09-24 — S01/S02 unit deltas reconciled at F05 final; combined M56/M57 material split into the correct module documents.
+
+
+<!-- durable-home-backup SESSION-02 CP3 a93a87c -->
+## M56 / M60 — CP3 evidence
+Focused component tests cover download handoff, operation lifetime, confirmation rejection, real MessagePort data/IO handlers, encrypted fake-indexeddb receipt reopen and existing forged-completion negative controls. The Worker double now transfers ports instead of passing them by reference. save-dialog fixtures build an isolated component page; they do not prove real-entry reachability, OS durability, or J1.
