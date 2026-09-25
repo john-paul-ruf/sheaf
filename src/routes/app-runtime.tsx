@@ -37,6 +37,7 @@ import {
 } from "../application/workflows/schema-services.js";
 import { createThemeServices, type ThemeServices } from "../application/workflows/theme-services.js";
 import type { SessionPhase } from "./guards.js";
+import type { DurabilityServices } from "../application/workflows/durability-services.js";
 
 const clock: ClockPort = { nowEpochMs: () => Date.now() };
 
@@ -72,6 +73,7 @@ const passphrasePolicy: PassphrasePolicyPort = wordCountPassphrasePolicy;
  * only place `spawnImportWorker` may be injected from (D17, M36 must-not).
  */
 export interface SecurityWiring {
+  readonly durability: DurabilityServices;
   readonly services: SecurityServices;
   /** Library, app and record reads. No lifecycle: request in, response out. */
   readonly records: RecordsServices;
@@ -124,6 +126,7 @@ export function useSheafRuntime(): SheafRuntime {
 
     const { app, report } = started;
     const wiring: SecurityWiring = {
+      durability: app,
       services: createSecurityServices(app.client),
       records: createRecordsServices(app.client),
       charts: createChartServices(app.client),

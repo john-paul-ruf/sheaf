@@ -241,7 +241,7 @@ it("confirms exact native outcomes once, persists the captured frontier, and rej
   } finally { graph.dispose(); }
 }, 120_000);
 
-it("composes the page clients with production data and IO handlers over dedicated channels", async () => {
+it.each(["native", "fallback-confirm", "fallback-dismiss"] as const)("composes %s with production data and IO handlers over dedicated channels", async (mode) => {
   const { DataWorkerClient } = await import("../../../src/workers/protocol/client.js");
   const { prepareBundle } = await import("../../../src/workers/protocol/io-client.js");
   const { receiveBundle } = await import("../../../src/workers/io/bundle.js");
@@ -257,7 +257,8 @@ it("composes the page clients with production data and IO handlers over dedicate
   const client = new DataWorkerClient({ spawn: () => ({
     postMessage(value: unknown, ports: Transferable[]) {
       if (!isPrepareBundle(value)) throw new Error("unexpected RPC");
-      dataTask = handler.backup.connectBundle(value.appId, ports[0] as MessagePort, ports[1] as MessagePort);
+      const moved = structuredClone(ports, { transfer: ports }) as MessagePort[];
+      dataTask = handler.backup.connectBundle(value.appId, moved[0]!, moved[1]!);
     }, terminate() { handler.dispose(); },
   }) as unknown as Worker });
   let stop: (() => void) | undefined;
@@ -265,7 +266,8 @@ it("composes the page clients with production data and IO handlers over dedicate
   const io = { onmessage: null as ((event: MessageEvent<unknown>) => void) | null,
     postMessage(value: unknown, ports: Transferable[]) {
       expect(value).toBe("bundle-v1");
-      stop = receiveBundle(ports[0] as MessagePort, (blob, identity) => {
+      const moved = structuredClone(ports, { transfer: ports }) as MessagePort[];
+      stop = receiveBundle(moved[0]!, (blob, identity) => {
         io.onmessage?.({ data: { kind: "artifact", blob, identity } } as MessageEvent<unknown>);
       }, new AbortController().signal);
     }, terminate() { terminated++; stop?.(); },
@@ -273,19 +275,35 @@ it("composes the page clients with production data and IO handlers over dedicate
   const abort = new AbortController();
   const transfer = prepareBundle(client, io as unknown as Worker, appId, abort.signal);
   let savedBytes: Blob | undefined;
-  const destination = createFileSavePort(() => Promise.resolve({ createWritable: () => Promise.resolve({
+  let offered: Blob | undefined;
+  const native = () => Promise.resolve({ createWritable: () => Promise.resolve({
     write(blob: Blob) { savedBytes = blob; return Promise.resolve(); }, close: () => Promise.resolve(), abort: () => Promise.resolve(),
-  }) }));
+  }) });
+  if (mode !== "native") {
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => { if (!(blob instanceof Blob)) throw new Error("not a bundle"); offered = blob; return "blob:test"; });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.stubGlobal("document", { body: { append() {} }, createElement: () => ({
+      click() { savedBytes = offered; }, remove() {},
+    }) });
+  }
+  const destination = mode === "native" ? createFileSavePort(native) : createFileSavePort();
   try {
     const outcome = await destination.save(transfer.ready.then((result) => result.blob), abort.signal);
-    expect(outcome).toBe("saved");
+    expect(outcome).toBe(mode === "native" ? "saved" : "unconfirmed");
+    expect((await handler.backup.read(home.homeId)).receipts ?? []).toEqual([]);
+    expect((await handler.backup.read(home.homeId)).lastSuccessfulBackupMs).toBeNull();
     const prepared = await transfer.ready;
-    await prepared.complete(outcome);
+    if (mode === "fallback-dismiss") transfer.dispose();
+    else await prepared.complete("saved");
     await expect(prepared.complete("saved")).rejects.toThrow("stale");
     await dataTask;
     expect(savedBytes?.size).toBeGreaterThan(1000);
     expect(terminated).toBe(1);
-    expect((await handler.backup.read(home.homeId)).receipts).toHaveLength(1);
-    expect((await handler.backup.read(home.homeId)).pins).toHaveLength(0);
-  } finally { abort.abort(); transfer.dispose(); client.terminate(); }
+    expect((await handler.backup.read(home.homeId)).receipts ?? []).toHaveLength(mode === "fallback-dismiss" ? 0 : 1);
+    if (mode !== "fallback-dismiss") expect((await handler.backup.read(home.homeId)).pins).toHaveLength(0);
+    handler.dispose();
+    worker = createTestHandler().handler;
+    await ask(worker, { kind: "unlock", passphrase: LOCAL });
+    expect((await worker.backup.read(home.homeId)).receipts ?? []).toHaveLength(mode === "fallback-dismiss" ? 0 : 1);
+  } finally { abort.abort(); transfer.dispose(); client.terminate(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 }, 120_000);

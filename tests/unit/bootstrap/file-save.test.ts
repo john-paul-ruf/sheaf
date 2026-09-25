@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFileSavePort, type SavePickerV1 } from "../../../src/platform/file-save.js";
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const signal = () => new AbortController().signal;
 function destination() {
@@ -36,8 +38,38 @@ describe("native observable save", () => {
     const failed: SavePickerV1 = () => Promise.reject(new Error("denied"));
     expect(await createFileSavePort(failed).save(Promise.resolve(new Blob()), signal())).toBe("failed");
   });
-  it("does not invent fallback confirmation", async () => {
-    expect(await createFileSavePort().save(Promise.resolve(new Blob()), signal())).toBe("unconfirmed");
+  it("delivers verified bytes before returning unconfirmed and releases delivery resources", async () => {
+    let supply!: (blob: Blob) => void;
+    const create = vi.fn(() => "blob:verified");
+    const revoke = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: revoke });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.isConnected).toBe(true);
+      expect(this.download).toBe("backup.sheaf");
+      expect(this.href).toBe("blob:verified");
+    });
+    const pending = createFileSavePort().save(new Promise((resolve) => { supply = resolve; }), signal());
+    expect(click).not.toHaveBeenCalled();
+    const blob = new Blob(["verified ciphertext"]);
+    supply(blob);
+    expect(await pending).toBe("unconfirmed");
+    expect(create).toHaveBeenCalledWith(blob);
+    expect(click).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledWith("blob:verified");
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+  it("never delivers a rejected preparation", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click");
+    expect(await createFileSavePort().save(Promise.reject(new Error("invalid artifact")), signal())).toBe("failed");
+    expect(click).not.toHaveBeenCalled();
+  });
+  it("cleans up after delivery throws and does not confirm", async () => {
+    const revoke = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:verified", revokeObjectURL: revoke });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { throw new Error("delivery refused"); });
+    expect(await createFileSavePort().save(Promise.resolve(new Blob()), signal())).toBe("failed");
+    expect(revoke).toHaveBeenCalledWith("blob:verified");
+    expect(document.querySelector("a[download]")).toBeNull();
   });
   it("lock stops a pending picker and a pending write", async () => {
     const controller = new AbortController();

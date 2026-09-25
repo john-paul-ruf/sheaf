@@ -12,7 +12,7 @@
  * makes the lock real, so a worker that does not answer is terminated anyway.
  */
 
-import type { FileSaveOutcomeV1, FileSavePort } from "../application/ports/file-save.js";
+import type { BundleSaveInteractionV1, FileSaveOutcomeV1, FileSavePort } from "../application/ports/file-save.js";
 import { createFileSavePort } from "../platform/file-save.js";
 import { prepareBundle } from "../workers/protocol/io-client.js";
 import { spawnIoWorker } from "./io-worker.js";
@@ -40,7 +40,7 @@ export type LockReason =
 export interface AppRuntime {
   /** The worker itself spawns on the first request, not here. */
   readonly client: DataWorkerClient;
-  saveBundle(appId: string): Promise<FileSaveOutcomeV1>;
+  saveBundle(appId: string, interaction?: BundleSaveInteractionV1): Promise<FileSaveOutcomeV1>;
   /** Zeroizes in the worker, then terminates it. Safe to call twice. */
   lockNow(reason: LockReason): Promise<void>;
   onLock(listener: (reason: LockReason) => void): () => void;
@@ -117,10 +117,15 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
 
   const app: AppRuntime = {
     client,
-    async saveBundle(appId) {
+    async saveBundle(appId, interaction) {
       if (locked) return "cancelled";
+      for (const pending of saves) pending.abort();
       const controller = new AbortController();
       saves.add(controller);
+      const cancel = () => { controller.abort(); };
+      interaction?.signal.addEventListener("abort", cancel, { once: true });
+      if (interaction?.signal.aborted) cancel();
+      const deadline = setTimeout(cancel, 300_000);
       let transfer: ReturnType<typeof prepareBundle> | undefined;
       try {
         // Start the native picker before an asynchronous preparation can consume activation.
@@ -129,10 +134,25 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
         const blob = new Promise<Blob>((resolve, reject) => { supply = resolve; refuse = reject; });
         const result = fileSave.save(blob, controller.signal);
         try {
-          transfer = prepareBundle(client, (options.spawnIoWorker ?? spawnIoWorker)(), appId, controller.signal);
-          void transfer.ready.then((prepared) => { supply(prepared.blob); }, (error: unknown) => { refuse(error); });
+          transfer = prepareBundle(client, (options.spawnIoWorker ?? spawnIoWorker)(), appId, controller.signal, cancel);
+          void transfer.ready.then((prepared) => { interaction?.delivering(); supply(prepared.blob); }).catch((error: unknown) => { refuse(error); });
         } catch (error) { refuse!(error); }
-        const outcome = await result;
+        let outcome = await result;
+        if (controller.signal.aborted) return "cancelled";
+        if (outcome === "unconfirmed" && interaction !== undefined) {
+          if (transfer === undefined) return "failed";
+          await transfer.ready;
+          controller.signal.throwIfAborted();
+          const confirmed = await new Promise<boolean>((resolve, reject) => {
+            const abort = () => { resolve(false); };
+            controller.signal.addEventListener("abort", abort, { once: true });
+            void interaction.confirmDelivery(controller.signal).then(resolve, reject).finally(() => {
+              controller.signal.removeEventListener("abort", abort);
+            });
+            if (controller.signal.aborted) abort();
+          });
+          outcome = confirmed && !controller.signal.aborted ? "saved" : "cancelled";
+        }
         if (outcome === "saved") {
           if (transfer === undefined) return "failed";
           await (await transfer.ready).complete(outcome);
@@ -140,6 +160,8 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
         return outcome;
       } catch { return controller.signal.aborted ? "cancelled" : "failed"; }
       finally {
+        clearTimeout(deadline);
+        interaction?.signal.removeEventListener("abort", cancel);
         controller.abort();
         transfer?.dispose();
         saves.delete(controller);

@@ -9,7 +9,7 @@ export interface PreparedBundleV1 {
 
 /** Page receives only a verified encrypted Blob and opaque operation identity. */
 export function prepareBundle(client: DataWorkerClient, worker: Worker, appId: string,
-  signal: AbortSignal): { ready: Promise<PreparedBundleV1>; dispose: () => void } {
+  signal: AbortSignal, onEnd?: () => void): { ready: Promise<PreparedBundleV1>; dispose: () => void } {
   const bytes = new MessageChannel();
   const control = new MessageChannel();
   let identity: BundleIdentityV1 | undefined;
@@ -48,6 +48,7 @@ export function prepareBundle(client: DataWorkerClient, worker: Worker, appId: s
     bytes.port1.close();
     bytes.port2.close();
     worker.terminate();
+    onEnd?.();
   };
   const checkReady = () => {
     if (identity === undefined || artifact === undefined) return;

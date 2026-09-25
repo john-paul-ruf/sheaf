@@ -16,7 +16,31 @@ export function createFileSavePort(picker: SavePickerV1 | undefined =
     // A preparation error must remain handled even while the picker is open.
     const prepared = blob.then((value) => ({ value }), (error: unknown) => ({ error }));
     if (signal.aborted) return "cancelled";
-    if (picker === undefined) return "unconfirmed";
+    if (picker === undefined) {
+      let url: string | undefined;
+      let anchor: HTMLAnchorElement | undefined;
+      try {
+        const result = await untilAbort(prepared, signal);
+        signal.throwIfAborted();
+        if ("error" in result) throw result.error;
+        url = URL.createObjectURL(result.value);
+        anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "backup.sheaf";
+        anchor.hidden = true;
+        document.body.append(anchor);
+        anchor.click();
+        // Let the browser consume the URL before releasing the delivery resource.
+        await untilAbort(new Promise<void>((resolve) => { setTimeout(resolve, 0); }), signal);
+        signal.throwIfAborted();
+        return "unconfirmed";
+      } catch {
+        return signal.aborted ? "cancelled" : "failed";
+      } finally {
+        anchor?.remove();
+        if (url !== undefined) URL.revokeObjectURL(url);
+      }
+    }
     let writable: WritableFile | undefined;
     let closed = false;
     const abort = () => { void writable?.abort().catch(() => undefined); };

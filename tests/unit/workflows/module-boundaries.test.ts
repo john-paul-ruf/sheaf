@@ -25,6 +25,8 @@ const filesIn = (directory: string): string[] =>
     .sort();
 
 const WORKFLOW_FILES = [
+  "src/application/workflows/durability-services.ts",
+  "src/application/workflows/durability.machine.ts",
   "src/application/workflows/services.ts",
   "src/application/workflows/import-services.ts",
   "src/application/workflows/records-services.ts",

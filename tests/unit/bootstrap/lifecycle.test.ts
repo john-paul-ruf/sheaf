@@ -193,3 +193,65 @@ it("owns and terminates the dedicated IO worker when a save is cancelled", async
   await runtime.lockNow("user");
   expect(await runtime.saveBundle("app-test")).toBe("cancelled");
 });
+
+it.each(["confirm", "dismiss", "lock", "pagehide", "dispose", "timeout", "replace", "caller-abort"] as const)(
+  "keeps delivered confirmation operation-bound through %s", async (action) => {
+    runtime.dispose();
+    const io = new class extends FakeWorker { override postMessage(): void {} }();
+    const ports: MessagePort[] = [];
+    const outcomes: unknown[] = [];
+    const identity = { operationId: "operation", appId: "app", homeId: "home", artifactSha256: "hash" };
+    class BundleWorker extends FakeWorker {
+      override postMessage(message: unknown, transferred?: Transferable[]): void {
+        if ((message as { kind?: string }).kind !== "prepareBundle") { super.postMessage(message); return; }
+        const control = transferred![1] as MessagePort;
+        ports.push(...transferred as MessagePort[]);
+        control.onmessage = (event: MessageEvent<{ kind: string; outcome?: string }>) => {
+          if (event.data.kind === "complete") {
+            outcomes.push(event.data.outcome);
+            control.postMessage({ kind: "completed", identity, outcome: event.data.outcome });
+          }
+        };
+        control.start();
+        control.postMessage({ kind: "ready", identity });
+        queueMicrotask(() => { io.onmessage?.({ data: { kind: "artifact", identity, blob: new Blob() } } as MessageEvent); });
+      }
+    }
+    const result = startApp({ spawnWorker: () => new BundleWorker() as unknown as Worker,
+      spawnIoWorker: () => io as unknown as Worker,
+      fileSave: { async save(blob) { await blob; return "unconfirmed"; } } });
+    if (result.kind !== "ready") throw new Error("unsupported");
+    runtime = result.app;
+    let confirm: ((saved: boolean) => void) | undefined;
+    let delivered = false;
+    const caller = new AbortController();
+    let replacement: Promise<unknown> | undefined;
+    const task = runtime.saveBundle("app", {
+      signal: caller.signal,
+      delivering: () => { delivered = true; },
+      confirmDelivery: () => new Promise<boolean>((resolve) => { confirm = resolve; }),
+    });
+    try {
+      expect(confirm).toBeUndefined();
+      await vi.waitFor(() => { expect(confirm).toBeDefined(); });
+      expect(delivered).toBe(true);
+      expect(outcomes).toEqual([]);
+      expect(io.terminated).toBe(0);
+      if (action === "confirm") confirm!(true);
+      else if (action === "dismiss") confirm!(false);
+      else if (action === "lock") await runtime.lockNow("user");
+      else if (action === "pagehide") window.dispatchEvent(new Event("pagehide"));
+      else if (action === "dispose") runtime.dispose();
+      else if (action === "replace") replacement = runtime.saveBundle("app");
+      else if (action === "caller-abort") caller.abort();
+      else await vi.advanceTimersByTimeAsync(300_000);
+      expect(await task).toBe(action === "confirm" ? "saved" : "cancelled");
+      expect(outcomes).toEqual(action === "confirm" ? ["saved"] : []);
+      await replacement;
+      expect(io.terminated).toBe(action === "replace" ? 2 : 1);
+      confirm!(true);
+      await Promise.resolve();
+      expect(outcomes).toEqual(action === "confirm" ? ["saved"] : []);
+    } finally { runtime.dispose(); for (const port of ports) port.close(); }
+  },
+);
