@@ -7,8 +7,236 @@ import { decodeRecordPage, encodeRecordPage, type StoredRecordV2 } from "../../.
 import type { TableDefV1 } from "../../../src/domain/model/schema.js";
 import { AppSessionRegistry } from "../../../src/workers/data/app-session.js";
 import { prepareCompaction } from "../../../src/workers/data/compaction.js";
+import { compactApp } from "../../../src/workers/data/compaction.js";
+import * as backupHandlers from "../../../src/workers/data/backup-handlers.js";
+import type { DataWorkerCommandHandler } from "../../../src/workers/data/handlers.js";
+import { isStageChannelOutboundV1, stageBatch, stageSource, stageNack, type StageChannelInboundV1 } from "../../../src/workers/protocol/stage-channel.js";
 import { envelopeCryptoAdapter, envelopeStoreAdapter } from "../../../src/workers/data/import-handlers.js";
 import { ask, createTestHandler, importDemoApp, readClearBootstrapRow, realEntropy, resetLocalDatabase } from "./data-worker.js";
+
+function sendStage(port: MessagePort, message: StageChannelInboundV1, seq: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      port.removeEventListener("message", receive);
+      if (error) reject(error); else resolve();
+    };
+    const receive = (event: MessageEvent<unknown>) => {
+      if (!isStageChannelOutboundV1(event.data)) return;
+      finish(event.data.kind === "ack" && event.data.ackSeq === seq ? undefined : new Error("staging refused"));
+    };
+    const timer = setTimeout(() => finish(new Error("staging timed out")), 5000);
+    port.addEventListener("message", receive);
+    port.postMessage(message);
+  });
+}
+
+async function importCsv(worker: DataWorkerCommandHandler, appId?: string) {
+  const { textSource } = await import("../import/fixtures.js");
+  const { sniffContent } = await import("../../../src/import/source/sniff.js");
+  const { isDelimitedSniff, preflightDelimited } = await import("../../../src/import/preflight/preflight.js");
+  const { parseDelimited } = await import("../../../src/import/formats/delimited/parse.js");
+  const source = textSource("Item,Amount\nHammer,2\nNail,3\n");
+  const sniff = await sniffContent(source, "tools.csv");
+  if (!isDelimitedSniff(sniff)) throw new Error("not CSV");
+  const preflight = await preflightDelimited(source, sniff);
+  if (preflight.kind !== "proceed") throw new Error("preflight refused");
+  const channel = new MessageChannel();
+  channel.port1.start();
+  try {
+    const stage = await ask(worker, { kind: "beginImportStage", fileName: "tools.csv", detected: sniff.format,
+      preflight: preflight.report, destination: appId ? { kind: "existing-app", appId } : { kind: "new-app" } }, [channel.port2]);
+    let seq = 0;
+    await sendStage(channel.port1, stageSource(seq, 0, await source.slice(0, source.byteLength)), seq++);
+    for await (const item of parseDelimited(source, sniff.format, { sheetName: "Tools" })) {
+      await sendStage(channel.port1, stageBatch(seq, item), seq++);
+    }
+    await ask(worker, { kind: "runInference", stageId: stage.stageId });
+    const result = await ask(worker, { kind: "promoteImport", stageId: stage.stageId, acceptedName: "Tools" });
+    if (result.outcome !== "promoted") throw new Error(`promotion refused: ${result.reason}`);
+    return result.appId;
+  } finally { channel.port1.close(); channel.port2.close(); }
+}
+
+it("propagates a staging NACK rather than silently passing an unfinished transport", async () => {
+  const channel = new MessageChannel();
+  channel.port1.start();
+  channel.port2.onmessage = () => channel.port2.postMessage(stageNack(0));
+  try { await expect(sendStage(channel.port1, stageSource(0, 0, new Uint8Array([1])), 0)).rejects.toThrow("refused"); }
+  finally { channel.port1.close(); channel.port2.close(); }
+});
+
+it("installs twice, reconstructs original history after restart, restores once, patches and appends without downgrading V2", async () => {
+  await resetLocalDatabase();
+  const create = backupHandlers.createBackupHandlers;
+  let dependencies: backupHandlers.BackupHandlerDependenciesV1 | undefined;
+  const capture = vi.spyOn(backupHandlers, "createBackupHandlers").mockImplementation((input) => {
+    dependencies = input;
+    return create(input);
+  });
+  const sessions = vi.spyOn(AppSessionRegistry.prototype, "set");
+  let worker = createTestHandler().handler;
+  const passphrase = "installed copper heron meadow";
+  const signal = new AbortController().signal;
+  const open = async (appId: string) => {
+    await ask(worker, { kind: "openApp", appId });
+    return sessions.mock.calls.at(-1)![1];
+  };
+  const restart = async () => {
+    worker.dispose();
+    const { closeLocalDatabase } = await import("../../../src/persistence/envelope-store/db.js");
+    closeLocalDatabase();
+    worker = createTestHandler().handler;
+    await ask(worker, { kind: "unlock", passphrase });
+  };
+  try {
+    await ask(worker, { kind: "setup", passphrase });
+    const appId = await importCsv(worker);
+    const structure = (await ask(worker, { kind: "getAppStructure", appId })).structure!;
+    const table = structure.tables[0]!;
+    const fieldId = table.fields.find((field) => field.displayName === "Item")!.fieldId;
+    const rows = (await ask(worker, { kind: "queryRecords", appId, tableId: table.tableId, limit: 100 })).page!.records;
+    const recordId = rows[0]!.recordId;
+    const survivor = rows[1]!.recordId;
+    const original = (await ask(worker, { kind: "getRecord", appId, recordId })).record!;
+    expect((await ask(worker, { kind: "deleteRecord", appId, recordId })).outcome).toBe("accepted");
+    const deletion = (await ask(worker, { kind: "getDeletedRecord", appId, recordId })).deleted;
+    expect(deletion).not.toBeNull();
+    const history = (await ask(worker, { kind: "getChangeHistory", appId, limit: 100 })).page;
+    const before = await open(appId);
+    const originalChain = before.repository.chainState();
+    const count = (await ask(worker, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
+    for (let round = 0; round < 2; round++) {
+      const session = await open(appId);
+      const catalog = dependencies!.getContext().catalog;
+      const result = await compactApp({ ...dependencies!, session }, signal);
+      expect(result.head.headVersion).toBe(2);
+      expect(result.head.eventSegments).toEqual([]);
+      expect(dependencies!.getContext().catalog.apps[0]).toEqual({ ...catalog.apps[0], appHeadStorageId: result.headStorageId });
+      expect(dependencies!.getContext().catalog.homes).toEqual(catalog.homes);
+      expect(dependencies!.getContext().catalog.cleanupTicketStorageIds).toEqual([]);
+      await restart();
+      const reopened = await open(appId);
+      expect(reopened.repository.chainState()).toEqual(originalChain);
+      expect((await ask(worker, { kind: "getChangeHistory", appId, limit: 100 })).page).toEqual(history);
+      expect((await ask(worker, { kind: "getDeletedRecord", appId, recordId })).deleted).toEqual(deletion);
+      expect((await ask(worker, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(count);
+    }
+    const noChange = await readClearBootstrapRow();
+    expect(await ask(worker, { kind: "restoreRecord", appId, recordId: survivor })).toMatchObject({ outcome: "accepted", receipt: { commitId: null } });
+    const { encodeDomainId } = await import("../../../src/domain/model/ids.js");
+    expect((await ask(worker, { kind: "restoreRecord", appId, recordId: encodeDomainId(asDomainId("record", new Uint8Array(16).fill(249))) })).outcome).toBe("unknown-subject");
+    expect(await readClearBootstrapRow()).toEqual(noChange);
+    expect((await ask(worker, { kind: "restoreRecord", appId, recordId })).outcome).toBe("accepted");
+    const restoredCommit = (await open(appId)).repository.loaded().commits.at(-1)!;
+    expect(restoredCommit.previousDeviceCommitSha256).toEqual(originalChain.lastCommitSha256);
+    expect(restoredCommit.deviceCommitSequence).toBe(originalChain.deviceCommitSequence + 1n);
+    expect(restoredCommit.hybridTime.wallTimeMs).toBeGreaterThanOrEqual(originalChain.lastHybridTime!.wallTimeMs);
+    const restored = (await ask(worker, { kind: "getRecord", appId, recordId })).record!;
+    expect(restored.createdCommitId).toBe(original.createdCommitId);
+    expect(restored.values).toEqual(original.values);
+    const once = await readClearBootstrapRow();
+    expect(await ask(worker, { kind: "restoreRecord", appId, recordId })).toMatchObject({ outcome: "accepted", receipt: { commitId: null } });
+    expect(await readClearBootstrapRow()).toEqual(once);
+    const loaded = (await open(appId)).repository.loaded();
+    expect((await ask(worker, { kind: "patchRecord", appId, recordId, changes: [{ fieldId, value: { kind: "text", text: "restored tool" } }] })).outcome).toBe("accepted");
+    const afterPatch = (await open(appId)).repository.loaded();
+    expect(afterPatch.head.auditPages).toEqual(loaded.head.auditPages);
+    expect(afterPatch.head.conflictPages).toEqual(loaded.head.conflictPages);
+    expect(afterPatch.head.retainedRoots).toEqual(loaded.head.retainedRoots);
+    const chain = (await open(appId)).repository.chainState();
+    expect(chain.deviceCommitSequence).toBe(originalChain.deviceCommitSequence + 2n);
+    expect(afterPatch.commits.at(-1)!.previousDeviceCommitSha256).toEqual(restoredCommit.commitSha256);
+    expect(await importCsv(worker, appId)).toBe(appId);
+    await restart();
+    const appended = await open(appId);
+    expect(appended.repository.loaded().head.headVersion).toBe(2);
+    expect(appended.repository.loaded().head.auditPages).toEqual(loaded.head.auditPages);
+    expect(appended.repository.loaded().head.retainedRoots).toEqual(loaded.head.retainedRoots);
+    expect(appended.repository.chainState().deviceCommitSequence).toBe(chain.deviceCommitSequence + 1n);
+    expect(appended.repository.loaded().commits.at(-1)!.previousDeviceCommitSha256).toEqual(chain.lastCommitSha256);
+    expect((await ask(worker, { kind: "getAppStructure", appId })).structure!.tables).toHaveLength(2);
+    expect((await ask(worker, { kind: "getRecord", appId, recordId })).record!.values.find((entry) => entry.fieldId === fieldId)?.value)
+      .toEqual({ kind: "text", text: "restored tool" });
+    const finalHistory = (await ask(worker, { kind: "getChangeHistory", appId, limit: 100 })).page!;
+    expect(finalHistory.entries.filter((entry) => history!.entries.some((old) => old.eventId === entry.eventId))).toEqual(history!.entries);
+  } finally { worker.dispose(); sessions.mockRestore(); capture.mockRestore(); await resetLocalDatabase(); }
+}, 120_000);
+
+it("preserves head and receipt on refusals, retains complete pinned graphs, and resumes cleanup after an installed crash", async () => {
+  await resetLocalDatabase();
+  const create = backupHandlers.createBackupHandlers;
+  let deps: backupHandlers.BackupHandlerDependenciesV1 | undefined;
+  const capture = vi.spyOn(backupHandlers, "createBackupHandlers").mockImplementation((input) => { deps = input; return create(input); });
+  const sessions = vi.spyOn(AppSessionRegistry.prototype, "set");
+  let worker = createTestHandler().handler;
+  const passphrase = "pinned compaction authority test";
+  const signal = new AbortController().signal;
+  try {
+    await ask(worker, { kind: "setup", passphrase });
+    const appId = await importCsv(worker);
+    const home = await worker.backup.createBundleHome(appId, "Compaction", "independent backup copper meadow");
+    await ask(worker, { kind: "changeTheme", appId, themeKey: "indigo", mode: "light", density: "compact", customAccent: null, logo: { kind: "keep" } });
+    await ask(worker, { kind: "openApp", appId });
+    const session = sessions.mock.calls.at(-1)![1];
+    const ports = deps!.ports;
+    const initial = await readClearBootstrapRow();
+    const homeBefore = await worker.backup.read(home.homeId);
+    const cancelled = new AbortController(); cancelled.abort();
+    await expect(compactApp({ ...deps!, session }, cancelled.signal)).rejects.toThrow();
+    for (const field of ["transactionRevision", "writerEpoch"] as const) {
+      let reads = 0;
+      await expect(compactApp({ ...deps!, session, getContext: () => {
+        const context = deps!.getContext();
+        return reads++ === 0 ? context : { ...context, [field]: context[field] + 1 };
+      } }, signal)).rejects.toThrow("authority changed");
+    }
+    for (const error of [new DOMException("quota refusal", "QuotaExceededError"), new Error("crash before swap")]) {
+      await expect(compactApp({ ...deps!, session, ports: { ...ports, store: { ...ports.store, commit: () => Promise.reject(error) } } }, signal))
+        .rejects.toThrow(error.message);
+      expect(await readClearBootstrapRow()).toEqual(initial);
+      expect(await worker.backup.read(home.homeId)).toEqual(homeBefore);
+    }
+    const missing = session.repository.loaded().head.eventSegments[0]!.storageId;
+    const { encodeStorageId16, decodeStorageId16 } = await import("../../../src/domain/model/bytes.js");
+    await expect(compactApp({ ...deps!, session, ports: { ...ports, store: { ...ports.store,
+      getEnvelope: (id) => encodeStorageId16(id) === missing ? Promise.resolve(undefined) : ports.store.getEnvelope(id) } } }, signal)).rejects.toThrow();
+    expect(await readClearBootstrapRow()).toEqual(initial);
+    const first = await worker.backup.pin(appId);
+    const second = await worker.backup.pin(appId);
+    const oldHead = first.headStorageId;
+    const { exportBackupGraph } = await import("../../../src/workers/data/backup-graph.js");
+    const oldGraph = await exportBackupGraph(ports, session.appKey, first, signal);
+    const frames = await Promise.all(oldGraph.objects.map(async (object) => [encodeStorageId16(asStorageId16(object.reference.storageId)),
+      await ports.store.getEnvelope(asStorageId16(object.reference.storageId))] as const));
+    await compactApp({ ...deps!, session }, signal);
+    for (const [id, frame] of frames) expect(await ports.store.getEnvelope(decodeStorageId16(id))).toEqual(frame);
+    await worker.backup.release(home.homeId, first.operationId);
+    expect(await ports.store.getEnvelope(decodeStorageId16(oldHead))).toBeDefined();
+    await worker.backup.release(home.homeId, second.operationId);
+    expect(await ports.store.getEnvelope(decodeStorageId16(oldHead))).toBeUndefined();
+    await ask(worker, { kind: "openApp", appId });
+    const reopened = sessions.mock.calls.at(-1)![1];
+    const receipt = await worker.backup.read(home.homeId);
+    let commits = 0;
+    await expect(compactApp({ ...deps!, session: reopened, ports: { ...ports, store: { ...ports.store, commit: async (transaction) => {
+      if (commits++ > 0) throw new Error("crash after swap");
+      return ports.store.commit(transaction);
+    } } } }, signal)).rejects.toThrow("crash after swap");
+    const installed = deps!.getContext().catalog.apps[0]!.appHeadStorageId;
+    expect(installed).not.toBe(reopened.repository.loaded().headStorageId);
+    expect(deps!.getContext().catalog.cleanupTicketStorageIds).toHaveLength(1);
+    worker.dispose();
+    const { closeLocalDatabase } = await import("../../../src/persistence/envelope-store/db.js");
+    closeLocalDatabase();
+    worker = createTestHandler().handler;
+    await ask(worker, { kind: "unlock", passphrase });
+    expect(deps!.getContext().catalog.cleanupTicketStorageIds).toEqual([]);
+    expect(deps!.getContext().catalog.apps[0]!.appHeadStorageId).toBe(installed);
+    expect(await worker.backup.read(home.homeId)).toEqual(receipt);
+    expect((await ask(worker, { kind: "openApp", appId })).session).not.toBeNull();
+  } finally { worker.dispose(); sessions.mockRestore(); capture.mockRestore(); await resetLocalDatabase(); }
+}, 120_000);
 
 it("hydrates V2 row identity and canonical provenance directly while retaining V1 import defaults", () => {
   const id = (value: number) => new Uint8Array(16).fill(value);

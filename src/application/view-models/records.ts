@@ -14,10 +14,9 @@
  *    many records matched is `matchCount`, and it is present only when the
  *    worker counted it (CA-29): a plain search and a partial page answer none,
  *    and `records.length` is never offered in its place.
- * 2. **The change log begins at the last checkpoint.** It is not "the app's
- *    history": a freshly imported app's log is truthfully empty because its
- *    rows arrived in the checkpoint, not as authored events. {@link ChangeHistoryVm}
- *    states that scope so no surface can imply completeness.
+ * 2. **The change log retains original authored events.** Physical checkpoints
+ *    do not cut off history. Initial imported rows are the starting state,
+ *    not individual authored changes.
  * 3. **A receipt with no commit is a no-op, not a failure.** `commitId: null`
  *    means the command was already true and wrote nothing;
  *    {@link RecordCommandOutcomeVm} gives it its own member so it can never be
@@ -1853,19 +1852,16 @@ export interface ChangeHistoryEntryVm {
 }
 
 /**
- * SCR-032. `scope` is load-bearing: the log holds what was authored *since the
- * last checkpoint*, so an app that was just imported has an empty one and that
- * emptiness is correct. "Every change since this app existed" is a sentence
- * this data cannot support, and the type says so rather than letting a surface
- * write it.
+ * SCR-032. Original events survive checkpoints; the count describes the
+ * entries shown, including any older pages the reader has requested.
  */
 export interface ChangeHistoryVm {
   readonly screen: "SCR-032";
-  readonly scope: "since-last-checkpoint";
+  readonly scope: "retained-history";
   readonly entries: readonly ChangeHistoryEntryVm[];
   readonly hasMore: boolean;
   readonly nextCursor: ChangeHistoryCursorWireV1 | null;
-  readonly emptiness: "no-changes-since-checkpoint" | null;
+  readonly emptiness: "no-retained-changes" | null;
   readonly announcement: string;
 }
 
@@ -1884,15 +1880,15 @@ export function selectChangeHistoryVm(
   });
   return {
     screen: "SCR-032",
-    scope: "since-last-checkpoint",
+    scope: "retained-history",
     entries,
     hasMore: page.hasMore,
     nextCursor: page.nextCursor,
-    emptiness: entries.length === 0 ? "no-changes-since-checkpoint" : null,
+    emptiness: entries.length === 0 ? "no-retained-changes" : null,
     announcement:
       entries.length === 0
-        ? "No changes have been made since this app was last checkpointed."
-        : `${plural(entries.length, "change", "changes")} since this app was last checkpointed.`,
+        ? "No retained changes yet."
+        : `${plural(entries.length, "retained change", "retained changes")} shown.`,
   };
 }
 

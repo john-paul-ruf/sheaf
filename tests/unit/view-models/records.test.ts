@@ -685,8 +685,8 @@ describe("the change history (SCR-032)", () => {
   }
 
   it.each([
-    [1, "1 change since this app was last checkpointed."],
-    [2, "2 changes since this app was last checkpointed."],
+    [1, "1 retained change shown."],
+    [2, "2 retained changes shown."],
   ])("announces %i entries in agreeing words (M37 plural fix)", (count, expected) => {
     const entries = Array.from({ length: count }, (_, index) => ({
       eventId: `e-${String(index)}`,
@@ -745,10 +745,10 @@ describe("the change history (SCR-032)", () => {
 
   it("states its scope so a fresh app's empty log reads truthfully", () => {
     const vm = selectChangeHistoryVm(historyPage());
-    expect(vm.scope).toBe("since-last-checkpoint");
-    expect(vm.emptiness).toBe("no-changes-since-checkpoint");
+    expect(vm.scope).toBe("retained-history");
+    expect(vm.emptiness).toBe("no-retained-changes");
     expect(vm.announcement).toBe(
-      "No changes have been made since this app was last checkpointed.",
+      "No retained changes yet.",
     );
     expect(vm.announcement).not.toMatch(/the app's history|since this app was created/i);
   });

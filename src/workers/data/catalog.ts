@@ -329,6 +329,17 @@ export function validateLocalCatalog(catalog: LocalCatalogV1): LocalCatalogV1 {
   return catalog;
 }
 
+/** A physical checkpoint replacement changes no authored count, home or reminder. */
+export function withCompactedApp(catalog: LocalCatalogV1, appId: string, expectedHead: string,
+  nextHead: string, ticketId: string): LocalCatalogV1 {
+  if (!catalog.apps.some((app) => app.appId === appId && app.appHeadStorageId === expectedHead)) {
+    throw new CodecError("compaction names a stale app head");
+  }
+  return validateLocalCatalog({ ...catalog, catalogRevision: catalog.catalogRevision + 1,
+    apps: catalog.apps.map((app) => app.appId === appId ? { ...app, appHeadStorageId: nextHead } : app),
+    cleanupTicketStorageIds: [...catalog.cleanupTicketStorageIds, ticketId] });
+}
+
 // --- construction -----------------------------------------------------------
 
 export interface BuildLocalCatalogInput {

@@ -28,6 +28,7 @@ import {
   decodeCleanupTicket,
   encodeCleanupTicket,
   processCleanupTickets,
+  prepareCleanupTicket,
   sweepStaleImports,
   type CleanupTicketV1,
 } from "../../../src/import/staging/cleanup.js";
@@ -479,6 +480,65 @@ describe("the unlock-time sweep", () => {
     harness.store.rows.delete(ticketId);
 
     expect(await processCleanupTickets(harness.ports, harness.localRoot)).toEqual([]);
+    expect(harness.catalog.readRefs().cleanupTicketStorageIds).toEqual([]);
+  });
+});
+
+describe("compaction cleanup", () => {
+  async function install(harness: StagingHarnessV1, ids: readonly string[]) {
+    const expected = harness.catalog.expectation();
+    const prepared = await prepareCleanupTicket(harness.ports, harness.localRoot, ids, "compaction", expected.transactionRevision + 1);
+    const refs = harness.catalog.readRefs();
+    const sealed = await harness.catalog.sealWithRefs({ ...refs,
+      cleanupTicketStorageIds: [...refs.cleanupTicketStorageIds, prepared.ticket.ticketId] }, BigInt(expected.transactionRevision + 1));
+    const revision = await harness.store.commit({ expectedRevision: expected.transactionRevision, expectedWriterEpoch: expected.writerEpoch,
+      addFrames: [prepared.frame, sealed.frame], bootstrapPatch: { catalogStorageId: sealed.storageId } });
+    harness.catalog.adopt(sealed.storageId, revision);
+    return prepared.ticket;
+  }
+
+  it("requires a reachability check, preserves a protected batch, and resumes the exact interrupted cursor", async () => {
+    const harness = stagingHarness();
+    const created = await createImportStage(harness.ports, harness.localRoot, INPUT);
+    const staged = await withChunks(harness, created.loaded, 7);
+    const ids = staged.stage.factChunks.map((chunk) => chunk.storageId);
+    const ticket = await install(harness, [...ids].reverse().concat(ids[0]!));
+    expect(ticket.storageIds).toEqual([...ids].sort());
+    const count = harness.store.commits.length;
+    await expect(processCleanupTickets(harness.ports, harness.localRoot)).rejects.toThrow("authenticated reachability");
+    expect(await processCleanupTickets(harness.ports, harness.localRoot, { beforeCompactionBatch: () => Promise.resolve(false) })).toEqual([]);
+    expect(harness.store.commits).toHaveLength(count);
+    for (const id of ids) expect(harness.store.has(id)).toBe(true);
+    const checked: string[][] = [];
+    harness.store.breakAfter(1);
+    await expect(processCleanupTickets(harness.ports, harness.localRoot, { batchLimit: 2,
+      beforeCompactionBatch: (batch) => { checked.push([...batch]); return Promise.resolve(true); } })).rejects.toThrow("simulated interruption");
+    expect(checked[0]).toEqual(ticket.storageIds.slice(0, 2));
+    const pendingId = harness.catalog.readRefs().cleanupTicketStorageIds[0]!;
+    const payload = await tryOpen(harness.crypto, harness.store, pendingId, "local.cleanup", harness.localRoot, "local.cleanup-ticket");
+    expect(decodeCleanupTicket(payload!).cursor).toBe(2);
+    harness.store.repair();
+    checked.length = 0;
+    const receipts = await processCleanupTickets(harness.ports, harness.localRoot, { batchLimit: 2,
+      beforeCompactionBatch: (batch) => { checked.push([...batch]); return Promise.resolve(true); } });
+    expect(checked.flat()).toEqual(ticket.storageIds.slice(2));
+    expect(receipts).toEqual([{ ticketId: ticket.ticketId, reason: "compaction", deletedCount: 7, batches: 3, completed: true }]);
+    for (const id of ids) expect(harness.store.has(id)).toBe(false);
+    expect(harness.catalog.readRefs().cleanupTicketStorageIds).toEqual([]);
+  });
+
+  it("removes an empty ticket and rejects invalid batch bounds before deleting", async () => {
+    const harness = stagingHarness();
+    const ticket = await install(harness, []);
+    for (const batchLimit of [0, -1, 1.5, CLEANUP_BATCH_SIZE + 1]) {
+      await expect(processCleanupTickets(harness.ports, harness.localRoot, { batchLimit, beforeCompactionBatch: () => Promise.resolve(true) }))
+        .rejects.toThrow("invalid cleanup batch bound");
+      expect(harness.store.has(ticket.ticketId)).toBe(true);
+    }
+    expect(await processCleanupTickets(harness.ports, harness.localRoot, { beforeCompactionBatch: (ids) => {
+      expect(ids).toEqual([]); return Promise.resolve(true);
+    } })).toEqual([{ ticketId: ticket.ticketId, reason: "compaction", deletedCount: 0, batches: 1, completed: true }]);
+    expect(harness.store.has(ticket.ticketId)).toBe(false);
     expect(harness.catalog.readRefs().cleanupTicketStorageIds).toEqual([]);
   });
 });

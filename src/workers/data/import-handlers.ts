@@ -105,8 +105,8 @@ import type { ProjectionInferenceDecisionV1 } from "../../application/ports/proj
 import { asDomainId } from "../../domain/model/ids.js";
 import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { AppSessionV1 } from "./app-session.js";
-import { isBackupHeadPinned, readAppDurability } from "./home-state.js";
-import type { LoadedAppV1 } from "./event-store.js";
+import { isBackupHeadPinned, readAppDurability, reachableAppObjects } from "./home-state.js";
+import type { LoadedAppV1, WorkerSessionContextV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
 import { toThemeTileWire } from "./theme-handlers.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
@@ -142,6 +142,7 @@ import type {
 import { DataWorkerCommandError } from "../protocol/redact.js";
 import {
   isAppAccentIdV1,
+  withCompactedApp,
   type LocalCatalogAppEntryV1,
   type LocalCatalogV1,
 } from "./catalog.js";
@@ -250,13 +251,13 @@ export const envelopeCryptoAdapter: EnvelopeCryptoPort = {
  * several times and each commit must expect the revision the previous one
  * created.
  */
-class SessionCatalogPort implements StagingCatalogPort {
+export class SessionCatalogPort implements StagingCatalogPort {
   #catalog: LocalCatalogV1;
   #storageId: string;
   #revision: number;
   #pending: { catalog: LocalCatalogV1; storageId: string } | undefined;
 
-  constructor(private readonly context: ImportSessionContextV1) {
+  constructor(private readonly context: WorkerSessionContextV1) {
     this.#catalog = context.catalog;
     this.#storageId = context.catalogStorageId;
     this.#revision = context.transactionRevision;
@@ -393,6 +394,13 @@ class SessionCatalogPort implements StagingCatalogPort {
     };
     const sealed = await this.context.sealCatalog(next, input.logicalRevision);
     this.#pending = { catalog: next, storageId: sealed.storageId };
+    return sealed;
+  }
+
+  async sealWithCompactedApp(appId: string, expectedHead: string, nextHead: string, ticketId: string): Promise<SealedCatalogV1> {
+    const catalog = withCompactedApp(this.#catalog, appId, expectedHead, nextHead, ticketId);
+    const sealed = await this.context.sealCatalog(catalog, this.#revision + 1);
+    this.#pending = { catalog, storageId: sealed.storageId };
     return sealed;
   }
 
@@ -736,6 +744,21 @@ export function createImportHandlers(
   const portsFor = (
     catalogPort: StagingCatalogPort,
   ): StagingPortsV1 => ({ store, crypto, catalog: catalogPort, entropy: deps.entropy });
+
+  const cleanupOptions = (catalog: SessionCatalogPort, context: WorkerSessionContextV1) => ({
+    beforeCompactionBatch: async (ids: readonly string[]) => {
+      const check = () => {
+        const current = deps.getContext();
+        if (current.localRoot !== context.localRoot || current.writerEpoch !== context.writerEpoch || current.transactionRevision !== catalog.transactionRevision) {
+          throw new DataWorkerCommandError("integrity");
+        }
+        return current;
+      };
+      const reachable = await reachableAppObjects({ store, crypto, entropy: deps.entropy }, check(), new AbortController().signal);
+      check();
+      return ids.every((id) => !reachable.has(id));
+    },
+  });
 
   /**
    * The device the catalog was created with. Promotion's commit is authored by
@@ -1174,7 +1197,7 @@ export function createImportHandlers(
     deps.apps?.close(appIdText);
     closeChannel(stageId);
     active.delete(stageId);
-    await processCleanupTickets(portsFor(catalogPort), context.localRoot);
+    await processCleanupTickets(portsFor(catalogPort), context.localRoot, cleanupOptions(catalogPort, context));
     return {
       kind: "promoteImport",
       outcome: "promoted",
@@ -1478,7 +1501,7 @@ export function createImportHandlers(
 
       // Step 3 ticketed the temporaries; finish them before answering, so the
       // receipt the surface renders is true rather than pending.
-      await processCleanupTickets(portsFor(catalogPort), context.localRoot);
+      await processCleanupTickets(portsFor(catalogPort), context.localRoot, cleanupOptions(catalogPort, context));
 
       return {
         kind: "promoteImport",
@@ -1548,7 +1571,7 @@ export function createImportHandlers(
       return {
         kind: "cancelImportStage",
         receipt: {
-          reason: receipt.reason,
+          reason: "import-cancelled",
           deletedCount: receipt.deletedCount,
           completed: true,
         },
@@ -1570,7 +1593,7 @@ export function createImportHandlers(
       for (const stageId of [...channels.keys()]) {
         closeChannel(stageId);
       }
-      return sweepStaleImports(portsFor(catalogPort), context.localRoot);
+      return sweepStaleImports(portsFor(catalogPort), context.localRoot, cleanupOptions(catalogPort, context));
     },
 
     accumulatedFacts(stageId: string): readonly WorkbookFactStreamItemV2[] {

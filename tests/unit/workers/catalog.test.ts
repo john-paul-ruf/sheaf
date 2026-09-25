@@ -20,6 +20,7 @@ import {
   decodeLocalCatalog,
   encodeLocalCatalog,
   validateLocalCatalog,
+  withCompactedApp,
   withIdleTimeout,
   type LocalCatalogAppEntryV1,
   type LocalCatalogHomeEntryV1,
@@ -435,5 +436,27 @@ describe("CAP-37 theme tile", () => {
     expect(refused({ ...tile, label: "#FFF" })).toThrow(CodecError);
     expect(refused({ ...tile, logo: { ...tile.logo, width: 257 } })).toThrow(CodecError);
     expect(refused({ ...tile, logo: { ...tile.logo, bytes: new Uint8Array(64 * 1024 + 1) } })).toThrow(CodecError);
+  });
+});
+
+describe("withCompactedApp", () => {
+  const local = (appId: string, head: string) => app({ appId, locality: "present", wrappedAppKey: new Uint8Array([1]), appHeadStorageId: head });
+  const before = (): LocalCatalogV1 => ({ ...withEntries([local("app-1", "head-old"), local("app-2", "head-other")], [home()]),
+    activeWorkflowStorageIds: ["workflow-1"], cleanupTicketStorageIds: ["ticket-import"] });
+
+  it("swaps only the named head and appends its exact ticket, preserving homes, reminders, workflows and other tickets", () => {
+    const catalog = before();
+    const next = withCompactedApp(catalog, "app-1", "head-old", "head-new", "ticket-compaction");
+    expect(next).toEqual({ ...catalog, catalogRevision: catalog.catalogRevision + 1,
+      apps: [local("app-1", "head-new"), catalog.apps[1]], cleanupTicketStorageIds: ["ticket-import", "ticket-compaction"] });
+    expect(decodeLocalCatalog(encodeLocalCatalog(next))).toEqual(next);
+  });
+
+  it("refuses a stale expected head or unknown app without changing the input", () => {
+    const catalog = before();
+    const snapshot = encodeLocalCatalog(catalog);
+    expect(() => withCompactedApp(catalog, "app-1", "head-other", "head-new", "ticket")).toThrow(/stale app head/);
+    expect(() => withCompactedApp(catalog, "app-9", "head-old", "head-new", "ticket")).toThrow(/stale app head/);
+    expect(encodeLocalCatalog(catalog)).toEqual(snapshot);
   });
 });

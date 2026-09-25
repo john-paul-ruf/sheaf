@@ -413,3 +413,40 @@ it("releases a cancelled live pin and recovers an interrupted pin after restart 
   expect((await worker.backup.read(home.homeId)).pins).toEqual([]);
   expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.durability?.deviceOnlyChangeCount).toBe(0);
 }, 120_000);
+
+it("keeps receipt authority and exact all-device pending counts across physical compaction", async () => {
+  const backupHandlers = await import("../../../src/workers/data/backup-handlers.js");
+  const { AppSessionRegistry } = await import("../../../src/workers/data/app-session.js");
+  const { compactApp } = await import("../../../src/workers/data/compaction.js");
+  const create = backupHandlers.createBackupHandlers;
+  let deps: Parameters<typeof create>[0] | undefined;
+  const capture = vi.spyOn(backupHandlers, "createBackupHandlers").mockImplementation((input) => { deps = input; return create(input); });
+  const sessions = vi.spyOn(AppSessionRegistry.prototype, "set");
+  try {
+    await resetLocalDatabase();
+    worker = createTestHandler().handler;
+    await ask(worker, { kind: "setup", passphrase: LOCAL });
+    const appId = await importCsv(worker);
+    const assigned = await worker.backup.createBundleHome(appId, "Compaction receipt vault", VAULT);
+    const saved = await preparedBundle(worker, appId);
+    try { expect((await saved.complete("saved"))["kind"]).toBe("completed"); } finally { await saved.dispose(); }
+    const confirmed = await worker.backup.read(assigned.homeId);
+    const pending = async () => (await ask(worker!, { kind: "openApp", appId })).session!;
+    expect((await pending()).deviceOnlyChangeCount).toBe(0);
+    const compact = async () => {
+      const session = sessions.mock.calls.at(-1)![1];
+      const before = session.repository.loaded().head.frontier;
+      const result = await compactApp({ ...deps!, session }, new AbortController().signal);
+      expect(result.head.frontier).toEqual(before);
+    };
+    await compact();
+    expect(await worker.backup.read(assigned.homeId)).toEqual(confirmed);
+    expect(await pending()).toMatchObject({ deviceOnlyChangeCount: 0, durability: { confirmedAtMs: confirmed.lastSuccessfulBackupMs, deviceOnlyChangeCount: 0 } });
+    await ask(worker, { kind: "changeTheme", appId, themeKey: "indigo", mode: "light", density: "compact", customAccent: null, logo: { kind: "keep" } });
+    expect((await pending()).deviceOnlyChangeCount).toBe(1);
+    await compact();
+    expect(await worker.backup.read(assigned.homeId)).toEqual(confirmed);
+    expect(await pending()).toMatchObject({ deviceOnlyChangeCount: 1, durability: { confirmedAtMs: confirmed.lastSuccessfulBackupMs, deviceOnlyChangeCount: 1 } });
+    expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.durability).toMatchObject({ confirmedAtMs: confirmed.lastSuccessfulBackupMs, deviceOnlyChangeCount: 1 });
+  } finally { sessions.mockRestore(); capture.mockRestore(); await resetLocalDatabase(); }
+}, 120_000);

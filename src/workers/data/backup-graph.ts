@@ -41,8 +41,9 @@ const ROOT_KINDS = {
   sourceManifests: ["app.source-manifest", "app.source-manifest"], snapshotManifests: ["app.snapshot-manifest", "app.snapshot-manifest"],
 } as const;
 
+type ProjectionClock = import("../../persistence/projection/engine.js").OpenProjectionInitV1["clock"];
 interface GraphProjection { readonly handle: ProjectionHandleV1; dispose(): void; }
-const projectionReaders = new WeakMap<BackupAppGraphV1, (signal: AbortSignal) => Promise<GraphProjection>>();
+const projectionReaders = new WeakMap<BackupAppGraphV1, (signal: AbortSignal, clock?: ProjectionClock) => Promise<GraphProjection>>();
 
 const originalReaders = new WeakMap<BackupAppGraphV1, (signal: AbortSignal) => AsyncIterable<EventCommitV1>>();
 
@@ -52,10 +53,10 @@ export function originalGraphCommits(graph: BackupAppGraphV1, signal: AbortSigna
   return read(signal);
 }
 
-export function openBackupGraphProjection(graph: BackupAppGraphV1, signal: AbortSignal): Promise<GraphProjection> {
+export function openBackupGraphProjection(graph: BackupAppGraphV1, signal: AbortSignal, clock?: ProjectionClock): Promise<GraphProjection> {
   const read = projectionReaders.get(graph);
   if (read === undefined) throw new IntegrityError("graph has no authenticated projection reader");
-  return read(signal);
+  return read(signal, clock);
 }
 
 /** One immutable pin, never the mutable catalog's current head or projection. */
@@ -533,10 +534,10 @@ export async function exportBackupGraph(ports: { readonly crypto: AppStoragePort
   }
   const contexts = tableContexts(checkpoint, (table, record) => live.has(`${encodeDomainId(table)}:${encodeDomainId(record)}`));
   const refs = (values: readonly StorageRefV1[]) => values.map((ref) => descriptors.get(ref.storageId)!.reference).sort((a, b) => a.logicalRevision < b.logicalRevision ? -1 : a.logicalRevision > b.logicalRevision ? 1 : compareDomainIds(a.storageId, b.storageId));
-  async function openGraphProjection(requestSignal: AbortSignal): Promise<GraphProjection> {
+  async function openGraphProjection(requestSignal: AbortSignal, clock: ProjectionClock = () => ({ epochMs: 0, epochDay: 0 })): Promise<GraphProjection> {
       const readSignal = AbortSignal.any([signal, requestSignal]);
       readSignal.throwIfAborted();
-      const handle = await openProjection({ sha256, clock: () => ({ epochMs: 0, epochDay: 0 }) });
+      const handle = await openProjection({ sha256, clock });
       const close = () => { readSignal.removeEventListener("abort", close); disposeProjection(handle); };
       readSignal.addEventListener("abort", close, { once: true });
       try {

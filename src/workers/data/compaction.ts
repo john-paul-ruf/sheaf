@@ -13,7 +13,10 @@ import { executeQuery } from "../../persistence/projection/index.js";
 import type { ChangeHistoryCursorV1, ProjectionChangeEventV1 } from "../../persistence/projection/types.js";
 import type { EnvelopeFrameV1, EnvelopeScopeV1, EnvelopePayloadKindV1 } from "../../migrations/003_envelope_format_v1.js";
 import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
-import type { AppStoragePortsV1 } from "./event-store.js";
+import { prepareCleanupTicket, processCleanupTickets } from "../../import/staging/cleanup.js";
+import { SessionCatalogPort } from "./import-handlers.js";
+import { reachableAppObjects } from "./home-state.js";
+import type { WorkerSessionContextV1, AppStoragePortsV1 } from "./event-store.js";
 import type { AppSessionV1 } from "./app-session.js";
 import { decodeEvidenceEventPayload, isEvidenceEventKind } from "./record-event-payloads.js";
 import { exportBackupGraph, openBackupGraphProjection } from "./backup-graph.js";
@@ -224,4 +227,66 @@ function historyBytes(events: readonly ProjectionChangeEventV1[]): Uint8Array {
     ["logicalCounter", event.logicalCounter], ["deviceId", event.deviceId], ["summary", decodeCanonical(encodeChangeSummary(event.summary))],
     ["restoration", event.restoration === null ? null : decodeCanonical(encodeAuthoredRecord(event.restoration))],
   ])));
+}
+
+
+/** Every deletion batch re-reads current roots and pins before its revision/epoch CAS. */
+export async function drainCompactionCleanup(ports: AppStoragePortsV1, getContext: () => WorkerSessionContextV1,
+  signal: AbortSignal): Promise<void> {
+  const initial = getContext();
+  const catalog = new SessionCatalogPort(initial);
+  const assertCurrent = () => {
+    signal.throwIfAborted();
+    const live = getContext();
+    if (live.localRoot !== initial.localRoot || live.writerEpoch !== initial.writerEpoch || live.transactionRevision !== catalog.transactionRevision) {
+      throw new IntegrityError("compaction cleanup session changed");
+    }
+    return live;
+  };
+  await processCleanupTickets({ ...ports, catalog }, initial.localRoot, { beforeCompactionBatch: async (ids) => {
+    const context = assertCurrent();
+    const reachable = await reachableAppObjects(ports, context, signal);
+    assertCurrent();
+    return ids.every((id) => !reachable.has(id));
+  } });
+}
+
+/** Atomic installation; no authored commit, receipt or count is advanced. */
+export async function compactApp(input: { readonly ports: AppStoragePortsV1; readonly session: AppSessionV1;
+  readonly getContext: () => WorkerSessionContextV1; readonly closeApp: (appId: string) => void }, signal: AbortSignal) {
+  const { ports, session } = input;
+  const context = input.getContext();
+  const appId = encodeDomainId(session.appId);
+  const source = session.repository.loaded().headStorageId;
+  const check = () => {
+    signal.throwIfAborted();
+    const live = input.getContext();
+    if (live.localRoot !== context.localRoot || live.writerEpoch !== context.writerEpoch || live.transactionRevision !== context.transactionRevision ||
+      live.catalog.apps.find((app) => app.appId === appId)?.appHeadStorageId !== source || session.repository.loaded().headStorageId !== source) {
+      throw new IntegrityError("compaction authority changed");
+    }
+  };
+  check();
+  const candidate = await prepareCompaction(ports, session, BigInt(context.transactionRevision + 1), signal);
+  check();
+  const original = await exportBackupGraph(ports, session.appKey, { appId, headStorageId: source }, signal);
+  const frames = new Map(candidate.frames.map((frame) => [encodeBase64Url(frame.storageId), frame]));
+  const nextPorts = { ...ports, store: { ...ports.store, getEnvelope: async (id: Parameters<AppStoragePortsV1["store"]["getEnvelope"]>[0]) =>
+    frames.get(encodeBase64Url(id)) ?? ports.store.getEnvelope(id) } };
+  const nextContext = { ...context, catalog: { ...context.catalog,
+    apps: context.catalog.apps.map((app) => app.appId === appId ? { ...app, appHeadStorageId: candidate.headStorageId } : app) } };
+  const reachable = await reachableAppObjects(nextPorts, nextContext, signal);
+  check();
+  const obsolete = original.objects.map((object) => encodeBase64Url(object.reference.storageId)).filter((id) => !reachable.has(id));
+  const prepared = await prepareCleanupTicket(ports, context.localRoot, obsolete, "compaction", context.transactionRevision + 1);
+  check();
+  const catalog = new SessionCatalogPort(context);
+  const sealed = await catalog.sealWithCompactedApp(appId, source, candidate.headStorageId, prepared.ticket.ticketId);
+  check();
+  const transactionRevision = await ports.store.commit({ expectedRevision: context.transactionRevision, expectedWriterEpoch: context.writerEpoch,
+    addFrames: [...candidate.frames, prepared.frame, sealed.frame], bootstrapPatch: { catalogStorageId: sealed.storageId } });
+  catalog.adopt(sealed.storageId, transactionRevision);
+  input.closeApp(appId);
+  await drainCompactionCleanup(ports, input.getContext, signal);
+  return { headStorageId: candidate.headStorageId, head: candidate.head };
 }

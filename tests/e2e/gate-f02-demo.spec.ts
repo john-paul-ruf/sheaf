@@ -216,7 +216,7 @@ test("GATE-F02 demo: a messy CSV becomes an app that survives a reload", async (
   await followHash(page, `${appHash}/history`);
   await expect(screen(page, "SCR-032")).toContainText("Record changed");
   await expect(screen(page, "SCR-032")).toContainText(
-    "since this app was last checkpointed",
+    "Changes retained with this app",
   );
 
   // --- upload a macro workbook → the approved refusal (F03: MOD-005) -------

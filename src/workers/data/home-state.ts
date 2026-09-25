@@ -1,3 +1,4 @@
+import { exportBackupGraph } from "./backup-graph.js";
 import type { VaultSecretsV1 } from "../../application/ports/vault-crypto.js";
 import type { WrappedKeyV1 } from "../../migrations/006_vault_format_v1.js";
 import { CURRENT_FORMAT_VERSIONS } from "../../migrations/index.js";
@@ -158,13 +159,37 @@ export async function readHomeState(ports: AppStoragePortsV1, context: Pick<Work
   return state;
 }
 
-/** Both app-head writers consult the same durable retention roots. */
+/** Complete authenticated closures, including every durable in-flight backup pin. */
+export async function reachableAppObjects(ports: AppStoragePortsV1,
+  context: Pick<WorkerSessionContextV1, "localRoot" | "catalog">, signal: AbortSignal,
+  omit: { readonly currentHead?: string; readonly operationId?: string } = {}): Promise<ReadonlySet<string>> {
+  const roots = new Map<string, Set<string>>();
+  const add = (appId: string, headId: string) => { const set = roots.get(appId) ?? new Set<string>(); set.add(headId); roots.set(appId, set); };
+  for (const app of context.catalog.apps) if (app.appHeadStorageId !== null && app.appHeadStorageId !== omit.currentHead) add(app.appId, app.appHeadStorageId);
+  for (const home of context.catalog.homes) {
+    for (const pin of (await readHomeState(ports, context, home)).pins) if (pin.operationId !== omit.operationId) add(pin.appId, pin.headStorageId);
+  }
+  const reachable = new Set<string>();
+  for (const [appId, heads] of roots) {
+    signal.throwIfAborted();
+    const app = context.catalog.apps.find((entry) => entry.appId === appId);
+    if (app === undefined) throw new IntegrityError("pin app is missing");
+    const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
+    try {
+      for (const headStorageId of heads) {
+        const graph = await exportBackupGraph(ports, key, { appId, headStorageId }, signal);
+        for (const object of graph.objects) reachable.add(encodeBase64Url(object.reference.storageId));
+      }
+    } finally { ports.crypto.destroyKey(key); }
+  }
+  signal.throwIfAborted();
+  return reachable;
+}
+
+/** Both head writers protect descendants as well as direct backup roots. */
 export async function isBackupHeadPinned(ports: AppStoragePortsV1, context: WorkerSessionContextV1,
   headStorageId: string): Promise<boolean> {
-  for (const entry of context.catalog.homes) {
-    if ((await readHomeState(ports, context, entry)).pins.some((pin) => pin.headStorageId === headStorageId)) return true;
-  }
-  return false;
+  return (await reachableAppObjects(ports, context, new AbortController().signal, { currentHead: headStorageId })).has(headStorageId);
 }
 
 export function pendingChangeCount(frontier: BundleReceiptV1["confirmedFrontier"],

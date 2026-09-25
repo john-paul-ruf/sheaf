@@ -74,7 +74,7 @@ test("a record is created, refused, corrected, deleted and restored", async ({
   await followHash(page, `${appHash}/history`);
   await expect(screen(page, "SCR-032")).toBeVisible();
   await expect(screen(page, "SCR-032")).toContainText(
-    "No changes since this app was last checkpointed.",
+    "No retained changes yet.",
   );
   // Paging is offered only when there is more; there is not.
   await expect(

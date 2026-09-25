@@ -27,7 +27,7 @@
  * than a rule someone has to remember.
  */
 
-import { CodecError } from "../../domain/model/errors.js";
+import { CodecError, IntegrityError } from "../../domain/model/errors.js";
 import {
   asStorageId16,
   decodeStorageId16,
@@ -67,6 +67,7 @@ export const CLEANUP_REASONS = Object.freeze([
   "import-cancelled",
   "import-failed",
   "import-promoted",
+  "compaction",
 ] as const);
 
 export type CleanupReasonV1 = (typeof CLEANUP_REASONS)[number];
@@ -155,11 +156,22 @@ export function decodeCleanupTicket(payload: Uint8Array): CleanupTicketV1 {
   };
 }
 
+/** Prepares an exact encrypted deletion list; the caller commits its root atomically. */
+export async function prepareCleanupTicket(ports: Pick<StagingPortsV1, "crypto" | "entropy">,
+  localRoot: EnvelopeKeyRefV1, storageIds: readonly string[], reason: CleanupReasonV1, revision: number) {
+  const storageId = asStorageId16(ports.entropy.randomBytes(STORAGE_ID_BYTES));
+  const ticket: CleanupTicketV1 = { ticketVersion: 1, ticketId: encodeStorageId16(storageId), reason,
+    storageIds: [...new Set(storageIds)].sort(), cursor: 0, createdAtRevision: revision };
+  const frame = await ports.crypto.seal({ storageId, scope: CLEANUP_SCOPE, payloadKind: CLEANUP_PAYLOAD_KIND,
+    logicalRevision: BigInt(revision), payload: encodeCleanupTicket(ticket), compression: "deflate-raw-v1", key: localRoot });
+  return { ticket, frame };
+}
+
 // ------------------------------------------------------------------- step 1 --
 
 export interface AbandonStageInputV1 {
   readonly workflowStorageId: string;
-  readonly reason: CleanupReasonV1;
+  readonly reason: Exclude<CleanupReasonV1, "compaction">;
   /** Rows to collect beyond the stage's own chunks (promotion's temporaries). */
   readonly extraStorageIds?: readonly string[];
 }
@@ -250,12 +262,15 @@ async function drainTicket(
   start: CleanupTicketV1,
   startStorageId: string,
   batchLimit: number,
-): Promise<CleanupReceiptV1> {
+  beforeCompactionBatch?: CleanupOptionsV1["beforeCompactionBatch"],
+): Promise<CleanupReceiptV1 | undefined> {
   let ticket = start;
   let ticketStorageId = startStorageId;
   let batches = 0;
 
-  while (ticket.cursor < ticket.storageIds.length) {
+  if (!Number.isInteger(batchLimit) || batchLimit < 1 || batchLimit > CLEANUP_BATCH_SIZE) throw new CodecError("invalid cleanup batch bound");
+  if (ticket.reason === "compaction" && beforeCompactionBatch === undefined) throw new IntegrityError("compaction cleanup requires authenticated reachability");
+  while (ticket.cursor < ticket.storageIds.length || batches === 0) {
     const slice = ticket.storageIds.slice(
       ticket.cursor,
       ticket.cursor + batchLimit,
@@ -313,6 +328,9 @@ async function drainTicket(
     );
     addFrames.push(sealedCatalog.frame);
 
+    if (ticket.reason === "compaction" && !await beforeCompactionBatch!(slice)) return undefined;
+    const current = ports.catalog.expectation();
+    if (current.transactionRevision !== expectation.transactionRevision || current.writerEpoch !== expectation.writerEpoch) throw new IntegrityError("cleanup authority changed");
     const committed = await ports.store.commit({
       expectedRevision: expectation.transactionRevision,
       expectedWriterEpoch: expectation.writerEpoch,
@@ -361,6 +379,8 @@ async function loadTicket(
 
 export interface CleanupOptionsV1 {
   readonly batchLimit?: number;
+  /** Runs after preparation, before every destructive CAS; false preserves the ticket. */
+  readonly beforeCompactionBatch?: (storageIds: readonly string[]) => Promise<boolean>;
 }
 
 /**
@@ -377,13 +397,15 @@ export async function cancelImportStage(
   const ticket = await abandonStage(ports, localRoot, input);
   // `ticketId` is the ticket envelope's own storage-id text, so the drain
   // needs no second identifier to find what it must replace.
-  return drainTicket(
+  const receipt = await drainTicket(
     ports,
     localRoot,
     ticket,
     ticket.ticketId,
     options.batchLimit ?? CLEANUP_BATCH_SIZE,
   );
+  if (receipt === undefined) throw new IntegrityError("import cleanup did not finish");
+  return receipt;
 }
 
 /**
@@ -405,15 +427,9 @@ export async function processCleanupTickets(
       await forgetTicket(ports, ticketStorageId);
       continue;
     }
-    receipts.push(
-      await drainTicket(
-        ports,
-        localRoot,
-        ticket,
-        ticketStorageId,
-        options.batchLimit ?? CLEANUP_BATCH_SIZE,
-      ),
-    );
+    const receipt = await drainTicket(ports, localRoot, ticket, ticketStorageId,
+      options.batchLimit ?? CLEANUP_BATCH_SIZE, options.beforeCompactionBatch);
+    if (receipt !== undefined) receipts.push(receipt);
   }
 
   return receipts;

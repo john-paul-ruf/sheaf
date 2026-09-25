@@ -19,13 +19,8 @@ import styles from "./records.module.css";
 /**
  * SCR-032 — the change log (change-history.html; CAP-17, D22, FR-12).
  *
- * **The scope is the sentence.** `ChangeHistoryVm.scope` is
- * `since-last-checkpoint`, and this screen says so where a person will read it:
- * a freshly imported app's log is *empty*, because its rows arrived in the
- * checkpoint rather than as authored events. change-history.html's promise of
- * "every authored create, edit, delete, restore, import and merge" is what the
- * log becomes once compaction and merges exist; what F02 holds is what F02
- * says.
+ * Original authored history survives physical checkpoints. Initial imported
+ * rows are the starting state, so a freshly imported app's log is empty.
  *
  * **Each entry names its table** (CA-21's `tableId`): in a workbook app a
  * record id alone does not say where the record lives, so the line says it
@@ -86,12 +81,12 @@ export function ChangeHistoryScreen({
     >
       <div className={cx(styles["stack"])} data-screen="SCR-032">
         <div className={cx(styles["intro"])}>
-          <span className={cx(styles["eyebrow"])}>Append-only local log</span>
+          <span className={cx(styles["eyebrow"])}>Append-only local history</span>
           <h1 className={cx(styles["title"])}>Change history</h1>
           <p className={cx(styles["lede"])}>
-            Every change authored on this device since this app was last
-            checkpointed. An imported app starts with none: its rows arrived in
-            the checkpoint, not as changes.
+            Changes retained with this app, including earlier edits and
+            deleted-record recovery. Imported rows are the starting state,
+            not individual changes.
           </p>
         </div>
 
@@ -137,12 +132,12 @@ export function ChangeHistoryScreen({
         ) : (
           <section className={cx(styles["emptyState"])} data-empty="no-changes">
             <h2 className={cx(styles["cardTitle"])}>
-              No changes since this app was last checkpointed.
+              No retained changes yet.
             </h2>
             <p className={cx(styles["lede"])}>
               The rows this app was imported with are not changes; they are what
-              it started from. Anything created, edited, deleted or restored on
-              this device appears here.
+              it started from. Retained creates, edits, deletes and restores
+              appear here.
             </p>
           </section>
         )}
@@ -185,7 +180,6 @@ function HistoryEntry({
         <time dateTime={isoInstant(entry.wallTimeMs)}>
           {formatInstant(entry.wallTimeMs)}
         </time>
-        {" · this device"}
         {entry.tableName === null ? "" : ` · ${entry.tableName}`}
         {changed === "" ? "" : ` · ${changed}`}
       </p>

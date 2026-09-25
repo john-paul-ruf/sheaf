@@ -1,3 +1,5 @@
+import { prepareCleanupTicket } from "../../import/staging/cleanup.js";
+import { drainCompactionCleanup } from "./compaction.js";
 import { sha256Chunks } from "../../crypto/hash.js";
 import { bundleChunks } from "../../sync/providers/bundle/format.js";
 import { buildPublicationCandidate, readPublicationCandidate, readPublicationObject } from "../../sync/protocol/publication.js";
@@ -15,7 +17,7 @@ import { CURRENT_FORMAT_VERSIONS } from "../../migrations/index.js";
 import { parseEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
 import { validateLocalCatalog, type LocalCatalogHomeEntryV1, type LocalCatalogV1 } from "./catalog.js";
 import { createEventStore, loadApp, readAppHead, openAppKey, type AppStoragePortsV1, type WorkerSessionContextV1 } from "./event-store.js";
-import { encodeHomeState, readHomeState, type BackupPinV1, type HomeStateV1 } from "./home-state.js";
+import { encodeHomeState, readHomeState, reachableAppObjects, type BackupPinV1, type HomeStateV1 } from "./home-state.js";
 
 export interface BackupHandlerDependenciesV1 {
   readonly ports: AppStoragePortsV1;
@@ -101,16 +103,19 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
   async function replaceState(context: WorkerSessionContextV1, entry: LocalCatalogHomeEntryV1,
     state: HomeStateV1, deletes: readonly string[] = [], guard: () => void = () => undefined): Promise<void> {
     const sealed = await sealState(context, state);
+    const cleanup = deletes.length === 0 ? undefined : await prepareCleanupTicket(ports, context.localRoot, deletes, "compaction", context.transactionRevision + 1);
     const catalog = validateLocalCatalog({ ...context.catalog, catalogRevision: context.catalog.catalogRevision + 1,
-      homes: context.catalog.homes.map((home) => home.homeId === entry.homeId ? { ...home, homeStateStorageId: sealed.storageId } : home) });
+      homes: context.catalog.homes.map((home) => home.homeId === entry.homeId ? { ...home, homeStateStorageId: sealed.storageId } : home),
+      cleanupTicketStorageIds: [...context.catalog.cleanupTicketStorageIds, ...(cleanup === undefined ? [] : [cleanup.ticket.ticketId])] });
     const sealedCatalog = await context.sealCatalog(catalog, context.transactionRevision + 1);
     assertLive(context);
     guard();
     const transactionRevision = await ports.store.commit({ expectedRevision: context.transactionRevision,
-      expectedWriterEpoch: context.writerEpoch, addFrames: [sealed.frame, sealedCatalog.frame],
-      deleteStorageIds: [entry.homeStateStorageId, ...deletes].map(decodeStorageId16),
+      expectedWriterEpoch: context.writerEpoch, addFrames: [sealed.frame, sealedCatalog.frame, ...(cleanup === undefined ? [] : [cleanup.frame])],
+      deleteStorageIds: [decodeStorageId16(entry.homeStateStorageId)],
       bootstrapPatch: { catalogStorageId: sealedCatalog.storageId } });
     context.adopt({ catalog, catalogStorageId: sealedCatalog.storageId, transactionRevision });
+    if (cleanup !== undefined) await drainCompactionCleanup(ports, deps.getContext, new AbortController().signal);
   }
 
   async function releasedPin(context: WorkerSessionContextV1, state: HomeStateV1, operationId: string) {
@@ -118,17 +123,14 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
     if (pin === undefined) throw new IntegrityError("unknown backup operation");
     const pins = state.pins.filter((candidate) => candidate.operationId !== operationId);
     const current = context.catalog.apps.some((app) => app.appHeadStorageId === pin.headStorageId);
-    let retained = pins.some((candidate) => candidate.headStorageId === pin.headStorageId);
-    if (!current && !retained) {
-      const app = appEntry(context, pin.appId);
-      const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
-      try {
-        const head = await readAppHead(ports, key, app.appHeadStorageId!);
-        retained = head.retainedRoots.some((root) => root.storageId === pin.headStorageId);
-      } finally { ports.crypto.destroyKey(key); }
-    }
-
-    return { state: { ...state, pins }, deletes: current || retained ? [] : [pin.headStorageId] };
+    if (current || pins.some((candidate) => candidate.headStorageId === pin.headStorageId)) return { state: { ...state, pins }, deletes: [] };
+    const signal = new AbortController().signal;
+    const reachable = await reachableAppObjects(ports, context, signal, { operationId });
+    const key = await openAppKey(ports, context.localRoot, appEntry(context, pin.appId), parseEnvelopeTransport);
+    try {
+      const graph = await exportBackupGraph(ports, key, pin, signal);
+      return { state: { ...state, pins }, deletes: graph.objects.map((object) => encodeBase64Url(object.reference.storageId)).filter((id) => !reachable.has(id)) };
+    } finally { ports.crypto.destroyKey(key); }
   }
 
   const api = {

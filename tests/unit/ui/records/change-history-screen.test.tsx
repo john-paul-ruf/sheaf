@@ -24,9 +24,8 @@ import {
 /**
  * SCR-032 and MOD-010 as rendered (CAP-17, D22).
  *
- * The claim that matters most is a *copy* claim: the log is what happened
- * since the last checkpoint, so a freshly imported app's empty log is correct
- * and nothing may call this "the app's history".
+ * Retained history survives checkpoints; initial imported rows are not
+ * individual changes.
  */
 
 const nav: AppNavigation = {
@@ -72,14 +71,15 @@ function renderHistory(
 }
 
 describe("SCR-032 — the log says what it is the log of", () => {
-  it("states the checkpoint scope, and never claims to be the whole history", async () => {
+  it("states retained scope without a checkpoint cutoff or invented device origin", async () => {
     await renderHistory();
 
     const screen = query('[data-screen="SCR-032"]');
     expect(screen.textContent).toContain(
-      "since this app was last checkpointed",
+      "Changes retained with this app",
     );
-    expect(screen.textContent).not.toContain("the app's history");
+    expect(screen.textContent).not.toContain("checkpointed");
+    expect(query("[data-event]").textContent).not.toContain("this device");
     expect(screen.textContent).not.toContain("Every change since");
   });
 
@@ -88,7 +88,7 @@ describe("SCR-032 — the log says what it is the log of", () => {
 
     const empty = query('[data-empty="no-changes"]');
     expect(empty.textContent).toContain(
-      "No changes since this app was last checkpointed.",
+      "No retained changes yet.",
     );
     expect(empty.textContent).toContain(
       "The rows this app was imported with are not changes",

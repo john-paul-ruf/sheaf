@@ -1,4 +1,3 @@
-import { encodeCanonical, type CborValue } from "../../persistence/codecs/canonical-cbor.js";
 /**
  * One open app inside the data worker: hydrate, answer, and disappear (M33;
  * CA-13 consumer and prover, CAP-15, CAP-13's restart leg).
@@ -53,6 +52,8 @@ import { encodeCanonical, type CborValue } from "../../persistence/codecs/canoni
  * fresh `openApp`.
  */
 
+import { encodeCanonical, type CborValue } from "../../persistence/codecs/canonical-cbor.js";
+import { exportBackupGraph, openBackupGraphProjection } from "./backup-graph.js";
 import { decodeStorageId16, type StorageId16 } from "../../domain/model/bytes.js";
 import { IntegrityError } from "../../domain/model/errors.js";
 import {
@@ -174,20 +175,28 @@ export async function openAppSession(
   const checkpoint = resolveCheckpointManifest(loaded.checkpoint);
   const contexts = tableContexts(checkpoint, checkpointResolver(loaded));
 
-  const handle = await openProjection({ sha256, clock: () => localClockReading(input.clock) });
+  let handle: ProjectionHandleV1 | undefined;
+  let closeProjection: (() => void) | undefined;
+  const lifetime = new AbortController();
   try {
-    await hydrateApp(
-      handle,
-      toProjectionCheckpoint(loaded, checkpoint, contexts, input.hydratedAtMs),
-    );
-    await replayTail(handle, loaded);
+    if (loaded.head.headVersion === 2 || loaded.commits.some((commit) => commit.events.some((event) => isEvidenceEventKind(event.kind)))) {
+      const graph = await exportBackupGraph(input.ports, input.appKey,
+        { appId: encodeDomainId(loaded.appId), headStorageId: input.appHeadStorageId }, lifetime.signal);
+      const opened = await openBackupGraphProjection(graph, lifetime.signal, () => localClockReading(input.clock));
+      handle = opened.handle;
+      closeProjection = () => opened.dispose();
+    } else {
+      handle = await openProjection({ sha256, clock: () => localClockReading(input.clock) });
+      await hydrateApp(handle, toProjectionCheckpoint(loaded, checkpoint, contexts, input.hydratedAtMs));
+      await replayTail(handle, loaded);
+    }
   } catch (cause) {
-    // `openProjection`/`hydrateApp` dispose on their own failure paths; this
-    // covers the tail, and disposing twice is safe.
-    disposeProjection(handle);
+    lifetime.abort();
+    if (handle !== undefined) disposeProjection(handle);
     input.ports.crypto.destroyKey(input.appKey);
     throw cause;
   }
+  const openedHandle = handle;
 
   const repository = createEventStore(
     { ports: input.ports, session: input.session, deviceId: input.deviceId },
@@ -199,10 +208,10 @@ export async function openAppSession(
   return {
     appId: loaded.appId,
     appKey: input.appKey,
-    projection: engineAdapter(handle),
+    projection: engineAdapter(openedHandle),
     checkpointExport: {
-      checkpoint: () => checkpointMetadata(handle, toProjectionCheckpoint({ ...loaded, recordPages: [] }, checkpoint, contexts, input.hydratedAtMs)),
-      records: (signal) => authoredRecords(handle, signal),
+      checkpoint: () => checkpointMetadata(openedHandle, toProjectionCheckpoint({ ...loaded, recordPages: [] }, checkpoint, contexts, input.hydratedAtMs)),
+      records: (signal) => authoredRecords(openedHandle, signal),
     },
     repository,
     async durability() {
@@ -220,7 +229,9 @@ export async function openAppSession(
         return;
       }
       disposed = true;
-      disposeProjection(handle);
+      lifetime.abort();
+      closeProjection?.();
+      disposeProjection(openedHandle);
       input.ports.crypto.destroyKey(input.appKey);
     },
   };
@@ -499,11 +510,7 @@ export function toProjectionRecord(
     }) : []),
   };
 
-  const report = validateRecord(entry.context, {
-    recordId: stored.recordId,
-    tableId: entry.table.tableId,
-    values,
-  });
+  const report = validateRecord(entry.context, record);
   assertIssuesAgree(stored, report.issues);
 
   return {
