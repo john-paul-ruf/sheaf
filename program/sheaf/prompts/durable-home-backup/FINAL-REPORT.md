@@ -1,5 +1,95 @@
 # Final Report — F05 durable-home-backup
 
+**Current outcome (run r-_nfe, 2026-09-25): blocked on your provider inputs; S01, S02, S03 and S06 accepted.** Periodic compaction now works end to end. After two real 128-commit compactions, a vault-only recovered bundle still matches an independent replay oracle, including authored state, full history and restoration, provenance and device chains. The same J3 journey covers same-context restart, restoring a pre-compaction deletion, and a V2 edit and append. S04, S05 and S07 cannot proceed without the Dropbox/OneDrive registrations (INPUT-DROPBOX / INPUT-ONEDRIVE). No cloud qualification, F05 demo approval or permission to start F06 is claimed. The report from the earlier continuation (13cfbbc) is kept verbatim below. Its S06 and "compaction" rows are superseded by this section.
+
+## This continuation — S06 compaction (CAP-44)
+
+| Work | Commits | Acceptance |
+|---|---|---|
+| S06 CP1 authenticated V2 candidate and evidence recovery | 084ecf9 (r8), correction 7e785e4 (r9) | 084ecf9 was held on receive after an intermittent 1/250 IntegrityError under the root gate. Root cause: the fixture used a random demo row that sometimes carries warnings, with a hard-coded empty report. Production's refusal was correct, and the check was not loosened. |
+| S06 CP2 install, reopen, edit and append without downgrade | 250c9e0, correction fccc345 | Atomic head/catalog/ticket CAS; reachability and pin checks on every cleanup batch; retained-history VM and screen; restored an unauthorized removal of the “this device” line |
+| S06 CP3 periodic scheduler | 7a7fce8, corrections 696824e, 8a215d0 | One worker-owned scheduler at 128 post-checkpoint commits, checking every 1500 ms; command/transfer gate; no storage reads after lock or dispose |
+| S06 CP4 J3 through real UI and vault-only recovery | 2d8ff2d | Oracle equivalence for every artifact (127/V1 → 128/V1 → V2 cp129 → V2 cp257); receipt pending 0→1 with confirmed time unchanged |
+| Architecture delta | 71e3adc | M09/M12/M23/M24/M33/M37/M44 |
+
+**Independent verification at 2d8ff2d** (Orchestrator ran these and checked exit codes): `pnpm typecheck` 0 and `pnpm lint` 0. The CP1+CP2 selector (39 files) passed 473/473. Full `pnpm test`: 229 files, 2520 passed, 3 known skips carried over from earlier features. Playwright on port 8081 with a fresh build: compaction-backup 2/2 (J3), sync/compaction + sync/bundle 3/3 (production timer), bundle-backup/append-import/backup-status/records-crud/gate-f02-demo/worker/import-journey 18/18. That is 23/23; the built main bundle carries build id 2d8ff2d. CP1 was also rechecked in a clean worktree at 084ecf9 (tc/lint 0; gate 249/250, which led to the correction above).
+
+## Orchestration
+
+**Concurrency:** 3 (effective 1; only S06 was eligible)   **Wall clock:** ~2h (08:43–10:50 local)   **Binding:** Native (`mcp__demiurge__spawn_subagent` / `await_subagent_result`; awaits re-issued after the client's 300 s idle timeout)
+**Sessions run:** 1 (S06 r9)   **Checkpoint commits by Coder this run:** 7 (+ CP1 084ecf9 from prior run r8)
+
+### Wave plan as executed
+| Wave | Sessions | Notes |
+|---|---|---|
+| GRAPH-8 | S06 r9 (recovery2) | Resumed from CP1 084ecf9 plus preserved r8 CP2 work; returned done 4/4 |
+
+### Blocked
+| S | Reason | Last checkpoint | Dependents stalled |
+|---|---|---|---|
+| S04 | INPUT-DROPBOX: needs your registered public client ID, redirect URIs, App Folder config and test accounts | — | S07 |
+| S05 | INPUT-ONEDRIVE: needs your Entra SPA registration, client ID, redirects, account type and test accounts | — | S07 |
+| S07 | Depends on S04/S05 and the provider inputs | — | GATE-F05, F06 |
+
+### Blocker escalations
+| S | Class | Action / human ask | Disposition |
+|---|---|---|---|
+| S06 r8 | crashed: provider usage-limit terminal (prior run) | Preserved CP2 work (digest 8f1d941bd9ad); fresh recovery2 under unchanged lease r4 | cleared |
+| S06 CP1 | intermittent gate counterexample | Held acceptance; r9 root-caused it with a regression that fails deterministically | closed 7e785e4 |
+| S04/S05 | protected human input | Provider registrations (see Blocked) | open, human |
+
+### Interim Archivist checks
+| After wave | Sessions received | Result | Drift found | Actions |
+|---|---|---|---|---|
+| — | — | none this run (7 sessions total; planning review was completed in earlier runs) | — | — |
+
+### Lease violations
+none (all 8 S06 commits since 9f0ef04 checked with `git show --name-only` against the 71-path lease r4)
+
+### Checkpoint shortfalls
+none. Handoff says 4; git shows CP1–CP4 plus 4 correction commits.
+
+### Wave plan corrections
+none
+
+### Granularity feedback for Planner
+S06 took nine attempts (r1–r9). They were caused by lease seams (r2–r4), missing Author mappings (r5, r7), one context exhaustion on CP1 (r6) and one provider terminal (r8), not by bad checkpoint boundaries. The prescribed selector `tests/unit/queries/history.test.ts` does not exist (history tests are in `tests/unit/queries/records.test.ts`). CP1 was very large (44 files); a future graph-contract session should split codec/candidate from evidence replay.
+
+### Process effectiveness
+First-dispatch completion this run: 1/1 (r9 accepted without redispatch). S06 overall: 0/1 first-dispatch; 3 controlled lease revisions (same session), 3 Author clarifications (91ad694, 17a73ae, 8c303fd), 1 held-then-corrected checkpoint (CP1). Environment failures: r8 provider usage limit. Integration rework after acceptance: none.
+
+### Capability completion
+- **Verified:** CAP-05, CAP-39, CAP-40 (including the nonempty V2 extension), CAP-42, CAP-44; CA-34/35/37/41 verified for their current scope; CA-36/40 verified for local/bundle, cloud part pending S07.
+- **Blocked:** CAP-43 (provider connection/automatic backup: S04/S05/S07 + human inputs).
+- **Planned:** CAP-45 (egress/lock isolation: S07 CP1/5, J6 does not need credentials but is sequenced in S07); CAP-41 cloud extension (S07).
+- F05 is **not complete**.
+
+### Follow-up closure ledger
+| Source | Entry (verbatim) | Disposition |
+|---|---|---|
+| S06 r2 needsOwnerCorrection | “correct SESSION-06 CP1 item 6 and STATE’s corresponding mapping to preserve existing genesis enforcement, add frontier-boundary regression coverage, and implement missing basis coverage” | closed: prompt corrected in the prior run; basis coverage landed 084ecf9 |
+| S06 r3 needsOwnerCorrection | “Mechanical owner seam; Orchestrator should issue lease r3 adding” records-crud/gate-f02-demo | closed: lease r3; consumers adapted 250c9e0/fccc345 |
+| S06 r4 needsOwnerCorrection | “Issue lease r4 adding tests/browser/worker/runtime.ts” | closed: lease r4; landed 084ecf9 |
+| S06 r5 needsOwnerCorrection | “bounded Author clarification in program/sheaf/specs/database.md: supply the original conflict/merge payload maps…” | closed: 91ad694; implemented 084ecf9 |
+| S06 r6 surprises | “Root lint scans Orchestrator’s recovery copies outside the TypeScript projects.” | closed: recovery copies archived as tarballs |
+| S06 r7 needsOwnerCorrection | “DB/Author and Planner must specify authoritative origins or a compatibility disposition” for baselines | closed: 17a73ae + 8c303fd; implemented 084ecf9 |
+| S06 r2–r7 followUp | “All four implementation checkpoints and candidate/installed/J3/J1 proofs remain pending” (and equivalents) | closed: 2d8ff2d, independently verified |
+| S06 r9 followUp | “Orchestrator should decide whether component-level quota proof is enough for the CP3 ‘quota refusal’ item.” | decided: accepted for CP3 (Chromium ignores the CDP quota override). **Carried** as debt: real-browser quota refusal, to be owned by S07's J6/security harness if a working quota mechanism exists |
+| S06 r9 followUp | “The planned tests/unit/queries/history.test.ts should be dropped from the gate or replaced by records.test.ts in a lease revision.” | closed: substituted in the installed gate (decisions.md); SESSION-06 is complete, so no lease revision was needed |
+| S06 r9 followUp | “S07 should consume the landed symbols above and the arch fragment…” | closed: fragment integrated 71e3adc; symbols recorded in CA-35/41 for S07 |
+| S06 r9 followUp | “Possible performance follow-up (not a defect): isBackupHeadPinned now exports the full graphs of other roots and pins on every edit.” | **carried** to S07 (owns backup-handlers/home-state composition next) for a measure-first review |
+| S06 r9 surprises | Scheduler compacts only when idle, not during active imports; defers if a command or save is in flight | retired: intended behavior, matches SESSION-06 CP3 |
+| S06 r9 surprises | handlers.ts large diff from dedenting dispatch | retired: cosmetic |
+| Prior-report follow-ups | see preserved section below | unchanged except S06/graph rows, now closed above |
+
+### Archivist's Note
+{pending final Archivist}
+
+---
+
+## Preserved prior continuation report (13cfbbc)
+
+
 **Current outcome: blocked/incomplete feature; S01, S02 and S03 accepted.** The approved save-confirmation and reminder recommendations are implemented and independently verified. Users can create a separate vault, save a complete current-format encrypted bundle, explicitly confirm an unobservable save after delivery, reopen truthful backup status, and dismiss persistent scratch reminders on the approved schedule. This supersedes the blocked policy boundary reported at4cf629a. It does not claim cloud qualification, compaction, OS-native durability, F05 demo approval or permission to start F06.
 
 ## Delivered and accepted
