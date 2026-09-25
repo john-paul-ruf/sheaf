@@ -103,3 +103,8 @@ storage-ID ordering/uniqueness is codec-checked. These framing contracts are not
 S02's complete bundle assembly/reachability/save implementation.
 
 
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M09 — codecs
+CanonicalArray and encodeCanonicalChunks emit definite-length canonical CBOR without accumulating the complete authored state; byte-equivalence and error/cancellation tests accompany the public API.

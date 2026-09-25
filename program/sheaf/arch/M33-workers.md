@@ -209,3 +209,8 @@ survive worker restart and are separate from import workflows/cleanup tickets.
 
 
 Tail codec validates the assignment payload and supported wrap version.
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M33 — data worker
+readAppHead removes eager graph loading from pin/release. backup-graph authenticates every current producer descendant and original covered chain, retains the source head, independently reconstructs authored state in SQLite, and rejects unsupported nonempty retained/conflict/audit roots without mutation. Backup handlers own app keys and active cursors through abort, error, release, lock, reset, session replacement and teardown. Release cancels readers before removing retention roots.

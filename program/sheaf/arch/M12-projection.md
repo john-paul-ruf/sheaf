@@ -330,3 +330,8 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
 
 <!-- durable-home-backup SESSION-02 CP1 -->
 The assignment event moves app_state.durable_home_id from null to assigned identity; repeated assignment fails. No migration changed.
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M12 — projection
+Isolated projection hydration accepts streamed record pages and disposes on iterator failure. Authored-state SQL cursors include provenance, restoration, schema, rules, formulas, charts and supplied baseline states, excluding computed volatile values/local status. Replay retains last verified device hashes rather than decoded commit history. Provenance lookup uses field-ID bytes across durable decode, fixing restoration evidence loss.

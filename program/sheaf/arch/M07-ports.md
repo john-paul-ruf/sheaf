@@ -158,3 +158,8 @@ openLocally/destroy. No raw-key return or provider SDK type. File-save contract,
 worker transport, receipt persistence and UI DTOs remain S02 outputs.
 
 
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M07 — application ports
+BackupAppGraphV1 carries metadata, bounded readObject/canonicalAuthoredState readers and an owned AbortSignal. ProjectionAuthoredStatePort is structurally checked against the engine in both directions.

@@ -119,3 +119,8 @@ secrets use vault-specific HKDF. `vault-port.ts#createVaultCrypto(entropy)` is t
 production M07 adapter, including scoped open and cleanup on rejected secrets.
 
 
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M08 — crypto
+sha256Chunks incrementally hashes exact ordered bytes and finalizes its sodium state on cancellation or producer failure. Existing SHA-256 semantics are unchanged.

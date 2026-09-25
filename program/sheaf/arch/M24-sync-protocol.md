@@ -55,3 +55,8 @@ no local persistence, provider SDK call, reconciliation or UI readiness update.
 Provider adapters remain the authority for actual successful external CAS.
 
 
+
+
+<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
+## M24 — sync protocol
+Publication candidates retain authenticated references and byte hashes, reread one object at a time, and reject changed bytes or ended graph lifetimes. readPublicationObject replaces object-byte arrays. Frontier verification consumes ordered segments incrementally. Existing encrypted fixture bytes are unchanged.
