@@ -424,13 +424,13 @@ describe("the periodic compactor", () => {
     await resetLocalDatabase();
     const clock = manualTimers();
     const worker = createTestHandler(undefined, undefined, { thresholdCommits: 1000, intervalMs: 1, timers: clock.timers }).handler;
-    const read = envelopeStoreAdapter.getEnvelope;
+    const read = envelopeStoreAdapter.getEnvelope.bind(envelopeStoreAdapter);
     let release: () => void = () => undefined;
     const parked = new Promise<void>((resolve) => { release = resolve; });
     try {
       await ask(worker, { kind: "setup", passphrase: "disposal copper heron meadow" });
       await importCsv(worker);
-      const reads = vi.spyOn(envelopeStoreAdapter, "getEnvelope").mockImplementation(async (id) => { await parked; return read.call(envelopeStoreAdapter, id); });
+      const reads = vi.spyOn(envelopeStoreAdapter, "getEnvelope").mockImplementation(async (id) => { await parked; return read(id); });
       try {
         clock.pending.shift()!();
         await vi.waitFor(() => { expect(reads).toHaveBeenCalledTimes(1); });
