@@ -3,10 +3,10 @@ import type { WrappedKeyV1 } from "../../migrations/006_vault_format_v1.js";
 import { CURRENT_FORMAT_VERSIONS } from "../../migrations/index.js";
 import { CodecError, IntegrityError } from "../../domain/model/errors.js";
 import { decodeDomainId } from "../../domain/model/ids.js";
-import { decodeStorageId16 } from "../../domain/model/bytes.js";
+import { decodeStorageId16, decodeBase64Url, encodeBase64Url } from "../../domain/model/bytes.js";
 import { asMap, bytesOfLength, count, exactKeys, field, list, nfcText } from "../../import/staging/proposal-codec.js";
 import { decodeCanonical, encodeCanonical, type DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
-import { vaultValue } from "../../persistence/codecs/vault.js";
+import { readFrontier, vaultValue } from "../../persistence/codecs/vault.js";
 import type { LocalCatalogHomeEntryV1 } from "./catalog.js";
 import type { AppStoragePortsV1, WorkerSessionContextV1 } from "./event-store.js";
 
@@ -15,6 +15,16 @@ export interface BackupPinV1 {
   readonly operationId: string;
   readonly appId: string;
   readonly headStorageId: string;
+}
+
+export interface BundleReceiptV1 {
+  readonly appId: string;
+  readonly operationId: string;
+  readonly artifactSha256: string;
+  readonly candidateSha256: Uint8Array;
+  readonly generation: bigint;
+  readonly confirmedFrontier: readonly import("../../migrations/004_event_format_v1.js").FrontierEntryV1[];
+  readonly confirmedAtMs: number;
 }
 
 /** Local encrypted bootstrap for a bundle vault before its first publication. */
@@ -28,7 +38,8 @@ export interface HomeStateV1 {
   readonly locallyWrappedVaultKey: WrappedKeyV1;
   readonly appKeys: readonly { readonly appId: string; readonly wrappedAppKey: WrappedKeyV1 }[];
   readonly pins: readonly BackupPinV1[];
-  readonly lastSuccessfulBackupMs: null;
+  readonly lastSuccessfulBackupMs: number | null;
+  readonly receipts?: readonly BundleReceiptV1[];
 }
 
 function wrapped(value: DecodedValue): WrappedKeyV1 {
@@ -70,10 +81,11 @@ function secrets(value: DecodedValue): HomeStateV1["secrets"] {
 
 /** Rejects malformed local home payloads before either writing or using them. */
 export function decodeHomeState(payload: Uint8Array): HomeStateV1 {
-  const map = exactKeys(asMap(decodeCanonical(payload), "home state"),
-    ["homeStateVersion", "homeId", "vaultId", "kind", "displayName", "secrets", "locallyWrappedVaultKey", "appKeys", "pins", "lastSuccessfulBackupMs"], "home state");
+  const decoded = asMap(decodeCanonical(payload), "home state");
+  const map = exactKeys(decoded,
+    ["homeStateVersion", "homeId", "vaultId", "kind", "displayName", "secrets", "locallyWrappedVaultKey", "appKeys", "pins", "lastSuccessfulBackupMs", ...(decoded.has("receipts") ? ["receipts"] : [])], "home state");
   if (count(field(map, "homeStateVersion"), "home version") !== CURRENT_FORMAT_VERSIONS.vault ||
-      field(map, "kind") !== "bundle" || field(map, "lastSuccessfulBackupMs") !== null) {
+      field(map, "kind") !== "bundle") {
     throw new CodecError("unsupported home state");
   }
   const homeId = nfcText(field(map, "homeId"), "home id");
@@ -98,11 +110,30 @@ export function decodeHomeState(payload: Uint8Array): HomeStateV1 {
   });
   if (new Set(appKeys.map((app) => app.appId)).size !== appKeys.length ||
       new Set(pins.map((pin) => pin.operationId)).size !== pins.length) throw new CodecError("duplicate home identity");
+  const receipts = map.has("receipts") ? list(field(map, "receipts"), "bundle receipts").map((value): BundleReceiptV1 => {
+    const receipt = exactKeys(asMap(value, "bundle receipt"),
+      ["appId", "operationId", "artifactSha256", "candidateSha256", "generation", "confirmedFrontier", "confirmedAtMs"], "bundle receipt");
+    const appId = nfcText(field(receipt, "appId"), "app id");
+    const operationId = nfcText(field(receipt, "operationId"), "operation id");
+    decodeStorageId16(operationId);
+    const artifactSha256 = nfcText(field(receipt, "artifactSha256"), "artifact hash");
+    if (decodeBase64Url(artifactSha256).length !== 32 || encodeBase64Url(decodeBase64Url(artifactSha256)) !== artifactSha256 || !appKeys.some((entry) => entry.appId === appId)) throw new CodecError("invalid receipt identity");
+    const generation = field(receipt, "generation");
+    if (typeof generation !== "bigint" || generation < 1n || generation > 0xffff_ffff_ffff_ffffn) throw new CodecError("invalid bundle generation");
+    return { appId, operationId, artifactSha256, generation,
+      candidateSha256: bytesOfLength(field(receipt, "candidateSha256"), 32, "candidate hash"),
+      confirmedFrontier: readFrontier(field(receipt, "confirmedFrontier")),
+      confirmedAtMs: count(field(receipt, "confirmedAtMs"), "confirmed time") };
+  }) : undefined;
+  const lastSuccessfulBackupMs = field(map, "lastSuccessfulBackupMs") === null ? null : count(field(map, "lastSuccessfulBackupMs"), "backup time");
+  if (new Set(receipts?.map((receipt) => receipt.appId)).size !== (receipts?.length ?? 0) ||
+      ((receipts?.length ?? 0) > 0 && lastSuccessfulBackupMs === null) ||
+      (lastSuccessfulBackupMs !== null && !receipts?.some((receipt) => receipt.confirmedAtMs === lastSuccessfulBackupMs))) throw new CodecError("invalid receipt time");
   const displayName = nfcText(field(map, "displayName"), "vault name");
   if (displayName.trim().length === 0) throw new CodecError("empty vault name");
   return { homeStateVersion: CURRENT_FORMAT_VERSIONS.vault, homeId, vaultId, kind: "bundle", displayName,
     secrets: secrets(field(map, "secrets")), locallyWrappedVaultKey: wrapped(field(map, "locallyWrappedVaultKey")),
-    appKeys, pins, lastSuccessfulBackupMs: null };
+    appKeys, pins, lastSuccessfulBackupMs, ...(receipts === undefined ? {} : { receipts }) };
 }
 
 /** Home secrets and retention roots exist only inside the local.home envelope. */

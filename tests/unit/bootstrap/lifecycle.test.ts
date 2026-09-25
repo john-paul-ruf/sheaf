@@ -1,3 +1,4 @@
+import { createFileSavePort } from "../../../src/platform/file-save.js";
 /**
  * CAP-03, page side: the relock hooks and the idle timer.
  *
@@ -177,4 +178,18 @@ describe("the idle timer", () => {
 
     expect(reasons).toEqual([]);
   });
+});
+
+it("owns and terminates the dedicated IO worker when a save is cancelled", async () => {
+  runtime.dispose();
+  const io = new FakeWorker();
+  const result = startApp({ spawnWorker: () => new FakeWorker() as unknown as Worker,
+    spawnIoWorker: () => io as unknown as Worker,
+    fileSave: createFileSavePort(() => Promise.reject(new DOMException("cancelled", "AbortError"))) });
+  if (result.kind !== "ready") throw new Error("unsupported");
+  runtime = result.app;
+  expect(await runtime.saveBundle("app-test")).toBe("cancelled");
+  expect(io.terminated).toBe(1);
+  await runtime.lockNow("user");
+  expect(await runtime.saveBundle("app-test")).toBe("cancelled");
 });

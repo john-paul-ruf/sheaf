@@ -123,6 +123,11 @@ export class DataWorkerClient {
     this.#rejectAll({ kind: "worker-terminated" });
   }
 
+  prepareBundle(appId: string, io: MessagePort, control: MessagePort): void {
+    if (this.#terminated) throw new DataWorkerRequestError({ kind: "worker-terminated" });
+    this.#ensureWorker().postMessage({ ioVersion: 1, kind: "prepareBundle", appId }, [io, control]);
+  }
+
   #ensureWorker(): Worker {
     if (this.#worker !== undefined) {
       return this.#worker;

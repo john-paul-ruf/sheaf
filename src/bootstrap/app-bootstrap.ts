@@ -12,6 +12,11 @@
  * makes the lock real, so a worker that does not answer is terminated anyway.
  */
 
+import type { FileSaveOutcomeV1, FileSavePort } from "../application/ports/file-save.js";
+import { createFileSavePort } from "../platform/file-save.js";
+import { prepareBundle } from "../workers/protocol/io-client.js";
+import { spawnIoWorker } from "./io-worker.js";
+
 import { probeCapabilities, type CapabilityReport } from "../platform/capabilities.js";
 import { DataWorkerClient } from "../workers/protocol/client.js";
 import type {
@@ -35,6 +40,7 @@ export type LockReason =
 export interface AppRuntime {
   /** The worker itself spawns on the first request, not here. */
   readonly client: DataWorkerClient;
+  saveBundle(appId: string): Promise<FileSaveOutcomeV1>;
   /** Zeroizes in the worker, then terminates it. Safe to call twice. */
   lockNow(reason: LockReason): Promise<void>;
   onLock(listener: (reason: LockReason) => void): () => void;
@@ -66,6 +72,8 @@ export interface StartAppOptions {
    * module URL; browser suites and later composition roots need no other.
    */
   readonly spawnWorker?: () => Worker;
+  readonly spawnIoWorker?: () => Worker;
+  readonly fileSave?: FileSavePort;
 }
 
 function spawnDataWorker(): Worker {
@@ -83,6 +91,8 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
   const client = new DataWorkerClient({
     spawn: options.spawnWorker ?? spawnDataWorker,
   });
+  const saves = new Set<AbortController>();
+  const fileSave = options.fileSave ?? createFileSavePort();
   const listeners = new Set<(reason: LockReason) => void>();
   const teardown: (() => void)[] = [];
   let locked = false;
@@ -107,11 +117,40 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
 
   const app: AppRuntime = {
     client,
+    async saveBundle(appId) {
+      if (locked) return "cancelled";
+      const controller = new AbortController();
+      saves.add(controller);
+      let transfer: ReturnType<typeof prepareBundle> | undefined;
+      try {
+        // Start the native picker before an asynchronous preparation can consume activation.
+        let supply: (blob: Blob) => void;
+        let refuse: (error: unknown) => void;
+        const blob = new Promise<Blob>((resolve, reject) => { supply = resolve; refuse = reject; });
+        const result = fileSave.save(blob, controller.signal);
+        try {
+          transfer = prepareBundle(client, (options.spawnIoWorker ?? spawnIoWorker)(), appId, controller.signal);
+          void transfer.ready.then((prepared) => { supply(prepared.blob); }, (error: unknown) => { refuse(error); });
+        } catch (error) { refuse!(error); }
+        const outcome = await result;
+        if (outcome === "saved") {
+          if (transfer === undefined) return "failed";
+          await (await transfer.ready).complete(outcome);
+        }
+        return outcome;
+      } catch { return controller.signal.aborted ? "cancelled" : "failed"; }
+      finally {
+        controller.abort();
+        transfer?.dispose();
+        saves.delete(controller);
+      }
+    },
     async lockNow(reason: LockReason): Promise<void> {
       if (locked) {
         return;
       }
       locked = true;
+      for (const controller of saves) controller.abort();
       clearIdleTimer();
       if (client.isRunning) {
         try {
@@ -140,6 +179,8 @@ export function startApp(options: StartAppOptions = {}): StartAppResult {
       restartIdleTimer();
     },
     dispose(): void {
+      locked = true;
+      for (const controller of saves) controller.abort();
       clearIdleTimer();
       for (const remove of teardown.splice(0)) {
         remove();

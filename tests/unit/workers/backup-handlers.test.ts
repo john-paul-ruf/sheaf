@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { sha256Chunks } from "../../../src/crypto/hash.js";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { decodeStorageId16 } from "../../../src/domain/model/bytes.js";
 import { getEnvelope } from "../../../src/persistence/envelope-store/read.js";
 import { parseDelimited } from "../../../src/import/formats/delimited/parse.js";
@@ -144,4 +144,148 @@ it("commits assignment atomically, retains pinned graphs across edits and CSV ap
     expect((await worker.backup.read(assigned.homeId)).appKeys).toHaveLength(2);
     expect((await ask(worker, { kind: "listLibrary" })).apps.every((app) => !app.isScratch)).toBe(true);
   } finally { vaultCrypto.destroy(key); vaultCrypto.destroy(vaultKey); }
+}, 120_000);
+
+/** Real data↔IO/control channels; only the external file destination is omitted. */
+async function preparedBundle(handler: DataWorkerCommandHandler, appId: string) {
+  const { receiveBundle } = await import("../../../src/workers/io/bundle.js");
+  const { ioRecord, isBundleIdentity } = await import("../../../src/workers/protocol/io-messages.js");
+  const data = new MessageChannel();
+  const control = new MessageChannel();
+  const abort = new AbortController();
+  let artifact: Blob | undefined;
+  const close = receiveBundle(data.port2, (blob) => { artifact = blob; }, abort.signal);
+  let receive: (message: Record<string, unknown>) => void = () => undefined;
+  control.port1.onmessage = (event: MessageEvent<unknown>) => { receive(ioRecord(event.data)); };
+  control.port1.start();
+  const next = () => new Promise<Record<string, unknown>>((resolve, reject) => {
+    const timer = setTimeout(() => { reject(new Error("bundle harness timed out")); }, 10_000);
+    receive = (message) => { clearTimeout(timer); resolve(message); };
+  });
+  const ready = next();
+  const finished = handler.backup.connectBundle(appId, data.port1, control.port2);
+  const message = await ready;
+  if (message["kind"] !== "ready" || !isBundleIdentity(message["identity"]) || artifact === undefined) throw new Error("bundle preparation failed");
+  const identity = message["identity"];
+  return { identity, artifact,
+    async complete(outcome: string, replacement: unknown = identity) {
+      const response = next();
+      control.port1.postMessage({ kind: "complete", identity: replacement, outcome });
+      return response;
+    },
+    async dispose() {
+      control.port1.postMessage({ kind: "cancel" });
+      await finished;
+      abort.abort(); close(); data.port1.close(); data.port2.close(); control.port1.close(); control.port2.close();
+    },
+  };
+}
+
+it("confirms exact native outcomes once, persists the captured frontier, and rejects failed/forged/stale saves", async () => {
+  await resetLocalDatabase();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "setup", passphrase: LOCAL });
+  const appId = await importCsv(worker);
+  const assigned = await worker.backup.createBundleHome(appId, "Native test vault", VAULT);
+  const success = await preparedBundle(worker, appId);
+  try {
+    const { blobChunks, verifyBundle } = await import("../../../src/sync/providers/bundle/format.js");
+    const { decodeBase64Url } = await import("../../../src/domain/model/bytes.js");
+    await verifyBundle(success.artifact, decodeBase64Url(success.identity.artifactSha256), new AbortController().signal);
+    expect(await sha256Chunks(blobChunks(success.artifact, new AbortController().signal))).toEqual(decodeBase64Url(success.identity.artifactSha256));
+    await ask(worker, { kind: "changeTheme", appId, themeKey: "indigo", mode: "light", density: "compact", customAccent: null, logo: { kind: "keep" } });
+    expect((await success.complete("saved"))["kind"]).toBe("completed");
+  } finally { await success.dispose(); }
+  const confirmed = await worker.backup.read(assigned.homeId);
+  expect(confirmed.receipts).toHaveLength(1);
+  expect(confirmed.receipts?.[0]?.operationId).toBe(success.identity.operationId);
+  expect(confirmed.lastSuccessfulBackupMs).not.toBeNull();
+  const receipts = confirmed.receipts;
+  for (const outcome of ["cancelled", "failed", "unconfirmed"]) {
+    const transfer = await preparedBundle(worker, appId);
+    try { expect((await transfer.complete(outcome))["kind"]).toBe("completed"); }
+    finally { await transfer.dispose(); }
+    expect((await worker.backup.read(assigned.homeId)).receipts).toEqual(receipts);
+    expect((await worker.backup.read(assigned.homeId)).lastSuccessfulBackupMs).toBe(confirmed.lastSuccessfulBackupMs);
+  }
+  for (const field of ["appId", "homeId", "operationId", "artifactSha256"]) {
+    const transfer = await preparedBundle(worker, appId);
+    try { expect((await transfer.complete("saved", { ...transfer.identity, [field]: "forged" }))["kind"]).toBe("failed"); }
+    finally { await transfer.dispose(); }
+    expect((await worker.backup.read(assigned.homeId)).receipts).toEqual(receipts);
+  }
+  const failedCommit = await preparedBundle(worker, appId);
+  const beforeFailure = await readClearBootstrapRow();
+  const rejectCommit = vi.spyOn(envelopeStoreAdapter, "commit").mockRejectedValueOnce(new Error("quota"));
+  try { expect((await failedCommit.complete("saved"))["kind"]).toBe("failed"); }
+  finally { rejectCommit.mockRestore(); await failedCommit.dispose(); }
+  expect(await readClearBootstrapRow()).toEqual(beforeFailure);
+  expect((await worker.backup.read(assigned.homeId)).receipts).toEqual(receipts);
+  const old = await preparedBundle(worker, appId);
+  try { expect((await old.complete("saved", success.identity))["kind"]).toBe("failed"); }
+  finally { await old.dispose(); }
+  const locked = await preparedBundle(worker, appId);
+  await ask(worker, { kind: "lock" });
+  await locked.dispose();
+  worker.dispose();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "unlock", passphrase: LOCAL });
+  expect((await worker.backup.read(assigned.homeId)).receipts).toEqual(receipts);
+  expect((await worker.backup.read(assigned.homeId)).lastSuccessfulBackupMs).toBe(confirmed.lastSuccessfulBackupMs);
+  const current = await worker.backup.pin(appId);
+  const graph = await worker.backup.exportGraph(assigned.homeId, current.operationId, new AbortController().signal);
+  try {
+    const frontier = graph.graph.manifest.confirmedFrontier;
+    const covered = receipts![0]!.confirmedFrontier;
+    expect(frontier[0]!.commitSequence - covered[0]!.commitSequence).toBe(1n);
+  } finally { graph.dispose(); }
+}, 120_000);
+
+it("composes the page clients with production data and IO handlers over dedicated channels", async () => {
+  const { DataWorkerClient } = await import("../../../src/workers/protocol/client.js");
+  const { prepareBundle } = await import("../../../src/workers/protocol/io-client.js");
+  const { receiveBundle } = await import("../../../src/workers/io/bundle.js");
+  const { isPrepareBundle } = await import("../../../src/workers/protocol/io-messages.js");
+  const { createFileSavePort } = await import("../../../src/platform/file-save.js");
+  await resetLocalDatabase();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "setup", passphrase: LOCAL });
+  const appId = await importCsv(worker);
+  const home = await worker.backup.createBundleHome(appId, "Client vault", VAULT);
+  const handler = worker;
+  let dataTask: Promise<void> | undefined;
+  const client = new DataWorkerClient({ spawn: () => ({
+    postMessage(value: unknown, ports: Transferable[]) {
+      if (!isPrepareBundle(value)) throw new Error("unexpected RPC");
+      dataTask = handler.backup.connectBundle(value.appId, ports[0] as MessagePort, ports[1] as MessagePort);
+    }, terminate() { handler.dispose(); },
+  }) as unknown as Worker });
+  let stop: (() => void) | undefined;
+  let terminated = 0;
+  const io = { onmessage: null as ((event: MessageEvent<unknown>) => void) | null,
+    postMessage(value: unknown, ports: Transferable[]) {
+      expect(value).toBe("bundle-v1");
+      stop = receiveBundle(ports[0] as MessagePort, (blob, identity) => {
+        io.onmessage?.({ data: { kind: "artifact", blob, identity } } as MessageEvent<unknown>);
+      }, new AbortController().signal);
+    }, terminate() { terminated++; stop?.(); },
+  };
+  const abort = new AbortController();
+  const transfer = prepareBundle(client, io as unknown as Worker, appId, abort.signal);
+  let savedBytes: Blob | undefined;
+  const destination = createFileSavePort(() => Promise.resolve({ createWritable: () => Promise.resolve({
+    write(blob: Blob) { savedBytes = blob; return Promise.resolve(); }, close: () => Promise.resolve(), abort: () => Promise.resolve(),
+  }) }));
+  try {
+    const outcome = await destination.save(transfer.ready.then((result) => result.blob), abort.signal);
+    expect(outcome).toBe("saved");
+    const prepared = await transfer.ready;
+    await prepared.complete(outcome);
+    await expect(prepared.complete("saved")).rejects.toThrow("stale");
+    await dataTask;
+    expect(savedBytes?.size).toBeGreaterThan(1000);
+    expect(terminated).toBe(1);
+    expect((await handler.backup.read(home.homeId)).receipts).toHaveLength(1);
+    expect((await handler.backup.read(home.homeId)).pins).toHaveLength(0);
+  } finally { abort.abort(); transfer.dispose(); client.terminate(); }
 }, 120_000);

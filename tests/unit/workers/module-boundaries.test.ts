@@ -16,6 +16,8 @@ const source = (path: string): string =>
 
 const WORKER_FILES = [
   "src/workers/data.worker.ts",
+  "src/workers/io.worker.ts",
+  "src/workers/io/bundle.ts",
   "src/workers/data/handlers.ts",
   "src/workers/data/catalog.ts",
   "src/workers/data/backup-handlers.ts",
@@ -86,6 +88,10 @@ function reachableFrom(entry: string): Set<string> {
 /** Files that run in the page and must never reach key material. */
 const PAGE_FILES = [
   "src/bootstrap/app-bootstrap.ts",
+  "src/bootstrap/io-worker.ts",
+  "src/platform/file-save.ts",
+  "src/workers/protocol/io-client.ts",
+  "src/workers/protocol/io-messages.ts",
   "src/workers/protocol/client.ts",
   "src/workers/protocol/messages.ts",
   "src/platform/capabilities.ts",
@@ -236,5 +242,20 @@ describe("the wire contract", () => {
     const messages = code("src/workers/protocol/messages.ts");
     expect(messages).not.toContain("LocalCatalogV1");
     expect(importedModules(messages)).toEqual([]);
+  });
+});
+
+
+describe("the IO worker", () => {
+  const forbidden = (module: string) => /envelope-store|workers\/data\/|crypto\/(keys|envelope|vault|kdf)|sqlite|dexie/.test(module);
+  it("cannot reach the store, projection, or key operations", () => {
+    const graph = reachableFrom("src/workers/io.worker.ts");
+    expect(graph.has("src/workers/io/bundle.ts")).toBe(true);
+    expect(graph.has("src/sync/providers/bundle/format.ts")).toBe(true);
+    expect([...graph].filter(forbidden)).toEqual([]);
+  });
+  it("detects key and storage imports (boundary negative control)", () => {
+    expect(forbidden("src/crypto/keys.ts")).toBe(true);
+    expect(forbidden("src/persistence/envelope-store/db.ts")).toBe(true);
   });
 });

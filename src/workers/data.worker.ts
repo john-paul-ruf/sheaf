@@ -14,6 +14,8 @@
  * and are not serializable.
  */
 
+import { isPrepareBundle } from "./protocol/io-messages.js";
+
 import type { ClockPort } from "../application/ports/clock.js";
 import type { EntropyPort } from "../application/ports/entropy.js";
 import { loadSodium } from "../crypto/sodium.js";
@@ -102,5 +104,9 @@ scope.addEventListener("message", (event: MessageEvent<unknown>) => {
   // A transferred `MessagePort` arrives here, never in the request body: the
   // wire union names no port type at all (D17, and the byte-grep on
   // `messages.ts` that pins it).
+  if (isPrepareBundle(event.data) && event.ports.length === 2) {
+    void handler.backup.connectBundle(event.data.appId, event.ports[0]!, event.ports[1]!);
+    return;
+  }
   void dispatch(event.data, event.ports);
 });
