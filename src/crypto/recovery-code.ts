@@ -22,7 +22,7 @@
 import { CryptoError } from "../domain/model/errors.js";
 import { constantTimeEquals } from "../domain/model/bytes.js";
 import type { EntropyPort } from "../application/ports/entropy.js";
-import { loadSodium } from "./sodium.js";
+import { loadSodium, wipe } from "./sodium.js";
 
 export const RECOVERY_CODE_BYTES = 32;
 export const RECOVERY_CODE_DATA_CHARS = 52;
@@ -97,7 +97,8 @@ export async function generateRecoveryCode(entropy: EntropyPort): Promise<string
   if (secret.byteLength !== RECOVERY_CODE_BYTES) {
     throw new CryptoError("entropy port returned the wrong secret length");
   }
-  return formatRecoveryCode(secret);
+  try { return await formatRecoveryCode(secret); }
+  finally { wipe(secret); }
 }
 
 export function normalizeRecoveryCode(text: string): string {
@@ -139,6 +140,7 @@ export async function parseRecoveryCode(text: string): Promise<Uint8Array> {
   const supplied = normalized.slice(RECOVERY_CODE_DATA_CHARS);
   for (const character of supplied) {
     if (!CROCKFORD_VALUES.has(character)) {
+      wipe(secret);
       throw new CryptoError("recovery code has a character outside the alphabet");
     }
   }
@@ -149,6 +151,7 @@ export async function parseRecoveryCode(text: string): Promise<Uint8Array> {
       textEncoder.encode(expected),
     )
   ) {
+    wipe(secret);
     throw new CryptoError("recovery code checksum does not match");
   }
   return secret;

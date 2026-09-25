@@ -26,6 +26,7 @@ import type {
   Argon2idDescriptorV1,
   RecoveryKdfDescriptorV1,
 } from "../migrations/001_local_store_v1.js";
+import type { VaultArgon2idDescriptorV1, VaultRecoveryKdfDescriptorV1 } from "../migrations/006_vault_format_v1.js";
 import { createSecretKey, type SecretKeyHandle, type SecretKeyPurpose } from "./keys.js";
 import { loadSodium, wipe, type Sodium } from "./sodium.js";
 
@@ -187,7 +188,7 @@ function assertUsableDescriptor(descriptor: Argon2idDescriptorV1): void {
 /** The documented context-into-salt binding; see the module header. */
 function argon2Salt(
   sodium: Sodium,
-  salt: ArrayBuffer,
+  salt: ArrayBuffer | Uint8Array,
   context: string,
 ): Uint8Array {
   return hmacSha256(
@@ -199,7 +200,7 @@ function argon2Salt(
 
 async function argon2id(
   passphrase: string,
-  descriptor: Argon2idDescriptorV1,
+  descriptor: Argon2idDescriptorV1 | VaultArgon2idDescriptorV1,
 ): Promise<Uint8Array> {
   const sodium = await loadSodium();
   const salt = argon2Salt(sodium, descriptor.salt, descriptor.context);
@@ -328,4 +329,45 @@ async function defaultProbe(params: Argon2idParams): Promise<void> {
     context: PASSPHRASE_KDF_CONTEXT,
   });
   wipe(derived);
+}
+
+export const VAULT_PASSPHRASE_KDF_CONTEXT = "sheaf/vault/passphrase/v1";
+export const VAULT_RECOVERY_KDF_CONTEXT = "sheaf/vault/recovery/v1";
+
+export function createVaultPassphraseKdfDescriptor(
+  entropy: EntropyPort,
+  params: Argon2idParams = ARGON2ID_FLOOR,
+): VaultArgon2idDescriptorV1 {
+  const local = createPassphraseKdfDescriptor(entropy, params);
+  return { ...local, salt: new Uint8Array(local.salt), context: VAULT_PASSPHRASE_KDF_CONTEXT };
+}
+
+export function createVaultRecoveryKdfDescriptor(entropy: EntropyPort): VaultRecoveryKdfDescriptorV1 {
+  const local = createRecoveryKdfDescriptor(entropy);
+  return { ...local, salt: new Uint8Array(local.salt), context: VAULT_RECOVERY_KDF_CONTEXT };
+}
+
+export async function deriveVaultPassphraseKey(
+  passphrase: string,
+  descriptor: VaultArgon2idDescriptorV1,
+): Promise<SecretKeyHandle> {
+  if (descriptor.context !== VAULT_PASSPHRASE_KDF_CONTEXT) {
+    throw new CryptoError("vault passphrase KDF has an unknown context");
+  }
+  assertUsableDescriptor({ ...descriptor, salt: descriptor.salt.slice().buffer,
+    context: PASSPHRASE_KDF_CONTEXT });
+  return createSecretKey(await argon2id(passphrase, descriptor), "vault-passphrase-wrapping");
+}
+
+export async function deriveVaultRecoveryKey(
+  secret: Uint8Array,
+  descriptor: VaultRecoveryKdfDescriptorV1,
+): Promise<SecretKeyHandle> {
+  if (descriptor.algorithm !== "hkdf-sha-256" || descriptor.outputBytes !== 32 ||
+      descriptor.context !== VAULT_RECOVERY_KDF_CONTEXT || descriptor.salt.byteLength < 16 ||
+      secret.byteLength !== 32) {
+    throw new CryptoError("vault recovery KDF is not the v1 suite");
+  }
+  return createSecretKey(await hkdfSha256(secret, descriptor.salt,
+    textEncoder.encode(descriptor.context), descriptor.outputBytes), "vault-recovery-wrapping");
 }

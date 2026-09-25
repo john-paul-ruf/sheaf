@@ -21,6 +21,9 @@ import { loadSodium, wipe } from "./sodium.js";
 export const SECRET_KEY_BYTES = 32;
 
 export type SecretKeyPurpose =
+  | "vault-root"
+  | "vault-passphrase-wrapping"
+  | "vault-recovery-wrapping"
   | "local-root"
   | "passphrase-wrapping"
   | "recovery-wrapping"
