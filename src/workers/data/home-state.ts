@@ -168,10 +168,15 @@ export async function isBackupHeadPinned(ports: AppStoragePortsV1, context: Work
 }
 
 export function pendingChangeCount(frontier: BundleReceiptV1["confirmedFrontier"],
-  deviceId: string, confirmed: BundleReceiptV1["confirmedFrontier"] = []): number {
-  const local = frontier.find((item) => encodeBase64Url(item.deviceId) === deviceId)?.commitSequence ?? 0n;
-  const saved = confirmed.find((item) => encodeBase64Url(item.deviceId) === deviceId)?.commitSequence ?? 0n;
-  const count = local - saved;
+  confirmed: BundleReceiptV1["confirmedFrontier"] = []): number {
+  const remaining = new Map(frontier.map((item) => [encodeBase64Url(item.deviceId), item.commitSequence]));
+  for (const saved of confirmed) {
+    const id = encodeBase64Url(saved.deviceId);
+    const local = remaining.get(id);
+    if (local === undefined || local < saved.commitSequence) throw new IntegrityError("invalid pending frontier");
+    remaining.set(id, local - saved.commitSequence);
+  }
+  const count = [...remaining.values()].reduce((total, sequence) => total + sequence, 0n);
   if (count < 0n || count > BigInt(Number.MAX_SAFE_INTEGER)) throw new IntegrityError("invalid pending frontier");
   return Number(count);
 }
@@ -194,6 +199,6 @@ export async function readAppDurability(ports: AppStoragePortsV1, context: Pick<
     if (encodeDomainId(head.appId) !== app.appId) throw new IntegrityError("backup status head belongs to another app");
     return { homeId: home?.homeId ?? null, homeName: home?.displayName ?? null,
       confirmedAtMs: receipt?.confirmedAtMs ?? null,
-      deviceOnlyChangeCount: pendingChangeCount(head.frontier, context.catalog.deviceId, receipt?.confirmedFrontier) };
+      deviceOnlyChangeCount: pendingChangeCount(head.frontier, receipt?.confirmedFrontier) };
   } finally { ports.crypto.destroyKey(key); }
 }

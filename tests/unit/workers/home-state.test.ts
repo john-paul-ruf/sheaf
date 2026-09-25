@@ -32,11 +32,14 @@ it("rejects inconsistent and substituted receipt facts (codec negative controls)
   expect(() => encodeHomeState({ ...state, lastSuccessfulBackupMs: 1000, receipts: [receipt, receipt] })).toThrow();
 });
 
-it("counts local changes relative to only this device's confirmed frontier and rejects regression", () => {
+it("counts local changes across every locally held device frontier and rejects regression", () => {
   const local = { deviceId: id(5), commitSequence: 12n };
   const other = { deviceId: id(6), commitSequence: 99n };
-  expect(pendingChangeCount([local, other], encodeBase64Url(id(5)), [{ ...local, commitSequence: 11n }, other])).toBe(1);
-  expect(pendingChangeCount([local], encodeBase64Url(id(5)), [local])).toBe(0);
-  expect(pendingChangeCount([local], encodeBase64Url(id(5)))).toBe(12);
-  expect(() => pendingChangeCount([local], encodeBase64Url(id(5)), [{ ...local, commitSequence: 13n }])).toThrow("invalid pending frontier");
+  expect(pendingChangeCount([local, other], [{ ...local, commitSequence: 11n }, other])).toBe(1);
+  expect(pendingChangeCount([local, other], [{ ...local, commitSequence: 11n }, { ...other, commitSequence: 97n }])).toBe(3);
+  expect(pendingChangeCount([local], [local])).toBe(0);
+  expect(pendingChangeCount([local])).toBe(12);
+  expect(() => pendingChangeCount([local], [{ ...local, commitSequence: 13n }])).toThrow("invalid pending frontier");
+  expect(() => pendingChangeCount([local], [other])).toThrow("invalid pending frontier");
+  expect(() => pendingChangeCount([{ ...local, commitSequence: BigInt(Number.MAX_SAFE_INTEGER) }, { ...other, commitSequence: 1n }])).toThrow("invalid pending frontier");
 });
