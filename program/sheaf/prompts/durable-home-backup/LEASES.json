@@ -354,6 +354,8 @@
       "tests/e2e/bundle-backup.spec.ts",
       "tests/e2e/compaction-backup.spec.ts",
       "tests/e2e/fixtures/durability.ts",
+      "tests/e2e/gate-f02-demo.spec.ts",
+      "tests/e2e/records-crud.spec.ts",
       "tests/fixtures/vaults/f05/compaction/**",
       "tests/fixtures/vaults/f05/generate.ts",
       "tests/fixtures/vaults/f05/publication.ts",

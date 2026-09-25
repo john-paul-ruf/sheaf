@@ -370,3 +370,8 @@ Final precommit verification: all 31 pre-existing modified/untracked files retai
 ## Scoped review correction — 2026-09-25
 
 Adw4M F05-GRAPH-APPROVED-01: six-file replan missed vault manifest codec and paired test. Exact two-path mechanical amendment yields68 S06 pathspecs; CP1 owns logical-order preserving encode/decode and authenticated payload range checks with multi-page adversarial recovery tests. Source refs/readManifest inspected; no schema amendment. Review is received; future executable proof remains planned. Protected files unchanged; no Coder active.
+
+
+### S06 pre-dispatch consumer amendment r3
+
+CP0 return identified records-crud and gate-f02-demo E2E history-copy assertions; add both exact files and full-file gates at CP2/4.70path lease; no active owner collision, no schema change. This was missed in original review; all original assertions remain required.
