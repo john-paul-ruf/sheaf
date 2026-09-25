@@ -757,3 +757,65 @@ Lease, dependency, and checkpoint checks pass. I’m finishing the evidence reco
 **Resume:** Orchestrator rechecks the amended plan and lease, then resumes preserved S02 CP2 after accepted CP1 `03ee571`. Cursor coverage, production key disposal/cancellation, and complete current-graph proofs must pass before committing CP2. J1 remains unverified.
 
 **Verification:** Exact leases, DAG, concurrency, checkpoint order, and historical handoff preservation passed. Seven sessions and 28 checkpoints retained. All 31 pre-existing modified/untracked files remain byte-identical. No application tests, workers, or protected Author edits were performed.
+
+### Scoped graph completeness receive — 2026-09-24
+
+AJwdH ended read-only; no new plan ownership gap. Current-producer/first-nonempty boundary accepted as planning coverage, not implementation proof. S02 CP2 must correct upstream backup-handlers pin loadApp eager reads and production exported-key/cursor cleanup on abort/release/lock/reset/session replacement, plus full GRAPH-S02 assertions. These paths and tests are already leased. GRAPH-CONTRACT remains pending human DB/Author direction; S06 positive nonempty proofs blocked. Operational ledger and blocker current disposition refreshed; older append-only pending entries retain history only. No repeated full review necessary; source/code remains unaccepted until gates. Raw note follows.
+
+I’ll read the envelope and scoped evidence, then return an Archivist Note without editing files or spawning agents.
+
+
+The revised plan keeps the nonempty-graph obligations with S06 and leaves them gated on GRAPH-CONTRACT. I’m checking the current producers and proof paths to confirm S02’s narrower boundary preserves all existing content and covers cursor and key teardown.
+
+
+The source supports the split: current writers initialize the three branches empty, while S06 owns their first nonempty writers, readers, and proofs. The preserved CP2 code still leaves exported-key disposal to its caller; GRAPH-S02 explicitly assigns that lifecycle fix and the missing cursor assertions. The operational ledger also still says the Planner is live and the replan pending, contrary to the received STATE record.
+
+
+## Archivist Note
+
+- **role:** archivist
+- **mode:** planning-completeness
+- **registryUpdated:** false
+- **reconciled:** []
+- **conventionsAdded:** []
+- **proposedForFramework:** —
+- **cleanupBriefs:** []
+- **logEntry:**
+
+  **2026-09-24 — Scoped F05 graph review.** Reviewed replan `f1eae46`, receive `90bf704`, accepted CP1 `03ee571`, and preserved, unaccepted CP2 source. Compared attempt4’s original findings and unaccepted architecture fragment with the revised CA-35/41, CAP-40/44, SESSION-02/06 checkpoints and leases, approved database/architecture sources, migrations 003/004/006, current producers, exporter, cursor, lifecycle handlers, sampled tests, runner configuration, and scoped ledger/blockers.
+
+  **Conclusion:** The current-producer versus first-nonempty-producer boundary is source-backed and adequately assigned. No additional planning ownership gap was identified in this scope. This does **not** accept CP2, verify either capability, clear GRAPH-CONTRACT, or authorize dispatch.
+
+  **Consolidated findings and dispositions:**
+
+  1. **CA-35/41; CAP-40/44 — Nonempty contract remains unresolved, with an explicit owner and compatibility gate.**  
+     `src/import/staging/roots.ts:2312–2358` defines local references as storage ID plus plaintext digest; migration003 explicitly excludes scope from the frame. Promotion initializes retained/conflict/audit lists empty (`promotion.ts:1242–1247`); subsequent writers preserve them. Named conflict/audit branches establish root scope/kind, but neither migration004’s event contract nor database retention prose supplies their concrete page/descendant layout. Migration006 remote references already carry scope.
+
+     The revised disposition in `STATE.md:287–315` preserves required content without inventing schema semantics: S02 rejects unsupported branches; DB/Author supplies the protected mapping; S06 CP1 co-owns the first nonempty writers, codecs, descendant readers, publication integration and fixtures. CP2 installs only after equivalence; CP4 proves J3 and reruns J1. Existing exact-key readers make the explicit compatibility gate necessary.
+
+     **Owner/correction route:** Human DB/Author direction remains pending under GRAPH-CONTRACT; Orchestrator incorporates accepted source before S06 dispatch.  
+     **Closure assertion:** Approved layouts preserve all required descendants and original chain/history/restoration evidence; legacy empty fixtures remain readable; unsupported layouts reject without mutation; omission/substitution fails; candidate publication passes before installation, followed by installed-head reopen, two-compaction/next-append and vault-only recovery proofs.
+
+  2. **CA-35; CAP-40 — Bounded current-graph acceptance remains unproved, but S02 CP2 owns the remaining work.**  
+     Preserved `backup-graph.ts` traverses named roots and rejects unsupported retained/conflict/audit content. Its existing test demonstrates a pinned workbook, later theme edit, one retained-root rejection and limited publication corruption checks. It does not establish every GRAPH-S02 assertion. Additionally, `backup-handlers.ts:135–136` still calls eager `loadApp` during pinning, so bounded export cannot be inferred from the new exporter alone.
+
+     **Affected consumers:** Publication, bundle assembly and J1; subsequently S06.  
+     **Owner/correction route:** S02 CP2, explicitly assigned by `SESSION-02.md:242–252,292–296`, including the upstream pin/load path. No new lease is needed for the inspected paths.  
+     **Closure assertion:** Execute the real pin→export→publication path across multiple batches, detect eager payload accumulation, prove every current branch and covered-chain dependency, reject omission/substitution/reread changes, preserve fixture bytes, and leave receipts and rejected content unchanged. The inherited 178 passing tests remain component evidence.
+
+  3. **CA-35; CAP-40 — Cursor and exported-key lifecycle are still incomplete, explicitly assigned before CP2 acceptance.**  
+     `backup-handlers.ts:143–155` returns caller-owned disposal; `handlers.ts:531–538,930–933` does not dispose exported handles. The sampled graph test closes them directly. `projection-port.test.ts` covers existing port shapes but lacks the proposed cursor assertions.
+
+     **Affected consumers:** Graph reads, authored-state hashing and publication after cancellation, release, lock, reset or session replacement.  
+     **Owner/correction route:** S02 CP2; `SESSION-02.md:250,294–296` leases production teardown and paired boundary/behavior tests.  
+     **Closure assertion:** Production lifecycle events destroy keys and close cursors idempotently; late reads/publication reject; active readers cannot lose required storage; abort/error paths finalize resources without writes. Preserve existing bidirectional port assertions and add executable cursor cancellation/failure coverage.
+
+  4. **CA-35/41; CAP-40/44 — Operational ledger still contradicts the received plan.**  
+     `.program/ledger.md:16–20` describes Planner PK74w as live and the replan pending; `.program/blockers.md:44` also retains “pending replan.” Canonical STATE at `90bf704` records both workers ended and the corrected ownership boundary received.
+
+     **Owner/correction route:** Orchestrator refreshes these operational records from canonical STATE. This is machine-actionable bookkeeping, not a product decision.  
+     **Closure assertion:** Records consistently show no live implementation owner, CP1 accepted, CP2 preserved/unaccepted, GRAPH-S02 assigned to S02, and GRAPH-CONTRACT/nonempty proof assigned to DB/Author and S06.
+
+  **Proof-path assessment:** Inspected package scripts and discovery configuration cover the planned unit/property/browser/e2e locations. Playwright builds before preview and prohibits server reuse. The plan assigns isolation, restart, cleanup, artifact identity, resource locks and J1/J3 harness work before their acceptance gates. Future S06 implementation need not exist for S02’s current-graph checkpoint.
+
+  **Limits:** Read-only inspection; no tests, builds, browser journeys, edits, staging, commits or agents. No full-history reconciliation, cleanup audit, unrelated capability review or live-provider qualification. DEC-71/72 and design/provider decisions remain unchanged. No log file was written.
