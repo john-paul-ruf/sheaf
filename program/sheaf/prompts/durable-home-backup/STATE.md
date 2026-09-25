@@ -642,3 +642,118 @@ CP1 is preserved and verified. I’ll return the exact amendment request and arc
   - `tests/unit/workers/backup-handlers.test.ts`
   - `tests/unit/workers/module-boundaries.test.ts`
   - `tests/unit/workers/record-event-payloads.test.ts`
+
+### SESSION-02 attempt4 and graph replan receive — 2026-09-24
+
+CaVon ended; raw reply and full patch including new files preserved. CP2 not committed or accepted; no residual commit. Proposed arch fragment remains explicitly unaccepted, preserved, not appended. No pending runtime ownership. Planner PK74w ended and committed f1eae46 within exact six plan paths; source files/patch unchanged. Orchestrator inspected revised input map, GRAPH-S02/GRAPH-S06 gates and exact S06 producer+reader+fixture leases. Existing complete current-producer graph proof remains required; nonempty future graph writer/readers/proofs now co-owned S06 CP1/2/4 after GRAPH-CONTRACT Author input. No future obligation waived. User asked scoped DB direction asynchronously; no answer presumed. Scoped affected planning review follows before redispatch. CP1 remains accepted; CA35 graph proof stays stale/planned until actual assertions close.
+
+I’ll read the complete r4 envelope and current records, acknowledge its lease, then resume CP2 from accepted CP1 `03ee571`.
+
+
+I acknowledge lease r4 at HEAD `309313170b997d2546794c6173ebcabfbd44ac5f`. CP1 remains accepted at `03ee571`; r4 now covers the incremental hash and canonical encoding work. CP2’s acceptance is bounded authenticated export from the pinned revision, with independent authored-state hashing and unchanged fixture bytes.
+
+
+The current `loadApp` reader eagerly collects record pages and commits. CP2 needs a separate bounded path for the pinned snapshot so the exporter does not move that accumulation upstream. I’m checking projection hydration and replay so the semantic digest can use that same pinned state.
+
+
+I found a separate contract gap in the required retained-root path: local `AppHeadV1.retainedRoots` stores only an ID and plaintext digest, while remote references require a scope supplied by the authenticated parent. SHF1 deliberately omits scope. I’m checking the approved retention mapping and producers to determine whether a fixed scope is defined before treating this as a blocker.
+
+
+The current writers produce empty retained-root lists; nonempty retention and audit production belongs to S06. That absence alone does not block the bounded primitives and current graph path. I’ll keep unsupported roots fail-closed and preserve the requirement that scope come from authenticated context.
+
+
+The bounded hash/CBOR APIs and publication reader changes are in place. Publication now retains references and byte hashes, then rereads and verifies one object at a time. I’m checking compatibility before wiring the pinned graph exporter and adding the eager-loading negative controls.
+
+
+The first compatibility gate passed: 5 files, 33 tests, including byte-identical vault fixtures. The exporter and authored-state cursor are now wired into the worker’s backup handler. I’m testing a real imported workbook through pinning, concurrent edits, graph publication, and omission/tamper rejection.
+
+
+The current-workbook path passed, including a stable hash for the pinned revision while a later theme edit changed the current state’s hash. The multi-batch publication test and eager-collection negative control also passed.
+
+CP2’s broader acceptance remains unresolved: nonempty retained roots lack an authenticated scope mapping, and conflict/audit payload readers are not defined in the current codecs. Those branches fail closed; these tests do not prove their support. I’m finishing checks on the implemented portion and will preserve CP2 as an open checkpoint for a bounded contract correction.
+
+
+The final focused gate passed: 22 files, 178 tests. The retained-root regression uses an authenticated head containing the existing two-field reference and confirms that the exporter refuses to guess its scope.
+
+CP1 remains intact. CP2 changes are preserved uncommitted because its full CA-35 acceptance is not met. The handoff will distinguish the verified current-workbook path from the missing retained-root and conflict/audit contracts.
+
+
+## Handoff
+
+- **session:** F05 SESSION-02
+- **status:** blocked
+- **checkpoint:** CP1 accepted — `03ee57104dbe10e99351e2e1808a2be5aacf21bd`. CP2 remains open; no new commits.
+- **notes:** Replacement lease r4 acknowledged at `309313170b997d2546794c6173ebcabfbd44ac5f`. Independent CP2 implementation progressed. CAP-39/CA-34 contribution remains intact; CAP-40/CA-35 bounded export/publication acceptance remains incomplete.
+- **delivered:** Preserved uncommitted implementation of incremental SHA-256, streaming canonical CBOR, a SQLite authored-state cursor, pinned-graph export, sequential graph authentication, and publication-object reread verification. Current-workbook tests exercise immutable pins and authored-state changes. Unsupported retained-root and conflict/audit branches fail closed.
+- **verification:**
+  - `pnpm typecheck`, `pnpm lint`, and `git diff --check -- src tests` → exit 0.
+  - Focused gate → **22 files, 178 tests passed, exit 0**. Selected crypto hash/boundaries, canonical CBOR, sync protocol, projection, backup graph/handlers, projection port, event store, worker boundaries, and staging roots.
+  - Assertions cover chunk-independent hashes, canonical byte equivalence, cancellation/error propagation, eager-buffer-retention negative controls, changed-object rejection, stable pinned export after edits, and changed authored-state digests for subsequent pins.
+  - Worker integration uses real crypto, SQLite, and MessageChannel with **fake-indexeddb**. No native-browser persistence or complete user journey is claimed.
+  - Existing fixture bytes remain unchanged. An authenticated head containing a nonempty two-field retained reference is explicitly rejected because scope metadata is unavailable.
+  - Tested CP2 source inventory SHA-256: `448408d1c2bf4ea2bef560b67b99ba079c6cf166f9fde75f1f78b136e39a1def`.
+- **surprises:** `StorageRefV1` contains only `storageId` and `semanticSha256`; `AppHeadV1.retainedRoots` uses that type. Envelope scope is absent from the encrypted frame and must originate from an authenticated parent. No approved mapping supplies it for arbitrary retained roots. Concrete conflict/audit page descendant codecs are also absent. Current producers emit empty branches, but that does not prove CP2’s required nonempty graph traversal. Publication and projection port changes remain proposed, uncommitted contracts.
+- **followUp:** Preserve the recovery inventory below. After the bounded contract correction, finish retained-root and conflict/audit traversal, cursor-port coverage, exporter key disposal across worker lifecycle/cancellation, and remaining graph proofs before committing CP2. Future S06 producer proofs remain separate. DEC-72, dependent save/UI checkpoints, and J1 remain gated. Proposed architecture delta is preserved in the ignored fragment; it is explicitly marked unaccepted.
+- **needsOwnerCorrection:** Orchestrator should obtain a bounded Planner/database contract correction covering:
+  - `src/import/staging/roots.ts` — approve authenticated scope/kind resolution for `StorageRefV1` used by `AppHeadV1.retainedRoots`.
+  - SESSION-02/SESSION-06 and the database specification — provide concrete conflict/audit page wire mappings and descendant-reader ownership.
+  
+  Acceptance must either supply these mappings for CP2’s required nonempty-branch proofs or explicitly revise the checkpoint boundary and assign the deferred proofs. The relevant implementation paths are already leased; this requires approved contract meaning, not an invented format or broader implementation lease.
+- **needsDesignSource:** Existing DF-F05-1 save/reminder/provider design remains with Orchestrator/Designer before dependent UI work.
+- **blockedReason:** Full CA-35 graph acceptance requires authenticated retained-root resolution and conflict/audit descendant readers whose approved mappings are unavailable. Current-workbook success cannot substitute for those required proofs. CP2 is preserved uncommitted.
+- **filesTouched:** No new committed paths. Uncommitted recovery inventory:
+  - `src/application/ports/backup.ts`
+  - `src/application/ports/projection.ts`
+  - `src/crypto/hash.ts`
+  - `src/persistence/codecs/canonical-cbor.ts`
+  - `src/persistence/projection/apply-events.ts`
+  - `src/persistence/projection/authored-state.ts` — new
+  - `src/persistence/projection/engine.ts`
+  - `src/persistence/projection/hydrate.ts`
+  - `src/persistence/projection/index.ts`
+  - `src/sync/protocol/frontier.ts`
+  - `src/sync/protocol/publication.ts`
+  - `src/workers/data/app-session.ts`
+  - `src/workers/data/backup-graph.ts` — new
+  - `src/workers/data/backup-handlers.ts`
+  - `tests/fixtures/vaults/f05/generate.ts`
+  - `tests/fixtures/vaults/f05/publication.ts`
+  - `tests/unit/codecs/canonical-cbor.test.ts`
+  - `tests/unit/crypto/hash.test.ts`
+  - `tests/unit/projection/authored-state.test.ts` — new
+  - `tests/unit/sync/protocol/publication.test.ts`
+  - `tests/unit/workers/backup-graph.test.ts` — new
+  - `.program/signal/F05-SESSION-02.arch.md` — ignored architecture fragment; not staged.
+
+### REPLAN-F05-GRAPH raw return
+
+I’ll read the bounded replan envelope and repository instructions, then update only the permitted planning files while preserving uncommitted implementation.
+
+
+The preserved exporter rejects nonempty retained, conflict, and audit branches. Current writers emit empty lists, so I’m checking whether the approved contracts define enough to implement those readers now or require an Author decision. S02’s current-graph proof and S06’s future nonempty-graph proof will remain separate obligations.
+
+
+The contracts define scope/kind mappings for named branches, but not for arbitrary two-field retained roots. They also specify conflict/audit contents without a concrete page wire layout.
+
+I’ll assign the nonempty writers, readers, and integration proofs together to S06, gated on a scoped DB/Author contract decision. S02 can resume its complete current-producer graph proof with explicit rejection of unsupported branches, plus the remaining cursor and key-lifecycle tests.
+
+
+The plan keeps seven sessions and 28 checkpoints. S06 now owns the publication/frontier changes, fixtures, and bundle regression tests needed alongside its nonempty graph readers.
+
+Lease, dependency, and checkpoint checks pass. I’m finishing the evidence record and verifying that all uncommitted implementation and historical handoffs remain unchanged before committing the six authorized plan files.
+
+
+## Handoff
+
+- **Worker:** REPLAN-F05-GRAPH
+- **Status:** Bounded plan correction completed.
+- **Commit:** `f1eae462cba3383690986d357b4bf9029edc87d9`
+- **Committed paths:** Only `STATE.md`, `MASTER.md`, `SESSION-02.md`, `SESSION-06.md`, `LEASES.json`, and `PLAN-CHECK.md` under [durable-home-backup](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/prompts/durable-home-backup).
+
+**Disposition:** Named branches supply authenticated scope/kind; arbitrary two-field retained references lack that mapping. S02 retains complete current-producer graph acceptance, rejecting unsupported branches without publishing or discarding content. S06 now co-owns nonempty writers, descendant readers, publication integration, fixtures, and regression gates before pointer installation.
+
+**Remaining protected choice:** `GRAPH-CONTRACT` records the concrete DB/Author recommendation, fixed-role alternative, and compatibility consequences. Human authorization is needed for that scoped contract completion. S06 and downstream compacted-graph acceptance remain blocked; DEC-71/72 and design/provider choices remain unchanged.
+
+**Resume:** Orchestrator rechecks the amended plan and lease, then resumes preserved S02 CP2 after accepted CP1 `03ee571`. Cursor coverage, production key disposal/cancellation, and complete current-graph proofs must pass before committing CP2. J1 remains unverified.
+
+**Verification:** Exact leases, DAG, concurrency, checkpoint order, and historical handoff preservation passed. Seven sessions and 28 checkpoints retained. All 31 pre-existing modified/untracked files remain byte-identical. No application tests, workers, or protected Author edits were performed.
