@@ -420,6 +420,29 @@ describe("the periodic compactor", () => {
     } finally { worker.dispose(); sessions.mockRestore(); await resetLocalDatabase(); }
   }, 120_000);
 
+  it("issues no storage read after disposal interrupts a running check", async () => {
+    await resetLocalDatabase();
+    const clock = manualTimers();
+    const worker = createTestHandler(undefined, undefined, { thresholdCommits: 1000, intervalMs: 1, timers: clock.timers }).handler;
+    const read = envelopeStoreAdapter.getEnvelope;
+    let release: () => void = () => undefined;
+    const parked = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await ask(worker, { kind: "setup", passphrase: "disposal copper heron meadow" });
+      await importCsv(worker);
+      const reads = vi.spyOn(envelopeStoreAdapter, "getEnvelope").mockImplementation(async (id) => { await parked; return read.call(envelopeStoreAdapter, id); });
+      try {
+        clock.pending.shift()!();
+        await vi.waitFor(() => { expect(reads).toHaveBeenCalledTimes(1); });
+        worker.dispose();
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(reads).toHaveBeenCalledTimes(1);
+        expect(clock.pending).toHaveLength(0);
+      } finally { reads.mockRestore(); }
+    } finally { release(); worker.dispose(); await resetLocalDatabase(); }
+  }, 60_000);
+
   it("arms no check while locked, rearms on unlock and disarms on reset and disposal", async () => {
     await resetLocalDatabase();
     const clock = manualTimers();

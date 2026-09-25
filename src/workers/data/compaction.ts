@@ -302,9 +302,11 @@ export const COMPACTION_TAIL_THRESHOLD = 128;
 export const COMPACTION_INTERVAL_MS = 1500;
 
 /** Commits strictly after the head's checkpoint frontier, read from the head, its checkpoint and its tail only. */
-export async function postCheckpointCommitCount(ports: AppStoragePortsV1, appKey: EnvelopeKeyRefV1, headStorageId: string): Promise<number> {
+export async function postCheckpointCommitCount(ports: AppStoragePortsV1, appKey: EnvelopeKeyRefV1, headStorageId: string, signal: AbortSignal): Promise<number> {
+  signal.throwIfAborted();
   const head = await readAppHead(ports, appKey, headStorageId);
   const open = async (ref: { readonly storageId: string; readonly semanticSha256: Uint8Array }, scope: EnvelopeScopeV1, payloadKind: EnvelopePayloadKindV1) => {
+    signal.throwIfAborted();
     const frame = await ports.store.getEnvelope(decodeStorageId16(ref.storageId));
     if (frame === undefined) throw new IntegrityError("missing compaction tail");
     const payload = (await ports.crypto.open(frame, scope, appKey, payloadKind)).payload;
@@ -392,18 +394,19 @@ export function createCompactionScheduler(deps: CompactionSchedulerDependenciesV
 
   async function tick(signal: AbortSignal): Promise<void> {
     const start = context();
-    if (start === undefined || !deps.gate.isIdle || start.catalog.activeWorkflowStorageIds.length > 0) return;
+    if (signal.aborted || start === undefined || !deps.gate.isIdle || start.catalog.activeWorkflowStorageIds.length > 0) return;
     if (start.catalog.cleanupTicketStorageIds.length > 0) {
       await deps.gate.exclusive(() => drainCompactionCleanup(deps.ports, deps.getContext, signal));
       return;
     }
     for (const app of start.catalog.apps) {
+      signal.throwIfAborted();
       const head = app.appHeadStorageId;
       if (head === null || refused.get(app.appId) === head) continue;
       let known = counted.get(app.appId);
       if (known?.head !== head) {
         const key = await openAppKey(deps.ports, start.localRoot, app, parseEnvelopeTransport);
-        try { known = { head, count: await postCheckpointCommitCount(deps.ports, key, head) }; }
+        try { known = { head, count: await postCheckpointCommitCount(deps.ports, key, head, signal) }; }
         finally { deps.ports.crypto.destroyKey(key); }
         signal.throwIfAborted();
         counted.set(app.appId, known);
