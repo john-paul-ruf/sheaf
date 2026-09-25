@@ -406,6 +406,7 @@ under the Genesis re-entry rules.
 | CTL-118 | Export-format card | XLSX, CSV, PNG, PDF; available/unavailable | Theme & export | `./program/sheaf/mocks/control-atlas.html#ctl-118` |
 | CTL-119 | Plaintext acknowledgement | unchecked, checked, required action wording | Theme & export | `./program/sheaf/mocks/control-atlas.html#ctl-119` |
 | CTL-120 | Install education card | eligible, installed, prompt unavailable, dismissed | Install | `./program/sheaf/mocks/control-atlas.html#ctl-120` |
+| F05-PROVIDER-COMPONENTS | Provider account and connection states | SHT-015 selection; MOD-016 primer; EXT-008 waiting/checking/connected; MOD-017 cancelled/failed; MOD-018 expired/mismatched/restored; MOD-019 quota/retry; MOD-026 consequence/cancel/complete; unavailable provider; focus containment/return and truthful backup ledger | Durability | `./program/sheaf/mocks/f05-provider-states.html` |
 | F05-CTL-01 | Named-vault passphrase choice and fields (MOD-020 detail) | unselected, reuse/local re-entry, create/confirm, mismatch, wrong local secret, operation error, focus, disabled | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-020` |
 | F05-CTL-02 | Scoped vault recovery issue and acknowledgment (MOD-021 detail) | single vault code, paired local/vault codes on reuse, print, explicit acknowledgment, dismiss | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-021` |
 | F05-CTL-03 | Named-vault unlock fields (MOD-023 detail) | empty, show/hide, checking, wrong vault secret, operation error, retry, cancel, focus | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-023` |
@@ -486,6 +487,7 @@ without pretending Sheaf controls those pixels.
 | F05-SECURITY | Named-vault security detail atlas | `./program/sheaf/mocks/f05-vault-security.html` | Supplemental detail for MOD-020/021/023 and scoped vault-code re-view; interactive shell dialogs at 320/430/768/1024/1440px, keyboard/error/cancel states; no new product route | FR-23–24 |
 | F05-BUNDLE-SAVE | Bundle-save outcome detail atlas | `./program/sheaf/mocks/f05-bundle-save.html` | Supplemental MOD-025 / STA-009 detail; DEC-72 explicit confirmation only after unobservable delivery; native observed save independent; truthful prior time/current count and keyboard/error/cancel states at 320/430/768/1024/1440px; no new route | FR-25–27 |
 | F05-SCRATCH-REMINDERS | Scratch-reminder detail atlas | `./program/sheaf/mocks/f05-scratch-reminders.html` | Supplemental MOD-001/002 / STA-008 detail; DEC-71 approved escalation, dismissal with persistent shell/app badges, home assignment without invented receipt; accessible sheets/dialogs at 320/430/768/1024/1440px; no new route | FR-25–26 |
+| F05-PROVIDER-STATES | Provider connection detail atlas | `./program/sheaf/mocks/f05-provider-states.html` | Supplemental SCR-014/038/039, SHT-015, MOD-016/017/018/019/026 and Sheaf-owned EXT-008 handoff/return; stable-account guard, unchanged confirmation, quota remedy, disconnect consequences; 320/430/768/1024/1440px; no new route or provider qualification | FR-21, FR-24–27 |
 
 ### Modal and alert-dialog inventory
 
