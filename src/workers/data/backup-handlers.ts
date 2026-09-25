@@ -145,6 +145,7 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
       const openedEpoch = epoch;
       let ownsApp = false;
       let context: WorkerSessionContextV1 | undefined;
+      let retainedPin: { homeId: string; operationId: string } | undefined;
       const assertSession = () => {
         signal.throwIfAborted();
         if (epoch !== openedEpoch || deps.getContext().localRoot !== context?.localRoot) throw new IntegrityError("bundle session ended");
@@ -172,6 +173,7 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
         if (app.homeId === null) throw new IntegrityError("scratch app has no home");
         const homeId = app.homeId;
         const pin = await api.pin(appId);
+        retainedPin = { homeId, operationId: pin.operationId };
         assertSession();
         const state = await api.read(homeId);
         exported = await api.exportGraph(homeId, pin.operationId, signal);
@@ -238,6 +240,18 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
         }
         control.postMessage({ kind: "completed", identity, outcome: outcome["outcome"] });
       } catch {
+        exported?.dispose();
+        if (signal.aborted && epoch === openedEpoch && retainedPin !== undefined) {
+          try {
+            await deps.refreshContext();
+            if (epoch === openedEpoch && deps.getContext().localRoot === context?.localRoot) {
+              await api.release(retainedPin.homeId, retainedPin.operationId);
+            }
+          } catch {
+            // A locked/replaced store or failed cleanup retains the encrypted pin
+            // for explicit recovery; it never creates a receipt or prunes peers.
+          }
+        }
         control.postMessage({ kind: "failed" });
       } finally {
         if (timer !== undefined) clearTimeout(timer);

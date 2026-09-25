@@ -378,3 +378,38 @@ it("reset and library read the same receipt across edit, cancellation, fresh sav
   expect(await readClearBootstrapRow()).toEqual(before);
   await check(0, (await worker.backup.read(home.homeId)).lastSuccessfulBackupMs);
 }, 120_000);
+
+
+it("releases a cancelled live pin and recovers an interrupted pin after restart without confirming or pruning another export", async () => {
+  await resetLocalDatabase();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "setup", passphrase: LOCAL });
+  const appId = await importCsv(worker);
+  const home = await worker.backup.createBundleHome(appId, "Interrupted", VAULT);
+  const cancelled = await preparedBundle(worker, appId);
+  await cancelled.dispose();
+  expect((await worker.backup.read(home.homeId)).pins).toEqual([]);
+  const interrupted = await preparedBundle(worker, appId);
+  const pin = (await worker.backup.read(home.homeId)).pins[0]!;
+  worker.dispose(); await interrupted.dispose();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "unlock", passphrase: LOCAL });
+  expect((await worker.backup.read(home.homeId)).pins).toEqual([pin]);
+  expect((await worker.backup.read(home.homeId)).lastSuccessfulBackupMs).toBeNull();
+  await ask(worker, { kind: "changeTheme", appId, themeKey: "indigo", mode: "light", density: "compact", customAccent: null, logo: { kind: "keep" } });
+  const peer = await worker.backup.pin(appId);
+  const recovered = await worker.backup.exportGraph(home.homeId, pin.operationId, new AbortController().signal);
+  try { expect(await sha256Chunks(recovered.graph.canonicalAuthoredState(new AbortController().signal))).toHaveLength(32); }
+  finally { recovered.dispose(); }
+  await worker.backup.release(home.homeId, pin.operationId);
+  expect(await getEnvelope(decodeStorageId16(pin.headStorageId))).toBeUndefined();
+  expect((await worker.backup.read(home.homeId)).pins).toEqual([peer]);
+  const stillLive = await worker.backup.exportGraph(home.homeId, peer.operationId, new AbortController().signal);
+  stillLive.dispose();
+  await worker.backup.release(home.homeId, peer.operationId);
+  const fresh = await preparedBundle(worker, appId);
+  try { expect((await fresh.complete("saved"))["kind"]).toBe("completed"); }
+  finally { await fresh.dispose(); }
+  expect((await worker.backup.read(home.homeId)).pins).toEqual([]);
+  expect((await ask(worker, { kind: "listLibrary" })).apps[0]?.durability?.deviceOnlyChangeCount).toBe(0);
+}, 120_000);

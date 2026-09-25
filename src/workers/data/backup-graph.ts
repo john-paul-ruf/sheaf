@@ -12,7 +12,7 @@ import { decodeSnapshotManifest } from "../../import/snapshots/delimited-snapsho
 import { decodeSheetSnapshotManifest } from "../../import/snapshots/sheet-snapshot.js";
 import type { EnvelopeScopeV1, EnvelopePayloadKindV1 } from "../../migrations/003_envelope_format_v1.js";
 import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
-import { CanonicalArray, decodeCanonical, type CanonicalStreamValue, type CborValue } from "../../persistence/codecs/canonical-cbor.js";
+import { CanonicalArray, decodeCanonical, encodeCanonical, type CanonicalStreamValue, type CborValue } from "../../persistence/codecs/canonical-cbor.js";
 import { decodeEventSegment, compareCommits } from "../../persistence/codecs/event-commit.js";
 import { serializeEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
 import { authoredState, openProjection, hydrateApp, applyEvents, disposeProjection } from "../../persistence/projection/index.js";
@@ -20,6 +20,8 @@ import { referenceFromLocal, authenticateReference } from "../../sync/protocol/r
 import { verifyBackupFrontier } from "../../sync/protocol/frontier.js";
 import { engineAdapter, tableContexts, toProjectionCheckpoint, toProjectionRecord, toProjectionCommit } from "./app-session.js";
 import type { AppStoragePortsV1, LoadedAppV1 } from "./event-store.js";
+import type { AppManifestV1 } from "../../migrations/006_vault_format_v1.js";
+import { vaultValue } from "../../persistence/codecs/vault.js";
 import type { BackupPinV1 } from "./home-state.js";
 
 interface LocalObject {
@@ -36,8 +38,8 @@ const ROOT_KINDS = {
 } as const;
 
 /** One immutable pin, never the mutable catalog's current head or projection. */
-export async function exportBackupGraph(ports: AppStoragePortsV1, appKey: EnvelopeKeyRefV1,
-  pin: BackupPinV1, signal: AbortSignal): Promise<BackupAppGraphV1> {
+export async function exportBackupGraph(ports: { readonly crypto: AppStoragePortsV1["crypto"]; readonly store: Pick<AppStoragePortsV1["store"], "getEnvelope"> }, appKey: EnvelopeKeyRefV1,
+  pin: Pick<BackupPinV1, "appId" | "headStorageId">, signal: AbortSignal): Promise<BackupAppGraphV1> {
   const readBytes = async (storageId: Uint8Array, readSignal: AbortSignal) => {
     signal.throwIfAborted();
     readSignal.throwIfAborted();
@@ -226,4 +228,27 @@ export async function exportBackupGraph(ports: AppStoragePortsV1, appKey: Envelo
     objects: [...descriptors.values()], readObject, authoredAppId: head.appId,
     canonicalAuthoredState: (readSignal) => cursor.authoredState(readSignal), checkpointChains, deviceChains,
   };
+}
+
+/** Rebuilds the current-format artifact graph without a local root or database. */
+export async function recoverBackupGraph(crypto: AppStoragePortsV1["crypto"], app: {
+  readonly manifest: AppManifestV1;
+  readonly appKey: EnvelopeKeyRefV1;
+  readonly readFrame: AppStoragePortsV1["store"]["getEnvelope"];
+}, signal: AbortSignal): Promise<BackupAppGraphV1> {
+  const { manifest } = app;
+  if (manifest.retainedRoots.length !== 1 || manifest.retainedRoots[0]!.scope !== "app.head") {
+    throw new IntegrityError("bundle requires a supported pinned app head");
+  }
+  const graph = await exportBackupGraph({ crypto, store: { getEnvelope: app.readFrame } }, app.appKey,
+    { appId: encodeDomainId(asDomainId("app", manifest.appId)), headStorageId: encodeBase64Url(manifest.retainedRoots[0]!.storageId) }, signal);
+  const { generation, previousManifestSha256, semanticSha256, totalPaddedBytes, ...roots } = manifest;
+  void generation; void previousManifestSha256;
+  if (!constantTimeEquals(encodeCanonical(vaultValue(graph.manifest)), encodeCanonical(vaultValue(roots))) ||
+      graph.objects.reduce((total, object) => total + BigInt(object.reference.paddedBytes), 0n) !== totalPaddedBytes ||
+      !constantTimeEquals(await sha256Chunks(graph.canonicalAuthoredState(signal), signal), semanticSha256)) {
+    throw new IntegrityError("recovered bundle graph or authored state mismatch");
+  }
+  signal.throwIfAborted();
+  return graph;
 }

@@ -5,7 +5,9 @@ import { IntegrityError } from "../../../domain/model/errors.js";
 import { sha256Chunks } from "../../../crypto/hash.js";
 import type { EnvelopePayloadKindV1, EnvelopeReferenceV1 } from "../../../migrations/003_envelope_format_v1.js";
 import { assertIndexMatchesHeader, BUNDLE_PREAMBLE_BYTES, BUNDLE_TRAILER_BYTES, decodeAppManifest,
-  decodeBundleFooter, decodeBundlePreamble, decodeBundleTrailer, decodeVaultHeader, decodeVaultIndex } from "../../../persistence/codecs/vault.js";
+  decodeBundleFooter, decodeBundlePreamble, decodeBundleTrailer, decodeVaultHeader, decodeVaultIndex, vaultValue } from "../../../persistence/codecs/vault.js";
+import { encodeCanonical } from "../../../persistence/codecs/canonical-cbor.js";
+import { parseEnvelopeTransport } from "../../../persistence/codecs/envelope-frame.js";
 import { authenticateReference } from "../../protocol/references.js";
 import { blobChunks, verifyBundle } from "./format.js";
 
@@ -59,8 +61,17 @@ export async function openBundle(blob: Blob, secret: { readonly kind: "passphras
         appKeys.add(appKey);
         try {
           const manifest = decodeAppManifest(await authenticateReference(await read(entry.manifest), entry.manifest, "vault.app-manifest", appKey, ports.crypto));
-          if (!constantTimeEquals(manifest.appId, appId) || manifest.generation > header.generation) throw new IntegrityError("bundle manifest identity mismatch");
-          return { manifest, read: async (reference: EnvelopeReferenceV1, kind: EnvelopePayloadKindV1) =>
+          if (!constantTimeEquals(manifest.appId, appId) || manifest.generation > header.generation ||
+              manifest.totalPaddedBytes !== entry.totalPaddedBytes ||
+              !constantTimeEquals(encodeCanonical(vaultValue(manifest.confirmedFrontier)), encodeCanonical(vaultValue(entry.confirmedFrontier)))) throw new IntegrityError("bundle manifest identity mismatch");
+          return { manifest, appKey,
+            // Worker-only read port for full graph reconstruction; never a page DTO.
+            async readFrame(storageId: Uint8Array) {
+              if (closed) throw new IntegrityError("bundle reader is closed");
+              const item = directory.get(encodeBase64Url(storageId));
+              if (item === undefined) throw new IntegrityError("missing bundle graph object");
+              return parseEnvelopeTransport(await bytes(Number(item.byteOffset), Number(item.byteOffset + item.byteLength)));
+            }, read: async (reference: EnvelopeReferenceV1, kind: EnvelopePayloadKindV1) =>
             authenticateReference(await read(reference), reference, kind, appKey, ports.crypto) };
         } catch (error) { appKeys.delete(appKey); ports.vaultCrypto.destroy(appKey); throw error; }
       },

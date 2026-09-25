@@ -132,6 +132,7 @@ describe("SCR-010 — tiles say only what the catalog told them", () => {
     );
 
     expect(query('[data-screen="SCR-010"]')).toBeTruthy();
+    expect(document.body.textContent).toContain("Open an app to create a bundle home. Connecting an existing home is not available yet.");
     expect(queryAll("[data-tile]")).toHaveLength(2);
     expect(document.body.textContent).toContain("2 apps are on this device.");
 

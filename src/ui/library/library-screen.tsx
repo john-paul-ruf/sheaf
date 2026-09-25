@@ -15,13 +15,7 @@ import styles from "./library.module.css";
 /**
  * SCR-010 — the populated library (library.html, CAP-14, FR-19).
  *
- * **Only the states F02 can produce are drawn.** library.html shows five tile
- * states; `LibraryTileStatusV1` has two, and conflicts, listed-only and
- * too-large are not members of it — so this file cannot render one even by
- * mistake (CA-14). The mock's "1 change is only on this device" freshness
- * banner and its **Back up now** remedy are likewise absent: F02 writes no
- * durable home and counts no device-only changes, and a remedy with nowhere to
- * go is the untruthful half of design.md's facts-then-remedy pattern.
+ * Receipt facts come from the authenticated worker reader.
  *
  * **A tile says nothing it was not told.** `not-stated` renders no backup
  * line at all rather than a guessed time, and a `rowCount` of `null` is "not
@@ -35,7 +29,7 @@ import styles from "./library.module.css";
 const DISABLED_REASON: Readonly<Record<LibraryActionReason, string>> =
   Object.freeze({
     "durable-homes-not-available-in-this-release":
-      "Connecting a durable home is not available in this release.",
+      "Open an app to create a bundle home. Connecting an existing home is not available yet.",
   });
 
 /** library.html, verbatim: the scratch tile's badge. */

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeDurabilityEvidence } from "./fixtures/durability.js";
 import { expect, test } from "@playwright/test";
 import { openApp, protectDevice, screen, attemptUnlock } from "./fixtures/app.js";
 
@@ -54,7 +54,6 @@ test("CAP-05 renders the real worker's recovery delay and requires a replacement
     await expect(screen(page, "SCR-011")).toBeVisible();
     const buildId = await page.evaluate(() => (window as unknown as { __sheafBuildId: string }).__sheafBuildId);
     expect(buildId).toBe(execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim());
-    await mkdir("test-results/f05/s02", { recursive: true });
-    await writeFile("test-results/f05/s02/recovery-countdown.json", JSON.stringify({ buildId, observedSeconds: [2, 1, 4, 3, 0], replacementInstalled: true }));
+    await writeDurabilityEvidence("recovery-countdown", { endpoint: page.url(), buildId, observedSeconds: [2, 1, 4, 3, 0], replacementInstalled: true });
   } finally { await context.close(); await other.close(); }
 });

@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { attemptUnlock, followHash, openApp, protectDevice, screen, PASSPHRASE } from "./fixtures/app.js";
-import { buildBundleReader, inspectDurability, readBundle } from "./fixtures/durability.js";
+import { buildBundleReader, inspectDurability, readBundle, writeDurabilityEvidence } from "./fixtures/durability.js";
 import { importDemoWorkbook } from "./fixtures/workbook.js";
 
 const VAULT = "separate cedar lantern river";
@@ -74,6 +74,12 @@ for (const destination of ["download", "native"] as const) test(`J1 ${destinatio
     try {
       const decoded = await readBundle(decoder, bytes, VAULT);
       expect(decoded).toContain("500");
+      const recovered = JSON.parse(decoded) as { authored: Record<string, unknown[]>; semanticSha256: string; kinds: string[]; frontier: unknown[]; theme: { themeKey: string } };
+      for (const section of ["tables", "fields", "charts", "sheets", "baselines", "records"]) expect(recovered.authored[section]?.length, section).toBeGreaterThan(0);
+      expect(recovered.semanticSha256).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(recovered.frontier.length).toBeGreaterThan(0);
+      expect(recovered.theme.themeKey).toBeTruthy();
+      expect(recovered.kinds).toEqual(expect.arrayContaining(["app.source-chunk", "app.snapshot-chunk", "app.baseline-page", "app.event-segment"]));
       expect(await readBundle(decoder, bytes, vaultCode!.trim(), "recovery")).toBe(decoded);
       await expect(readBundle(decoder, bytes, localCode, "recovery")).rejects.toThrow("artifact rejected");
       await expect(readBundle(decoder, bytes, PASSPHRASE)).rejects.toThrow("artifact rejected");
@@ -181,7 +187,7 @@ for (const destination of ["download", "native"] as const) test(`J1 ${destinatio
     await page.getByLabel("Local recovery code", { exact: true }).fill(vaultCode!.trim());
     await page.getByRole("button", { name: "Recover and unlock", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("That is not this device's local recovery code.");
-    await writeFile(`${EVIDENCE}/j1-${destination}.json`, JSON.stringify({ buildId, artifactSha256: createHash("sha256").update(bytes).digest("hex"), confirmedAt,
-      sourceDiffSha256: createHash("sha256").update(execFileSync("git", ["diff", "--", "src", "tests"])).digest("hex") }));
+    await writeDurabilityEvidence(`j1-${destination}`, { endpoint: page.url(), buildId, artifactSha256: createHash("sha256").update(bytes).digest("hex"), confirmedAt,
+      sourceDiffSha256: createHash("sha256").update(execFileSync("git", ["diff", "--", "src", "tests"])).digest("hex") });
   } finally { await context.close(); }
 });

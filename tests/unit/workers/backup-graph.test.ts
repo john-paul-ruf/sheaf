@@ -37,7 +37,7 @@ it("exports and hashes the pinned workbook while edits advance the current head"
       const scopedHead = await envelopeCryptoAdapter.seal({ scope: "app.head", payloadKind: "app.head", key: exported.appKey,
         storageId: decodeStorageId16(pin.headStorageId), logicalRevision: frame.logicalRevision, compression: "none",
         payload: encodeAppHead({ ...withRetained, semanticSha256: await sha256(encodeAppHeadBody(withRetained)) }) });
-      await expect(exportBackupGraph({ crypto: envelopeCryptoAdapter, entropy: realEntropy, store: { ...envelopeStoreAdapter,
+      await expect(exportBackupGraph({ crypto: envelopeCryptoAdapter, store: { ...envelopeStoreAdapter,
         getEnvelope: (id) => encodeBase64Url(id) === pin.headStorageId ? Promise.resolve(scopedHead) : envelopeStoreAdapter.getEnvelope(id),
       } }, exported.appKey, pin, signal)).rejects.toThrow("retained roots require authenticated scope metadata");
       expect(exported.graph.objects.length).toBeGreaterThan(10);

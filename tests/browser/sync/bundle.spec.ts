@@ -1,0 +1,65 @@
+import { readFile } from "node:fs/promises";
+import { expect, test } from "@playwright/test";
+import { openApp, protectDevice, attemptUnlock, followHash, PASSPHRASE } from "../../e2e/fixtures/app.js";
+import { importDemoWorkbook } from "../../e2e/fixtures/workbook.js";
+import { buildBundleReader, readBundle, writeDurabilityEvidence } from "../../e2e/fixtures/durability.js";
+
+const SECRET = "vault autumn copper river";
+test.beforeAll(buildBundleReader);
+
+test("vault-only recovery traverses the real saved graph; interruption and malformed output preserve the prior bundle", async ({ browser }, info) => {
+  test.setTimeout(300_000);
+  const context = await browser.newContext({ acceptDownloads: true });
+  const decoder = await browser.newContext();
+  let page = await context.newPage();
+  page.setDefaultTimeout(20_000);
+  try {
+    await context.addInitScript(() => { Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }); });
+    await openApp(page); await protectDevice(page);
+    const appHash = await importDemoWorkbook(page);
+    await followHash(page, `${appHash}/backup`);
+    await page.getByRole("button", { name: "Save a bundle", exact: true }).click();
+    await page.getByLabel("Vault name", { exact: true }).fill("Recovery bundle");
+    await page.getByRole("radio", { name: "Create a different passphrase" }).check();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByLabel("Recovery bundle vault passphrase", { exact: true }).fill(SECRET);
+    await page.getByLabel("Confirm Recovery bundle vault passphrase", { exact: true }).fill(SECRET);
+    await page.getByRole("button", { name: "Create vault", exact: true }).click();
+    await page.getByRole("checkbox", { name: "I saved this code", exact: true }).check();
+    await page.getByRole("button", { name: "Continue to bundle" }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose destination" }).click();
+    const path = info.outputPath("prior-good.bundle");
+    await (await download).saveAs(path);
+    const bytes = await readFile(path);
+    await page.getByRole("button", { name: "I saved this bundle", exact: true }).click();
+    await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", "0");
+    const confirmedAt = await page.locator("[data-backup-time]").getAttribute("data-backup-time");
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    const recovered = JSON.parse(await readBundle(decoder, bytes, SECRET)) as { authored: Record<string, unknown[]>; kinds: string[]; frontier: unknown[] };
+    for (const section of ["tables", "fields", "charts", "records", "baselines", "sheets"]) expect(recovered.authored[section]?.length, section).toBeGreaterThan(0);
+    expect(recovered.frontier.length).toBeGreaterThan(0);
+    expect(recovered.kinds).toContain("app.snapshot-chunk");
+    await expect(readBundle(decoder, bytes.subarray(0, bytes.length - 1), SECRET)).rejects.toThrow("artifact rejected");
+    const corrupted = Buffer.from(bytes); corrupted[Math.floor(bytes.length / 2)]! ^= 1;
+    await expect(readBundle(decoder, corrupted, SECRET)).rejects.toThrow("artifact rejected");
+    await page.getByRole("button", { name: "Save a fresh bundle", exact: true }).click();
+    const interrupted = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose destination" }).click();
+    await interrupted;
+    await expect(page.getByRole("button", { name: "I saved this bundle", exact: true })).toBeVisible();
+    await page.close(); page = await context.newPage();
+    await openApp(page); await attemptUnlock(page, PASSPHRASE);
+    await expect(page.locator('[data-screen="SCR-010"]')).toBeVisible();
+    await followHash(page, `${appHash}/backup`);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator("[data-backup-time]")).toHaveAttribute("data-backup-time", confirmedAt!);
+    expect(await readFile(path)).toEqual(bytes);
+    await page.getByRole("button", { name: "Save a fresh bundle", exact: true }).click();
+    const retry = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Choose destination" }).click(); await retry;
+    await page.getByRole("button", { name: "I saved this bundle", exact: true }).click();
+    await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", "0");
+    await writeDurabilityEvidence("browser-bundle", { endpoint: page.url(), interruptedReceiptUnchanged: true, malformedRejected: true, recoveredSections: Object.keys(recovered.authored) });
+  } finally { await context.close(); await decoder.close(); }
+});
