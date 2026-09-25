@@ -874,6 +874,117 @@ effects/missing baseline/invalid report fail without install/receipt/cleanup.
 F06 remains the owner of command/UI generation; these storage fixtures do
 not claim F06 implementation or change its approved reconciliation policy.
 
+### Baseline authority and legacy compatibility — DB clarification 2026-09-25
+
+The original BaselinePageV1 implemented in roots.ts has exact outer keys
+`pageVersion`, `scopeId`, `entries` and row keys `tableId`, `recordId`, `state`,
+`values`. It stores neither absence reason nor scope metadata. The recovery1
+probe at `6fc40b3` confirms that an absent row round-trips without a reason,
+and an added absentReason key rejects. This legacy contract must remain
+readable. A conflict's copy of baseline evidence is a consumer assertion and
+must not manufacture authority missing from the baseline itself.
+
+**V1 import scope reconstruction:** Match scopeId to the retained original
+import lineage, its actual `import.accepted` commit, and original checkpoint
+containing that lineage/table. The producer's convention is scopeId = lineageId.
+Reconstruct scope_kind import, import_lineage_id from that identity, null
+home/counterpart/generation, established_at_ms from the authenticated lineage
+acceptance time, and established_frontier from the complete original import
+commit's basis frontier with that device advanced to its original sequence.
+Use the same frontier for the V1 rows. An appended import uses its own accepted
+commit/lineage, never the latest app checkpoint or the first import's frontier.
+Verify commit, app, table and lineage agreement. Missing or ambiguous origins
+are unsupported evidence, not permission to create a synthetic import scope.
+
+For a V1 present row, values are its original complete field/value list;
+SQL value_cbor holds those canonical bytes and absent_reason is null. For
+deleted/absent rows, SQL value_cbor is null. Deleted has null absent_reason.
+An absent V1 row maps to the exact reserved compatibility reason
+`legacy-reason-not-recorded`. This reports that the original format omitted
+the reason; it does **not** claim the row was never shared, purged, lost, or
+known deleted. It never authorizes automatic merging. Preserve any original
+V1 values bytes on the source object even if an absent/deleted legacy entry
+contains them; they are not present baseline authority. The reconstructed
+comparison uses the explicit state. A reason supplied only by a later
+conflict cannot replace this compatibility value. New BaselineEvidenceV1
+consuming such a legacy absent row must use that exact reason and reconstructed
+frontier. Other asserted reasons reject. No existing ciphertext is rewritten
+just to add a reason. The old reasonless absent-row graph regression stays
+readable and conservatively absent.
+
+**BaselinePageV2:** Use existing scope `app.baselines` and kind
+`app.baseline-page`; exact outer keys are `pageVersion = 2`, `appId`, `scope`,
+`entries`. Only an AppHeadV2 may name these pages. `scope` has exactly:
+
+| Key | Constraint / 005 mapping |
+|---|---|
+| `scopeId` | 16 bytes → baseline_scope_id |
+| `scopeKind` | `import` or `durable-home` → scope_kind |
+| `importLineageId` | 16 bytes for import, null for durable-home |
+| `durableHomeId` | null for import, 16 bytes for durable-home |
+| `counterpartId` | null for import, 16 bytes for durable-home |
+| `establishedGeneration` | null for import, positive uint64 for durable-home |
+| `establishedFrontier` | existing canonical frontier → established_frontier_cbor |
+| `establishedAtMs` | nonnegative safe millisecond integer → established_at_ms |
+
+Those null combinations exactly match 005's existing CHECK. The explicit appId
+and app-key authenticated parent bind the scope to this app. Import scopes
+must additionally match their retained actual lineage/acceptance evidence as
+above. Durable-home metadata is durable provenance of the original successful
+reconciliation, not authority inferred from the current home selection or from
+a conflict message. The future F06 baseline-establishment producer must derive
+it from its actual accepted counterpart/generation/frontier and atomically
+write the scope and values. S06 does not establish a new durable-home baseline
+or copy a claimed conflict scope into one. It preserves already-authenticated
+V2 scope bytes; valid nonempty V2 storage fixtures prove preservation only,
+not that an F06 reconciliation command exists or a live provider acknowledged
+anything. A vault-only reader uses the original encrypted scope metadata and
+does not require a matching local device's HomeState as a new authority.
+
+Each V2 entry has exactly `tableId`, `recordId`, `state`, `values`,
+`absentReason`, `sourceFrontier`. Present requires its complete field-ID-sorted
+value array and null absentReason. Deleted requires null values/reason. Absent
+requires null values and nonempty reason. SourceFrontier is the canonical
+frontier at which this row's baseline was established and is componentwise
+covered by the scope's establishedFrontier. Identities belong to the scope's
+app/table; values use existing CellValueV1. Rows across pages for one scope
+are strictly sorted by (tableId, recordId), no duplicates/overlap. Pages are
+nonempty, at most 1,024 entries and 524,288 decoded CBOR bytes with overhead;
+all pages of one scope repeat exactly the same authenticated scope descriptor.
+Head baseline roots are sorted by (scopeId, first tableId, first recordId).
+Reject conflicting descriptors for one scope, wrong app, invalid null/status
+combinations, missing row or uncovered frontier before installation/recovery.
+No page count proves complete coverage: compare required baseline identities
+and lineage/retention dependencies against the complete authenticated graph.
+
+The metadata-only vault codec must preserve logical baseline page order as it
+does audit/conflict order; decrypted graph validation checks the actual bounds.
+Legacy empty/reference ordering bytes remain unchanged. Both old head and old
+page decoders reject the new versions before consumer installation; no global
+database/vault/envelope version or SQL migration changes are needed.
+
+`BaselineEvidenceV1` resolves scopeId/tableId/recordId into this independently
+authenticated baseline authority. Its values, state, absence reason and
+frontier must agree; it cannot supply a different home/counterpart/generation.
+For V1 apply the explicit compatibility mapping above. For V2 map columns
+directly from scope and entry. A legacy V1 scope with no valid original import
+origin and no independent authenticated descriptor is not assumed to be a
+durable-home scope: reject required reconstruction and preserve all bytes.
+F05 compaction cannot produce such an ambiguous scope. This is an owned
+compatibility refusal, not deletion or conversion into an absent baseline.
+
+S06 CP1 implements V2 codec/traversal and legacy import/absence reconstruction
+within its existing roots/projection/worker lease, with actual SQL rows from
+authenticated source objects. Add positive V1 absent round-trip without a
+conflict, wrong-reason consumer refusal, multi-import origin, nonempty V2
+durable-home storage preservation, missing descriptor refusal, mismatched
+scope/app/frontier and logical-order tests. Candidate and vault-only recovery
+must agree without copied SQL fixtures supplying missing facts. CP2 checks
+both versions after two compactions, edit and append; V1 source bytes stay
+retained. Required future F06 baseline establishment remains F06's producer
+and real-command proof obligation. No SQL relaxation or synthetic scope IDs,
+counterparts, generations or guessed known absence reasons are authorized.
+
 ### Compacted records and original provenance
 
 Each RecordPageV2 record has exactly the existing `recordId`, `tableId`,
