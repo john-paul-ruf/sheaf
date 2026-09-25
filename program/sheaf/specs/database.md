@@ -696,6 +696,184 @@ storage references. These pages contain no opaque external child references.
 Any future event payload adding stored-object dependencies requires an explicit
 format/reader extension; it cannot hide them in unchecked evidence.
 
+### Original conflict/merge payload mapping — DB clarification 2026-09-25
+
+S06's read-only probe demonstrated that migration004's outer `payload:
+unknown` and event-name gate accept an empty map for the three evidence kinds.
+That generic outer contract is intentional; it is not a payload validator.
+No concrete producer/decoder for these kinds exists at this re-entry. The
+following is their first exact payload contract, completing the already
+approved conflict/applied-log meaning. Validate it in the owning graph/replay
+adapter. Do not change the outer codec, event union, SQL CHECKs or lifecycle
+states to compensate for an absent adapter. This assigns storage/reconstruction
+support to S06; F06 still owns user reconciliation commands and decisions.
+
+All payload maps carry `payloadVersion = 1`, use the canonical values above,
+and reject unknown/missing keys. Optional facts below are explicit null;
+otherwise every listed key is required. This does not change optional-key
+semantics inside the existing EventProvenanceV1 map. Commit/event IDs must
+resolve against the authenticated original evidence set, including preserved
+source commits. Foreign, missing or conflicting identities fail verification.
+
+**Shared values:**
+
+- `EvidenceRecordV1`: exact `recordId`, `tableId`, `values`, `provenance`.
+  Values are field-ID-sorted exact `{fieldId, value}` entries using the
+  existing CellValueV1 map. Provenance is field-ID-sorted exact
+  `{fieldId, value}` entries using the lossless EventProvenanceV1 map specified
+  for RecordPageV2. Preserve the original full alternatives, including invalid
+  values. Do not reuse the legacy record-event provenance encoder's
+  nullable/frozen-only normalization for this new payload. No record revision
+  or result validation is inferred merely from the alternative's presence.
+- `EvidenceSchemaV1`: exact `tables`, `enumOptions`, `relationships`,
+  `validationRules`, `formulas`, `charts`; values use the corresponding full
+  F04 checkpoint-root codecs, including inactive definitions and original
+  IDs. Arrays use their existing logical identity order. This is a complete
+  authored schema alternative, not a patch or executable imported behavior.
+- `EvidenceIdentityV1`: exact `matchFieldId` (16-byte field ID or null) and
+  `candidates` (record-ID-sorted, duplicate-free EvidenceRecordV1 array).
+  Preserve all candidate rows, including unmatched candidates. Null means no
+  established match field; it cannot authorize automatic matching.
+- `EvidenceStateV1`: exact `state`, `value`. State is `present`, `deleted`,
+  or `absent`. Present requires the complete EvidenceRecord/Schema/Identity
+  matching the conflict's target kind; deleted/absent require null value.
+  These two states remain distinct. A deleted record's original restoration
+  event remains separately reachable in audit history.
+- `SourceEvidenceV1`: exact `source`, `timestampMs`, `commitId`, `frontier`,
+  `state`. Source is `this-device`, `another-device`, or `uploaded-file`;
+  timestamp is a nonnegative safe millisecond integer; commitId is an original
+  16-byte source commit ID; frontier is the existing sorted frontier; state is
+  EvidenceStateV1. The source commit must belong to this app and be covered by
+  that frontier. For a file source, its accepted import lineage/source commit
+  must exist; absence is an unavailable producer input, never a fabricated ID.
+  Source versions are evidence, not instructions to replace the active row.
+- `BaselineEvidenceV1`: exact `scopeId`, `state`, `values`, `absentReason`,
+  `frontier`. ScopeId is an existing 16-byte baseline scope ID. Present
+  requires the full field-ID-sorted `{fieldId, value}` array (possibly empty)
+  and null absentReason. Deleted requires null values and null absentReason.
+  Absent requires null values and a nonempty text absentReason. Frontier is
+  the established source frontier. Match the actual retained baseline scope,
+  app/table/record and present/deleted/absent row; do not synthesize a baseline
+  from current state. A missing baseline row is not an explicit absent row.
+- `EvidenceValidationReportV1`: exact `isValid`, `issues`; issues are exact
+  `fieldId`, `ruleId`, `kind`, `severity`, `messageKey`, `messageParameters`
+  using the existing ValidationIssueV1 enums, nullable IDs and scalar parameter
+  map. Preserve issue array order and evidence. `isValid` equals the absence
+  of a blocking issue; a claimed success with blocking issues rejects.
+  Validate successful results with the shared validator at the named original
+  schema revision in isolated replay, not against a later unrelated schema.
+
+**`conflict.detected` exact keys:** `payloadVersion`, `conflictId`, `tableId`,
+`targetKind`, `targetId`, `conflictKind`, `schemaRevision`, `baseline`,
+`local`, `incoming`, `conflictingFields`, `validationReport`.
+
+TargetKind is `record`, `schema`, or `identity`; targetId is the original
+16-byte record or schema/identity subject ID. Record conflicts use one of
+`field`, `key`, `delete-edit`, `baseline-absent`, `record-validation`;
+schema/identity targets use the corresponding same-named conflictKind.
+`local` and `incoming` are complete SourceEvidenceV1 values with states of
+that target kind. `conflictingFields` is a sorted unique field-ID array from
+the affected table (empty is allowed for whole-object conflicts). Baseline is
+BaselineEvidenceV1 for every record conflict, including explicit absent;
+schema/identity alone may use null. `baseline-absent` requires absent state.
+ValidationReport is EvidenceValidationReportV1 or null, but is required and
+invalid for record-validation/schema rejection. Do not overwrite or validate
+away an invalid source alternative. Detection itself changes no authored row.
+
+The outer event subject must have the same appId and tableId, and
+`objectId = conflictId`. For record targets it also has `recordId = targetId`;
+for schema/identity targets recordId is absent. No unrelated fieldId is allowed.
+The table and any field target must resolve in the original schema. Map to
+005 `pending_conflicts` one-to-one: conflict_id/conflictKind/table_id;
+record_id receives targetId (005 deliberately has no record FK, allowing its
+documented schema/identity subject use); baseline_scope_id from baseline or
+null; baseline_cbor is canonical BaselineEvidenceV1 or null;
+local/incoming_version_cbor are complete SourceEvidenceV1 bytes;
+conflicting_fields_cbor is the canonical field-ID array;
+validation_report_cbor is canonical report or null. Copy source enums and
+timestamps from each side; detected_at_ms from the detecting commit's hybrid
+wall time. Set status pending, detected_event_id to this original event,
+resolved_event_id null. The existing FK/CHECKs remain unchanged.
+
+**`conflict.resolved` exact keys:** `payloadVersion`, `conflictId`,
+`detectedEventId`, `decision`, `result`, `schemaRevision`, `validationReport`,
+`effectEventIds`.
+
+Decision is `keep-local`, `use-incoming`, or `edited`; these are decision
+dispositions, never SQL lifecycle values. `result` is EvidenceStateV1 of the
+detected target kind. A record result cannot be absent (choose a whole present
+record or explicit deletion); record-validation resolution is whole-record,
+not a per-field-only decision. The report must be valid. The subject matches
+the original detection app/table/conflict/target, detectedEventId resolves to
+that detection, and event provenance source must be `conflict-resolution`.
+Reject unknown/already-resolved conflicts, mismatched evidence or contradictory
+result/decision. Keep-local/use-incoming must preserve that whole alternative;
+edited is the explicit user's valid replacement. Preserve the original
+detection/source evidence permanently.
+
+`effectEventIds` is a duplicate-free event-ID array in event-index order,
+naming the actual record/schema mutations **earlier in the same atomic
+commit**. Those existing event kinds apply the result exactly once; the
+resolution evidence event does not independently apply it. Empty is permitted
+only when retaining the already-current valid local state causes no authored
+mutation. Replay must demonstrate that the referenced effects produce the
+declared complete result for the same target and schema revision. A successful
+evidence event without the required mutation is rejected, not reported as
+resolved. After verifying effects, update only the corresponding conflict's
+status/resolved_event_id to resolved/this event ID. Detection must precede
+resolution causally; do not let wall-clock order replace commit dependencies.
+
+**`merge.applied` exact keys:** `payloadVersion`, `mergeId`, `tableId`,
+`recordId`, `schemaRevision`, `baseline`, `local`, `incoming`,
+`localChangedFields`, `incomingChangedFields`, `result`, `resultCommitId`,
+`validationReport`, `explanation`, `effectEventIds`.
+
+MergeId is a stable 16-byte ID; table/record identify the same app/row as both
+source states and baseline. Source alternatives are present record values;
+baseline must be present, never absent/deleted. Changed-field arrays are sorted
+unique IDs whose differences agree with the baseline and source records.
+Result is a complete EvidenceRecordV1. No automatic merge may choose identity,
+resolve a contested key/reference, overwrite conflicting same-field values,
+or turn delete-versus-edit into an applied result. Verify the three-way rules
+of FR-32 and shared validation at schemaRevision; report must be valid.
+`explanation` has exact `messageKey` (nonempty text) and `messageParameters`
+(existing scalar parameter map); it supplements rather than replaces proof.
+
+Outer subject has appId/tableId/recordId matching the payload and
+objectId = mergeId; containing commit eventClass is reconciliation.
+`resultCommitId` equals that containing original commit's ID. EffectEventIds
+names the actual earlier record mutation events in that same commit, applying
+the declared result exactly once. It must be nonempty for a changed result;
+reject a merge receipt without those effects. If a verified result is already
+the current local state, an empty list is allowed but still proves equality;
+it creates no invented record edit. Map 005 `applied_merges` directly from
+IDs/table/record/baseline scope, local/incoming source commit IDs, containing
+result commit ID, canonical report/explanation bytes, and hybrid wall time.
+The full baseline, alternatives, changed-field sets and result remain in the
+original event payload even though the disposable SQL row indexes a subset.
+
+For all three, `change_history` retains original event/commit/index/kind/class,
+device and hybrid time; subject kind is conflict for detection/resolution with
+subject ID conflictId, and record for merge with subject ID recordId. Canonical
+summary preserves the complete evidence payload. Record restoration is still
+owned by the original record-deletion event; evidence cannot manufacture a
+restoration authority. Reconstruct the actual pending_conflicts/applied_merges
+rows as well as history, not only a serialized summary. Covered mutations are
+not replayed twice when installing a checkpoint; a separate isolated original
+history replay may establish these facts before copying the derived metadata.
+
+These payloads contain no storage references: commit/event IDs resolve in the
+explicit authenticated evidence graph. Every referenced source commit must
+therefore already be retained/reachable through audit/tail/declared roots;
+otherwise reject. No complete proof may be claimed from an empty map, echoed
+request, synthetic source ID or detached validation report. Required S06
+fixtures use real canonical source commits and actual projection mutation
+paths: pending conflict preserves local data, explicit resolution writes the
+same subject once, successful merge has valid effects, wrong subject/missing
+effects/missing baseline/invalid report fail without install/receipt/cleanup.
+F06 remains the owner of command/UI generation; these storage fixtures do
+not claim F06 implementation or change its approved reconciliation policy.
+
 ### Compacted records and original provenance
 
 Each RecordPageV2 record has exactly the existing `recordId`, `tableId`,
