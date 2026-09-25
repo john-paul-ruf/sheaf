@@ -375,3 +375,8 @@ Adw4M F05-GRAPH-APPROVED-01: six-file replan missed vault manifest codec and pai
 ### S06 pre-dispatch consumer amendment r3
 
 CP0 return identified records-crud and gate-f02-demo E2E history-copy assertions; add both exact files and full-file gates at CP2/4.70path lease; no active owner collision, no schema change. This was missed in original review; all original assertions remain required.
+
+
+### S06 CP1 mechanical consumer amendment r4
+
+Add tests/browser/worker/runtime.ts to preserve V1/V2 discriminant through encodeAppHeadBody(decodedHead); preserve digest check.71path lease; CP1 partial patch safely recorded, no code committed until full gate. worker/import-journey regression included. No competing owner or schema change.

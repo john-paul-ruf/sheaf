@@ -350,6 +350,7 @@
       "tests/browser/sync/bundle.spec.ts",
       "tests/browser/sync/compaction.spec.ts",
       "tests/browser/sync/fixtures/**",
+      "tests/browser/worker/runtime.ts",
       "tests/e2e/append-import.spec.ts",
       "tests/e2e/bundle-backup.spec.ts",
       "tests/e2e/compaction-backup.spec.ts",
