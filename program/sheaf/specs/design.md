@@ -406,6 +406,10 @@ under the Genesis re-entry rules.
 | CTL-118 | Export-format card | XLSX, CSV, PNG, PDF; available/unavailable | Theme & export | `./program/sheaf/mocks/control-atlas.html#ctl-118` |
 | CTL-119 | Plaintext acknowledgement | unchecked, checked, required action wording | Theme & export | `./program/sheaf/mocks/control-atlas.html#ctl-119` |
 | CTL-120 | Install education card | eligible, installed, prompt unavailable, dismissed | Install | `./program/sheaf/mocks/control-atlas.html#ctl-120` |
+| F05-CTL-01 | Named-vault passphrase choice and fields (MOD-020 detail) | unselected, reuse/local re-entry, create/confirm, mismatch, wrong local secret, operation error, focus, disabled | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-020` |
+| F05-CTL-02 | Scoped vault recovery issue and acknowledgment (MOD-021 detail) | single vault code, paired local/vault codes on reuse, print, explicit acknowledgment, dismiss | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-021` |
+| F05-CTL-03 | Named-vault unlock fields (MOD-023 detail) | empty, show/hide, checking, wrong vault secret, operation error, retry, cancel, focus | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-023` |
+| F05-CTL-04 | Named-vault recovery re-view | unlocked scope, vault passphrase verification, wrong secret, unavailable code, revealed code, print, close; distinct from local MOD-022 | Security | `./program/sheaf/mocks/f05-vault-security.html#vault-review` |
 
 > **Inventory note (DF-1):** the palette values that CTL-049, CTL-115 and
 > CTL-116 select, in light and dark mode, are listed in § Per-app theming
@@ -477,6 +481,7 @@ without pretending Sheaf controls those pixels.
 | SCR-051 | Remove from device | `./program/sheaf/mocks/remove.html` | Routine versus destructive removal with recomputed freshness | FR-18, FR-26, FR-33 |
 | SCR-052 | Deletion marker on reconnect | `./program/sheaf/mocks/deletion-marker.html` | Zero-change notice and device-only rescue path; no resurrection | FR-18, FR-33 |
 | SCR-053 | Charts index | `./program/sheaf/mocks/charts.html` | The app's **Charts** destination (`#/app/{id}/charts`, D63): every imported and user-made chart with its name, type, source table and an origin marker (from workbook / made here); pinned state with a pin-to-app-home toggle; **New chart** → SCR-034; open a chart → SCR-033; "No charts yet" empty state with **New chart** | FR-5, FR-16 |
+| F05-SECURITY | Named-vault security detail atlas | `./program/sheaf/mocks/f05-vault-security.html` | Supplemental detail for MOD-020/021/023 and scoped vault-code re-view; interactive shell dialogs at 320/430/768/1024/1440px, keyboard/error/cancel states; no new product route | FR-23–24 |
 
 ### Modal and alert-dialog inventory
 
