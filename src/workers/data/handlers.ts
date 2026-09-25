@@ -370,6 +370,9 @@ export function createDataWorkerHandler(
       destroySecretKey(root);
       throw cause;
     }
+    backup.disposeAll();
+    records.disposeAll();
+    imports.dispose();
     session.attempts.recordSuccess();
     const unlocked = session.unlock({
       root,
@@ -532,6 +535,7 @@ export function createDataWorkerHandler(
     // Every open projection holds plaintext. Locking destroys them and every
     // app key with them, so nothing can be answered until a fresh `openApp`
     // hydrates again (invariant 3).
+    backup.disposeAll();
     records.disposeAll();
     imports.dispose();
     session.lock();
@@ -672,7 +676,7 @@ export function createDataWorkerHandler(
   async function resetLocked(): Promise<DataWorkerResponseV1> {
     // Allowed while locked, and it enumerates nothing: a locked worker cannot
     // read the catalog, and pretending otherwise would be the untruthful part.
-    session.lock();
+    lock();
     await purgeLocalStore();
     return { kind: "resetLocked", purged: true };
   }
@@ -787,7 +791,7 @@ export function createDataWorkerHandler(
       throw new DataWorkerCommandError("stale-confirmation");
     }
 
-    session.lock();
+    lock();
     await purgeLocalStore();
     return { kind: "resetReadable", phase: "purged", purged: true };
   }
@@ -928,6 +932,7 @@ export function createDataWorkerHandler(
       }
     },
     dispose(): void {
+      backup.disposeAll();
       records.disposeAll();
       imports.dispose();
       session.lock();

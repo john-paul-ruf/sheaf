@@ -681,3 +681,8 @@ export interface ProjectionEnginePort {
    */
   refreshVolatile(maxAgeMs: number): Promise<readonly FieldId[]>;
 }
+
+/** Read-only cursor bound to an isolated, hydrated snapshot in the data worker. */
+export interface ProjectionAuthoredStatePort {
+  authoredState(signal: AbortSignal): AsyncIterable<Uint8Array>;
+}

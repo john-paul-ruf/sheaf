@@ -1,3 +1,4 @@
+import { exportBackupGraph } from "./backup-graph.js";
 import { buildHomeAssignment } from "../../application/commands/home-commands.js";
 import type { ClockPort } from "../../application/ports/clock.js";
 import type { VaultCryptoPort, VaultKeyRefV1 } from "../../application/ports/vault-crypto.js";
@@ -7,7 +8,7 @@ import { IntegrityError } from "../../domain/model/errors.js";
 import { CURRENT_FORMAT_VERSIONS } from "../../migrations/index.js";
 import { parseEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
 import { validateLocalCatalog, type LocalCatalogHomeEntryV1, type LocalCatalogV1 } from "./catalog.js";
-import { createEventStore, loadApp, openAppKey, type AppStoragePortsV1, type WorkerSessionContextV1 } from "./event-store.js";
+import { createEventStore, loadApp, readAppHead, openAppKey, type AppStoragePortsV1, type WorkerSessionContextV1 } from "./event-store.js";
 import { encodeHomeState, readHomeState, type BackupPinV1, type HomeStateV1 } from "./home-state.js";
 
 export interface BackupHandlerDependenciesV1 {
@@ -21,6 +22,13 @@ export interface BackupHandlerDependenciesV1 {
 /** Worker-owned assignment and retention; no caller-supplied frontier or receipt. */
 export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
   const { ports } = deps;
+  let epoch = 0;
+  const exports = new Set<{ operationId: string; dispose: () => void }>();
+  const releasing = new Set<string>();
+  const disposeAll = () => {
+    epoch++;
+    for (const operation of exports) operation.dispose();
+  };
   const fresh = () => asStorageId16(ports.entropy.randomBytes(16));
   const assertLive = (context: WorkerSessionContextV1) => {
     const live = deps.getContext();
@@ -95,6 +103,7 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
   }
 
   return {
+    disposeAll,
     async createBundleHome(appId: string, displayName: string, passphrase: string) {
       const context = deps.getContext();
       if (appEntry(context, appId).homeId !== null) throw new IntegrityError("app already has a home");
@@ -132,31 +141,79 @@ export function createBackupHandlers(deps: BackupHandlerDependenciesV1) {
       const state = await readHomeState(ports, context, entry);
       const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
       try {
-        const loaded = await loadApp(ports, key, app.appHeadStorageId!);
-        if (encodeDomainId(loaded.appId) !== appId) throw new IntegrityError("backup head belongs to another app");
-        const pin: BackupPinV1 = { operationId: encodeStorageId16(fresh()), appId, headStorageId: loaded.headStorageId };
+        const head = await readAppHead(ports, key, app.appHeadStorageId!);
+        if (encodeDomainId(head.appId) !== appId) throw new IntegrityError("backup head belongs to another app");
+        const pin: BackupPinV1 = { operationId: encodeStorageId16(fresh()), appId, headStorageId: app.appHeadStorageId! };
         await replaceState(context, entry, { ...state, pins: [...state.pins, pin] });
         return pin;
       } finally { ports.crypto.destroyKey(key); }
     },
-    async release(homeId: string, operationId: string): Promise<void> {
+    async exportGraph(homeId: string, operationId: string, signal: AbortSignal) {
+      signal.throwIfAborted();
+      if (releasing.has(operationId)) throw new IntegrityError("backup operation is being released");
       const context = deps.getContext();
-      const entry = homeEntry(context, homeId);
-      const state = await readHomeState(ports, context, entry);
-      const pin = state.pins.find((candidate) => candidate.operationId === operationId);
-      if (pin === undefined) throw new IntegrityError("unknown backup operation");
-      const pins = state.pins.filter((candidate) => candidate.operationId !== operationId);
-      const current = context.catalog.apps.some((app) => app.appHeadStorageId === pin.headStorageId);
-      let retained = pins.some((candidate) => candidate.headStorageId === pin.headStorageId);
-      if (!current && !retained) {
+      const openedEpoch = epoch;
+      const controller = new AbortController();
+      const lifetime = AbortSignal.any([signal, controller.signal]);
+      let appKey: Awaited<ReturnType<typeof openAppKey>> | undefined;
+      const operation = { operationId, dispose: () => {
+        controller.abort(new IntegrityError("backup export has been disposed"));
+        if (appKey !== undefined) { ports.crypto.destroyKey(appKey); appKey = undefined; }
+        exports.delete(operation);
+        lifetime.removeEventListener("abort", operation.dispose);
+      } };
+      exports.add(operation);
+      lifetime.addEventListener("abort", operation.dispose, { once: true });
+      try {
+        const state = await readHomeState(ports, context, homeEntry(context, homeId));
+        const pin = state.pins.find((pin) => pin.operationId === operationId);
+        if (pin === undefined) throw new IntegrityError("unknown backup operation");
         const app = appEntry(context, pin.appId);
-        const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
-        try {
-          const loaded = await loadApp(ports, key, app.appHeadStorageId!);
-          retained = loaded.head.retainedRoots.some((root) => root.storageId === pin.headStorageId);
-        } finally { ports.crypto.destroyKey(key); }
-      }
-      await replaceState(context, entry, { ...state, pins }, current || retained ? [] : [pin.headStorageId]);
+        if (app.homeId !== homeId) throw new IntegrityError("backup operation belongs to another home");
+        appKey = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
+        lifetime.throwIfAborted();
+        const graph = await exportBackupGraph(ports, appKey, pin, lifetime);
+        lifetime.throwIfAborted();
+        if (epoch !== openedEpoch || deps.getContext().localRoot !== context.localRoot) throw new IntegrityError("backup session ended");
+        return { graph: { ...graph,
+          async readObject(this: void, id: Uint8Array, readSignal: AbortSignal) {
+            readSignal.addEventListener("abort", operation.dispose, { once: true });
+            try { return await graph.readObject(id, readSignal); }
+            catch (cause) { operation.dispose(); throw cause; }
+            finally { readSignal.removeEventListener("abort", operation.dispose); }
+          },
+          async *canonicalAuthoredState(this: void, readSignal: AbortSignal) {
+            readSignal.addEventListener("abort", operation.dispose, { once: true });
+            try { yield* graph.canonicalAuthoredState(readSignal); }
+            catch (cause) { operation.dispose(); throw cause; }
+            finally { readSignal.removeEventListener("abort", operation.dispose); }
+          },
+        }, appKey, dispose: operation.dispose };
+      } catch (cause) { operation.dispose(); throw cause; }
+    },
+    async release(homeId: string, operationId: string): Promise<void> {
+      if (releasing.has(operationId)) throw new IntegrityError("backup operation is being released");
+      releasing.add(operationId);
+      for (const operation of exports) if (operation.operationId === operationId) operation.dispose();
+      try {
+        const context = deps.getContext();
+        const entry = homeEntry(context, homeId);
+        const state = await readHomeState(ports, context, entry);
+        const pin = state.pins.find((candidate) => candidate.operationId === operationId);
+        if (pin === undefined) throw new IntegrityError("unknown backup operation");
+        const pins = state.pins.filter((candidate) => candidate.operationId !== operationId);
+        const current = context.catalog.apps.some((app) => app.appHeadStorageId === pin.headStorageId);
+        let retained = pins.some((candidate) => candidate.headStorageId === pin.headStorageId);
+        if (!current && !retained) {
+          const app = appEntry(context, pin.appId);
+          const key = await openAppKey(ports, context.localRoot, app, parseEnvelopeTransport);
+          try {
+            const head = await readAppHead(ports, key, app.appHeadStorageId!);
+            retained = head.retainedRoots.some((root) => root.storageId === pin.headStorageId);
+          } finally { ports.crypto.destroyKey(key); }
+        }
+        await replaceState(context, entry, { ...state, pins }, current || retained ? [] : [pin.headStorageId]);
+      } finally { releasing.delete(operationId); }
     },
   };
 }

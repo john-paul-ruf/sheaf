@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { sha256Chunks } from "../../../src/crypto/hash.js";
 import { afterEach, expect, it } from "vitest";
 import { decodeStorageId16 } from "../../../src/domain/model/bytes.js";
 import { getEnvelope } from "../../../src/persistence/envelope-store/read.js";
@@ -106,9 +107,17 @@ it("commits assignment atomically, retains pinned graphs across edits and CSV ap
 
     const appendPin = await worker.backup.pin(appId);
     const appendSnapshot = await loadApp(ports, key, appendPin.headStorageId);
+    const exported = await worker.backup.exportGraph(assigned.homeId, appendPin.operationId, new AbortController().signal);
+    const pinnedHash = await sha256Chunks(exported.graph.canonicalAuthoredState(new AbortController().signal));
     await importCsv(worker, appId);
     expect(await loadApp(ports, key, appendPin.headStorageId)).toEqual(appendSnapshot);
+    expect(await sha256Chunks(exported.graph.canonicalAuthoredState(new AbortController().signal))).toEqual(pinnedHash);
     const currentPin = await worker.backup.pin(appId);
+    const appended = await worker.backup.exportGraph(assigned.homeId, currentPin.operationId, new AbortController().signal);
+    expect(await sha256Chunks(appended.graph.canonicalAuthoredState(new AbortController().signal))).not.toEqual(pinnedHash);
+    expect(appended.graph.manifest.sourceManifests).toHaveLength(2);
+    appended.dispose();
+    exported.dispose();
     expect(currentPin.headStorageId).not.toBe(appendPin.headStorageId);
     expect((await loadApp(ports, key, currentPin.headStorageId)).head.eventSegments.length)
       .toBe(appendSnapshot.head.eventSegments.length + 1);

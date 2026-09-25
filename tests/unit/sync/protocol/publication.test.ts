@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPublicationCandidate, readPublicationCandidate, publishCandidate } from "../../../../src/sync/protocol/publication.js";
+import { buildPublicationCandidate, readPublicationCandidate, readPublicationObject, publishCandidate } from "../../../../src/sync/protocol/publication.js";
 import { encodeVaultHeader, encodeVaultIndex, decodeVaultIndex, decodeAppManifest } from "../../../../src/persistence/codecs/vault.js";
 import { authenticateReference } from "../../../../src/sync/protocol/references.js";
 import { DurableHomeDouble } from "../../../provider-contract/shared/double.js";
@@ -17,9 +17,9 @@ describe("authenticated publication candidates (CA-34/35/38)", () => {
     expect(value.header.generation).toBe(1n);
     expect(value.expectedRevision).toBeNull();
     expect(value.header.previousHeadSha256).toBeNull();
-    expect(value.objects[0]!.bytes).toEqual(object.bytes);
+    expect(await readPublicationObject(candidate, value.objects[0]!.id, signal)).toEqual(object.bytes);
     expect(value.manifest.totalPaddedBytes).toBe(4096n);
-    expect(value.manifest.semanticSha256).toEqual(await crypto.sha256(input.graph.canonicalAuthoredState));
+    expect(value.manifest.semanticSha256).toEqual(await ports.hashChunks(input.graph.canonicalAuthoredState(signal), signal));
     expect(value.manifest.semanticSha256).not.toEqual(await crypto.sha256(object.bytes));
     const home = new DurableHomeDouble();
     const confirmed = await publishCandidate(candidate, home, signal, crypto);
@@ -79,7 +79,7 @@ describe("authenticated publication candidates (CA-34/35/38)", () => {
     const { input, ports } = await publicationFixture();
     const candidate = await buildPublicationCandidate(input, ports);
     const copied = readPublicationCandidate(candidate);
-    copied.headBytes.fill(0); copied.objects[0]!.bytes.fill(0);
+    copied.headBytes.fill(0); (await readPublicationObject(candidate, copied.objects[0]!.id, signal)).fill(0);
     expect(readPublicationCandidate(candidate).headBytes).not.toEqual(copied.headBytes);
     const home = new DurableHomeDouble();
     const abort = new AbortController();
@@ -127,4 +127,44 @@ it("does not return a confirmation when cancellation arrives during head readbac
   await expect(publishCandidate(candidate, home, abort.signal, crypto)).rejects.toThrow();
   // CAS already happened; cancellation suppresses confirmation, not remote bytes.
   expect((await readHead(signal))!.bytes).toEqual(readPublicationCandidate(candidate).headBytes);
+});
+
+it("processes many batches without retaining loader buffers and rejects changed pinned bytes", async () => {
+  const { input, ports, object } = await publicationFixture();
+  const originals = new Map([[encodeBase64Url(input.graph.objects[0]!.reference.storageId), object.bytes]]);
+  const objects = [...input.graph.objects];
+  for (let i = 30; i < 62; i++) {
+    const frame = await ports.crypto.seal({ scope: "app.source-chunk", payloadKind: "app.source-chunk", storageId: asStorageId16(id(i)),
+      logicalRevision: 1n, payload: new Uint8Array(1024).fill(i), compression: "none", key: input.appKey });
+    const reference = { ...ref("app.source-chunk", i), paddedBytes: frame.paddedBytes, ciphertextSha256: await crypto.sha256(frame.ciphertext) };
+    objects.push({ reference, payloadKind: "app.source-chunk", children: [] });
+    originals.set(encodeBase64Url(frame.storageId), serializeEnvelopeTransport(frame));
+  }
+  objects[0] = { ...objects[0]!, children: objects.slice(1).map((object) => object.reference) };
+  let previous: Uint8Array | undefined;
+  let reads = 0;
+  const graph = { ...input.graph, objects, readObject: (storageId: Uint8Array) => {
+    previous?.fill(0);
+    previous = originals.get(encodeBase64Url(storageId))!.slice();
+    reads++;
+    return Promise.resolve(previous);
+  } };
+  const candidate = await buildPublicationCandidate({ ...input, graph }, ports, signal);
+  expect(reads).toBeGreaterThan(32);
+  const value = readPublicationCandidate(candidate);
+  expect(value.objects).toHaveLength(35);
+  for (const object of objects) {
+    const id = encodeBase64Url(object.reference.storageId);
+    expect(await readPublicationObject(candidate, id, signal)).toEqual(originals.get(id));
+  }
+  // Negative control: collecting this producer before consuming its batches
+  // loses every buffer except the final one.
+  const collected = [];
+  for (const object of objects) collected.push(await graph.readObject(object.reference.storageId));
+  expect(collected[0]).not.toEqual(originals.get(encodeBase64Url(objects[0].reference.storageId)));
+  originals.get(encodeBase64Url(objects[1]!.reference.storageId))!.fill(0);
+  await expect(readPublicationObject(candidate, encodeBase64Url(objects[1]!.reference.storageId), signal)).rejects.toThrow(/changed/);
+  const abort = new AbortController();
+  abort.abort(new Error("cancelled"));
+  await expect(buildPublicationCandidate({ ...input, graph }, ports, abort.signal)).rejects.toThrow("cancelled");
 });

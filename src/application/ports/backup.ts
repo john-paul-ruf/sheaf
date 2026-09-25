@@ -22,15 +22,19 @@ export interface BackupSnapshotIdentityV1 {
 export interface BackupGraphObjectV1 {
   readonly reference: EnvelopeReferenceV1;
   readonly payloadKind: EnvelopePayloadKindV1;
-  readonly bytes: Uint8Array;
   /** Descendants obtained from this object's authenticated payload by its owner. */
   readonly children: readonly EnvelopeReferenceV1[];
 }
 /** S02 supplies the complete graph and independently reconstructed authored state. */
 export interface BackupAppGraphV1 {
+  /** Worker-owned lifetime; closure invalidates reads and publication. */
+  readonly signal: AbortSignal;
   readonly manifest: Omit<AppManifestV1, "generation" | "previousManifestSha256" | "semanticSha256" | "totalPaddedBytes">;
   readonly objects: readonly BackupGraphObjectV1[];
-  readonly canonicalAuthoredState: Uint8Array;
+  /** Metadata only; readers must keep the pinned source live through publication. */
+  readObject(this: void, storageId: Uint8Array, signal: AbortSignal): Promise<Uint8Array>;
+  readonly authoredAppId: Uint8Array;
+  canonicalAuthoredState(this: void, signal: AbortSignal): AsyncIterable<Uint8Array>;
   readonly checkpointChains: readonly DeviceChainEvidenceV1[];
   readonly deviceChains: readonly DeviceChainEvidenceV1[];
 }

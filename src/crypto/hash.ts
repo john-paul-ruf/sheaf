@@ -20,3 +20,26 @@ export async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   const sodium = await loadSodium();
   return sodium.crypto_hash_sha256(bytes);
 }
+
+/** Hash exact bytes in order without collecting the input stream. */
+export async function sha256Chunks(
+  chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  signal?.throwIfAborted();
+  const sodium = await loadSodium();
+  signal?.throwIfAborted();
+  const state = sodium.crypto_hash_sha256_init();
+  try {
+    for await (const chunk of chunks) {
+      signal?.throwIfAborted();
+      sodium.crypto_hash_sha256_update(state, chunk);
+    }
+    signal?.throwIfAborted();
+  } catch (cause) {
+    // Finalization releases the WASM state, including on producer failure.
+    sodium.crypto_hash_sha256_final(state).fill(0);
+    throw cause;
+  }
+  return sodium.crypto_hash_sha256_final(state);
+}

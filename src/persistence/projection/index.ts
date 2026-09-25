@@ -76,3 +76,5 @@ export type {
   Sha256Fn,
   ValidationIssueV1Input,
 } from "./types.js";
+
+export { authoredState } from "./authored-state.js";

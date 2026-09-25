@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import type * as Port from "../../../src/application/ports/projection.js";
 import type * as Events from "../../../src/application/ports/event-repository.js";
+import type { authoredState } from "../../../src/persistence/projection/authored-state.js";
 import type * as Engine from "../../../src/persistence/projection/types.js";
 
 /** `true` only when `Left` and `Right` are assignable to each other. */
@@ -37,6 +38,13 @@ function mutual<Left, Right>(_proof: Mutual<Left, Right>): void {
 }
 
 describe("the projection port and the projection engine", () => {
+  it("keeps the separate authored-state cursor structurally assignable both ways", () => {
+    type EngineCursor = {
+      authoredState(signal: Parameters<typeof authoredState>[1]): ReturnType<typeof authoredState>;
+    };
+    mutual<Port.ProjectionAuthoredStatePort, EngineCursor>(true);
+    expect(true).toBe(true);
+  });
   it("agree on every hydration shape", () => {
     mutual<Port.ProjectionAppStateV1, Engine.ProjectionAppStateV1>(true);
     mutual<Port.ProjectionSheetSnapshotV1, Engine.ProjectionSheetSnapshotV1>(true);

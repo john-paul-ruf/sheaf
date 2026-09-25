@@ -277,6 +277,69 @@ export function encodeCanonical(value: CborValue): Uint8Array {
   return sink.toBytes();
 }
 
+/** A definite-length array whose values are read only as bytes are consumed. */
+export class CanonicalArray {
+  constructor(
+    readonly length: number,
+    readonly values: () => AsyncIterable<CanonicalStreamValue> | Iterable<CanonicalStreamValue>,
+  ) {
+    if (!Number.isSafeInteger(length) || length < 0) {
+      throw new CodecError("invalid canonical array length");
+    }
+  }
+}
+
+export type CanonicalStreamValue = CborValue | CanonicalArray |
+  readonly CanonicalStreamValue[] | ReadonlyMap<CborKey, CanonicalStreamValue>;
+
+/** Same wire encoding as encodeCanonical; collection values may arrive lazily. */
+export async function* encodeCanonicalChunks(
+  value: CanonicalStreamValue,
+  signal?: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  function head(major: number, length: number): Uint8Array {
+    const sink = new ByteSink();
+    writeHead(sink, major, BigInt(length));
+    return sink.toBytes();
+  }
+  async function* visit(value: CanonicalStreamValue, depth: number): AsyncGenerator<Uint8Array> {
+    signal?.throwIfAborted();
+    if (depth > DEFAULT_DECODE_BUDGET.maxDepth) throw new CodecError("value nests deeper than the codec depth bound");
+    if (value instanceof CanonicalArray || Array.isArray(value)) {
+      yield head(MAJOR_ARRAY, value.length);
+      let count = 0;
+      const items = value instanceof CanonicalArray ? value.values() : value as readonly CanonicalStreamValue[];
+      for await (const item of items) {
+        if (++count > value.length) throw new CodecError("canonical array exceeds declared length");
+        yield* visit(item, depth + 1);
+      }
+      if (count !== value.length) throw new CodecError("canonical array is shorter than declared length");
+    } else if (value instanceof Map) {
+      const map: ReadonlyMap<CborKey, CanonicalStreamValue> = value;
+      const entries = [...map.keys()].map((key) => ({ key, bytes: encodeKey(key, depth + 1) }));
+      entries.sort((a, b) => compareBytes(a.bytes, b.bytes));
+      for (let i = 1; i < entries.length; i++) {
+        if (compareBytes(entries[i - 1]!.bytes, entries[i]!.bytes) === 0) throw new CodecError("map has duplicate keys");
+      }
+      yield head(MAJOR_MAP, entries.length);
+      for (const entry of entries) {
+        yield entry.bytes;
+        yield* visit(map.get(entry.key)!, depth + 1);
+      }
+    } else if (value instanceof Uint8Array) {
+      yield head(MAJOR_BYTES, value.length);
+      for (let offset = 0; offset < value.length; offset += 65_536) {
+        signal?.throwIfAborted();
+        yield value.slice(offset, offset + 65_536);
+      }
+    } else {
+      yield encodeCanonical(value as CborValue);
+    }
+    signal?.throwIfAborted();
+  }
+  yield* visit(value, 1);
+}
+
 class CanonicalReader {
   #offset = 0;
 

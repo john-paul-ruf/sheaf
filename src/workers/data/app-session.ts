@@ -220,7 +220,7 @@ export function localClockReading(clock: ClockPort): { readonly epochMs: number;
 }
 
 /** M12 behind M07's port. The two vocabularies are structurally identical. */
-function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
+export function engineAdapter(handle: ProjectionHandleV1): ProjectionEnginePort {
   return {
     execute<K extends ProjectionQueryKindV1>(
       query: Extract<PortQueryV1, { readonly kind: K }>,
@@ -298,7 +298,7 @@ async function openSnapshot(
 
 // ------------------------------------------------------- checkpoint mapping --
 
-function tableContexts(
+export function tableContexts(
   checkpoint: Omit<ResolvedCheckpointManifestV1, "semanticSha256">,
   referenceExists: ReferenceResolver,
 ): ReadonlyMap<string, TableContextV1> {
@@ -574,7 +574,7 @@ async function replayTail(
   }
 }
 
-function toProjectionCommit(
+export function toProjectionCommit(
   projection: ProjectionEnginePort,
   commit: EventCommitV1,
 ): ProjectionCommitV1 {

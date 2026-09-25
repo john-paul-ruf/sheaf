@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CanonicalArray,
+  encodeCanonicalChunks,
   DEFAULT_DECODE_BUDGET,
   decodeCanonical,
   decodeCanonicalPrefix,
@@ -225,4 +227,33 @@ describe("canonical CBOR bounds", () => {
     expect(() => decodeCanonical(hex("18"))).toThrow(/ended inside a value/);
     expect(() => decodeCanonical(new Uint8Array())).toThrow(/ended inside a value/);
   });
+});
+
+
+it("streams the same canonical bytes, including nested lazy arrays", async () => {
+  async function collect(value: Parameters<typeof encodeCanonicalChunks>[0]) {
+    const chunks = [];
+    for await (const bytes of encodeCanonicalChunks(value)) chunks.push(...bytes);
+    return Uint8Array.from(chunks);
+  }
+  for (const [value] of RFC_8949_VECTORS) expect(await collect(value)).toEqual(encodeCanonical(value));
+  const values = Array.from({ length: 100 }, (_, i) => new Map<string, CborValue>([["value", i]]));
+  let reads = 0;
+  const array = new CanonicalArray(values.length, function* () {
+    for (const value of values) { reads++; yield value; }
+  });
+  const cursor = encodeCanonicalChunks(array);
+  await cursor.next();
+  expect(reads).toBe(0);
+  await cursor.return(undefined);
+  expect(await collect(array)).toEqual(encodeCanonical(values));
+  expect(reads).toBe(100);
+  await expect(collect(new CanonicalArray(1, () => []))).rejects.toThrow(/shorter/);
+  await expect(collect(new CanonicalArray(0, () => [1]))).rejects.toThrow(/exceeds/);
+  const abort = new AbortController();
+  const cancelled = encodeCanonicalChunks(array, abort.signal);
+  await cancelled.next(); abort.abort(new Error("cancelled"));
+  await expect(cancelled.next()).rejects.toThrow("cancelled");
+  await expect(collect(new Map<CborKey, CborValue>([[1, 1], [1n, 2]]))).rejects.toThrow(/duplicate/);
+  await expect(collect([undefined as unknown as CborValue])).rejects.toThrow(/no canonical/);
 });

@@ -43,6 +43,7 @@ import type { EvaluationResultV1, FormulaResultValueV1 } from "../../domain/form
 import {
   asDomainId,
   compareDomainIds,
+  encodeDomainId,
   type FieldId,
 } from "../../domain/model/ids.js";
 import {
@@ -221,6 +222,7 @@ const decodeProvenance = (value: DecodedValue): ValueProvenanceV1 => {
  */
 export function encodeAuthoredRecord(record: AuthoredRecordV1): Uint8Array {
   const fieldIds = [...record.values.keys()].sort(compareDomainIds);
+  const sources = new Map([...record.provenance].map(([id, source]) => [encodeDomainId(id), source]));
   const entries = fieldIds.map((fieldId) => {
     const value = record.values.get(fieldId);
     if (value === undefined) {
@@ -230,7 +232,7 @@ export function encodeAuthoredRecord(record: AuthoredRecordV1): Uint8Array {
       ["fieldId", fieldId],
       ["value", encodeCellValue(value)],
     ]);
-    const provenance = record.provenance.get(fieldId);
+    const provenance = sources.get(encodeDomainId(fieldId));
     if (provenance !== undefined) {
       entry.set("provenance", encodeProvenance(provenance));
     }

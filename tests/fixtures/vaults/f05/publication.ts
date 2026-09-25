@@ -1,10 +1,11 @@
+import { sha256Chunks } from "../../../../src/crypto/hash.js";
 import { referenceFromLocal } from "../../../../src/sync/protocol/references.js";
 import { encodeBase64Url } from "../../../../src/domain/model/bytes.js";
 import { createVaultCrypto } from "../../../../src/crypto/vault-port.js";
 import { encryptEnvelope } from "../../../../src/crypto/envelope.js";
 import type { SecretKeyHandle } from "../../../../src/crypto/keys.js";
 import { asDomainId } from "../../../../src/domain/model/ids.js";
-import { encodeCanonical } from "../../../../src/persistence/codecs/canonical-cbor.js";
+import { encodeCanonicalChunks } from "../../../../src/persistence/codecs/canonical-cbor.js";
 import { encodeCheckpointBody, encodeCheckpointManifest, type CheckpointManifestV1 } from "../../../../src/import/staging/roots.js";
 import { DEFAULT_APP_THEME } from "../../../../src/import/staging/theme.js";
 import type { PublicationInputV1, PublicationPortsV1 } from "../../../../src/sync/protocol/publication.js";
@@ -33,11 +34,16 @@ export async function publicationFixture() {
   const input: PublicationInputV1 = { base: { kind: "create", secrets: bootstrap }, vaultId: id(3), homeId: id(8),
     vaultKey, appKey: object.key, committedAtMs: 1000n,
     app: { displayName: "PRIVATE-F05-SENTINEL", appSchemaRevision: 1n, recordCount: 0n },
-    graph: { manifest: { ...graphManifest, checkpoint: reference },
-      objects: [{ reference, payloadKind: "app.checkpoint-manifest", bytes: object.bytes, children: [] }],
-      canonicalAuthoredState: encodeCanonical(new Map([["appId", appId], ["checkpointBody", encodeCheckpointBody(checkpoint)]])),
+    graph: { signal: new AbortController().signal, manifest: { ...graphManifest, checkpoint: reference },
+      objects: [{ reference, payloadKind: "app.checkpoint-manifest", children: [] }],
+      readObject: (storageId) => {
+        if (encodeBase64Url(storageId) !== encodeBase64Url(reference.storageId)) throw new Error("missing fixture object");
+        return Promise.resolve(object.bytes.slice());
+      },
+      authoredAppId: appId,
+      canonicalAuthoredState: (signal) => encodeCanonicalChunks(new Map([["appId", appId], ["checkpointBody", encodeCheckpointBody(checkpoint)]]), signal),
       checkpointChains: [], deviceChains: [] } };
-  const ports: PublicationPortsV1 = { crypto: { ...crypto,
+  const ports: PublicationPortsV1 = { hashChunks: sha256Chunks, crypto: { ...crypto,
     seal: (request) => encryptEnvelope({ ...request, key: request.key as SecretKeyHandle, nonce: random.randomBytes(24) }) },
     entropy: random, vaultCrypto };
   return { input, ports, object };

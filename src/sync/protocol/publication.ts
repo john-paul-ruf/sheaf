@@ -32,6 +32,7 @@ export interface PublicationPortsV1 {
   readonly crypto: EnvelopeCryptoPort;
   readonly vaultCrypto: VaultCryptoPort;
   readonly entropy: EntropyPort;
+  readonly hashChunks: (chunks: AsyncIterable<Uint8Array>, signal: AbortSignal) => Promise<Uint8Array>;
 }
 export interface PublicationCandidateV1 { readonly kind: "vault-publication" }
 export interface PublicationContentsV1 {
@@ -39,20 +40,34 @@ export interface PublicationContentsV1 {
   readonly header: VaultHeaderV1;
   readonly index: VaultIndexV1;
   readonly manifest: AppManifestV1;
-  readonly objects: readonly { readonly id: string; readonly bytes: Uint8Array }[];
+  readonly objects: readonly { readonly id: string }[];
   readonly snapshot: BackupSnapshotIdentityV1;
   readonly expectedRevision: string | null;
   readonly expectedHeadSha256: Uint8Array | null;
 }
-const candidates = new WeakMap<PublicationCandidateV1, PublicationContentsV1>();
+interface StoredCandidateV1 {
+  readonly signal: AbortSignal;
+  readonly metadata: PublicationContentsV1;
+  readonly read: (id: string, signal: AbortSignal) => Promise<Uint8Array>;
+}
+const candidates = new WeakMap<PublicationCandidateV1, StoredCandidateV1>();
 function contents(candidate: PublicationCandidateV1): PublicationContentsV1 {
   const value = candidates.get(candidate);
   if (value === undefined) throw new IntegrityError("unknown publication candidate");
-  return value;
+  value.signal.throwIfAborted();
+  return value.metadata;
 }
 /** Copies only: callers cannot mutate the exact bytes held for publication. */
 export function readPublicationCandidate(candidate: PublicationCandidateV1): PublicationContentsV1 {
   return structuredClone(contents(candidate));
+}
+export async function readPublicationObject(candidate: PublicationCandidateV1, id: string, signal: AbortSignal): Promise<Uint8Array> {
+  contents(candidate);
+  signal = AbortSignal.any([signal, candidates.get(candidate)!.signal]);
+  signal.throwIfAborted();
+  const bytes = await candidates.get(candidate)!.read(id, signal);
+  signal.throwIfAborted();
+  return bytes;
 }
 function same(left: unknown, right: unknown): boolean {
   return constantTimeEquals(encodeCanonical(vaultValue(left)), encodeCanonical(vaultValue(right)));
@@ -62,7 +77,7 @@ function roots(manifest: BackupAppGraphV1["manifest"]): readonly EnvelopeReferen
     ...manifest.auditPages, ...manifest.sourceManifests, ...manifest.snapshotManifests, ...manifest.retainedRoots];
 }
 
-async function verifyGraph(graph: BackupAppGraphV1, key: EnvelopeKeyRefV1, crypto: EnvelopeCryptoPort): Promise<bigint> {
+async function verifyGraph(graph: BackupAppGraphV1, key: EnvelopeKeyRefV1, crypto: EnvelopeCryptoPort, signal: AbortSignal, hashes: Map<string, Uint8Array>): Promise<bigint> {
   // Exporter owns payload-specific descendant and authored-state reconstruction.
   // This layer authenticates every supplied edge/object and verifies chain closure.
   const objects = new Map<string, BackupGraphObjectV1>();
@@ -73,7 +88,6 @@ async function verifyGraph(graph: BackupAppGraphV1, key: EnvelopeKeyRefV1, crypt
   }
   const seen = new Set<string>();
   const active = new Set<string>();
-  const payloads = new Map<string, Uint8Array>();
   let total = 0n;
   async function visit(reference: EnvelopeReferenceV1): Promise<void> {
     const id = encodeBase64Url(reference.storageId);
@@ -82,32 +96,48 @@ async function verifyGraph(graph: BackupAppGraphV1, key: EnvelopeKeyRefV1, crypt
     if (!same(reference, object.reference)) throw new IntegrityError("graph reference substitution");
     if (active.has(id)) throw new IntegrityError("cyclic graph");
     if (seen.has(id)) return;
-    const payload = await authenticateReference(object.bytes, reference, object.payloadKind, key, crypto);
-    payloads.set(id, payload);
+    hashes.set(id, await verifyObject(object));
     total += BigInt(reference.paddedBytes);
     active.add(id);
     for (const child of object.children) await visit(child);
     active.delete(id);
     seen.add(id);
   }
+  async function verifyObject(object: BackupGraphObjectV1): Promise<Uint8Array> {
+    signal.throwIfAborted();
+    const bytes = await graph.readObject(object.reference.storageId, signal);
+    await authenticateReference(bytes, object.reference, object.payloadKind, key, crypto);
+    signal.throwIfAborted();
+    return crypto.sha256(bytes);
+  }
+  async function payload(reference: EnvelopeReferenceV1): Promise<Uint8Array> {
+    signal.throwIfAborted();
+    const bytes = await graph.readObject(reference.storageId, signal);
+    if (!constantTimeEquals(await crypto.sha256(bytes), hashes.get(encodeBase64Url(reference.storageId))!)) throw new IntegrityError("pinned graph bytes changed");
+    return authenticateReference(bytes, reference, objects.get(encodeBase64Url(reference.storageId))!.payloadKind, key, crypto);
+  }
   for (const reference of roots(graph.manifest)) await visit(reference);
   if (seen.size !== objects.size) throw new IntegrityError("unreachable extra graph object");
-  const checkpoint = decodeCanonical(payloads.get(encodeBase64Url(graph.manifest.checkpoint.storageId))!);
+  const checkpoint = decodeCanonical(await payload(graph.manifest.checkpoint));
   if (!(checkpoint instanceof Map) || !same(checkpoint.get("appId"), graph.manifest.appId)) throw new IntegrityError("checkpoint belongs to another app");
   const frontier = readFrontier(checkpoint.get("frontier"));
   if (!same(frontier, graph.checkpointChains.map(({ deviceId, commitSequence }) => ({ deviceId, commitSequence })))) throw new IntegrityError("checkpoint chain frontier mismatch");
+  async function* segments() {
+    for (const reference of graph.manifest.eventSegments) yield decodeEventSegment(await payload(reference));
+  }
   const chains = await verifyBackupFrontier(graph.manifest.appId, graph.checkpointChains,
-    graph.manifest.eventSegments.map((ref) => decodeEventSegment(payloads.get(encodeBase64Url(ref.storageId))!)),
-    graph.manifest.confirmedFrontier, (bytes) => crypto.sha256(bytes));
+    segments(), graph.manifest.confirmedFrontier, (bytes) => crypto.sha256(bytes), signal);
   if (!same(chains, graph.deviceChains)) throw new IntegrityError("final device chain evidence mismatch");
-  const state = decodeCanonical(graph.canonicalAuthoredState);
-  if (!(state instanceof Map) || !same(state.get("appId"), graph.manifest.appId)) throw new IntegrityError("authored state belongs to another app");
+  if (!constantTimeEquals(graph.authoredAppId, graph.manifest.appId)) throw new IntegrityError("authored state belongs to another app");
   return total;
 }
 
-export async function buildPublicationCandidate(input: PublicationInputV1, ports: PublicationPortsV1): Promise<PublicationCandidateV1> {
+export async function buildPublicationCandidate(input: PublicationInputV1, ports: PublicationPortsV1, signal: AbortSignal = new AbortController().signal): Promise<PublicationCandidateV1> {
   // Snapshot caller buffers before awaiting any crypto or provider work.
-  const graph = structuredClone(input.graph);
+  signal = AbortSignal.any([signal, input.graph.signal]);
+  signal.throwIfAborted();
+  const { readObject, canonicalAuthoredState, signal: lifetime, ...metadata } = input.graph;
+  const graph: BackupAppGraphV1 = { ...structuredClone(metadata), signal: lifetime, readObject, canonicalAuthoredState };
   const base = structuredClone(input.base);
   const vaultId = input.vaultId.slice();
   const homeId = input.homeId.slice();
@@ -137,10 +167,12 @@ export async function buildPublicationCandidate(input: PublicationInputV1, ports
       if (next === undefined || next.commitSequence < covered.commitSequence) throw new IntegrityError("candidate frontier regresses");
     }
   }
-  const totalPaddedBytes = await verifyGraph(graph, input.appKey, ports.crypto);
+  const hashes = new Map<string, Uint8Array>();
+  const totalPaddedBytes = await verifyGraph(graph, input.appKey, ports.crypto, signal, hashes);
   const manifest: AppManifestV1 = { ...graph.manifest, generation, previousManifestSha256: previousApp?.manifest.ciphertextSha256 ?? null,
-    semanticSha256: await ports.crypto.sha256(graph.canonicalAuthoredState), totalPaddedBytes };
-  const objects = graph.objects.map((object) => ({ id: encodeBase64Url(object.reference.storageId), bytes: object.bytes }));
+    semanticSha256: await ports.hashChunks(graph.canonicalAuthoredState(signal), signal), totalPaddedBytes };
+  const objects = graph.objects.map((object) => ({ id: encodeBase64Url(object.reference.storageId) }));
+  const generated = new Map<string, Uint8Array>();
   const ids = new Set(objects.map((object) => object.id));
   async function seal(payload: Uint8Array, scope: EnvelopeScopeV1, payloadKind: EnvelopePayloadKindV1, key: EnvelopeKeyRefV1): Promise<EnvelopeReferenceV1> {
     const storageId = asStorageId16(ports.entropy.randomBytes(16));
@@ -148,7 +180,8 @@ export async function buildPublicationCandidate(input: PublicationInputV1, ports
     if (ids.has(id)) throw new IntegrityError("new object ID collision");
     ids.add(id);
     const frame = await ports.crypto.seal({ scope, payloadKind, storageId, logicalRevision: generation, payload, compression: "none", key });
-    objects.push({ id, bytes: serializeEnvelopeTransport(frame) });
+    generated.set(id, serializeEnvelopeTransport(frame));
+    objects.push({ id });
     return { storageId, scope, logicalRevision: frame.logicalRevision, envelopeFormatVersion: frame.envelopeFormatVersion,
       codecVersion: frame.codecVersion, cipherSuiteVersion: frame.cipherSuiteVersion, paddedBytes: frame.paddedBytes,
       ciphertextSha256: await ports.crypto.sha256(frame.ciphertext) };
@@ -178,7 +211,21 @@ export async function buildPublicationCandidate(input: PublicationInputV1, ports
     confirmedFrontier: graph.manifest.confirmedFrontier, candidateSha256: await ports.crypto.sha256(headBytes),
     retainedGenerationRoots: index.retainedGenerationRoots, retainedRoots: graph.manifest.retainedRoots, deviceChains: graph.deviceChains };
   const candidate: PublicationCandidateV1 = Object.freeze({ kind: "vault-publication" });
-  candidates.set(candidate, structuredClone({ headBytes, header, index, manifest, objects, snapshot, expectedRevision, expectedHeadSha256 }));
+  signal.throwIfAborted();
+  candidates.set(candidate, {
+    signal: graph.signal,
+    metadata: structuredClone({ headBytes, header, index, manifest, objects, snapshot, expectedRevision, expectedHeadSha256 }),
+    async read(id, readSignal) {
+      readSignal.throwIfAborted();
+      const sealed = generated.get(id);
+      if (sealed !== undefined) return sealed.slice();
+      const object = graph.objects.find((object) => encodeBase64Url(object.reference.storageId) === id);
+      if (object === undefined) throw new IntegrityError("unknown publication object");
+      const bytes = await graph.readObject(object.reference.storageId, readSignal);
+      if (!constantTimeEquals(await ports.crypto.sha256(bytes), hashes.get(id)!)) throw new IntegrityError("pinned graph bytes changed");
+      return bytes;
+    },
+  });
   return candidate;
 }
 
@@ -186,13 +233,14 @@ export async function buildPublicationCandidate(input: PublicationInputV1, ports
 export async function publishCandidate(candidate: PublicationCandidateV1, home: DurableHomePort,
   signal: AbortSignal, crypto: Pick<EnvelopeCryptoPort, "sha256">): Promise<{ readonly snapshot: BackupSnapshotIdentityV1; readonly receipt: HeadReceiptV1 }> {
   const value = contents(candidate);
+  signal = AbortSignal.any([signal, candidates.get(candidate)!.signal]);
   signal.throwIfAborted();
   const observed = await home.readHead(signal);
   if ((observed?.revision ?? null) !== value.expectedRevision ||
       (observed !== null && (value.expectedHeadSha256 === null || !constantTimeEquals(await crypto.sha256(observed.bytes), value.expectedHeadSha256)))) throw new IntegrityError("stale publication predecessor");
   for (const object of value.objects) {
     signal.throwIfAborted();
-    await home.createObject(object.id, object.bytes.slice(), signal);
+    await home.createObject(object.id, await readPublicationObject(candidate, object.id, signal), signal);
   }
   signal.throwIfAborted();
   const receipt = await home.compareAndSwapHead(value.expectedRevision, value.headBytes.slice(), signal);

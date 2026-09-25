@@ -181,16 +181,12 @@ async function assertDigest(
   }
 }
 
-/**
- * Loads and verifies everything the head names. This is the read half of
- * CA-11: a root whose digest does not describe it, a page whose declared count
- * is not its real one, or a segment naming another app all stop the open.
- */
-export async function loadApp(
+/** Authenticate the pinned identity without materializing its record/event graph. */
+export async function readAppHead(
   ports: AppStoragePortsV1,
   appKey: EnvelopeKeyRefV1,
   appHeadStorageId: string,
-): Promise<LoadedAppV1> {
+): Promise<AppHeadV1> {
   const headPayload = await openRoot(
     ports,
     appKey,
@@ -205,6 +201,21 @@ export async function loadApp(
     head.semanticSha256,
     "the app head",
   );
+
+  return head;
+}
+
+/**
+ * Loads and verifies everything the head names. This is the read half of
+ * CA-11: a root whose digest does not describe it, a page whose declared count
+ * is not its real one, or a segment naming another app all stop the open.
+ */
+export async function loadApp(
+  ports: AppStoragePortsV1,
+  appKey: EnvelopeKeyRefV1,
+  appHeadStorageId: string,
+): Promise<LoadedAppV1> {
+  const head = await readAppHead(ports, appKey, appHeadStorageId);
 
   const checkpointPayload = await openRoot(
     ports,

@@ -35,7 +35,6 @@ import {
   type ProjectionMigrationScripts,
 } from "../../migrations/index.js";
 import type {
-  EventCommitV1,
   FrontierEntryV1,
 } from "../../migrations/004_event_format_v1.js";
 import type { EvaluationClockReadingV1 } from "../../domain/formulas/evaluate.js";
@@ -74,13 +73,8 @@ export interface ProjectionHandleV1 {
   volatileReading: EvaluationClockReadingV1 | null;
   readonly statements: Map<string, PreparedStatement>;
   readonly schema: ProjectionSchemaCacheV1;
-  /**
-   * Every commit applied so far, in the order applied. The chain guard is fed
-   * the accumulated set rather than one segment, because a per-device chain
-   * cannot be verified across a gap the verifier was never shown (D27 puts one
-   * commit in each segment).
-   */
-  readonly appliedCommits: EventCommitV1[];
+  /** Last verified hash per device; replay never retains the decoded event log. */
+  readonly appliedChains: Map<string, { readonly sequence: bigint; readonly hash: Uint8Array }>;
   /** The applied frontier: one entry per device, keyed by its ID text. */
   readonly frontier: Map<string, FrontierEntryV1>;
   hydrated: boolean;
@@ -123,7 +117,7 @@ export async function openProjection(
       formulas: new Map(),
       charts: new Map(),
     },
-    appliedCommits: [],
+    appliedChains: new Map(),
     frontier: new Map(),
     hydrated: false,
     disposed: false,
@@ -185,7 +179,7 @@ export function disposeProjection(handle: ProjectionHandleV1): void {
   handle.schema.relationships.clear();
   handle.schema.formulas.clear();
   handle.schema.charts.clear();
-  handle.appliedCommits.length = 0;
+  handle.appliedChains.clear();
   handle.frontier.clear();
   handle.database.close();
 }

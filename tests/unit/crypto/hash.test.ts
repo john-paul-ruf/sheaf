@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SHA256_BYTES, sha256 } from "../../../src/crypto/hash.js";
+import { SHA256_BYTES, sha256, sha256Chunks } from "../../../src/crypto/hash.js";
 
 const hex = (bytes: Uint8Array): string =>
   [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -36,5 +36,38 @@ describe("sha256", () => {
     tweaked[31] = 2;
 
     expect(hex(await sha256(base))).not.toBe(hex(await sha256(tweaked)));
+  });
+});
+
+
+describe("bounded SHA-256", () => {
+  it("preserves known answers at every chunk boundary", async () => {
+    for (const [input, expected] of VECTORS) {
+      const bytes = utf8(input);
+      for (let split = 0; split <= bytes.length; split++) {
+        expect(hex(await sha256Chunks([bytes.slice(0, split), bytes.slice(split)]))).toBe(expected);
+      }
+    }
+  });
+
+  it("consumes each chunk before requesting the next and propagates failures", async () => {
+    const chunk = new Uint8Array(64);
+    function* source() {
+      for (let i = 0; i < 100; i++) { chunk.fill(i); yield chunk; }
+      chunk.fill(255);
+    }
+    const expected = await sha256(Uint8Array.from({ length: 6400 }, (_, i) => Math.floor(i / 64)));
+    expect(await sha256Chunks(source())).toEqual(expected);
+    // Negative control: an eager collector aliases the reused producer buffer.
+    const eager = [];
+    for (const value of source()) eager.push(value);
+    expect(await sha256Chunks(eager)).not.toEqual(expected);
+    const failure = new Error("producer failed");
+    function* broken() { yield chunk; throw failure; }
+    await expect(sha256Chunks(broken())).rejects.toBe(failure);
+    const abort = new AbortController();
+    function* cancelled() { yield chunk; abort.abort(failure); yield chunk; }
+    await expect(sha256Chunks(cancelled(), abort.signal)).rejects.toBe(failure);
+    expect(hex(await sha256Chunks([]))).toBe(VECTORS[0]![1]);
   });
 });

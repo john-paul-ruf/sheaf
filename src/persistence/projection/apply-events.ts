@@ -10,9 +10,8 @@
  * disposed (database.md § Replay guards, CA-13(e)). A person then sees a
  * recoverable corruption state rather than an app quietly missing a change.
  *
- * The chain guard is fed the **accumulated** commit set, never one segment: F02
- * puts one commit in each segment (D27), and a per-device hash chain cannot be
- * verified across a gap the verifier was never shown.
+ * The chain guard retains the last verified hash per device across batches;
+ * no decoded event log is accumulated during replay.
  *
  * Two things this module refuses to do:
  *
@@ -62,7 +61,7 @@ import {
   type FieldDefV1,
   type RelationshipDefV1,
 } from "../../domain/model/schema.js";
-import { compareCommits, verifyCommitChain } from "../codecs/event-commit.js";
+import { compareCommits, encodeCommitBody } from "../codecs/event-commit.js";
 import type {
   DomainEventV1 as WireEventV1,
   EventCommitV1,
@@ -266,7 +265,7 @@ export async function applyEvents(
         deviceId: commit.deviceId,
         commitSequence: commit.deviceCommitSequence,
       });
-      handle.appliedCommits.push(commit);
+      handle.appliedChains.set(idKey(commit.deviceId), { sequence: commit.deviceCommitSequence, hash: commit.commitSha256 });
       schemaRevision = commit.schemaRevisionAfter;
     }
 
@@ -327,12 +326,19 @@ async function verifyReplay(
     schemaRevision = commit.schemaRevisionAfter;
   }
 
-  // The whole chain, not one segment: verifying a segment in isolation would
-  // check nothing across the gap between it and its predecessor (D27, S01).
-  await verifyCommitChain(
-    [...handle.appliedCommits, ...ordered.map((entry) => entry.commit)],
-    handle.sha256,
-  );
+  const chains = new Map(handle.appliedChains);
+  for (const { commit } of ordered) {
+    if (!equalBytes(await handle.sha256(encodeCommitBody(commit)), commit.commitSha256)) {
+      throw new IntegrityError("commit hash does not match its body");
+    }
+    const device = idKey(commit.deviceId);
+    const previous = chains.get(device);
+    if (previous !== undefined && (commit.deviceCommitSequence !== previous.sequence + 1n ||
+        commit.previousDeviceCommitSha256 === null || !equalBytes(previous.hash, commit.previousDeviceCommitSha256))) {
+      throw new IntegrityError("device hash chain is broken");
+    }
+    chains.set(device, { sequence: commit.deviceCommitSequence, hash: commit.commitSha256 });
+  }
 }
 
 /**

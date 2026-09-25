@@ -54,6 +54,7 @@ import {
 } from "./cbor-values.js";
 import {
   assertUsable,
+  disposeProjection,
   EVENT_FORMAT_VERSION,
   PROJECTION_FORMAT_VERSION,
   run,
@@ -89,6 +90,7 @@ import type {
   ProjectionCheckpointV1,
   ProjectionCommitV1,
   ProjectionFormulaV1,
+  ProjectionRecordPageV1,
   ProjectionSchemaCacheV1,
   ProjectionSheetSnapshotV1,
 } from "./types.js";
@@ -102,6 +104,7 @@ export async function hydrateApp(
   handle: ProjectionHandleV1,
   checkpoint: ProjectionCheckpointV1,
   tailCommits: readonly ProjectionCommitV1[] = [],
+  pages: AsyncIterable<ProjectionRecordPageV1> | Iterable<ProjectionRecordPageV1> = checkpoint.recordPages,
 ): Promise<void> {
   assertUsable(handle);
   if (handle.hydrated) {
@@ -109,36 +112,41 @@ export async function hydrateApp(
   }
   assertCheckpointShape(checkpoint);
 
-  await withTransaction(handle, () => {
-    loadMetadata(handle, checkpoint);
-  });
-
-  for (const page of checkpoint.recordPages) {
+  try {
     await withTransaction(handle, () => {
-      const ordered = [...page.records].sort((left, right) => {
-        const byTable = compareDomainIds(
-          left.record.tableId,
-          right.record.tableId,
-        );
-        return byTable !== 0
-          ? byTable
-          : compareDomainIds(left.record.recordId, right.record.recordId);
-      });
-      for (const record of ordered) {
-        insertRecord(handle, record);
-      }
+      loadMetadata(handle, checkpoint);
     });
+
+    for await (const page of pages) {
+      await withTransaction(handle, () => {
+        const ordered = [...page.records].sort((left, right) => {
+          const byTable = compareDomainIds(
+            left.record.tableId,
+            right.record.tableId,
+          );
+          return byTable !== 0
+            ? byTable
+            : compareDomainIds(left.record.recordId, right.record.recordId);
+        });
+        for (const record of ordered) {
+          insertRecord(handle, record);
+        }
+      });
+    }
+
+    // Load order step 6: every formula, once the whole graph is present (D60).
+    await withTransaction(handle, () => recalculate(handle, { kind: "all" }));
+
+    for (const entry of checkpoint.frontier) {
+      handle.frontier.set(idKey(entry.deviceId), entry);
+    }
+    handle.hydrated = true;
+
+    await applyEvents(handle, tailCommits);
+  } catch (cause) {
+    disposeProjection(handle);
+    throw cause;
   }
-
-  // Load order step 6: every formula, once the whole graph is present (D60).
-  await withTransaction(handle, () => recalculate(handle, { kind: "all" }));
-
-  for (const entry of checkpoint.frontier) {
-    handle.frontier.set(idKey(entry.deviceId), entry);
-  }
-  handle.hydrated = true;
-
-  await applyEvents(handle, tailCommits);
 }
 
 function assertCheckpointShape(checkpoint: ProjectionCheckpointV1): void {
