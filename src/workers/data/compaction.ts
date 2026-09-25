@@ -2,7 +2,7 @@ import { asStorageId16, decodeStorageId16, encodeStorageId16, encodeBase64Url, c
 import { compareDomainIds, encodeDomainId } from "../../domain/model/ids.js";
 import { IntegrityError } from "../../domain/model/errors.js";
 import { sha256Chunks } from "../../crypto/hash.js";
-import { decodeAuditPage, encodeAuditPage, encodeConflictPage, encodeRecordPage, encodeCheckpointBody, encodeCheckpointManifest,
+import { decodeAuditPage, decodeCheckpointManifest, encodeAuditPage, encodeConflictPage, encodeRecordPage, encodeCheckpointBody, encodeCheckpointManifest,
   encodeAppHeadBody, encodeAppHead, type AppHeadV2, type StoredRecordV2, type PageRefV1,
   type CommitEvidenceRefV1, type ConflictPageV1, type TypedStorageRefV1, type CheckpointManifestV1 } from "../../import/staging/roots.js";
 import { compareCommits, decodeEventSegment } from "../../persistence/codecs/event-commit.js";
@@ -16,7 +16,9 @@ import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
 import { prepareCleanupTicket, processCleanupTickets } from "../../import/staging/cleanup.js";
 import { SessionCatalogPort } from "./import-handlers.js";
 import { reachableAppObjects } from "./home-state.js";
-import type { WorkerSessionContextV1, AppStoragePortsV1 } from "./event-store.js";
+import { openAppKey, readAppHead, type WorkerSessionContextV1, type AppStoragePortsV1 } from "./event-store.js";
+import { parseEnvelopeTransport } from "../../persistence/codecs/envelope-frame.js";
+import type { EnvelopeKeyRefV1 } from "../../application/ports/envelope-crypto.js";
 import type { AppSessionV1 } from "./app-session.js";
 import { decodeEvidenceEventPayload, isEvidenceEventKind } from "./record-event-payloads.js";
 import { exportBackupGraph, openBackupGraphProjection } from "./backup-graph.js";
@@ -251,10 +253,13 @@ export async function drainCompactionCleanup(ports: AppStoragePortsV1, getContex
   } });
 }
 
+type Exclusive = <T>(work: () => Promise<T>) => Promise<T>;
+
 /** Atomic installation; no authored commit, receipt or count is advanced. */
 export async function compactApp(input: { readonly ports: AppStoragePortsV1; readonly session: AppSessionV1;
-  readonly getContext: () => WorkerSessionContextV1; readonly closeApp: (appId: string) => void }, signal: AbortSignal) {
+  readonly getContext: () => WorkerSessionContextV1; readonly closeApp: (appId: string) => void; readonly exclusive?: Exclusive }, signal: AbortSignal) {
   const { ports, session } = input;
+  const exclusive: Exclusive = input.exclusive ?? ((work) => work());
   const context = input.getContext();
   const appId = encodeDomainId(session.appId);
   const source = session.repository.loaded().headStorageId;
@@ -282,11 +287,168 @@ export async function compactApp(input: { readonly ports: AppStoragePortsV1; rea
   check();
   const catalog = new SessionCatalogPort(context);
   const sealed = await catalog.sealWithCompactedApp(appId, source, candidate.headStorageId, prepared.ticket.ticketId);
-  check();
-  const transactionRevision = await ports.store.commit({ expectedRevision: context.transactionRevision, expectedWriterEpoch: context.writerEpoch,
-    addFrames: [...candidate.frames, prepared.frame, sealed.frame], bootstrapPatch: { catalogStorageId: sealed.storageId } });
-  catalog.adopt(sealed.storageId, transactionRevision);
-  input.closeApp(appId);
-  await drainCompactionCleanup(ports, input.getContext, signal);
+  await exclusive(async () => {
+    check();
+    const transactionRevision = await ports.store.commit({ expectedRevision: context.transactionRevision, expectedWriterEpoch: context.writerEpoch,
+      addFrames: [...candidate.frames, prepared.frame, sealed.frame], bootstrapPatch: { catalogStorageId: sealed.storageId } });
+    catalog.adopt(sealed.storageId, transactionRevision);
+    input.closeApp(appId);
+  });
+  await exclusive(() => drainCompactionCleanup(ports, input.getContext, signal));
   return { headStorageId: candidate.headStorageId, head: candidate.head };
+}
+
+export const COMPACTION_TAIL_THRESHOLD = 128;
+export const COMPACTION_INTERVAL_MS = 1500;
+
+/** Commits strictly after the head's checkpoint frontier, read from the head, its checkpoint and its tail only. */
+export async function postCheckpointCommitCount(ports: AppStoragePortsV1, appKey: EnvelopeKeyRefV1, headStorageId: string): Promise<number> {
+  const head = await readAppHead(ports, appKey, headStorageId);
+  const open = async (ref: { readonly storageId: string; readonly semanticSha256: Uint8Array }, scope: EnvelopeScopeV1, payloadKind: EnvelopePayloadKindV1) => {
+    const frame = await ports.store.getEnvelope(decodeStorageId16(ref.storageId));
+    if (frame === undefined) throw new IntegrityError("missing compaction tail");
+    const payload = (await ports.crypto.open(frame, scope, appKey, payloadKind)).payload;
+    if (!constantTimeEquals(await ports.crypto.sha256(payload), ref.semanticSha256)) throw new IntegrityError("compaction tail digest mismatch");
+    return payload;
+  };
+  const checkpoint = decodeCheckpointManifest(await open(head.checkpoint, "app.checkpoint", "app.checkpoint-manifest"));
+  const covered = new Map(checkpoint.frontier.map((entry) => [encodeBase64Url(entry.deviceId), entry.commitSequence]));
+  let count = 0;
+  for (const ref of head.eventSegments) {
+    for (const commit of decodeEventSegment(await open(ref, "app.events", "app.event-segment")).commits) {
+      if (commit.deviceCommitSequence > (covered.get(encodeBase64Url(commit.deviceId)) ?? 0n)) count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Commands never wait for compaction preparation. They wait only while an
+ * already-started atomic swap or its bounded cleanup commits, and a swap starts
+ * only when no command or bundle transfer is in flight.
+ */
+export class CompactionGate {
+  #active = 0;
+  #exclusive: Promise<unknown> | undefined;
+
+  get isIdle(): boolean { return this.#active === 0 && this.#exclusive === undefined; }
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    while (this.#exclusive !== undefined) await this.#exclusive.catch(() => undefined);
+    this.#active++;
+    try { return await work(); } finally { this.#active--; }
+  }
+
+  track<T>(work: Promise<T>): Promise<T> {
+    this.#active++;
+    return work.finally(() => { this.#active--; });
+  }
+
+  exclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (!this.isIdle) return Promise.reject(new DOMException("the worker is busy", "AbortError"));
+    const running = work().finally(() => { if (this.#exclusive === running) this.#exclusive = undefined; });
+    this.#exclusive = running;
+    return running;
+  }
+}
+
+export interface CompactionTimersV1 {
+  setTimeout(run: () => void, delayMs: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+export interface CompactionSchedulerDependenciesV1 {
+  readonly ports: AppStoragePortsV1;
+  /** Throws while locked. */
+  readonly getContext: () => WorkerSessionContextV1;
+  readonly appSession: (appId: string) => Promise<AppSessionV1 | undefined>;
+  readonly closeApp: (appId: string) => void;
+  readonly gate: CompactionGate;
+  /** Component tests only; production uses the defaults. */
+  readonly thresholdCommits?: number;
+  readonly intervalMs?: number;
+  readonly timers?: CompactionTimersV1;
+}
+
+export interface CompactionSchedulerV1 {
+  /** (Re)starts recurring checks for a newly unlocked session. */
+  start(): void;
+  /** Cancels the running job and every future check. */
+  stop(): void;
+}
+
+/** One worker-owned periodic compactor: one app job at a time, never awaited by a command. */
+export function createCompactionScheduler(deps: CompactionSchedulerDependenciesV1): CompactionSchedulerV1 {
+  const threshold = deps.thresholdCommits ?? COMPACTION_TAIL_THRESHOLD;
+  const intervalMs = deps.intervalMs ?? COMPACTION_INTERVAL_MS;
+  const timers: CompactionTimersV1 = deps.timers ?? { setTimeout: (run, delayMs) => globalThis.setTimeout(run, delayMs),
+    clearTimeout: (handle) => { globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>); } };
+  let lifetime: AbortController | undefined;
+  let timer: unknown;
+  const counted = new Map<string, { readonly head: string; readonly count: number }>();
+  const refused = new Map<string, string>();
+
+  const context = (): WorkerSessionContextV1 | undefined => { try { return deps.getContext(); } catch { return undefined; } };
+
+  async function tick(signal: AbortSignal): Promise<void> {
+    const start = context();
+    if (start === undefined || !deps.gate.isIdle || start.catalog.activeWorkflowStorageIds.length > 0) return;
+    if (start.catalog.cleanupTicketStorageIds.length > 0) {
+      await deps.gate.exclusive(() => drainCompactionCleanup(deps.ports, deps.getContext, signal));
+      return;
+    }
+    for (const app of start.catalog.apps) {
+      const head = app.appHeadStorageId;
+      if (head === null || refused.get(app.appId) === head) continue;
+      let known = counted.get(app.appId);
+      if (known?.head !== head) {
+        const key = await openAppKey(deps.ports, start.localRoot, app, parseEnvelopeTransport);
+        try { known = { head, count: await postCheckpointCommitCount(deps.ports, key, head) }; }
+        finally { deps.ports.crypto.destroyKey(key); }
+        signal.throwIfAborted();
+        counted.set(app.appId, known);
+      }
+      if (known.count < threshold) continue;
+      if (!deps.gate.isIdle || context() !== undefined && context()!.transactionRevision !== start.transactionRevision) return;
+      const session = await deps.appSession(app.appId);
+      signal.throwIfAborted();
+      if (session === undefined || session.repository.loaded().headStorageId !== head) return;
+      try {
+        await compactApp({ ports: deps.ports, session, getContext: deps.getContext, closeApp: deps.closeApp,
+          exclusive: (work) => deps.gate.exclusive(work) }, signal);
+      } catch (cause) {
+        const live = context();
+        const deferred = signal.aborted || (cause instanceof DOMException && cause.name === "AbortError") ||
+          live === undefined || live.transactionRevision !== start.transactionRevision || live.writerEpoch !== start.writerEpoch;
+        // A refusal on unchanged authority is not retried until the head moves.
+        if (!deferred) refused.set(app.appId, head);
+      }
+      return;
+    }
+  }
+
+  function schedule(own: AbortController): void {
+    timer = timers.setTimeout(() => {
+      timer = undefined;
+      void tick(own.signal).catch(() => undefined).finally(() => { if (lifetime === own && !own.signal.aborted) schedule(own); });
+    }, intervalMs);
+  }
+
+  const scheduler: CompactionSchedulerV1 = {
+    start() {
+      scheduler.stop();
+      const own = new AbortController();
+      lifetime = own;
+      schedule(own);
+    },
+    stop() {
+      lifetime?.abort();
+      lifetime = undefined;
+      if (timer !== undefined) timers.clearTimeout(timer);
+      timer = undefined;
+      counted.clear();
+      refused.clear();
+    },
+  };
+  return scheduler;
 }

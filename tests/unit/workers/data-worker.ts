@@ -26,6 +26,7 @@ import {
 import {
   createDataWorkerHandler,
   type DataWorkerCommandHandler,
+  type DataWorkerDependencies,
 } from "../../../src/workers/data/handlers.js";
 import type { SchemaCommitLimitsV1 } from "../../../src/application/commands/schema-commands.js";
 import { MAX_SLICE_BYTES } from "../../../src/import/source/source.js";
@@ -80,6 +81,7 @@ export interface TestHandler {
 export function createTestHandler(
   clock: FakeClock = new FakeClock(),
   schemaCommitLimits?: SchemaCommitLimitsV1,
+  compaction?: DataWorkerDependencies["compaction"],
 ): TestHandler {
   return {
     clock,
@@ -88,6 +90,7 @@ export function createTestHandler(
       entropy: realEntropy,
       calibration: PINNED_CALIBRATION,
       ...(schemaCommitLimits === undefined ? {} : { schemaCommitLimits }),
+      ...(compaction === undefined ? {} : { compaction }),
     }),
   };
 }

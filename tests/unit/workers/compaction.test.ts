@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { asStorageId16 } from "../../../src/domain/model/bytes.js";
 import { asDomainId } from "../../../src/domain/model/ids.js";
 import { tableContexts, toProjectionRecord } from "../../../src/workers/data/app-session.js";
@@ -349,3 +349,95 @@ it("derives each import baseline from its own accepted lineage and refuses anoth
     }
   } finally { sessions.mockRestore(); worker.dispose(); await resetLocalDatabase(); }
 }, 60_000);
+
+describe("the periodic compactor", () => {
+  /** Manual timers: each check runs only when fired, and the next is armed only after it settles. */
+  function manualTimers() {
+    const pending: (() => void)[] = [];
+    return { pending, timers: { setTimeout: (run: () => void) => { pending.push(run); return run; },
+      clearTimeout: (handle: unknown) => { const index = pending.indexOf(handle as () => void); if (index >= 0) pending.splice(index, 1); } },
+    async fire() {
+      expect(pending).toHaveLength(1);
+      pending.shift()!();
+      await vi.waitFor(() => { expect(pending).toHaveLength(1); }, { timeout: 30_000, interval: 5 });
+    } };
+  }
+
+  it("compacts only at the threshold, never repeats on an empty tail, lets edits through, and refuses a failed head until it moves", async () => {
+    await resetLocalDatabase();
+    const clock = manualTimers();
+    const sessions = vi.spyOn(AppSessionRegistry.prototype, "set");
+    const worker = createTestHandler(undefined, undefined, { thresholdCommits: 3, intervalMs: 1, timers: clock.timers }).handler;
+    const head = async (appId: string) => {
+      await ask(worker, { kind: "closeApp", appId });
+      await ask(worker, { kind: "openApp", appId });
+      return sessions.mock.calls.at(-1)![1].repository.loaded();
+    };
+    try {
+      expect(clock.pending).toHaveLength(0);
+      await ask(worker, { kind: "setup", passphrase: "periodic copper heron meadow" });
+      expect(clock.pending).toHaveLength(1);
+      const appId = await importCsv(worker);
+      const table = (await ask(worker, { kind: "getAppStructure", appId })).structure!.tables[0]!;
+      const fieldId = table.fields.find((field) => field.displayName === "Item")!.fieldId;
+      const recordId = (await ask(worker, { kind: "queryRecords", appId, tableId: table.tableId, limit: 10 })).page!.records[0]!.recordId;
+      const patch = async (text: string) => {
+        expect((await ask(worker, { kind: "patchRecord", appId, recordId, changes: [{ fieldId, value: { kind: "text", text } }] })).outcome).toBe("accepted");
+      };
+      await patch("one"); await patch("two");
+      const initial = await head(appId);
+      await clock.fire();
+      expect((await head(appId)).headStorageId).toBe(initial.headStorageId);
+      await patch("three");
+      // A command issued while the check runs is acknowledged on its own; the compactor defers rather than failing it.
+      clock.pending.shift()!();
+      await patch("four");
+      await vi.waitFor(() => { expect(clock.pending).toHaveLength(1); }, { timeout: 30_000, interval: 5 });
+      for (let attempt = 0; attempt < 3 && (await head(appId)).head.headVersion !== 2; attempt++) await clock.fire();
+      const compacted = await head(appId);
+      expect(compacted.head.headVersion).toBe(2);
+      expect(compacted.head.eventSegments).toEqual([]);
+      expect((await ask(worker, { kind: "getRecord", appId, recordId })).record!.values.find((entry) => entry.fieldId === fieldId)?.value).toEqual({ kind: "text", text: "four" });
+      await clock.fire(); await clock.fire();
+      expect((await head(appId)).headStorageId).toBe(compacted.headStorageId);
+      await patch("five"); await patch("six"); await patch("seven");
+      const refusal = vi.spyOn(envelopeStoreAdapter, "commit").mockRejectedValueOnce(new DOMException("quota refusal", "QuotaExceededError"));
+      const before = await readClearBootstrapRow();
+      const full = (await head(appId)).headStorageId;
+      await clock.fire();
+      expect(refusal).toHaveBeenCalledTimes(1);
+      expect(await readClearBootstrapRow()).toEqual(before);
+      await clock.fire();
+      expect(refusal).toHaveBeenCalledTimes(1);
+      expect((await head(appId)).headStorageId).toBe(full);
+      refusal.mockRestore();
+      await patch("eight");
+      await clock.fire();
+      const second = await head(appId);
+      expect(second.head.headVersion).toBe(2);
+      expect(second.head.eventSegments).toEqual([]);
+      expect(second.head.auditPages.length).toBeGreaterThanOrEqual(compacted.head.auditPages.length);
+    } finally { worker.dispose(); sessions.mockRestore(); await resetLocalDatabase(); }
+  }, 120_000);
+
+  it("arms no check while locked, rearms on unlock and disarms on reset and disposal", async () => {
+    await resetLocalDatabase();
+    const clock = manualTimers();
+    const passphrase = "lifecycle copper heron meadow";
+    const worker = createTestHandler(undefined, undefined, { thresholdCommits: 1, intervalMs: 1, timers: clock.timers }).handler;
+    try {
+      await ask(worker, { kind: "setup", passphrase });
+      expect(clock.pending).toHaveLength(1);
+      await ask(worker, { kind: "lock" });
+      expect(clock.pending).toHaveLength(0);
+      await ask(worker, { kind: "unlock", passphrase });
+      expect(clock.pending).toHaveLength(1);
+      await ask(worker, { kind: "resetLocked" });
+      expect(clock.pending).toHaveLength(0);
+      await ask(worker, { kind: "setup", passphrase });
+      expect(clock.pending).toHaveLength(1);
+      worker.dispose();
+      expect(clock.pending).toHaveLength(0);
+    } finally { worker.dispose(); await resetLocalDatabase(); }
+  }, 60_000);
+});

@@ -67,17 +67,22 @@ export async function boundedReminder<T>(operation: Promise<T>): Promise<T> {
   } finally { if (timer !== undefined) clearTimeout(timer); }
 }
 
-/** Controls the production worker's dynamic ClockPort; storage and transport stay real. */
-export async function openReminderPage(context: BrowserContext) {
+/**
+ * Opens `/` and identifies the one same-origin data worker the production
+ * bootstrap creates, after proving every served entry asset equals the
+ * emitted `dist` file. `override` values exist only for negative controls.
+ */
+export async function openProductionPage(context: BrowserContext, override?: { readonly workerAsset?: string; readonly localAssets?: string }) {
   const names = await readdir("dist/assets");
   const unique = (prefix: string) => {
     const matches = names.filter((name) => name.startsWith(prefix) && name.endsWith(".js"));
     if (matches.length !== 1) throw new Error(`expected one emitted ${prefix} asset`);
     return matches[0]!;
   };
-  const workerAsset = unique("data.worker-");
+  const workerAsset = override?.workerAsset ?? unique("data.worker-");
   const bootstrapAsset = unique("app-bootstrap-");
   const mainAsset = unique("main-");
+  const ioAsset = names.find((name) => name.startsWith("io.worker-") && name.endsWith(".js"));
   const bootstrap = await readFile(`dist/assets/${bootstrapAsset}`, "utf8");
   if (!bootstrap.includes(workerAsset)) throw new Error("bootstrap does not name the emitted data worker");
   const page = await context.newPage();
@@ -91,15 +96,31 @@ export async function openReminderPage(context: BrowserContext) {
     }
     const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
     const assets: Record<string, string> = {};
-    for (const path of ["index.html", `assets/${mainAsset}`, `assets/${bootstrapAsset}`, `assets/${workerAsset}`]) {
-      const local = await readFile(`dist/${path}`);
+    for (const path of ["index.html", `assets/${mainAsset}`, `assets/${bootstrapAsset}`, `assets/${workerAsset}`, ...(ioAsset === undefined ? [] : [`assets/${ioAsset}`])]) {
+      const local = await readFile(`${override?.localAssets ?? "dist"}/${path}`);
       const response = await page.request.get(`/${path}`, { timeout: 10_000 });
       if (!response.ok() || digest(await response.body()) !== digest(local)) throw new Error(`served build differs: ${path}`);
       assets[path] = digest(local);
     }
     let closed = false;
     const closedPromise = new Promise<void>((resolve) => worker.once("close", () => { closed = true; resolve(); }));
-    const ensureLive = () => { if (closed || page.isClosed()) throw new Error("reminder worker closed"); };
+    return { page, worker, assets, isClosed: () => closed, closedPromise, async close() {
+      if (!page.isClosed()) await boundedReminder(page.close());
+      await boundedReminder(closedPromise);
+    } };
+  } catch (error) {
+    if (!page.isClosed()) await page.close();
+    throw error;
+  }
+}
+
+/** Controls the production worker's dynamic ClockPort; storage and transport stay real. */
+export async function openReminderPage(context: BrowserContext) {
+  let opened: Awaited<ReturnType<typeof openProductionPage>>;
+  try { opened = await openProductionPage(context); } catch (error) { await context.close(); throw error; }
+  const { page, worker, assets, closedPromise } = opened;
+  try {
+    const ensureLive = () => { if (opened.isClosed() || page.isClosed()) throw new Error("reminder worker closed"); };
     const clock = {
       worker,
       async readEpochMs() { ensureLive(); return boundedReminder(worker.evaluate(() => Date.now())); },
@@ -125,7 +146,7 @@ export async function openReminderPage(context: BrowserContext) {
       },
     };
     return { page, clock, assets, async close() {
-      try { if (!closed && !page.isClosed()) await clock.restore(); }
+      try { if (!opened.isClosed() && !page.isClosed()) await clock.restore(); }
       finally {
         if (!page.isClosed()) await boundedReminder(page.close());
         await boundedReminder(closedPromise);
@@ -172,4 +193,84 @@ export async function inspectReminderStatus(page: Page, label: string): Promise<
     expect(results.violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(({ html }) => html) }))).toEqual([]);
     await page.screenshot({ path: `test-results/f05/s03/${label}-${width}.png`, fullPage: true });
   }
+}
+
+/**
+ * A native save destination whose written bytes the test reads back; no download dialog or confirmation step.
+ * Setting `window.holdSave` keeps the transfer (and its backup pin) open until `window.releaseSave()`.
+ */
+export async function useNativeDestination(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: () => Promise.resolve({
+      createWritable: () => Promise.resolve({
+        write: async (blob: Blob) => {
+          const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+          if ((window as unknown as { holdSave?: boolean }).holdSave === true) {
+            await new Promise<void>((resolve) => { Object.assign(window, { heldBundle: bytes, releaseSave: resolve }); });
+          }
+          Object.assign(window, { savedBundle: bytes });
+        },
+        close: () => Promise.resolve(),
+        abort: () => { Object.assign(window, { savedBundle: undefined }); return Promise.resolve(); },
+      }),
+    }) });
+  });
+}
+
+async function nativeSave(page: Page): Promise<Buffer> {
+  await page.evaluate(() => { Object.assign(window, { savedBundle: undefined }); });
+  await page.getByRole("button", { name: "Choose destination" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Save confirmed by the platform.", { timeout: 60_000 });
+  const bytes = Buffer.from(await page.evaluate(() => (window as unknown as { savedBundle: number[] }).savedBundle));
+  await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", "0");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  return bytes;
+}
+
+/** Creates a named bundle vault from the app home and saves the first artifact to the native destination. */
+export async function createNativeBundleHome(page: Page, appHash: string, vaultName: string, secret: string): Promise<Buffer> {
+  await page.evaluate((hash) => { window.location.hash = hash; }, appHash);
+  await page.getByRole("link", { name: "Choose a durable home" }).click();
+  await page.getByRole("button", { name: "Save a bundle", exact: true }).click();
+  await page.getByLabel("Vault name", { exact: true }).fill(vaultName);
+  await page.getByRole("radio", { name: "Create a different passphrase" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(`${vaultName} vault passphrase`, { exact: true }).fill(secret);
+  await page.getByLabel(`Confirm ${vaultName} vault passphrase`, { exact: true }).fill(secret);
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+  await page.getByRole("checkbox", { name: "I saved this code", exact: true }).check();
+  await page.getByRole("button", { name: "Continue to bundle" }).click();
+  return nativeSave(page);
+}
+
+/** One complete "Save a fresh bundle" operation through the real IO transfer; it finishes before returning. */
+export async function saveFreshNativeBundle(page: Page, appHash: string): Promise<Buffer> {
+  await page.evaluate((hash) => { window.location.hash = hash; }, `${appHash}/backup`);
+  await page.getByRole("button", { name: "Save a fresh bundle", exact: true }).click();
+  return nativeSave(page);
+}
+
+export interface DecodedGraphFactsV1 {
+  readonly headVersion: number;
+  readonly checkpointFrontier: readonly { readonly deviceId: string; readonly commitSequence: string }[];
+  readonly frontier: readonly { readonly deviceId: string; readonly commitSequence: string }[];
+  /** Commits strictly after the checkpoint frontier, counted from the decoded tail segments. */
+  readonly tailCommits: number;
+  readonly auditPages: number;
+  readonly originalCommits: number;
+}
+
+/** Facts from one independent vault-only decode (see `readBundle`), never from the live context. */
+export function decodedGraphFacts(decoded: string): DecodedGraphFactsV1 {
+  type Entry = { deviceId: number[]; commitSequence: string };
+  const json = JSON.parse(decoded) as { head: { headVersion?: string | number; auditPages?: unknown[] }; checkpoint: { frontier: Entry[] };
+    events: { commits: { deviceId: number[]; deviceCommitSequence: string }[] }[]; frontier: Entry[]; originalCommits: unknown[] };
+  const key = (id: number[]) => Buffer.from(id).toString("base64url");
+  const covered = new Map(json.checkpoint.frontier.map((entry) => [key(entry.deviceId), BigInt(entry.commitSequence)]));
+  const tailCommits = json.events.flatMap((segment) => segment.commits)
+    .filter((commit) => BigInt(commit.deviceCommitSequence) > (covered.get(key(commit.deviceId)) ?? 0n)).length;
+  const entries = (list: Entry[]) => list.map((entry) => ({ deviceId: key(entry.deviceId), commitSequence: String(entry.commitSequence) }));
+  return { headVersion: Number(json.head.headVersion ?? 1), checkpointFrontier: entries(json.checkpoint.frontier), frontier: entries(json.frontier),
+    tailCommits, auditPages: json.head.auditPages?.length ?? 0, originalCommits: json.originalCommits.length };
 }

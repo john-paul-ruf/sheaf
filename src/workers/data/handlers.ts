@@ -76,6 +76,7 @@ import {
 } from "./import-handlers.js";
 import { createVaultCrypto } from "../../crypto/vault-port.js";
 import { createBackupHandlers, type BackupHandlersV1 } from "./backup-handlers.js";
+import { CompactionGate, createCompactionScheduler, type CompactionTimersV1 } from "./compaction.js";
 import { createRecordHandlers } from "./record-handlers.js";
 import { createStructureHandlers } from "./structure-handlers.js";
 import { createChartHandlers } from "./chart-handlers.js";
@@ -121,6 +122,16 @@ export interface DataWorkerDependencies {
    * events / 16 MiB); unit runs pin a small one to reach `too-large`.
    */
   readonly schemaCommitLimits?: SchemaCommitLimitsV1;
+  /**
+   * The periodic compactor's threshold (128 post-checkpoint commits), check
+   * interval (1500 ms) and timers. Production passes nothing; component tests
+   * pin them to prove scheduling and teardown.
+   */
+  readonly compaction?: {
+    readonly thresholdCommits?: number;
+    readonly intervalMs?: number;
+    readonly timers?: CompactionTimersV1;
+  };
 }
 
 export interface DataWorkerCommandHandler {
@@ -206,6 +217,16 @@ export function createDataWorkerHandler(
     },
     getContext: () => importContext(requireUnlocked()),
     commitCatalog: (next) => commitCatalog(next),
+  });
+
+  const gate = new CompactionGate();
+  const compactor = createCompactionScheduler({
+    ports: { store: envelopeStoreAdapter, crypto: envelopeCryptoAdapter, entropy: deps.entropy },
+    getContext: () => importContext(requireUnlocked()),
+    appSession: (appId) => records.appSession(appId),
+    closeApp: (appId) => { records.closeAppSession(appId); },
+    gate,
+    ...deps.compaction,
   });
 
   const now = (): number => deps.clock.nowEpochMs();
@@ -403,6 +424,7 @@ export function createDataWorkerHandler(
     // so a device that crashed mid-import never shows a half-import it is
     // still carrying. It returns the session as the sweep left it.
     await imports.sweep(importContext(unlocked));
+    compactor.start();
     const swept = session.state;
     return swept.kind === "unlocked" ? swept : unlocked;
   }
@@ -494,6 +516,7 @@ export function createDataWorkerHandler(
       transactionRevision,
       writerEpoch: 0,
     });
+    compactor.start();
 
     return { kind: "setup", recoveryCode, session: view(unlocked) };
   }
@@ -550,6 +573,7 @@ export function createDataWorkerHandler(
     // Every open projection holds plaintext. Locking destroys them and every
     // app key with them, so nothing can be answered until a fresh `openApp`
     // hydrates again (invariant 3).
+    compactor.stop();
     backup.disposeAll();
     records.disposeAll();
     imports.dispose();
@@ -844,165 +868,12 @@ export function createDataWorkerHandler(
   }
 
   return {
-    backup,
-    async handle(
-      request: DataWorkerRequestV1,
-      ports: readonly MessagePort[] = [],
-    ): Promise<DataWorkerResponseV1> {
-      switch (request.kind) {
-        case "getScratchReminder":
-          await refreshBackupContext();
-          return { kind: "getScratchReminder", reminder: await reminderView(request.appId) };
-        case "dismissScratchReminder": {
-          await refreshBackupContext();
-          const state = requireUnlocked();
-          const entry = state.catalog.apps.find((app) => app.appId === request.appId);
-          const reminder = entry?.scratchReminder;
-          if (entry === undefined || entry.homeId !== null || request.homeId !== null || reminder == null ||
-              reminder.triggeringCommitId !== request.triggeringCommitId || reminder.dismissalCount !== request.dismissalCount ||
-              !scratchReminderSchedule(reminder, now())) {
-            return { kind: "dismissScratchReminder", outcome: "stale", reminder: await reminderView(request.appId) };
-          }
-          await commitCatalog({ ...state.catalog, catalogRevision: state.catalog.catalogRevision + 1,
-            apps: state.catalog.apps.map((app) => app === entry ? { ...app, scratchReminder: dismissScratchReminder(reminder, now()) } : app) });
-          return { kind: "dismissScratchReminder", outcome: "dismissed", reminder: await reminderView(request.appId) };
-        }
-        case "createBundleHome": {
-          requireUnlocked();
-          if (typeof request.appId !== "string" || typeof request.displayName !== "string" ||
-              request.displayName.trim().length === 0 || typeof request.passphrase !== "string" ||
-              request.passphrase.length === 0 || typeof request.reuseLocalPassphrase !== "boolean") {
-            throw new DataWorkerCommandError("malformed-request");
-          }
-          let localRecoveryCode: string | null = null;
-          if (request.reuseLocalPassphrase) {
-            const revealed = await revealRecoveryCode(request.passphrase);
-            if (revealed.kind !== "revealRecoveryCode") throw new DataWorkerCommandError("internal");
-            localRecoveryCode = revealed.recoveryCode;
-          }
-          const created = await backup.createBundleHome(request.appId, request.displayName, request.passphrase);
-          return { kind: "createBundleHome", ...created, localRecoveryCode };
-        }
-        case "revealVaultRecoveryCode": {
-          requireUnlocked();
-          assertAttemptAllowed();
-          if (typeof request.homeId !== "string" || typeof request.passphrase !== "string") {
-            throw new DataWorkerCommandError("malformed-request");
-          }
-          const recoveryCode = await backup.revealRecoveryCode(request.homeId, request.passphrase);
-          session.attempts.recordSuccess();
-          return { kind: "revealVaultRecoveryCode", recoveryCode };
-        }
-        case "setup":
-          return setup(request.passphrase);
-        case "unlock":
-          return unlock(request.passphrase);
-        case "unlockWithRecoveryCode":
-          return unlockWithRecoveryCode(request.recoveryCode);
-        case "changePassphrase":
-          return changePassphrase(request);
-        case "revealRecoveryCode":
-          return revealRecoveryCode(request.currentPassphrase);
-        case "lock":
-          return lock();
-        case "updateSettings":
-          return updateSettings(request.idleTimeoutMinutes);
-        case "resetLocked":
-          return resetLocked();
-        case "resetReadable":
-          return resetReadable(request.confirmToken);
-        case "getStatus":
-          return getStatus();
-        case "beginImportStage":
-          return imports.beginImportStage(request, ports);
-        case "getImportStage":
-          return imports.getImportStage(request);
-        case "runInference":
-          return imports.runInference(request);
-        case "applyReviewEdit":
-          return imports.applyReviewEdit(request);
-        case "promoteImport":
-          return imports.promoteImport(request);
-        case "listLibrary":
-          return imports.listLibrary();
-        case "cancelImportStage":
-          return imports.cancelImportStage(request);
-        case "openApp":
-          return records.openApp(request);
-        case "closeApp":
-          return Promise.resolve(records.closeApp(request));
-        case "noteAppOpened":
-          return records.noteAppOpened(request);
-        case "queryRecords":
-          return records.queryRecords(request);
-        case "getRecord":
-          return records.getRecord(request);
-        case "createRecord":
-          return records.createRecord(request);
-        case "patchRecord":
-          return records.patchRecord(request);
-        case "deleteRecord":
-          return records.deleteRecord(request);
-        case "restoreRecord":
-          return records.restoreRecord(request);
-        case "getChangeHistory":
-          return records.getChangeHistory(request);
-        case "getRelatedRecords":
-          return records.getRelatedRecords(request);
-        case "getRelatedChildren":
-          return records.getRelatedChildren(request);
-        case "searchReferenceCandidates":
-          return records.searchReferenceCandidates(request);
-        case "getDeletedRecord":
-          return records.getDeletedRecord(request);
-        case "listTables":
-          return records.listTables(request);
-        case "listSheetSnapshots":
-          return records.listSheetSnapshots(request);
-        case "getSnapshotPage":
-          return records.getSnapshotPage(request);
-        case "findInSnapshot":
-          return records.findInSnapshot(request);
-        case "listInertItems":
-          return records.listInertItems(request);
-        case "getAppStructure":
-          return structure.getAppStructure(request);
-        case "previewSchemaChange":
-          return structure.previewSchemaChange(request);
-        case "applySchemaChange":
-          return structure.applySchemaChange(request);
-        case "getAppMetrics":
-          return structure.getAppMetrics(request);
-        case "listCharts":
-          return charts.listCharts(request);
-        case "getChart":
-          return charts.getChart(request);
-        case "saveChart":
-          return charts.saveChart(request);
-        case "setChartPin":
-          return charts.setChartPin(request);
-        case "deleteChart":
-          return charts.deleteChart(request);
-        case "getChartDraft":
-          return charts.getChartDraft(request);
-        case "saveChartDraft":
-          return charts.saveChartDraft(request);
-        case "discardChartDraft":
-          return charts.discardChartDraft(request);
-        case "getChartDataset":
-          return charts.getChartDataset(request);
-        case "listThemePalettes":
-          return Promise.resolve(themes.listThemePalettes());
-        case "changeTheme":
-          return themes.changeTheme(request);
-        default: {
-          const unreachable: never = request;
-          void unreachable;
-          throw new DataWorkerCommandError("unsupported-request");
-        }
-      }
+    backup: { ...backup, connectBundle: (appId, io, control) => gate.track(backup.connectBundle(appId, io, control)) },
+    handle(request: DataWorkerRequestV1, ports: readonly MessagePort[] = []): Promise<DataWorkerResponseV1> {
+      return gate.run(() => dispatch(request, ports));
     },
     dispose(): void {
+      compactor.stop();
       backup.disposeAll();
       records.disposeAll();
       imports.dispose();
@@ -1010,4 +881,162 @@ export function createDataWorkerHandler(
       closeLocalDatabase();
     },
   };
+
+  async function dispatch(
+    request: DataWorkerRequestV1,
+    ports: readonly MessagePort[],
+  ): Promise<DataWorkerResponseV1> {
+    switch (request.kind) {
+      case "getScratchReminder":
+        await refreshBackupContext();
+        return { kind: "getScratchReminder", reminder: await reminderView(request.appId) };
+      case "dismissScratchReminder": {
+        await refreshBackupContext();
+        const state = requireUnlocked();
+        const entry = state.catalog.apps.find((app) => app.appId === request.appId);
+        const reminder = entry?.scratchReminder;
+        if (entry === undefined || entry.homeId !== null || request.homeId !== null || reminder == null ||
+            reminder.triggeringCommitId !== request.triggeringCommitId || reminder.dismissalCount !== request.dismissalCount ||
+            !scratchReminderSchedule(reminder, now())) {
+          return { kind: "dismissScratchReminder", outcome: "stale", reminder: await reminderView(request.appId) };
+        }
+        await commitCatalog({ ...state.catalog, catalogRevision: state.catalog.catalogRevision + 1,
+          apps: state.catalog.apps.map((app) => app === entry ? { ...app, scratchReminder: dismissScratchReminder(reminder, now()) } : app) });
+        return { kind: "dismissScratchReminder", outcome: "dismissed", reminder: await reminderView(request.appId) };
+      }
+      case "createBundleHome": {
+        requireUnlocked();
+        if (typeof request.appId !== "string" || typeof request.displayName !== "string" ||
+            request.displayName.trim().length === 0 || typeof request.passphrase !== "string" ||
+            request.passphrase.length === 0 || typeof request.reuseLocalPassphrase !== "boolean") {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        let localRecoveryCode: string | null = null;
+        if (request.reuseLocalPassphrase) {
+          const revealed = await revealRecoveryCode(request.passphrase);
+          if (revealed.kind !== "revealRecoveryCode") throw new DataWorkerCommandError("internal");
+          localRecoveryCode = revealed.recoveryCode;
+        }
+        const created = await backup.createBundleHome(request.appId, request.displayName, request.passphrase);
+        return { kind: "createBundleHome", ...created, localRecoveryCode };
+      }
+      case "revealVaultRecoveryCode": {
+        requireUnlocked();
+        assertAttemptAllowed();
+        if (typeof request.homeId !== "string" || typeof request.passphrase !== "string") {
+          throw new DataWorkerCommandError("malformed-request");
+        }
+        const recoveryCode = await backup.revealRecoveryCode(request.homeId, request.passphrase);
+        session.attempts.recordSuccess();
+        return { kind: "revealVaultRecoveryCode", recoveryCode };
+      }
+      case "setup":
+        return setup(request.passphrase);
+      case "unlock":
+        return unlock(request.passphrase);
+      case "unlockWithRecoveryCode":
+        return unlockWithRecoveryCode(request.recoveryCode);
+      case "changePassphrase":
+        return changePassphrase(request);
+      case "revealRecoveryCode":
+        return revealRecoveryCode(request.currentPassphrase);
+      case "lock":
+        return lock();
+      case "updateSettings":
+        return updateSettings(request.idleTimeoutMinutes);
+      case "resetLocked":
+        return resetLocked();
+      case "resetReadable":
+        return resetReadable(request.confirmToken);
+      case "getStatus":
+        return getStatus();
+      case "beginImportStage":
+        return imports.beginImportStage(request, ports);
+      case "getImportStage":
+        return imports.getImportStage(request);
+      case "runInference":
+        return imports.runInference(request);
+      case "applyReviewEdit":
+        return imports.applyReviewEdit(request);
+      case "promoteImport":
+        return imports.promoteImport(request);
+      case "listLibrary":
+        return imports.listLibrary();
+      case "cancelImportStage":
+        return imports.cancelImportStage(request);
+      case "openApp":
+        return records.openApp(request);
+      case "closeApp":
+        return Promise.resolve(records.closeApp(request));
+      case "noteAppOpened":
+        return records.noteAppOpened(request);
+      case "queryRecords":
+        return records.queryRecords(request);
+      case "getRecord":
+        return records.getRecord(request);
+      case "createRecord":
+        return records.createRecord(request);
+      case "patchRecord":
+        return records.patchRecord(request);
+      case "deleteRecord":
+        return records.deleteRecord(request);
+      case "restoreRecord":
+        return records.restoreRecord(request);
+      case "getChangeHistory":
+        return records.getChangeHistory(request);
+      case "getRelatedRecords":
+        return records.getRelatedRecords(request);
+      case "getRelatedChildren":
+        return records.getRelatedChildren(request);
+      case "searchReferenceCandidates":
+        return records.searchReferenceCandidates(request);
+      case "getDeletedRecord":
+        return records.getDeletedRecord(request);
+      case "listTables":
+        return records.listTables(request);
+      case "listSheetSnapshots":
+        return records.listSheetSnapshots(request);
+      case "getSnapshotPage":
+        return records.getSnapshotPage(request);
+      case "findInSnapshot":
+        return records.findInSnapshot(request);
+      case "listInertItems":
+        return records.listInertItems(request);
+      case "getAppStructure":
+        return structure.getAppStructure(request);
+      case "previewSchemaChange":
+        return structure.previewSchemaChange(request);
+      case "applySchemaChange":
+        return structure.applySchemaChange(request);
+      case "getAppMetrics":
+        return structure.getAppMetrics(request);
+      case "listCharts":
+        return charts.listCharts(request);
+      case "getChart":
+        return charts.getChart(request);
+      case "saveChart":
+        return charts.saveChart(request);
+      case "setChartPin":
+        return charts.setChartPin(request);
+      case "deleteChart":
+        return charts.deleteChart(request);
+      case "getChartDraft":
+        return charts.getChartDraft(request);
+      case "saveChartDraft":
+        return charts.saveChartDraft(request);
+      case "discardChartDraft":
+        return charts.discardChartDraft(request);
+      case "getChartDataset":
+        return charts.getChartDataset(request);
+      case "listThemePalettes":
+        return Promise.resolve(themes.listThemePalettes());
+      case "changeTheme":
+        return themes.changeTheme(request);
+      default: {
+        const unreachable: never = request;
+        void unreachable;
+        throw new DataWorkerCommandError("unsupported-request");
+      }
+    }
+  }
 }
