@@ -502,6 +502,255 @@ home; calculated formula updates and last-opened metadata do not.
 
 ---
 
+## F05 graph contract — DB re-entry, 2026-09-25
+
+This section completes GRAPH-CONTRACT for FR-12/22/26/28/32 under the
+builder's approval of typed retained references and bounded conflict/audit
+pages, followed by explicit approval of DB/Author re-entry. It supersedes
+unspecified local retained-root and evidence-page layouts above. It changes
+neither the retention floor nor reconciliation decisions. Implementation and
+executable proof belong to F05 S06; publication is not enabled by this document.
+
+### Demonstrated mismatch and compatibility boundary
+
+At source revision `13cfbbc`, `src/import/staging/roots.ts` accepts a local
+reference with exactly `storageId` and `semanticSha256`. A unique retained
+object therefore cannot supply its AAD scope or expected payload kind. Envelope
+003 deliberately omits scope. `backup-graph.ts` correctly rejects nonempty
+retained/conflict/audit branches. `StoredRecordV1` also omits record revision,
+creation/update commit IDs and field provenance; `toProjectionRecord` assigns
+revision zero and the checkpoint's covered commit to every row. That import
+shortcut is not a valid compacted-record mapping.
+
+Use **per-payload versioning**, as for the existing sheet snapshot variants:
+
+- `AppHeadV2` uses the exact AppHeadV1 key set, with `headVersion = 2` and
+  typed `retainedRoots` as specified below. All other head fields retain their
+  meanings. Only a V2 head may declare the new evidence pages or V2 record pages.
+- `RecordPageV2` has the exact V1 outer keys `pageVersion`, `records`, with
+  `pageVersion = 2` and the exact record extensions below.
+- `AuditPageV1` and `ConflictPageV1` are first concrete definitions, with
+  `pageVersion = 1`. Their scopes and payload kinds already exist in 003.
+- Checkpoint manifests keep their existing supported key sets/version and
+  digest rules. Record-page references authenticate the complete payload,
+  including its page version. No scope, cipher, CBOR, event, vault, IndexedDB
+  or SQLite format changes. In particular, 006 remote reference fields and
+  vault `minimumReaderVersion = 1` are unchanged: that gate concerns the vault
+  container, not permission to consume an unsupported nested app format.
+
+New readers support legacy V1 heads and pages byte-for-byte, including all
+existing F02/F03/F04 checkpoint variants. A V1 retained ref may be resolved
+only if an independently authenticated, explicitly typed edge in the same
+app graph names the identical storage ID and payload digest. Unique ambiguous
+legacy refs, and legacy nonempty evidence pages without this contract's V2
+head, remain unsupported and must be preserved, never guessed or erased.
+The F05 compactor does not migrate ambiguous legacy graphs.
+
+Old readers already reject `headVersion = 2` and `pageVersion = 2`; S06 must
+pin that negative control. Every published compacted app must retain its exact
+V2 source head as an `app.head` remote reference, and a consumer must decode
+that head and all nested versions before installation, projection exposure,
+receipt, or cleanup. An old client may display an authenticated vault listing;
+it cannot claim to have opened or verified an unsupported app. No conversion
+to V1, lossy downgrade, or whole-store rewrite is permitted. The first V2 head
+is a new immutable candidate installed by compare-revision after all readers
+and proofs are ready. Subsequent edits preserve its version and roots. Stale
+writers cannot commit over a changed catalog revision/epoch.
+
+This is an additive encrypted-payload contract, **not a structural database
+migration**. No existing migration or global version registry is edited and
+no new migration runner is necessary: old immutable objects stay readable and
+new ones are produced through the existing candidate/pointer-swap protocol.
+The protected schema authority for these payloads is this section. Coder owns
+codecs and readers, not changes to this contract or `src/migrations/**`.
+
+### Canonical values and typed local references
+
+All maps below have exactly the named keys; unknown/missing keys reject.
+Use the existing canonical CBOR codec, 16-byte domain IDs, canonical 16-byte
+storage-ID text encoding, 32-byte SHA-256 values, unsigned uint64 revisions
+and sequences, and the existing canonical frontier/commit encodings. Null is
+allowed only where explicitly named. Bytewise sorting uses decoded bytes,
+not locale or base64 text ordering. Duplicate IDs with different metadata
+are corruption; integer overflow or allocation beyond the existing scope cap
+rejects before use.
+
+`TypedStorageRefV1` has exactly:
+
+| Key | Value |
+|---|---|
+| `storageId` | Existing canonical storage-ID text |
+| `semanticSha256` | SHA-256 of the **complete decoded target payload bytes**, including any inner semantic hash |
+| `scope` | One allowed AAD scope below |
+| `payloadKind` | Its paired expected inner kind below |
+
+| scope | payloadKind |
+|---|---|
+| `app.head` | `app.head` |
+| `app.checkpoint` | `app.checkpoint-manifest` |
+| `app.records` | `app.record-page` |
+| `app.events` | `app.event-segment` |
+| `app.baselines` | `app.baseline-page` |
+| `app.conflicts` | `app.conflict-page` |
+| `app.audit` | `app.audit-page` |
+| `app.source-manifest` | `app.source-manifest` |
+| `app.source-chunk` | `app.source-chunk` |
+| `app.snapshot-manifest` | `app.snapshot-manifest` |
+| `app.snapshot-chunk` | `app.snapshot-chunk` |
+
+All other pairings, local/vault scopes, and provisional import stages reject.
+The parent authenticates the pair and digest; decrypt only under that pair and
+the current app's key. Payload app IDs must equal the root app. For pages or
+chunks whose legacy format has no app ID, ownership comes from that app-key
+authentication and the authenticated owning manifest, including its table,
+sheet/source identity, ordinal/range, length and digest constraints. A retained
+record page also needs its authenticating checkpoint PageRef descriptor; a
+retained source/snapshot chunk needs its owning manifest. A bare leaf ref
+does not waive those constraints. Never try alternative scopes or keys.
+
+V2 `retainedRoots` is an array of TypedStorageRefV1 sorted by decoded storage
+ID, unique by ID. A root duplicated by a named head edge must have identical
+scope, kind and digest. Other named head references remain StorageRefV1 and
+derive their fixed kind/scope from their field role, unchanged.
+
+Traverse **every declared local head edge**, including retained roots of
+historical local heads, and every payload-specific descendant. The
+nonrecursive historical-vault-index rule does not apply to local app heads.
+Deduplicate identical shared children, reject cycles and conflicting aliases,
+and count each ciphertext once. A producer avoids a permanent predecessor
+chain by retaining exact required evidence roots instead of retaining each
+prior head automatically. It may omit an old head only after its complete
+required closure remains reachable elsewhere and no active pin requires it.
+Pins keep their exact head plus complete closure until released. No F05 age
+pruning, baseline dropping or remote garbage collection is authorized.
+
+### Bounded original-commit evidence
+
+`CommitEvidenceRefV1` has exactly `segment`, `commitId`, `commitSha256`.
+`segment` is a TypedStorageRefV1 with `app.events` / `app.event-segment`;
+the two other fields are the original 16-byte commit ID and 32-byte commit
+hash. Resolve the original complete EventCommitV1 inside that authenticated
+segment, verify its canonical body hash, app ownership and all existing event
+constraints, and require exactly one matching commit. Do not replace a commit
+with a summary, generate new identities, or treat a supplied digest as proof.
+
+Evidence stays in complete bounded EventSegmentV1 objects (existing 10,000
+event / 16 MiB padded bounds); it is **referenced**, not embedded in a 512 KiB
+page. Repacking may alter segment identity but never original commit/event
+bytes, identity, hash, sequence, predecessor, hybrid time or provenance. A
+single oversized original commit is a refusal, not permission to split it.
+
+`AuditPageV1` has exactly `pageVersion`, `appId`, `entries`; version is 1,
+appId is the owning app and entries is a nonempty array of CommitEvidenceRefV1.
+Each page holds at most 1,024 entries and at most 524,288 decoded CBOR bytes,
+including outer overhead. Entries and the logical sequence across pages are
+strictly ordered by the existing commit comparison tuple (hybrid wall time,
+logical counter, device ID, device sequence, commit ID), resolved from original
+commits. Head audit roots are in that logical order; no duplicate commit IDs,
+conflicting device sequences or overlapping ranges are accepted. An empty
+history uses no pages, never an empty page. The outer StorageRef payload hash
+authenticates the entire page; no second self-hash field is added.
+
+For F05, audit coverage is **all original commits covered by the checkpoint**,
+including import commits, not just authored events or latest per-row updates.
+Tail entries are strictly after that frontier. Verify each device's contiguous
+original chain from sequence 1 through the checkpoint and tail; null previous
+hash is valid only at sequence 1. Deduplicate identical physical evidence
+reached by different edges, but reject duplicate logical audit entries. Every
+checkpoint-frontier device has the original terminal commit/hash as its chain
+anchor. Unknown devices, gaps, substitutions and conflicting histories block
+installation and publication. Basis-frontier dependencies must be covered by
+the authenticated commit set. Neither pending-change count nor a row's latest
+commit substitutes for this proof.
+
+History, deletion restoration, provenance and applied-merge proof readers
+resolve these original events. All fields of a deletion's restoration payload
+and a merge's complete baseline/alternatives/result/validation evidence remain
+unchanged; a display string is not sufficient evidence. Covered events must
+not be applied to the current checkpoint a second time. Readers may rebuild
+history metadata separately or use a fresh isolated replay for equivalence.
+Do not invent a merge or conflict action merely to populate this storage form.
+
+### Bounded conflict evidence
+
+`ConflictPageV1` has exactly `pageVersion`, `appId`, `entries`; version 1,
+owning app ID, nonempty entries, at most 1,024 entries and 524,288 decoded
+bytes including overhead. Each entry has exactly `conflictId`, `detected`,
+`resolved`: a 16-byte conflict ID, an EventEvidenceRefV1, and null or an
+EventEvidenceRefV1. `EventEvidenceRefV1` has exactly `commit`, `eventId`,
+where commit is CommitEvidenceRefV1 and eventId is the original 16-byte ID.
+Entries/pages are strictly ordered by binary conflictId without duplicates.
+
+The detected event must be `conflict.detected` for this app and conflict;
+its original payload supplies the complete scope, kind, explicit baseline
+state/value, whole source alternatives, source timestamps/labels, field
+distinctions and validation report specified above. A resolution must be
+`conflict.resolved` for that same conflict and include the original decision,
+result and source evidence. Pending iff resolved is null; a different conflict,
+unrelated event or audit echo cannot resolve it. Validate against the existing
+pending/resolution projection constraints. No new lifecycle enum is introduced.
+The complete original payload bytes are retained through the referenced
+segments, including any established producer-specific fields. Every segment
+ref is a graph child; the commit/event IDs are selectors, not independent
+storage references. These pages contain no opaque external child references.
+Any future event payload adding stored-object dependencies requires an explicit
+format/reader extension; it cannot hide them in unchecked evidence.
+
+### Compacted records and original provenance
+
+Each RecordPageV2 record has exactly the existing `recordId`, `tableId`,
+`values`, `issues` plus `recordRevision`, `createdCommitId`, `updatedCommitId`,
+`provenance`. Revisions are uint64, IDs are 16-byte original commit IDs.
+`provenance` is a field-ID-sorted, duplicate-free array of exact maps
+`fieldId`, `value`; value uses the existing EventProvenanceV1 canonical map
+(required source, optional sourceId/sourceTimestampMs/evidence), without
+normalizing away optional-field presence or changing canonical evidence.
+Preserve actual absence as absence; do not invent import/user provenance.
+Values and issues retain their existing codecs and distinctions. The existing
+1,024-record / 512 KiB cap, page ranges, byte lengths and digest checks apply
+to the complete extended payload. Only live authored records are stored here;
+deleted records and their restoration payloads remain in original audit events.
+
+Creation/update IDs and provenance must agree with authenticated original
+history for that row and checkpoint frontier. Preserve deleted/disabled schema
+identities, import lineage, original baselines, explicit absent/deleted/present
+states, chart/formula/theme definitions and retained snapshots. Do not store
+computed NOW/TODAY results as authored values. Rehydrate V2 row metadata
+directly; the legacy revision-zero/checkpoint-commit shortcut applies only to
+legacy pages. The candidate's reconstructed authored-state hash must match
+the pre-compaction state; head body hash, complete payload hash, original
+commit hash and reconstructed-state hash remain distinct values.
+
+### S06 acceptance and failure contract
+
+CP1 owns codecs, candidate writer, all descendant readers, fixtures and
+publication/frontier integration together. Test nonempty retained/audit/conflict
+graphs with original event evidence, two historical roots sharing one child,
+wrong scope/kind/app, missing or substituted descendants, unknown versions,
+legacy fixtures, provenance and large evidence spanning bounded pages/segments.
+New and legacy local/remote round trips must preserve exact existing bytes.
+Test the old-reader refusal before enabling the new writer. A conflict storage
+fixture is not proof of an F06 user action.
+
+CP2 may install only after a fresh projection proves equal authored state,
+frontier, history, deletion restoration and provenance, with original per-device
+terminal hashes. Two compactions, close/reopen and a subsequent edit must retain
+history and increment exactly once with the correct predecessor hash. Failed
+authentication, unavailable evidence, quota refusal, stale epoch/revision or
+unsupported format leaves the previous root and receipt unchanged, with no
+cleanup of reachable objects. New immutable orphans may be ticketed only by
+their exact verified IDs after safe failure handling.
+
+CP3 owns the real periodic trigger and nonblocking scheduling. CP4 owns J3 plus
+J1 regression and vault-only recovery from the new graph using real production
+transport and current-build evidence. The proof must show truthful retained
+history pagination and restore through the UI, not only current row equality.
+S07 remains responsible for its downstream cloud integration. This contract
+closes the Author input only; CAP-44 and the nonempty CA-35/41 proofs stay
+planned until those committed assertions pass.
+
+---
+
 ## Append-Only Event Format
 
 The baseline event contract is owned by
