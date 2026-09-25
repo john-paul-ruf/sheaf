@@ -6,7 +6,7 @@
 > **Depends on:** SESSION-03, SESSION-04, SESSION-05, SESSION-06
 > **Concurrent with:** —
 > **Owns:** `docs/provider-setup.md`, `index.html`, `package.json`, `playwright.config.ts`, `pnpm-lock.yaml`, `src/application/ports/backup.ts`, `src/application/ports/durable-home.ts`, `src/application/view-models/durability.ts`, `src/application/view-models/library.ts`, `src/application/view-models/records.ts`, `src/application/view-models/security.ts`, `src/application/workflows/durability-services.ts`, `src/application/workflows/durability.machine.ts`, `src/application/workflows/import.machine.ts`, `src/application/workflows/reset.machine.ts`, `src/bootstrap/app-bootstrap.ts`, `src/bootstrap/io-worker.ts`, `src/config/public-config.ts`, `src/main.tsx`, `src/platform/provider-auth.ts`, `src/platform/provider-fetch.ts`, `src/routes/app-area-hooks.tsx`, `src/routes/app-runtime.tsx`, `src/routes/durability-routes.tsx`, `src/routes/guards.tsx`, `src/routes/route-table.tsx`, `src/routes/schema-routes.tsx`, `src/routes/theme-routes.tsx`, `src/sync/coordinator/**`, `src/sync/protocol/**`, `src/sync/providers/dropbox/**`, `src/sync/providers/onedrive/**`, `src/sync/scheduler/**`, `src/ui/durability/**`, `src/ui/library/library-screen.tsx`, `src/ui/library/library.module.css`, `src/ui/records/app-frame.tsx`, `src/ui/records/app-home-screen.tsx`, `src/ui/records/records.module.css`, `src/ui/schema/app-settings-screen.tsx`, `src/ui/security/recovery-codes-screen.tsx`, `src/ui/security/reset-readable-screen.tsx`, `src/ui/security/vault-dialogs.tsx`, `src/vite-env.d.ts`, `src/workers/data.worker.ts`, `src/workers/data/app-session.ts`, `src/workers/data/backup-graph.ts`, `src/workers/data/backup-handlers.ts`, `src/workers/data/catalog.ts`, `src/workers/data/event-store.ts`, `src/workers/data/handlers.ts`, `src/workers/data/home-state.ts`, `src/workers/data/import-handlers.ts`, `src/workers/data/record-event-payloads.ts`, `src/workers/data/record-handlers.ts`, `src/workers/io.worker.ts`, `src/workers/io/**`, `src/workers/protocol/client.ts`, `src/workers/protocol/io-channel.ts`, `src/workers/protocol/io-client.ts`, `src/workers/protocol/io-messages.ts`, `src/workers/protocol/messages.ts`, `src/workers/protocol/redact.ts`, `tests/browser/sync/**`, `tests/browser/worker/app.spec.ts`, `tests/browser/worker/usage-journey.spec.ts`, `tests/e2e/backup-status.spec.ts`, `tests/e2e/bundle-backup.spec.ts`, `tests/e2e/cloud-backup.spec.ts`, `tests/e2e/fixtures/durability.ts`, `tests/e2e/fixtures/no-network.ts`, `tests/e2e/fixtures/provider.ts`, `tests/e2e/gate-f05-demo.spec.ts`, `tests/provider-contract/dropbox/**`, `tests/provider-contract/onedrive/**`, `tests/provider-contract/shared/**`, `tests/security/f05/**`, `tests/unit/bootstrap/**`, `tests/unit/config/**`, `tests/unit/sync/**`, `tests/unit/toolchain.smoke.test.ts`, `tests/unit/ui/durability/**`, `tests/unit/ui/library/fixtures.ts`, `tests/unit/ui/library/library-screens.test.tsx`, `tests/unit/ui/records/app-home-screen.test.tsx`, `tests/unit/ui/records/fixtures.ts`, `tests/unit/ui/records/route-guards.test.ts`, `tests/unit/ui/schema/harness.ts`, `tests/unit/ui/schema/settings.test.tsx`, `tests/unit/ui/security-surfaces.test.tsx`, `tests/unit/ui/shells.test.tsx`, `tests/unit/view-models/durability.test.ts`, `tests/unit/view-models/library.test.ts`, `tests/unit/view-models/records.test.ts`, `tests/unit/view-models/security.test.ts`, `tests/unit/workers/backup*.test.ts`, `tests/unit/workers/catalog.test.ts`, `tests/unit/workers/chart-handlers.test.ts`, `tests/unit/workers/data-worker.ts`, `tests/unit/workers/event-store.test.ts`, `tests/unit/workers/handlers.test.ts`, `tests/unit/workers/home-state.test.ts`, `tests/unit/workers/import-handlers.test.ts`, `tests/unit/workers/io*.test.ts`, `tests/unit/workers/module-boundaries.test.ts`, `tests/unit/workers/protocol.test.ts`, `tests/unit/workers/query-handlers.test.ts`, `tests/unit/workers/record-event-payloads.test.ts`, `tests/unit/workers/redact.test.ts`, `tests/unit/workers/reset.test.ts`, `tests/unit/workers/structure-handlers.test.ts`, `tests/unit/workers/theme-handlers.test.ts`, `tests/unit/workflows/durability.test.ts`, `tests/unit/workflows/fakes.ts`, `tests/unit/workflows/import.machine.test.ts`, `tests/unit/workflows/module-boundaries.test.ts`, `tests/unit/workflows/reset.machine.test.ts`, `vite.config.ts`, `vitest.config.ts`
-> **Reads:** `program/sheaf/PROGRAM-CONFIG.md`, `program/sheaf/prompts/durable-home-backup/STATE.md`, `program/sheaf/specs/requirements.md`, `program/sheaf/specs/design.md`, `program/sheaf/specs/architecture.md`, `program/sheaf/specs/database.md`, `src/migrations/**`, `program/sheaf/mocks/durable-home.html`, `program/sheaf/mocks/backup-detail.html`, `program/sheaf/mocks/durable-homes.html`, `program/sheaf/mocks/dialog-atlas.html`, `program/sheaf/mocks/state-atlas.html`, `program/sheaf/mocks/control-atlas.html`
+> **Reads:** `program/sheaf/PROGRAM-CONFIG.md`, `program/sheaf/prompts/durable-home-backup/STATE.md`, `program/sheaf/specs/requirements.md`, `program/sheaf/specs/design.md`, `program/sheaf/specs/architecture.md`, `program/sheaf/specs/database.md`, `src/migrations/**`, `program/sheaf/mocks/durable-home.html`, `program/sheaf/mocks/backup-detail.html`, `program/sheaf/mocks/durable-homes.html`, `program/sheaf/mocks/dialog-atlas.html`, `program/sheaf/mocks/state-atlas.html`, `program/sheaf/mocks/control-atlas.html`, `program/sheaf/mocks/f05-vault-security.html`, `program/sheaf/mocks/f05-bundle-save.html`, `program/sheaf/mocks/f05-scratch-reminders.html`
 > **Resources:** dist:build, playwright:output, provider:dropbox:test-account (live), provider:onedrive:test-account (live)
 > **Checkpoints:** 5
 
@@ -58,8 +58,8 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 | `package.json` | Modify/extend | CP1: register test:security:f05 and opt-in provider script |
 | `playwright.config.ts` | Modify/extend | CP1: discover security-f05 specs and provider project; preserve fresh build/preview isolation |
 | `pnpm-lock.yaml` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
-| `src/application/ports/backup.ts` | Create (planned) | Production contract, composition or behavior assigned below |
-| `src/application/ports/durable-home.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/application/ports/backup.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
+| `src/application/ports/durable-home.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/application/view-models/durability.ts` | Create (planned) | Production contract, composition or behavior assigned below |
 | `src/application/view-models/library.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/application/view-models/records.ts` | Modify/extend | Production contract, composition or behavior assigned below |
@@ -69,7 +69,7 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 | `src/application/workflows/import.machine.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/application/workflows/reset.machine.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/bootstrap/app-bootstrap.ts` | Modify/extend | Production contract, composition or behavior assigned below |
-| `src/bootstrap/io-worker.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/bootstrap/io-worker.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/config/public-config.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/main.tsx` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/platform/provider-auth.ts` | Create (planned) | Production contract, composition or behavior assigned below |
@@ -99,21 +99,21 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 | `src/vite-env.d.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data.worker.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data/app-session.ts` | Modify/extend | Production contract, composition or behavior assigned below |
-| `src/workers/data/backup-graph.ts` | Create (planned) | Production contract, composition or behavior assigned below |
-| `src/workers/data/backup-handlers.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/workers/data/backup-graph.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
+| `src/workers/data/backup-handlers.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/workers/data/catalog.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data/event-store.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data/handlers.ts` | Modify/extend | Production contract, composition or behavior assigned below |
-| `src/workers/data/home-state.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/workers/data/home-state.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/workers/data/import-handlers.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data/record-event-payloads.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/data/record-handlers.ts` | Modify/extend | Production contract, composition or behavior assigned below |
-| `src/workers/io.worker.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/workers/io.worker.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/workers/io/**` | Create (planned) | Production contract, composition or behavior assigned below |
 | `src/workers/protocol/client.ts` | Modify/extend | Production contract, composition or behavior assigned below |
-| `src/workers/protocol/io-channel.ts` | Create (planned) | Production contract, composition or behavior assigned below |
-| `src/workers/protocol/io-client.ts` | Create (planned) | Production contract, composition or behavior assigned below |
-| `src/workers/protocol/io-messages.ts` | Create (planned) | Production contract, composition or behavior assigned below |
+| `src/workers/protocol/io-channel.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
+| `src/workers/protocol/io-client.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
+| `src/workers/protocol/io-messages.ts` | Modify/extend committed source | Production contract, composition or behavior assigned below |
 | `src/workers/protocol/messages.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `src/workers/protocol/redact.ts` | Modify/extend | Production contract, composition or behavior assigned below |
 | `tests/browser/sync/**` | Create (planned) | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
@@ -154,7 +154,7 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 | `tests/unit/workers/data-worker.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `tests/unit/workers/event-store.test.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `tests/unit/workers/handlers.test.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
-| `tests/unit/workers/home-state.test.ts` | Create (planned) | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
+| `tests/unit/workers/home-state.test.ts` | Modify/extend committed source | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `tests/unit/workers/import-handlers.test.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `tests/unit/workers/io*.test.ts` | Create (planned) | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `tests/unit/workers/module-boundaries.test.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
@@ -172,6 +172,12 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 | `tests/unit/workflows/reset.machine.test.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `vite.config.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
 | `vitest.config.ts` | Modify/extend | Behavioral proof/fixture adaptation or owning runner/config mechanism assigned below |
+
+## Approved inputs and remaining gates
+
+DEC-71/72 are approved and save/reminder design accepted at 4c31ded. Consume S02’s actual fallback delivery/explicit confirmation and S03’s persisted schedule without reopening policy. Read the accepted mocks below when extending shared surfaces; keep vault/security 58bffc8 unchanged. GRAPH-CONTRACT direction is approved, but DB/Author’s exact wire/version/backward-reader input and S06 CP1/2/4 implementation/proofs remain prerequisites for compacted-graph consumption. Trust supplied no provider registration, credential, live qualification or demo verdict.
+
+DF-F05-1 still needs Designer coverage for provider authorization, reconnect and disconnect, consumed by this session’s CP2/4. Orchestrator routes scoped design-fill before those surfaces; do not invent geometry or treat bundle/reminder mocks as provider coverage. INPUT-DROPBOX/ONEDRIVE owners supply registrations/accounts; S04/S05 qualify, S07 configures actual constructors and proves J4/J5. All original dependencies/resources remain unchanged.
 
 ## Implementation
 

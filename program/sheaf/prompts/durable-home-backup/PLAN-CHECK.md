@@ -1,5 +1,47 @@
 # Planning preflight — F05
 
+## REPLAN-F05-APPROVAL — current scoped validation (2026-09-24)
+
+Base `87a4278c7e9918e93158ba58ac7125bef20cca38`. Approval `27e9a34`; Designer `4c31ded2f016a7205664511d7875b6898b972b24` ended/received, raw result inspected. Vault mock `58bffc8` unchanged. S01 `694c741`/`13e83f1`/`8674766`, S02 CP1 `03ee571`, CP2 `c7e6507`, partial CP3 `d75830d` preserved. Prior close `4cf629a` is historical. No implementation recovery remains. Earlier records below retain original-base evidence, not current readiness.
+
+Actual inline Python checks: all seven session Modules/Owns/Depends/Concurrent/Resources/Checkpoints unchanged against base; Files rows (including lease-addition tables) and STATE match exact leases; 28 checkpoint commit conditions; DAG acyclic; S04/S05/S06 literal/glob-prefix disjoint; protected Author/shared-state paths excluded; STATE Handoff Notes byte-identical. PASS. Shared dist/Playwright output reservations still serialize. No new sessions or lease/checkpoint amendments.
+
+Source-backed correction: no-picker createFileSavePort returns unconfirmed without delivery; AppRuntime.saveBundle finally disposes the transfer. S02 CP3 owns verified download delivery, transient operation-bound explicit confirmation UI/lifetime and lifecycle/no-change tests within its existing lease. Actual committed signatures replace the old illustrative completion RPC. CP4 owns real entry/download/confirmation/receipt/readers/restart J1, CP5 reset/countdown, CP6 interrupted-pin and complete artifact recovery. Native component evidence is retained, never promoted to J1; S02 does not require S06 future nonempty producers.
+
+Symbol-consumer inspection of FileSavePort, AppRuntime.saveBundle and PreparedBundleV1 found platform/bootstrap/io-client and bootstrap/backup-handler tests, all in S02's lease. New workflow/UI callers and tests are already leased. This is a symbol inventory, not module-edge inference. SAVE-S02 specifies exact invocations/discovery, real internal implementations versus external destination doubles, isolated storage/reopen, rejection assertions, deadlines, fresh artifact identity and cleanup. Package/Vitest/Playwright implementations inspected; no new runner/dependency needed. New tests are planned, not passed.
+
+DEC-71/72 agreed; save/reminder design ready; producers/proofs planned. S03 keeps S02/J1 dependency and owns persisted 10m/1h/24h/daily dismissal/restart tests. CA-35/41 nonempty direction approved but exact wire/version/backward-reader mapping unresolved: DB/Author supplies; S06 CP1 writer/reader/gate, CP2 install/history, CP4 J3/J1; S07 compacted-graph consumption waits. Provider authorization/reconnect/disconnect design stays Designer/Orchestrator DF-F05-1 before S07 CP2/4. Registrations/accounts/live qualification unavailable; no demo verdict inferred.
+
+Limits: no application tests/build/browser/native/provider proof executed by this plan-only reconciliation. Designer visual results and prior graph/native component passes are inherited. Broader prior reviews retained through STATE dispositions, not independently re-audited. Orchestrator refreshes scratch ledger/blockers and requests scoped Archivist planning-completeness check before S02 dispatch. Seven sessions/28 checkpoints retained for existing capability/artifact boundaries; first narrow journey remains S02 CP4 J1, full artifact/error proof CP6. No protected input, application source, config, roadmap or arch edits.
+
+### Approval-reconciliation source identities
+
+| Source | SHA-256 at inspection |
+|---|---|
+| `.program/prompts/REPLAN-F05-APPROVAL.prompt.md` | `f0c62647811b89cb16c6b55243307bd38dc2dd67638a08a1e5c9706998e972b6` |
+| `.program/results/DESIGN-F05-SAVE-REMINDERS.result.md` | `26841d5e9732d93c4334d7a54c0b4ccb421f422533019fbef4172d76086e74a6` |
+| `.program/ledger.md` | `f58fcfc4ebc9c8654072d8498c015f943c65480c5e47a2a6ad4288dbde61fa2e` |
+| `.program/blockers.md` | `04536b5c0212fa60d2bd4874cf43c8d2e95821c185d67879f5060383058c09e7` |
+| `program/sheaf/specs/design.md` | `fc0ca4adaa072a73f03524ab3e61a54393c768ee034da4fafa0bf84a056dec3f` |
+| `program/sheaf/mocks/f05-vault-security.html` | `460115714b9c5cf2a0dbd435d9fac68981d3f710c436c4a69cb8721d23f61724` |
+| `program/sheaf/mocks/f05-bundle-save.html` | `e539b5f2b9da201ae07e620e77f85b37e6bdd3363e18b1dec7a2f428f43fe041` |
+| `program/sheaf/mocks/f05-scratch-reminders.html` | `e6eb155b964062300533e593b12140baffdad00acdf1dba6561e07a2553bfe8a` |
+| `src/application/ports/file-save.ts` | `31b902102c7454e2eed63bab78ca45c13cb1061d72f11da4a0bfc3a322733e85` |
+| `src/platform/file-save.ts` | `95ee35fd4871e5c3728e57880fb4643ad92d3146068ddfd51e074555fdbcbe05` |
+| `src/bootstrap/app-bootstrap.ts` | `18896c8a6dea1dcf8fa4face4758791750889eb62274ce7fc5bcbc8b1a596cb7` |
+| `src/bootstrap/io-worker.ts` | `49bfaee626263cfdf37e561aa6ab2462b251ae8683c138ac8bffcc22358250b4` |
+| `src/workers/protocol/io-client.ts` | `e3916c1f1b94a4123eb02c05a4d0bb12cff7d56b2e938f9be42c8dd3a2b4eb4b` |
+| `src/workers/protocol/io-messages.ts` | `f2e75dbd990a67e9cbe9a00138000884d9be970b8295205bd284b8b46e2558bf` |
+| `src/workers/io/bundle.ts` | `a505cf19b6f56b3cbb85b598da938ac4faf4687a5ed0f385d391de85d4b9a09a` |
+| `src/workers/data/backup-handlers.ts` | `087c1e0a0452e9c0fe3e55c213d70716e0283556338cf2387bd9496f102fa095` |
+| `src/workers/data/home-state.ts` | `aac15919c0b4cbd3530426a8afe4b973ec0f912865e0be63dc5c6a7ab8fd0538` |
+| `src/workers/data/catalog.ts` | `1aefd37254274469f654334ccc0a28457c7f1e965bb5f400d916f9d2c58d37f8` |
+| `package.json` | `56c4827fe19db45651c92f0a9f3091aa19463ed40155807db5d32155d7abb11d` |
+| `vitest.config.ts` | `27f7e0cb566a99b4680cab6355088d3989934ff7ce0e25fb99f8cdaae2512407` |
+| `playwright.config.ts` | `53d0c3be34ac3df5c92f96972269a2eb8f654aece07e92dbb654b8829b80cb9c` |
+
+## Historical planning validation records
+
 Plan HEAD: `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51`.
 
 Mechanical lease checks: PASS. Seven sessions; each Files table equals Owns; 28 commit conditions; no protected source or shared state leased; no brace-expansion pathspecs; explicit DAG acyclic.
