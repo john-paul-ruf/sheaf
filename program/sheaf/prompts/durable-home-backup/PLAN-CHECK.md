@@ -1,5 +1,38 @@
 # Planning preflight — F05
 
+## REPLAN-F05-REMINDER-CLOCK — F05-APPROVAL-01 (2026-09-24)
+
+Base `8c8a53d098e83a2cef04ddfca3f72db6e5884fa4`. Scoped plan-only correction; no delegation. S02 r7 remains active in its unchanged separate implementation lease. This record supersedes only the earlier unspecified S03 browser-clock mechanism; all historical results below remain unchanged.
+
+Disposition: F05-APPROVAL-01 implementation and proof assigned to S03 CP2 under REMINDER-CLOCK-S03. The existing future fixture lease `tests/e2e/fixtures/durability.ts` receives Playwright Worker.evaluate control of Date.now inside the actual built data worker. The existing `tests/e2e/scratch-reminders.spec.ts` lease receives exact named browser self-tests, page-only negative control, 10m/1h/24h/repeated-daily boundary/restart assertions and the retained real-clock journey. No worker entry/bootstrap/protocol injection, runner/package change or lease addition. LEASES.json remains byte-identical; changing it without a lease change would add meaningless churn. All seven sessions, 28 checkpoints, S03's four checkpoints, original dependencies and concurrency remain unchanged. S02/J1 remains the first narrow journey and the dispatch prerequisite; shared fixture ownership transfers only after full S02 receive.
+
+Source inspection: production worker ClockPort dynamically reads Date.now; bootstrap creates the module worker, client spawns lazily; existing browser runtime starts ordinary startApp; installed Playwright 1.63.0 supplies worker handles/evaluation. Durability fixture does not exist at this base: S02 supplies it, S03 extends it after release. REMINDER-CLOCK-S03 specifies worker selection/asset identity, UI seed, independent realm readback, acknowledgement order, normal route re-query, actual IndexedDB/reopen, teardown and execution bounds. New helper/test names are planned outputs. Recheck actual landed S02 time source, constructors, protocol, fixture and J1 before S03 dispatch; do not freeze live S02 signatures. No product/schema/policy change: DEC-71 remains approved.
+
+Actual mechanical validation: seven session front matters byte-equivalent to base; Owns matches Files tables and LEASES.json exactly; numbered checkpoints and commit conditions consistent; S03 four checkpoints retained; deadline arithmetic checked; LEASES.json unchanged. Dependencies/concurrency therefore retain their prior validated graph and disjointness; no new runtime-edge audit claimed. Source/runner reads only, no application tests, builds, browser launch, provider calls or product proof. Planned browser self-tests must pass before J2 evidence can be accepted.
+
+Orchestrator follow-up: reconcile STATE VB-02/J2, CAP-42, CA-37 and F05-APPROVAL-01 on receipt, and route the scoped planning-completeness recheck before affected execution. Agreement stays agreed; reminder producer/proof stay planned and S03 awaits S02/J1. No new blocker or human input. F05-APPROVAL-02 belongs to the separate documentation correction (bulletin records 70f640c); no architecture edits here. Current ledger/blockers inspected for ownership and this finding, not a new full-history audit. Existing config/roadmap/arch and concurrent implementation work are outside this envelope.
+
+Granularity: seven sessions remain; the correction fits S03's existing coherent reminder capability and CP2, so no new session or checkpoint split. Only SESSION-03.md and PLAN-CHECK.md are changed/committed; LEASES.json was inspected and validated without amendment.
+
+### Reminder-clock inspected source identities
+
+Hashes identify inspected bytes, not execution evidence. Production baseline identities are subject to the named post-S02 recheck.
+
+| Source | SHA-256 |
+|---|---|
+| `.program/prompts/REPLAN-F05-REMINDER-CLOCK.prompt.md` | `be22d14dfbdac653eadff9ea7d6d3b7a39ce59a5af5101a7e446735e0f7b5bbd` |
+| `.program/results/ARCHIVIST-F05-APPROVAL.result.md` | `830481e190bcbc4e933235f7f41ad8ed652b65789e36770c614d9b1ef9837d25` |
+| `src/workers/data.worker.ts` | `e463bd025b0ee900fcdd8b74d8ab09af077a34c1829d23e5352fb88f3738eaef` |
+| `src/bootstrap/app-bootstrap.ts` | `7fcf7950952c58bca98ab6add9b47a484bceed7136350a6cca4b84b3a78197d1` |
+| `src/workers/protocol/client.ts` | `e560ade90d6dae4f18d5b4de58f14ef8bfeb5bb9fe25b6d646e8cc472a8c45c7` |
+| `tests/browser/worker/runtime.ts` | `49f6c345b4c2029d56cce21b036f0ababe293e1becb2f8c6c5d6f581a76d9c73` |
+| `tests/e2e/fixtures/app.ts` | `2258945670fde616ebf473d420c143c76ca6e5ec31aa82c6ded5d4bf07156d73` |
+| `tests/e2e/fixtures/workbook.ts` | `aa4d0dd43856f6d39c425bdebcf5992b716bd56e71116d3e3818978277a63cdf` |
+| `playwright.config.ts` | `53d0c3be34ac3df5c92f96972269a2eb8f654aece07e92dbb654b8829b80cb9c` |
+| `package.json` | `56c4827fe19db45651c92f0a9f3091aa19463ed40155807db5d32155d7abb11d` |
+| `vite.config.ts` | `184da67abeeb85cbeddbd3bc39eb5bfb11dc48f20db8e9ceb92a0953f695fae6` |
+| `node_modules/.pnpm/playwright-core@1.63.0/node_modules/playwright-core/types/types.d.ts` | `2806f6d7810fba0306066d500cd716a6d1128d90af2c3cf71723e3ea0a8904c4` |
+
 ## REPLAN-F05-APPROVAL — current scoped validation (2026-09-24)
 
 Base `87a4278c7e9918e93158ba58ac7125bef20cca38`. Approval `27e9a34`; Designer `4c31ded2f016a7205664511d7875b6898b972b24` ended/received, raw result inspected. Vault mock `58bffc8` unchanged. S01 `694c741`/`13e83f1`/`8674766`, S02 CP1 `03ee571`, CP2 `c7e6507`, partial CP3 `d75830d` preserved. Prior close `4cf629a` is historical. No implementation recovery remains. Earlier records below retain original-base evidence, not current readiness.
