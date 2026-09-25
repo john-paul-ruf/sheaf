@@ -16,6 +16,7 @@ export interface BackupSnapshotIdentityV1 {
   readonly confirmedFrontier: readonly FrontierEntryV1[];
   readonly candidateSha256: Uint8Array;
   readonly retainedGenerationRoots: readonly RetainedGenerationRootV1[];
+  readonly retainedRoots: readonly EnvelopeReferenceV1[];
   readonly deviceChains: readonly DeviceChainEvidenceV1[];
 }
 export interface BackupGraphObjectV1 {

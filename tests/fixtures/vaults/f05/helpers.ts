@@ -11,8 +11,11 @@ import type { EnvelopeReferenceV1, EnvelopeScopeV1, EnvelopePayloadKindV1 } from
 export const id = (n: number): Uint8Array => new Uint8Array(16).fill(n);
 export const hash = (n: number): Uint8Array => new Uint8Array(32).fill(n);
 export const entropy = (): EntropyPort => {
-  let count = 0;
-  return { randomBytes: (length) => Uint8Array.from({ length }, () => ++count % 256) };
+  let state = 0x51f05;
+  return { randomBytes: (length) => Uint8Array.from({ length }, () => {
+    state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+    return state & 255;
+  }) };
 };
 export const crypto: EnvelopeCryptoPort = {
   seal: (request) => encryptEnvelope({ ...request, key: request.key as SecretKeyHandle }),
@@ -44,7 +47,7 @@ export function header(): VaultHeaderV1 {
     currentIndex: ref("vault.index", 3), previousHeadSha256: null };
 }
 export async function sealed(scope: EnvelopeScopeV1 = "app.checkpoint", kind: EnvelopePayloadKindV1 = "app.checkpoint-manifest",
-  payload = new Uint8Array([1, 2, 3]), n = 4, logicalRevision = 7n) {
+  payload: Uint8Array = new Uint8Array([1, 2, 3]), n = 4, logicalRevision = 7n) {
   const key = createSecretKey(hash(5), "envelope");
   const frame = await encryptEnvelope({ scope, payloadKind: kind, storageId: asStorageId16(id(n)), logicalRevision,
     payload, compression: "none", key, nonce: new Uint8Array(24).fill(n) });
