@@ -673,6 +673,27 @@ function validated(
 /** Every app this worker currently holds unlocked. Lock empties it. */
 export class AppSessionRegistry {
   #open = new Map<string, AppSessionV1>();
+  #opening = new Map<string, Promise<AppSessionV1 | undefined>>();
+
+  /** Concurrent readers share hydration; a close invalidates its late result. */
+  open(appId: string, hydrate: () => Promise<AppSessionV1 | undefined>): Promise<AppSessionV1 | undefined> {
+    const current = this.#open.get(appId);
+    if (current !== undefined) return Promise.resolve(current);
+    const pending = this.#opening.get(appId);
+    if (pending !== undefined) return pending;
+    const opening = Promise.resolve().then(hydrate).then((session) => {
+      if (this.#opening.get(appId) !== opening) {
+        session?.dispose();
+        throw new IntegrityError("app was closed during hydration");
+      }
+      if (session !== undefined) this.set(appId, session);
+      return session;
+    }).finally(() => {
+      if (this.#opening.get(appId) === opening) this.#opening.delete(appId);
+    });
+    this.#opening.set(appId, opening);
+    return opening;
+  }
 
   get(appId: string): AppSessionV1 | undefined {
     return this.#open.get(appId);
@@ -684,6 +705,7 @@ export class AppSessionRegistry {
   }
 
   close(appId: string): void {
+    this.#opening.delete(appId);
     const session = this.#open.get(appId);
     if (session !== undefined) {
       session.dispose();
@@ -693,6 +715,7 @@ export class AppSessionRegistry {
 
   /** The scrub: after this, no query can be answered without a fresh open. */
   disposeAll(): void {
+    this.#opening.clear();
     for (const session of this.#open.values()) {
       session.dispose();
     }

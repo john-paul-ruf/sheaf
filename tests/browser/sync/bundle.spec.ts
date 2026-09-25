@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { openApp, protectDevice, attemptUnlock, followHash, PASSPHRASE } from "../../e2e/fixtures/app.js";
@@ -13,10 +15,16 @@ test("vault-only recovery traverses the real saved graph; interruption and malfo
   const decoder = await browser.newContext();
   let page = await context.newPage();
   page.setDefaultTimeout(20_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   try {
     await context.addInitScript(() => { Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }); });
     await openApp(page); await protectDevice(page);
+    const buildId = await page.evaluate(() => window.__sheafBuildId);
+    expect(buildId).toBe(execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim());
     const appHash = await importDemoWorkbook(page);
+    expect(errors).toEqual([]);
     await followHash(page, `${appHash}/backup`);
     await page.getByRole("button", { name: "Save a bundle", exact: true }).click();
     await page.getByLabel("Vault name", { exact: true }).fill("Recovery bundle");
@@ -60,6 +68,6 @@ test("vault-only recovery traverses the real saved graph; interruption and malfo
     await page.getByRole("button", { name: "Choose destination" }).click(); await retry;
     await page.getByRole("button", { name: "I saved this bundle", exact: true }).click();
     await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", "0");
-    await writeDurabilityEvidence("browser-bundle", { endpoint: page.url(), interruptedReceiptUnchanged: true, malformedRejected: true, recoveredSections: Object.keys(recovered.authored) });
+    await writeDurabilityEvidence("browser-bundle", { endpoint: page.url(), buildId, artifactSha256: createHash("sha256").update(bytes).digest("hex"), importErrors: errors, interruptedReceiptUnchanged: true, malformedRejected: true, recoveredSections: Object.keys(recovered.authored) });
   } finally { await context.close(); await decoder.close(); }
 });

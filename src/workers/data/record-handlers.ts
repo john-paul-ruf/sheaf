@@ -202,6 +202,7 @@ export function createRecordHandlers(
   deps: RecordHandlerDependenciesV1,
 ): RecordHandlersV1 {
   const registry = new AppSessionRegistry();
+  const pendingVisits = new Map<string, Promise<DataWorkerResponseV1>>();
 
   const deviceIdOf = (context: WorkerSessionContextV1) =>
     decodeDomainId("device", context.catalog.deviceId);
@@ -214,33 +215,31 @@ export function createRecordHandlers(
 
   /** The open session for this app, hydrating it if it is not open yet. */
   async function withApp(appId: string): Promise<AppSessionV1 | undefined> {
-    const open = registry.get(appId);
-    if (open !== undefined) {
-      return open;
-    }
-    const context = deps.getContext();
-    const entry = entryOf(context, appId);
-    if (entry === undefined || entry.appHeadStorageId === null) {
-      return undefined;
-    }
-
-    const appKey = await openAppKey(
-      deps.ports,
-      context.localRoot,
-      entry,
-      parseEnvelopeTransport,
-    );
-    const session = await openAppSession({
-      ports: deps.ports,
-      clock: deps.clock,
-      session: deps.getContext,
-      deviceId: deviceIdOf(context),
-      appKey,
-      appHeadStorageId: entry.appHeadStorageId,
-      hydratedAtMs: deps.clock.nowEpochMs(),
+    return registry.open(appId, async () => {
+      const context = deps.getContext();
+      const entry = entryOf(context, appId);
+      if (entry === undefined || entry.appHeadStorageId === null) return undefined;
+      const appKey = await openAppKey(
+        deps.ports,
+        context.localRoot,
+        entry,
+        parseEnvelopeTransport,
+      );
+      try {
+        return await openAppSession({
+          ports: deps.ports,
+          clock: deps.clock,
+          session: deps.getContext,
+          deviceId: deviceIdOf(context),
+          appKey,
+          appHeadStorageId: entry.appHeadStorageId,
+          hydratedAtMs: deps.clock.nowEpochMs(),
+        });
+      } catch (cause) {
+        deps.ports.crypto.destroyKey(appKey);
+        throw cause;
+      }
     });
-    registry.set(appId, session);
-    return session;
   }
 
   /** The sheet's snapshot, opened; null when the app or the sheet is not there. */
@@ -345,21 +344,27 @@ export function createRecordHandlers(
      * do not exist rules out a last-opened event, so the fact lives in the
      * catalog's cache and nowhere else.
      */
-    async noteAppOpened(request): Promise<DataWorkerResponseV1> {
-      const context = deps.getContext();
-      const entry = entryOf(context, request.appId);
-      if (entry === undefined) {
-        return { kind: "noteAppOpened", lastOpenedAtEpochMs: null };
-      }
-      const lastOpenedAtEpochMs = deps.clock.nowEpochMs();
-      await deps.commitCatalog({
-        ...context.catalog,
-        catalogRevision: context.catalog.catalogRevision + 1,
-        apps: context.catalog.apps.map((app) =>
-          app.appId === request.appId ? { ...app, lastOpenedAtEpochMs } : app,
-        ),
+    noteAppOpened(request): Promise<DataWorkerResponseV1> {
+      const pending = pendingVisits.get(request.appId);
+      if (pending !== undefined) return pending;
+      const write = (async (): Promise<DataWorkerResponseV1> => {
+        const context = deps.getContext();
+        const entry = entryOf(context, request.appId);
+        if (entry === undefined) return { kind: "noteAppOpened", lastOpenedAtEpochMs: null };
+        const lastOpenedAtEpochMs = deps.clock.nowEpochMs();
+        await deps.commitCatalog({
+          ...context.catalog,
+          catalogRevision: context.catalog.catalogRevision + 1,
+          apps: context.catalog.apps.map((app) =>
+            app.appId === request.appId ? { ...app, lastOpenedAtEpochMs } : app,
+          ),
+        });
+        return { kind: "noteAppOpened", lastOpenedAtEpochMs };
+      })().finally(() => {
+        if (pendingVisits.get(request.appId) === write) pendingVisits.delete(request.appId);
       });
-      return { kind: "noteAppOpened", lastOpenedAtEpochMs };
+      pendingVisits.set(request.appId, write);
+      return write;
     },
 
     async queryRecords(request): Promise<DataWorkerResponseV1> {
@@ -760,6 +765,7 @@ export function createRecordHandlers(
     },
 
     disposeAll(): void {
+      pendingVisits.clear();
       registry.disposeAll();
     },
 
