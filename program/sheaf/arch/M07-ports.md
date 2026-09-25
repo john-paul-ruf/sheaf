@@ -132,3 +132,29 @@ union — see `M01-domain-model.md`'s "Type-held rule"), `RecordRuleIRV1`,
   surface's kind count corrected to 26 (21 F03 + query-records + list-charts +
   chart-dataset), stated once rather than left as three separate running
   counts.
+
+<!-- durable-home-backup SESSION-01 -->
+## M07 — application ports
+
+New `backup.ts`: `BackupAppGraphV1` is the trusted worker export contract;
+`BackupGraphObjectV1` carries actual transport bytes, authenticated reference,
+expected payload kind and descendant references from the payload's owner.
+`canonicalAuthoredState` is canonical CBOR with an `appId` byte-string member,
+independently reconstructed by S02. `checkpointChains` and `deviceChains` carry
+per-device sequence/hash evidence; the exporter must authenticate their origins.
+`BackupSnapshotIdentityV1` binds app/home/vault IDs, generation, exact candidate
+head SHA-256, frontier, retained app and generation roots, and final device chains.
+It is not an external save receipt or proof of complete authored-state replay.
+
+New `durable-home.ts`: `DurableHomePort.readHead/readObject/createObject/
+compareAndSwapHead`, `HeadObjectV1`, `HeadReceiptV1`. A constructed port is bound
+to one authenticated provider account/vault location. Object writes are immutable;
+null CAS revision means create-if-absent, never unconditional replace. Receipts
+name SHA-256 of the exact canonical head bytes plus opaque provider revision.
+
+New `vault-crypto.ts`: opaque `VaultKeyRefV1`, `VaultSecretsV1`, `VaultCryptoPort`
+create/openWithPassphrase/openWithRecovery/wrapApp/openApp/protectLocally/
+openLocally/destroy. No raw-key return or provider SDK type. File-save contract,
+worker transport, receipt persistence and UI DTOs remain S02 outputs.
+
+

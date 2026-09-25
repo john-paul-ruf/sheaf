@@ -97,3 +97,25 @@ cover the shipped path either way.
   M09 (injected `Sha256Fn`), M21, M23 and M33.
 - 2026-09-08 — reconciled by Roshi (F02 final pass): the `hash.ts` staple folded
   into the landed API; heading de-scoped from "F01 public API".
+
+<!-- durable-home-backup SESSION-01 -->
+## M08 — cryptography
+
+`kdf.ts` adds migration-006 descriptors and `deriveVaultPassphraseKey` /
+`deriveVaultRecoveryKey`; context labels are exactly `sheaf/vault/passphrase/v1`
+and `sheaf/vault/recovery/v1`. Local descriptors and known-answer bytes are
+unchanged. Vault salt binding reuses the established local Argon2id mechanism.
+
+`vault.ts`: `VaultKeyHandle`, generate/create vault secrets, vault/app wraps and
+local protection. Wrap AAD is canonical CBOR `["sheaf", scope, vaultId,
+wrapId, context]`: vault.wrap context is the complete KDF descriptor map;
+vault.app-wrap context is appId; local.vault-wrap context is null. All use fresh
+16-byte wrap IDs and 24-byte nonces, and 32-byte keys behind the existing WeakMap.
+App wrapping consumes the existing opaque envelope key without rewriting data.
+Purpose, dimensions, vault/app identity and authentication are checked on open.
+Intermediate derivation handles and recovery bytes are destroyed on completion
+or failure. Recovery-code formatting is unchanged; independently generated vault
+secrets use vault-specific HKDF. `vault-port.ts#createVaultCrypto(entropy)` is the
+production M07 adapter, including scoped open and cleanup on rejected secrets.
+
+
