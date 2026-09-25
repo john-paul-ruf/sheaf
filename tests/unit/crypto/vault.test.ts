@@ -68,3 +68,12 @@ describe("independent vault protection (CA-34)", () => {
     await expect(deriveVaultPassphraseKey("p", { ...vault.passphraseKdf, iterations: 2 })).rejects.toThrow(/floor/);
   });
 });
+
+it("separates local and vault derivation even for identical stored salt and passphrase", async () => {
+  const local = createPassphraseKdfDescriptor(entropy());
+  const vault = { ...local, salt: new Uint8Array(local.salt), context: "sheaf/vault/passphrase/v1" as const };
+  const key = await deriveVaultPassphraseKey("same", vault);
+  const localKey = await deriveWrappingKeyFromPassphrase("same", local);
+  const frame = await encryptEnvelope({ scope: "vault.index", payloadKind: "vault.index", storageId: asStorageId16(id(1)), logicalRevision: 1n, payload: id(2), compression: "none", key });
+  await expect(decryptEnvelope(frame, "vault.index", localKey, "vault.index")).rejects.toThrow(/authentication/);
+});
