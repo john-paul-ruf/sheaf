@@ -37,7 +37,7 @@
 
 ## Context
 
-Adapters alone cannot publish an app. This session owns their actual IO construction, encrypted token/config inputs, OAuth return path, scheduler notifications, exact receipt transaction and all status consumers. S04/S05 provide vendor artifacts and S06 establishes compaction-compatible graph/chain readers. Shared paths are handed over serially with paired tests.
+Adapters alone cannot publish an app. This session owns their actual IO construction, encrypted token/config inputs, OAuth return path, scheduler notifications, exact receipt transaction and all status consumers. S04/S05 provide vendor artifacts and S06 must establish V2-preserving edit/import append, original audit/record/provenance/history readers, safe ticket cleanup, nested-version vault recovery and actual periodic-trigger J3 before this consumer starts. Shared paths are handed over serially with paired tests.
 
 Plan HEAD `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51`. Read the target before each modification. Author-owned specs, mocks and migrations are read-only. New paths in this prompt are planned outputs, not existing APIs. Only Owns may be written; ignored dist/test-results are declared build/evidence resources. Never edit shared STATE/MASTER/arch files. Return evidence for Orchestrator to apply.
 
@@ -175,7 +175,7 @@ CA-34 through CA-41 as applicable; especially CA-38/39. Recheck axes (a) existen
 
 ## Approved inputs and remaining gates
 
-DEC-71/72 are approved and save/reminder design accepted at 4c31ded. Consume S02’s actual fallback delivery/explicit confirmation and S03’s persisted schedule without reopening policy. Read the accepted mocks below when extending shared surfaces; keep vault/security 58bffc8 unchanged. GRAPH-CONTRACT direction is approved, but DB/Author’s exact wire/version/backward-reader input and S06 CP1/2/4 implementation/proofs remain prerequisites for compacted-graph consumption. Trust supplied no provider registration, credential, live qualification or demo verdict.
+DEC-71/72 are approved and save/reminder design accepted at 4c31ded. Consume S02’s actual fallback delivery/explicit confirmation and S03’s persisted schedule without reopening policy. Read the accepted mocks below when extending shared surfaces; keep vault/security 58bffc8 unchanged. GRAPH-CONTRACT exact Author source is supplied at afe37f3 (database.md, “F05 graph contract — DB re-entry, 2026-09-25”); CA-35/41 agreements are agreed. S06 CP1 candidate, CP2 installed and CP4 J3/J1 implementation/proofs remain planned prerequisites for compacted-graph consumption. Orchestrator receives scoped plan review before S06, then amends CA mappings against actual S06 commits before S07; do not treat supplied Author text as a ready producer. Trust supplied no provider registration, credential, live qualification or demo verdict.
 
 DF-F05-1 provider detail is accepted98ee79c: read f05-provider-states.html for provider/account handoff, authorization returns, stable-account reconnect, quota and disconnect states in CP2/4. Existing vault/save/reminder designs remain authoritative; no further known design-fill input remains. INPUT-DROPBOX/ONEDRIVE owners supply registrations/accounts; S04/S05 qualify, S07 configures actual constructors and proves J4/J5. All original dependencies/resources remain unchanged.
 
@@ -224,7 +224,7 @@ Coder commits this checkpoint itself with `git add -- <the exact Owns pathspecs 
 
 ### Checkpoint 5 — Interrupted-backup resilience and GATE-F05 deliverable
 
-Close failure/race findings in coordinator and scheduler and implement tests/e2e/gate-f05-demo.spec.ts for roadmap flow. Qualify both provider account-isolation/discovery contracts with opted-in test accounts; name any unrun live proof as blocked rather than done. Re-run J1/J2/J3 after final composition. Capture 320px light/dark screens, inspect images and run axe/clipping/target checks. Produce demo recipe and built artifact identity in handoff; Orchestrator writes final report and GATE-F05 blocker.
+Close failure/race findings in coordinator and scheduler and implement tests/e2e/gate-f05-demo.spec.ts for roadmap flow. Qualify both provider account-isolation/discovery contracts with opted-in test accounts; name any unrun live proof as blocked rather than done. Re-run J1/J2/J3 after final composition using SESSION-06’s production128-tail/real-timer J3 and independent empty-context vault oracle; no debug API or threshold build is assumed. Preserve V2 source-head wrapper, original anchors and audit logical order through shared publication/worker changes. Shared durability/decoder fixtures transfer from S06 with their behavioral self-tests; use its existing compaction e2e spec read-only. If changed composition invalidates a specific proof, restore that proof before readiness. Capture 320px light/dark screens, inspect images and run axe/clipping/target checks. Produce demo recipe and built artifact identity in handoff; Orchestrator writes final report and GATE-F05 blocker.
 
 **Commit when:** pnpm typecheck, pnpm lint, pnpm test, full pnpm test:browser, pnpm test:e2e and pnpm test:security:f05 pass under locks; required CA proofs current; live unavailability is explicitly incomplete CAP-43, never a full F05 success. Coder commits its own exact lease at this checkpoint.
 

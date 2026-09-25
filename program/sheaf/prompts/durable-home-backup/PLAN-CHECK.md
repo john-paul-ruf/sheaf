@@ -1,5 +1,109 @@
 # Planning preflight — F05
 
+## REPLAN-F05-GRAPH-APPROVED — current scoped reconciliation, 2026-09-25
+
+Plan/accepted Author HEAD `afe37f391bb73e35a85d3c9631c632cd7d024bf9`; application source remains47a633b. Explicit human DB/Author re-entry approval and accepted database.md section “F05 graph contract — DB re-entry, 2026-09-25” close the input. No product question remains. Only the six authorized planning paths change. No source, protected spec/migration, config/roadmap/arch, scratch ledger/blocker or prior final-report edits; no workers spawned.
+
+**Readiness:** S06 pending0/4 for implementation **after** scoped PLAN-REVIEW-GRAPH-APPROVED. CA-35/41 agreement agreed/Author supplied; V2 producer and candidate/installed/composed proofs planned. S01–03 acceptance, checkpoint hashes and entire historical receive/handoff suffix preserved. S04/S05 still require registrations/live qualification; S07 still depends onS03/S04/S05/S06, accepts provider design98ee79c and ownsJ4/J5/J6. This is planning coverage, not compaction parity.
+
+### Source-backed corrections and dispositions
+
+| Finding/evidence | Disposition / owner | Required proof / dependent |
+|---|---|---|
+| attempt4 / old graph review: absent exact local retained/evidence layout | Input closed by acceptedafe37f3; S06 CP1 implements precise versions/keys/limits/descendants | Legacy bytes and old-reader refusal; new candidate, installed and composed proof remain distinct |
+| V1-only AppHead/RecordPage and revision-zero/empty-provenance hydration | S06 CP1 codecs/direct V2 mapper/export port; CP2 installed composition | actual row revision/original IDs/canonical optional provenance after two compactions/edit/reopen |
+| appendTable's V1 AppTarget/headBody and production appendIntoApp | Added exact append+caller+paired tests: S06 CP1 union adaptation, CP2 installed proof | V2 roots/version preserved after real append/reopen/vault recovery; not a future owner correction |
+| promotion stores initial rows only in pages, while audit retains import commits | Retain authenticated original import checkpoint/PageRef closure; S06 CP1 history/origin adapter | imported creation identity/deleted restoration, no invented record.created event or pre-import history |
+| authoredState omits general history/conflict evidence | S06 CP1 candidate separate full history/conflict report, CP2 installed readers/UI, CP4 decoder/oracle | state digest alone cannot pass; exact subject/restoration/provenance/chain and UI pagination/restore |
+| EventProvenance optional fields versus existing record payload nullable/frozen representation | Distinct encodings, not a schema discrepancy. Both adapter/codecs+paired tests leased; preserve original event bytes | absent versus present canonical evidence round trip; no lossy normalization |
+| queue leaf context, root-head snapshot lookup, graph-wide baselineCount versus root-only stream, refs physical ordering | S06 CP1 descendant/context/alias resolver and logical audit/conflict ordering | nested historical heads/shared child count once; bare leaf and mismatched descriptors fail |
+| frontier accepts nonnull genesis predecessor; basis coverage not proved by provided anchor | S06 CP1 frontier/graph/publication paired correction | authenticated original chains/basis coverage; wrong app/device/terminal hash and duplicate logical evidence reject |
+| one remote source-head wrapper versus local arbitrary retained roots | Keep wrapper; traverse all local typed edges. No change to006/minimumReaderVersion | nested V2 gate before exposure/receipt/install/cleanup; authenticated listing alone insufficient |
+| ticket operation already required by database Compaction; current cleanup helper/enum only import | S06 CP2 catalog/import/cleanup + paired tests and narrow compaction reason in existing ticket shape | exact-ID/CAS/sweep/pin/full closure, interrupted cursor and no reachable deletion; no fake import workflow |
+| fixture report only hash/current state, hardcoded s02 output, separate decoder build | S06 CP1 report/fixture adaptation; CP3 self-tests, CP4 evidence | actual served app/data/IO/decoder identities and vault-only empty-context oracle |
+| prior J3 undefined threshold build injection | Replace with production128-tail/1500ms timer, real worker/no clock overrides; S06 CP3/4 |127no-trigger/128trigger/repeat, lifecycle selftests, no helper force/debug RPC; logical-frontier oracle handles timer race |
+| PC-F05-01/04 history/presentation timing | CP1 candidate history before candidate digest; CP2 installed/UI/restore; CP4 J3 | S07 waits for committed complete new-format boundary evidence |
+| PC-F05-02/03, approval01/02, prior bounded/hydration/no-op gaps | Preserve their closed evidence and IDs; scope/authentication rule retained | no reopening S01–03; current local/J1/J2 tests inherited, not new V2 evidence |
+| PC-F05-05 / external inputs | Remains S07 security discovery/selftests and provider owners | INPUT-DROPBOX/ONEDRIVE + S04/S05 qualification and S07J4/J5/J6 unchanged |
+
+No demonstrated protected schema discrepancy remains in the inspected path: allowed envelope scopes exist, original event kinds exist,005's pending/resolved constraints fit accepted evidence semantics,006 nested-app/container distinction is explicit. Cleanup's code enum does not prohibit the already-required compaction operation in Author sources. No migration/version-registry change is prescribed. Framework/CL-03/05 cleanup, AR-1 unavailable grammar source and inherited M46/M39 layout debt remain out of this scoped replan with previous owners; no broad cleanup or new competing backlog.
+
+### Lease, harness and baseline validation
+
+S06 expands47→66 exact pathspecs (19 additions), also records M27/M59 previously omitted from its module list. Added paths cover staging append/cleanup, bundle reader, worker entry/catalog/import/record adapters, durability/append fixtures and paired tests. Projection glob already owns engine/type/export/history changes. Existing V1 promotion and browser workbook seed/read helpers can keep their narrow V1 outputs; decoder consumers accessing common fields remain structurally compatible. Keep V1 exported interfaces/encoding overloads; do not replace them wholesale with incompatible new names. New V2 types/compactor/test paths are planned, not falsely claimed committed.
+
+Mechanical checks: all seven SESSION Owns lists equal LEASES.json and exact Files rows; STATE current leases match; seven sessions and28 checkpoints remain; DAG unchanged/acyclic; S04/S05/S06 source leases literally disjoint; root dist/output locks still serialize. S01–03 session files and accepted rows byte-identical, all historical STATE text from “Historical CP2 receive” onward byte-identical, S07 lease/dependencies/resources/checkpoint count unchanged. All new required tests/fixtures/generators/hooks are owned before their gate. V1/V2 union adaptations in both writers and the import caller land at CP1 with codec return types; CP2 proves installation, avoiding a knowingly noncompiling producer checkpoint. New compaction corpus outputs stay inside its glob; old KAT binaries stay byte-identical, no regeneration flag. No specs/mocks/migrations/shared plan/arch path enters a Coder lease. Protected nine-file snapshot is checked again before commit. `git diff --check` and exact-path staging/commit verification close this plan-only run.
+
+Actual run evidence is source/plan inspection and mechanical plan checks only. No application typecheck/tests/build, Playwright browser/discovery run, OS save probe or provider call was executed. Inherited independent47a633b results223files2461passed3skips, typecheck/lint0,11browserpasses and reported81full-e2e remain at their original identity, never V2 proof. Three skips, chunk warning and optional native-host proof remain debt; known r9 hydration and S03 no-op/clock/environment findings retain recorded repairs. No new hanging gate is demanded. Vitest existing discovery suffices; Playwright builds before preview, refuses reuse; independent decoder builds after main. J3 consumes real timers at production threshold, separate live restart context and fresh vault-only oracle context. Exact commands/limits/negative controls in SESSION-06; no package install or root-runner seam assigned to a later session.
+
+**Granularity:** seven sessions/28checkpoints unchanged, S06 four coherent checkpoints (candidate, installed/reopen, actual scheduler, real-entry J3/J1). Original first narrow journey J1 is acceptedS02; S06 owns compaction integration, S07 cloud integration. No verification-only session or layer split. The larger batched lease reflects one graph/recovery capability and its mechanical consumers, not new product scope.
+
+**Next step:** Orchestrator receives this commit, refreshes scratch/report current summaries (old FINAL-REPORT missing-input paragraph is historical), requests the scoped completeness review, then may dispatch pendingS06 under port8081/exclusive locks. At S06 receive amend provisional mappings against actual producer commits before S07. Provider inputs remain independent; no missing Author input blocks S06. Do not claim the scoped review itself has run.
+
+### Inspected source identities and limitations
+
+Read PLANNER, requirements/architecture and entire accepted DB section, config, complete current STATE/history, oldS06/S07/MASTER/PLAN-CHECK/LEASES, current ledger/blockers and final report. Raw graph/planning/approval/final review findings were reconciled with their original IDs and current code, not silently superseded. Actual source inspection follows constructors/readers/writers listed in STATE; this is a feature-sized dependency/consumer sweep, **not** a refreshed whole-repository runtime-import registry. Source hashes below identify inspected bytes (config/scratch may be pre-existing working bytes). Historical records below retain their old-base claims only. Unavailable external accounts, OS/native evidence, older F04 screenshots/Excel/grammar sources were not inspected or claimed reconciled. No currently required graph review record in the supplied scope was unavailable.
+
+| Source | SHA-256 at inspection |
+|---|---|
+| `program-agents/PLANNER.md` | `c6d339fafa260894bec9c0a58454d3048918285475b24240bfb2bb5cc4ac174a` |
+| `program/sheaf/PROGRAM-CONFIG.md` | `0e5c9f5debc0c0d3a521a353ae77880ee58d1786677be4e0214fa9facc205cf6` |
+| `program/sheaf/specs/requirements.md` | `1829d63dfcc4f7147ef70aca58034da4e88f4a6ec51d814cd11809a33ebc2c69` |
+| `program/sheaf/specs/architecture.md` | `d11d6e447a6d1d80e9179e7db3646387e5b5f7b413a2f02cfafab9dfb074f8d8` |
+| `program/sheaf/specs/database.md` | `153afbc3eeeedb044855042e6a6257463cb00c6818519dcccc2c386c544e544c` |
+| `program/sheaf/prompts/durable-home-backup/FINAL-REPORT.md` | `b972f05d3083533ce6e34700c21a83b826ff60015077c7e33761410ec08a3eac` |
+| `.program/ledger.md` | `355be20ff81db3d1ff6d0a72dd831fcfff8ed8e227e54fbc32f332bdf7c36d97` |
+| `.program/blockers.md` | `6784f8be24eb7dae99b6e9f97efd1250db69c187b386e305256f5da3041ab80d` |
+| `.program/results/ARCHIVIST-F05-PLANNING.result.md` | `d205011f87b0ef6867e59ae49f1ef320b09eae086398ed2d31cb35cc5d2a1a5b` |
+| `.program/results/ARCHIVIST-F05-GRAPH.result.md` | `bd757fbba1fcade56a62951571422c98b2709e9757e5953624291839ec5ff9cc` |
+| `.program/results/ARCHIVIST-F05-APPROVAL.result.md` | `830481e190bcbc4e933235f7f41ad8ed652b65789e36770c614d9b1ef9837d25` |
+| `.program/results/ARCHIVIST-F05-CONTINUATION-FINAL.result.md` | `e6c6032d7a5406d25b4f14fc7d826897bef0289b5a05222141a263ede4209459` |
+| `.program/results/F05-SESSION-02.attempt4.result.md` | `f9f46e9f1f53c6c207a30d1d592f8107982400cc8be46e36932f5ab73dbe15e3` |
+| `src/import/staging/roots.ts` | `0a91fa5b6cf9197338ee12f9fcdb0566738771e959af2adbea30d0ee700a2577` |
+| `src/import/staging/promotion.ts` | `6fdda1cf9dd056ab52090319d339e0256abbba46d218b724c01a665d62d480cf` |
+| `src/import/staging/append.ts` | `295be8aabc1c76a61ede97298239cb96952d88691aaf2f9a816543f8c54a45a9` |
+| `src/import/staging/cleanup.ts` | `c1eba7ce647156a18e8e4e322a33607e87348770ab2714ee9c33e57d0348da36` |
+| `src/workers/data/app-session.ts` | `5bcd0ee37fd6b4bf29504de9288ffdecd12e9e04f875559a6f0ae50d7f0f48c0` |
+| `src/workers/data/event-store.ts` | `6ea367b5180e462e9bd6ae4e77f6e12977193e8eaca59531f8096ecdbecd8eab` |
+| `src/workers/data/backup-graph.ts` | `23b8b7e4fb80ddab24c6ae4702ae2722cb108dfe620d68574ae8d901bac84138` |
+| `src/workers/data/backup-handlers.ts` | `69d90b764a73252dc3b9be5209d382ff3a427afe5b23e534bff6af9e8d6d5d98` |
+| `src/workers/data/import-handlers.ts` | `b41d75352f218a19ab6d56a657aef5c37eb96bf5af6761f874dc42e9fef97c03` |
+| `src/workers/data/record-handlers.ts` | `908d477f848c688713e964e9e4f5b1559db589b7791c7fa788dd1c71b3cef226` |
+| `src/workers/data/record-event-payloads.ts` | `6e07f3d53a6894619e5ee8f3ffe485c6af4a9a9cc07b479d0512690332a4d1b4` |
+| `src/workers/data/home-state.ts` | `caac300538e6a1852eb0f1e71b9c171acf913efd2bf3c301485c739e0a44db37` |
+| `src/workers/data/catalog.ts` | `1aefd37254274469f654334ccc0a28457c7f1e965bb5f400d916f9d2c58d37f8` |
+| `src/workers/data/handlers.ts` | `d1f158d481b84b937e6bc7a980dcd9afe456c633bb49281c64a3f75e4d6c8516` |
+| `src/workers/data.worker.ts` | `e463bd025b0ee900fcdd8b74d8ab09af077a34c1829d23e5352fb88f3738eaef` |
+| `src/application/ports/projection.ts` | `61b1e7cc6a2d653480b95fce5207c98754f1494452e0bee63e313c32d6876dd2` |
+| `src/application/ports/backup.ts` | `e6c6962072d0e19987a41131295151d2c4f9dae08941dd811a4948aea78dd73b` |
+| `src/application/queries/history.ts` | `932431307fb45d3ffd8d1308d189845469cb83f492a4f37b5da11ae41d9ebb26` |
+| `src/persistence/projection/authored-state.ts` | `9c5ebea81685fa357af5875a0324f222b613cd8999648264126366b5dea9791a` |
+| `src/persistence/projection/apply-events.ts` | `210bf717bba160453f732ef192c777596956f036935eb469c398dc73538861c9` |
+| `src/persistence/projection/cbor-values.ts` | `f44c9de62ed2a1d5332cc127ce13aeb69d10da19f4616985f925a8268510857d` |
+| `src/persistence/projection/hydrate.ts` | `bb5a3c6b0bb3393f20706fd9344cb2ca7941985201c1f1a7e1f8c767944458f2` |
+| `src/persistence/codecs/event-commit.ts` | `b9820550269e16958ceef085ab8edc76dcbd1c7db3d32c3b29a7fa2afb7a0ad6` |
+| `src/sync/protocol/frontier.ts` | `bdf096c7e17f0ae2cfdde28eefc987cee4ccb8b5120daf03f3a1d8045be54f21` |
+| `src/sync/protocol/publication.ts` | `e4b6c7f99c6c984eede85e8a9ffbef4b9a5490cb7f4cbad4febcacd0f61cb727` |
+| `src/sync/providers/bundle/reader.ts` | `35dc071ca585db6c5c5e3a22d081fc222a9969da5b47ad1053adb144d6297c4e` |
+| `src/migrations/003_envelope_format_v1.ts` | `c86e4fac3483eac5c15baf496773c0504a7e934ac2e0a6ce7594dc58167dc4d7` |
+| `src/migrations/004_event_format_v1.ts` | `1cc01930698182e37bca7eef7e9e89d306ccbd5dfae220a21b995a912f670b26` |
+| `src/migrations/005_projection_v1.sql` | `abde9e4dbb27ce29370d3dfabbfc5ea4b251a8f7e5f26c1d982560f0c2b133a0` |
+| `src/migrations/006_vault_format_v1.ts` | `6c0da244ee57860a73e168de55582a2f360148e3a62937881b761a8f95253b6e` |
+| `tests/e2e/fixtures/durability.ts` | `c67bf671a5ec0a8725b2bad8d6cfb54f24fbd351c192bfa7f8b9c0f336cc32fb` |
+| `tests/browser/sync/fixtures/bundle-reader.worker.ts` | `0304e5361f0ae1ae4e139a8080ed217d147e0931b921fff4eac2f07a8c104d11` |
+| `tests/browser/sync/fixtures/bundle-reader.config.ts` | `6724a74eada46cb28da5d71e6f757b8cbe0ac0a4e10eb694943c8d00bf917276` |
+| `tests/fixtures/vaults/f05/generate.ts` | `b53fd2bdea0ae9d9d4b4440a40a80e7fa9ed0836f3f1bec3decb06dcc264bb6e` |
+| `tests/unit/sync/protocol/fixtures.test.ts` | `a53107c4609eb50bc834428888d9b25cc249baeac463b1401cd0bd88b04732a3` |
+| `playwright.config.ts` | `53d0c3be34ac3df5c92f96972269a2eb8f654aece07e92dbb654b8829b80cb9c` |
+| `vitest.config.ts` | `27f7e0cb566a99b4680cab6355088d3989934ff7ce0e25fb99f8cdaae2512407` |
+| `vite.config.ts` | `184da67abeeb85cbeddbd3bc39eb5bfb11dc48f20db8e9ceb92a0953f695fae6` |
+| `package.json` | `56c4827fe19db45651c92f0a9f3091aa19463ed40155807db5d32155d7abb11d` |
+| `pnpm-lock.yaml` | `20bd41fc669c606c06734c5e611d7c6a06602b6a9e4d168fb60621c5cbc9f989` |
+
+## Historical planning checks — immutable prior-run evidence
+
+Everything below describes its recorded source revision and run. Current readiness is the reconciliation above and STATE; earlier missing-input or planned-S02/S03 statements are historical, not current blockers.
+
 ## REPLAN-F05-REMINDER-CLOCK — F05-APPROVAL-01 (2026-09-24)
 
 Base `8c8a53d098e83a2cef04ddfca3f72db6e5884fa4`. Scoped plan-only correction; no delegation. S02 r7 remains active in its unchanged separate implementation lease. This record supersedes only the earlier unspecified S03 browser-clock mechanism; all historical results below remain unchanged.
