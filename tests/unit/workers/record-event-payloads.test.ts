@@ -367,6 +367,7 @@ describe("an appended table's schema events, read back from a tail (CA-23)", () 
       ...F04_SCHEMA_EVENT_KINDS,
       ...F04_CHART_EVENT_KINDS,
       "theme.changed",
+      "durable-home.assigned",
     ]);
     expect(isTailEventKind("app.created")).toBe(false);
     expect(isTailEventKind("import.accepted")).toBe(false);
@@ -729,6 +730,23 @@ describe("the chart payloads (CA-30)", () => {
     ]) {
       const bytes = encodeCanonical(encodeRecordEventPayload({ kind: "chart.saved", payload }));
       expect(() => decodeTailEventPayload("chart.saved", decodeCanonical(bytes))).toThrow(CodecError);
+    }
+  });
+});
+
+
+describe("durable home assignment (CA-34)", () => {
+  it("round trips the identity and rejects an unsupported wrap or home kind", () => {
+    const event: DomainEventV1 = { kind: "durable-home.assigned", payload: {
+      homeId: createDomainId("home", entropy), vaultId: createDomainId("vault", entropy),
+      homeKind: "bundle", wrappedAppKeyVersion: 1,
+    } };
+    const value = decodeCanonical(encodeCanonical(encodeRecordEventPayload(event)));
+    expect(decodeTailEventPayload("durable-home.assigned", value)).toEqual(event);
+    for (const [key, bad] of [["wrappedAppKeyVersion", 2n], ["homeKind", "unknown"]] as const) {
+      const changed = new Map(value as ReadonlyMap<string, CborValue>);
+      changed.set(key, bad);
+      expect(() => decodeTailEventPayload("durable-home.assigned", decodeCanonical(encodeCanonical(changed)))).toThrow(CodecError);
     }
   });
 });

@@ -195,7 +195,7 @@ const appendDeps = (harness: StagingHarnessV1) => ({
 });
 
 describe("appending a delimited file into an existing app (D38, CA-23)", () => {
-  it("writes one import-class commit that continues the chain, grows the head, and re-seals the source", async () => {
+  it.each([false, true])("continues the chain and preserves the old graph exactly when pinned (%s)", async (pinned) => {
     const harness = stagingHarness();
     const { target, open, firstCommit } = await appOf(harness);
     const { loaded, facts } = await stageDelimited(
@@ -206,7 +206,7 @@ describe("appending a delimited file into an existing app (D38, CA-23)", () => {
       target.tables.map((table) => table.displayName),
     );
 
-    const result = await appendTable(appendDeps(harness) as never, { loaded, facts, target, deviceId: DEVICE });
+    const result = await appendTable({ ...appendDeps(harness), isHeadPinned: () => Promise.resolve(pinned) } as never, { loaded, facts, target, deviceId: DEVICE });
 
     expect(result).toMatchObject({ kind: "appended", receipt: { rowCount: 4 } });
     if (result.kind !== "appended") return;
@@ -218,8 +218,9 @@ describe("appending a delimited file into an existing app (D38, CA-23)", () => {
     expect(head.snapshotManifests).toHaveLength(2);
     // The checkpoint is the promotion's, untouched: the new table lives in the tail.
     expect(head.checkpoint).toEqual(target.head.checkpoint);
-    // The superseded head and the stage's workflow are gone.
-    expect(harness.store.has(target.headStorageId)).toBe(false);
+    // The staging workflow is gone; backup retention alone preserves the head.
+    expect(harness.store.has(target.headStorageId)).toBe(pinned);
+    if (pinned) expect(decodeAppHead(await open(target.headStorageId, "app.head", "app.head"))).toEqual(target.head);
     expect(harness.store.has(loaded.workflowStorageId)).toBe(false);
 
     const segment = decodeEventSegment(await open(head.eventSegments[1]?.storageId as string, "app.events", "app.event-segment"));

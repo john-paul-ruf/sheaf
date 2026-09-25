@@ -116,6 +116,7 @@ export type AppendResultV1 =
 export interface AppendDependenciesV1 {
   readonly ports: StagingPortsV1;
   readonly clock: ClockPort;
+  readonly isHeadPinned?: (headStorageId: string) => Promise<boolean>;
   /**
    * The `record.created` payload for one row. The data worker's record-event
    * mapping owns that encoding (it reads it back on replay), so it is handed
@@ -362,12 +363,13 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
   });
   sealer.frames.push(sealedCatalog.frame);
 
+  const pinned = await deps.isHeadPinned?.(target.headStorageId) ?? false;
   const committed = await ports.store.commit({
     expectedRevision: expectation.transactionRevision,
     expectedWriterEpoch: expectation.writerEpoch,
     addFrames: sealer.frames,
     // The superseded head and the workflow that held the provisional key.
-    deleteStorageIds: [decodeStorageId16(target.headStorageId), decodeStorageId16(loaded.workflowStorageId)],
+    deleteStorageIds: [...(pinned ? [] : [decodeStorageId16(target.headStorageId)]), decodeStorageId16(loaded.workflowStorageId)],
     bootstrapPatch: { catalogStorageId: sealedCatalog.storageId },
   });
   ports.catalog.adopt(sealedCatalog.storageId, committed);

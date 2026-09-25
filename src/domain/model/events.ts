@@ -35,6 +35,8 @@
 import type { ChartDefinitionV1 } from "./charts.js";
 import type {
   ChartId,
+  HomeId,
+  VaultId,
   EventId,
   FieldId,
   LineageId,
@@ -437,7 +439,7 @@ export const F04_CHART_EVENT_KINDS = Object.freeze(["chart.saved", "chart.delete
 export type F04ChartEventKindV1 = (typeof F04_CHART_EVENT_KINDS)[number];
 
 /** Every kind this build authors or replays. */
-export type DomainEventKindV1 = F02EventKindV1 | F04SchemaEventKindV1 | F04ChartEventKindV1;
+export type DomainEventKindV1 = F02EventKindV1 | F04SchemaEventKindV1 | F04ChartEventKindV1 | "durable-home.assigned";
 
 /** A table's own definition, without its fields (each field has its own events). */
 export type TableDefinitionV1 = Omit<TableDefV1, "fields">;
@@ -594,11 +596,18 @@ export interface F04SchemaEventPayloadsV1<Rule, Formula, Impact> {
  * Every authored or replayed event: F02's eleven kinds, F04's nine schema
  * kinds and its two chart kinds, each paired with exactly its own payload.
  */
+export interface DurableHomeAssignedPayloadV1 {
+  readonly homeId: HomeId;
+  readonly homeKind: "bundle" | "dropbox" | "onedrive";
+  readonly vaultId: VaultId;
+  readonly wrappedAppKeyVersion: 1;
+}
+
 export type DomainEventOfV1<Rule, Formula, Impact> = {
   [K in DomainEventKindV1]: {
     readonly kind: K;
     readonly payload: (F02EventPayloadsV1 &
       F04SchemaEventPayloadsV1<Rule, Formula, Impact> &
-      F04ChartEventPayloadsV1)[K];
+      F04ChartEventPayloadsV1 & { readonly "durable-home.assigned": DurableHomeAssignedPayloadV1 })[K];
   };
 }[DomainEventKindV1];

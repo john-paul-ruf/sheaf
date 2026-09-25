@@ -18,7 +18,7 @@
  * fresh storage id, repointing the catalog entry at it, and deleting the one it
  * supersedes — a pointer swap inside the same transaction, exactly as M23's
  * stage rewrites work. Nothing can reach the old head the moment the new
- * catalog lands, so it is deleted outright rather than ticketed.
+ * catalog lands unless a durable backup pin retains it until release.
  *
  * **The digest is recomputed, never trusted.** `semanticSha256` on the head, the
  * checkpoint, every record page, and every segment is checked against the bytes
@@ -78,6 +78,9 @@ import {
   type RecordPageV1,
   type StorageRefV1,
 } from "../../import/staging/roots.js";
+import { isBackupHeadPinned } from "./home-state.js";
+import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
+import { validateLocalCatalog } from "./catalog.js";
 import { encodeRecordEventPayload } from "./record-event-payloads.js";
 import type { LocalCatalogAppEntryV1, LocalCatalogV1 } from "./catalog.js";
 
@@ -295,6 +298,8 @@ export interface EventStoreDependenciesV1 {
 export interface AppEventStoreV1 extends LocalEventRepository {
   /** The head as it now stands, after every append this store has made. */
   readonly loaded: () => LoadedAppV1;
+  appendHome(request: CommitAppendRequestV1, frames: readonly EnvelopeFrameV1[],
+    updateCatalog: (catalog: LocalCatalogV1) => LocalCatalogV1, deletes?: readonly string[]): Promise<CommitReceiptV1>;
 }
 
 export function createEventStore(
@@ -341,9 +346,19 @@ export function createEventStore(
 
   async function append(
     request: CommitAppendRequestV1,
+    home?: { readonly frames: readonly EnvelopeFrameV1[]; readonly deletes: readonly string[]; readonly update: (catalog: LocalCatalogV1) => LocalCatalogV1 },
   ): Promise<CommitReceiptV1> {
     const { ports } = deps;
     const context = deps.session();
+    const entry = context.catalog.apps.find((app) => app.appId === encodeDomainId(initial.appId));
+    if (entry?.appHeadStorageId !== headStorageId || compareDomainIds(request.plan.appId, initial.appId) !== 0) {
+      throw new IntegrityError("append names a stale or different app head");
+    }
+    const assignments = request.plan.events.filter((event) => event.event.kind === "durable-home.assigned");
+    if ((home === undefined && assignments.length !== 0) ||
+        (home !== undefined && (assignments.length !== 1 || request.plan.events.length !== 1 || entry.homeId !== null))) {
+      throw new IntegrityError("home assignment requires its atomic catalog write");
+    }
     const expectedRevision = context.transactionRevision;
     const revision = expectedRevision + 1;
     const logicalRevision = BigInt(revision);
@@ -398,21 +413,25 @@ export function createEventStore(
       key: appKey,
     });
 
-    const nextCatalog = withAppEntry(
+    const advancedCatalog = withAppEntry(
       context.catalog,
       initial.appId,
       encodeStorageId16(nextHeadStorageId),
       request.rowCountAfter,
     );
+    const nextCatalog = validateLocalCatalog(home === undefined ? advancedCatalog : home.update(advancedCatalog));
     const sealedCatalog = await context.sealCatalog(nextCatalog, revision);
+    const pinned = await isBackupHeadPinned(ports, context, headStorageId);
 
+    const live = deps.session();
+    if (live.localRoot !== context.localRoot || live.transactionRevision !== expectedRevision) {
+      throw new IntegrityError("append belongs to a stale session");
+    }
     const committed = await ports.store.commit({
       expectedRevision,
       expectedWriterEpoch: context.writerEpoch,
-      addFrames: [segmentRef.frame, headFrame, sealedCatalog.frame],
-      // The head this one supersedes: unreachable the instant the new catalog
-      // lands, so it goes now rather than becoming garbage to sweep.
-      deleteStorageIds: [decodeStorageId16(headStorageId)],
+      addFrames: [segmentRef.frame, headFrame, sealedCatalog.frame, ...(home?.frames ?? [])],
+      deleteStorageIds: [...(pinned ? [] : [headStorageId]), ...(home?.deletes ?? [])].map(decodeStorageId16),
       bootstrapPatch: { catalogStorageId: sealedCatalog.storageId },
     });
     context.adopt({
@@ -436,6 +455,7 @@ export function createEventStore(
   return {
     chainState,
     append,
+    appendHome: (request, frames, updateCatalog, deletes = []) => append(request, { frames, update: updateCatalog, deletes }),
     loaded: (): LoadedAppV1 => ({
       appId: initial.appId,
       head,

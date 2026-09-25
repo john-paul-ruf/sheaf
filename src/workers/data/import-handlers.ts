@@ -105,6 +105,7 @@ import type { ProjectionInferenceDecisionV1 } from "../../application/ports/proj
 import { asDomainId } from "../../domain/model/ids.js";
 import type { DecodedValue } from "../../persistence/codecs/canonical-cbor.js";
 import type { AppSessionV1 } from "./app-session.js";
+import { isBackupHeadPinned } from "./home-state.js";
 import type { LoadedAppV1 } from "./event-store.js";
 import { decodeTailEventPayload, encodeRecordEventPayload } from "./record-event-payloads.js";
 import { toThemeTileWire } from "./theme-handlers.js";
@@ -1123,6 +1124,8 @@ export function createImportHandlers(
       {
         ports: portsFor(catalogPort),
         clock: deps.clock,
+        isHeadPinned: (headStorageId) => isBackupHeadPinned(
+          { store, crypto, entropy: deps.entropy }, context, headStorageId),
         encodeRecordCreated: (record, importedInvalid) =>
           encodeRecordEventPayload({ kind: "record.created", payload: { record, importedInvalid } }),
         commitCatalog: (input) => catalogPort.sealWithAppendedApp(input),

@@ -74,6 +74,8 @@ import {
   envelopeStoreAdapter,
   type ImportSessionContextV1,
 } from "./import-handlers.js";
+import { createVaultCrypto } from "../../crypto/vault-port.js";
+import { createBackupHandlers, type BackupHandlersV1 } from "./backup-handlers.js";
 import { createRecordHandlers } from "./record-handlers.js";
 import { createStructureHandlers } from "./structure-handlers.js";
 import { createChartHandlers } from "./chart-handlers.js";
@@ -120,6 +122,7 @@ export interface DataWorkerDependencies {
 }
 
 export interface DataWorkerCommandHandler {
+  readonly backup: BackupHandlersV1;
   /**
    * `ports` are the `MessagePort`s the request's transfer list carried. Only
    * `beginImportStage` uses one, and no response ever returns one (D17).
@@ -160,6 +163,14 @@ export function createDataWorkerHandler(
     },
     getContext: () => importContext(requireUnlocked()),
     commitCatalog: (next) => commitCatalog(next),
+  });
+
+  const backup = createBackupHandlers({
+    ports: { store: envelopeStoreAdapter, crypto: envelopeCryptoAdapter, entropy: deps.entropy },
+    clock: deps.clock,
+    vaultCrypto: createVaultCrypto(deps.entropy),
+    getContext: () => importContext(requireUnlocked()),
+    closeApp: (appId) => { records.closeAppSession(appId); },
   });
 
   const structure = createStructureHandlers({
@@ -801,6 +812,7 @@ export function createDataWorkerHandler(
   }
 
   return {
+    backup,
     async handle(
       request: DataWorkerRequestV1,
       ports: readonly MessagePort[] = [],

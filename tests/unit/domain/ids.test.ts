@@ -107,6 +107,8 @@ describe("domain ids", () => {
   it("names every kind the feature can create", () => {
     expect([...DOMAIN_ID_KINDS]).toEqual([
       "app",
+      "home",
+      "vault",
       "table",
       "field",
       "record",

@@ -123,6 +123,7 @@ export const TAIL_EVENT_KINDS = Object.freeze([
   ...F04_SCHEMA_EVENT_KINDS,
   ...F04_CHART_EVENT_KINDS,
   "theme.changed",
+  "durable-home.assigned",
 ] as const);
 
 export type TailEventKindV1 = (typeof TAIL_EVENT_KINDS)[number];
@@ -312,6 +313,13 @@ const decodeChange = (value: DecodedValue): FieldChangeV1 => {
  */
 export function encodeRecordEventPayload(event: DomainEventV1): CborValue {
   switch (event.kind) {
+    case "durable-home.assigned":
+      return cborMap([
+        ["homeId", event.payload.homeId],
+        ["homeKind", event.payload.homeKind],
+        ["vaultId", event.payload.vaultId],
+        ["wrappedAppKeyVersion", event.payload.wrappedAppKeyVersion],
+      ]);
     case "field.created":
       return cborMap([
         ["field", encodeFieldDef(event.payload.field)],
@@ -499,6 +507,19 @@ export function decodeTailEventPayload(
     return decodeSchemaEventPayload(kind, payload);
   }
   switch (kind) {
+    case "durable-home.assigned": {
+      const map = exactKeys(asMap(payload, "a home assignment"),
+        ["homeId", "homeKind", "vaultId", "wrappedAppKeyVersion"], "a home assignment");
+      if (count(field(map, "wrappedAppKeyVersion"), "an app wrap version") !== 1) {
+        throw new CodecError("unsupported app wrap version");
+      }
+      return { kind, payload: {
+        homeId: asDomainId("home", bytesOfLength(field(map, "homeId"), ID_BYTES, "a home id")),
+        vaultId: asDomainId("vault", bytesOfLength(field(map, "vaultId"), ID_BYTES, "a vault id")),
+        homeKind: oneOf(field(map, "homeKind"), ["bundle", "dropbox", "onedrive"], "a home kind"),
+        wrappedAppKeyVersion: 1,
+      } };
+    }
     case "chart.saved":
     case "chart.deleted":
       return decodeChartEventPayload(kind, payload);

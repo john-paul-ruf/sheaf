@@ -29,6 +29,8 @@ export const DOMAIN_ID_TEXT_LENGTH = 22;
 
 export const DOMAIN_ID_KINDS = Object.freeze([
   "app",
+  "home",
+  "vault",
   "table",
   "field",
   "record",
@@ -57,6 +59,8 @@ export type DomainId<K extends DomainIdKind> = Uint8Array & {
 };
 
 export type AppId = DomainId<"app">;
+export type HomeId = DomainId<"home">;
+export type VaultId = DomainId<"vault">;
 export type TableId = DomainId<"table">;
 export type FieldId = DomainId<"field">;
 export type RecordId = DomainId<"record">;

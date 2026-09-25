@@ -395,6 +395,13 @@ function applyEvent(
       summary = { ...EMPTY_SUMMARY, tableId: event.payload.field.tableId };
       break;
 
+    case "durable-home.assigned": {
+      const row = selectRow(handle, "SELECT durable_home_id FROM app_state WHERE singleton = 1");
+      if (row?.[0] !== null) throw new IntegrityError("only a scratch app may receive a home");
+      run(handle, "UPDATE app_state SET durable_home_id = ? WHERE singleton = 1", [event.payload.homeId]);
+      break;
+    }
+
     case "app.renamed":
       run(handle, UPDATE_APP_STATE_NAME, [event.payload.displayName]);
       break;
@@ -673,6 +680,7 @@ function applyEnumChange(
  */
 const SUBJECT_KINDS: Readonly<Record<DomainEventV1["kind"], ChangeSubjectKindV1>> = {
   "app.created": "app",
+  "durable-home.assigned": "app",
   "app.renamed": "app",
   "table.created": "table",
   "table.changed": "table",

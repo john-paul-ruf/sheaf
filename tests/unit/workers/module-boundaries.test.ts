@@ -18,6 +18,9 @@ const WORKER_FILES = [
   "src/workers/data.worker.ts",
   "src/workers/data/handlers.ts",
   "src/workers/data/catalog.ts",
+  "src/workers/data/backup-handlers.ts",
+  "src/workers/data/home-state.ts",
+  "src/workers/data/event-store.ts",
   "src/workers/data/session.ts",
   "src/workers/data/import-handlers.ts",
   // F04: the structure RPCs and the schema-event codec run in the same worker.
