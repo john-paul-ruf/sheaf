@@ -365,3 +365,8 @@ Base HEAD `309313170b997d2546794c6173ebcabfbd44ac5f`; accepted S02 CP1 `03ee5710
 | `playwright.config.ts` | committed HEAD | `53d0c3be34ac3df5c92f96972269a2eb8f654aece07e92dbb654b8829b80cb9c` |
 
 Final precommit verification: all 31 pre-existing modified/untracked files retained identical SHA-256, including all uncommitted implementation, PROGRAM-CONFIG/ROADMAP edits and arch seeds. Final lease/DAG/checkpoint checks repeated after edits; canonical table shapes and GRAPH blocker placement checked. PASS. Only the six envelope paths are staged/committed; historical Handoff Notes remain identical.
+
+
+## Scoped review correction — 2026-09-25
+
+Adw4M F05-GRAPH-APPROVED-01: six-file replan missed vault manifest codec and paired test. Exact two-path mechanical amendment yields68 S06 pathspecs; CP1 owns logical-order preserving encode/decode and authenticated payload range checks with multi-page adversarial recovery tests. Source refs/readManifest inspected; no schema amendment. Review is received; future executable proof remains planned. Protected files unchanged; no Coder active.
