@@ -14,3 +14,11 @@ Implementation: S01 `694c741` / `13e83f1` / `8674766`, S02 `c7e6507` / `d75830d`
 
 - 2026-09-24 — Planner seed at `2c35bfb` described future work.
 - 2026-09-24 — Final reconciliation replaced that planned status with the landed subset and folded received implementation deltas. No full F05 capability is claimed.
+
+
+<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
+## M27 / M33 — vault-only artifact recovery
+
+`openBundle` verifies framing/directory/object hashes, authenticates the vault index and app manifest with the vault passphrase or recovery code, checks index/manifest frontier and size agreement, and owns decoder-key disposal. Its worker-only app object exposes an opaque app key and bounded frame reader, never a page RPC key. `recoverBackupGraph` reconstructs the complete current-producer graph from the authenticated retained app head, compares manifest roots/frontier and padded size, and verifies the independently reconstructed canonical authored-state digest. It reads no local root/catalog/storage. Nonempty future conflict/audit/unscoped-retained branches remain fail-closed pending S06's owner proofs; this is not F06 adoption UI.
+
+Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.

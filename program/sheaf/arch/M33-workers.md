@@ -216,3 +216,21 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   rather than left as a bare one-line note; the SESSION-07 pointer left as a
   cross-reference to `M01-domain-model.md`.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
+## M32 / M33 — worker protocol and authenticated readers
+
+`createBundleHome` and `revealVaultRecoveryCode` are mounted typed RPCs. Reuse verifies the current local secret again; neither plaintext passphrase is retained. Local and vault recovery codes retain independent scopes. `AppDurabilityViewV1` carries authenticated home identity/name, app-scoped confirmation time and receipt-relative pending count. `readAppDurability` reads the durable head and matching HomeState receipt for open and closed apps; missing or ahead-of-local facts fail closed. Pending count sums uncovered commits across every locally held device frontier and rejects any receipt frontier absent from or ahead of the local head. Absolute device sequence and chainState are unchanged. `listLibrary`, `toSessionView`, and reset `inventoryOf` consume the same reader. Reset rows now require `confirmedAtMs: number | null`; reset confirmation remains bound to the current durable transaction.
+
+`refreshBackupContext` authenticates the latest bootstrap/catalog before save completion, preserving a concurrent newer edit as pending while rejecting writer-epoch or session replacement. `connectBundle` releases its own pin after a graceful cancellation when the same session is still available. Lock, process termination or failed cleanup conservatively retain encrypted pins; existing `exportGraph` and `release` recover/release them after unlock without inferring completion or pruning another operation. No blind startup sweep or age-based retention rule is introduced.
+
+Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+
+
+<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
+## M27 / M33 — vault-only artifact recovery
+
+`openBundle` verifies framing/directory/object hashes, authenticates the vault index and app manifest with the vault passphrase or recovery code, checks index/manifest frontier and size agreement, and owns decoder-key disposal. Its worker-only app object exposes an opaque app key and bounded frame reader, never a page RPC key. `recoverBackupGraph` reconstructs the complete current-producer graph from the authenticated retained app head, compares manifest roots/frontier and padded size, and verifies the independently reconstructed canonical authored-state digest. It reads no local root/catalog/storage. Nonempty future conflict/audit/unscoped-retained branches remain fail-closed pending S06's owner proofs; this is not F06 adoption UI.
+
+Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.

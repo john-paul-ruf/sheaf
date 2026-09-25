@@ -218,3 +218,11 @@ hooks, not a new XState machine.
 <!-- durable-home-backup SESSION-02 CP3 a93a87c -->
 ## M36 / M47 / M54 — CP3 confirmation component
 DurabilityServices, durabilityMachine and BundleSaveRoute provide transient preparing/delivering/awaiting-confirmation/confirming/native-saved/user-saved/cancelled/failed/interrupted states. BundleSaveDialog uses the accepted MOD-025 copy and a keyboard-dismissible, non-backdrop-dismissible modal. SecurityWiring.durability is composed from the current AppRuntime. CP4 still owns mounting the full home/vault/save journey and supplying authoritative receipt/count readers.
+
+
+<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
+## M36 / M37 — recovery countdown and receipt views
+
+`RecoveryInput` requires `ClockPort`; RecoveryRoute supplies `wiring.clock`. Positive worker retryAfterMs (including invalid-recovery-code responses) enters an ephemeral deadline-based waiting state. Ticks clamp remaining time to zero; waiting ignores submit/retry, clears secret drafts, and cancels its timer on exit/stop. The recovery VM exposes canSubmit, remainingMs and remainingSeconds. Expiry permits a request and never grants authority; successful recovery still requires installing a replacement local passphrase.
+
+Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.

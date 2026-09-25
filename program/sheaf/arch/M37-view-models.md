@@ -354,3 +354,11 @@ targets.
   fragment-reconciliation note); "Known gaps" reconciled against the F04
   Capability Readiness table so a reader does not find a gap already closed
   by CAP-29/31/32/33 still described as open.
+
+
+<!-- durable-home-backup SESSION-02 CP4-6 7ee5ce8 -->
+## M36 / M37 — recovery countdown and receipt views
+
+`RecoveryInput` requires `ClockPort`; RecoveryRoute supplies `wiring.clock`. Positive worker retryAfterMs (including invalid-recovery-code responses) enters an ephemeral deadline-based waiting state. Ticks clamp remaining time to zero; waiting ignores submit/retry, clears secret drafts, and cancels its timer on exit/stop. The recovery VM exposes canSubmit, remainingMs and remainingSeconds. Expiry permits a request and never grants authority; successful recovery still requires installing a replacement local passphrase.
+
+Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
