@@ -8,7 +8,7 @@
 - Original plan revision: `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51`, 2026-09-24. Seven sessions, 28 checkpoint commits planned (3+6+4+3+3+4+5). Replan base `309313170b997d2546794c6173ebcabfbd44ac5f`: S01 done; S02 CP1 03ee571 and CP2 c7e6507 accepted after independent receive checks.
 - User instruction `plan feature f05` authorizes F05 planning despite the previous roadmap planning gate. It is not evidence that a demo was viewed and does not silently resolve the F04 review debt.
 - Approval-reconciliation base: `87a4278c7e9918e93158ba58ac7125bef20cca38`; source identities and actual scoped checks in PLAN-CHECK.
-- Readiness: S01/S02/S03 done. Current source47a633b independently passes typecheck/lint,2461unit tests and11composed browser proofs. CAP-05/39/42 verified; current bundle CAP-40 and scratch/bundle CAP-41 verified with nonempty graph/cloud extensions still owned. Only remaining Coder branches need exact DB/Author graph input or provider registrations; provider presentation fill remains mechanical and will run at quiet boundary.
+- Readiness: S01/S02/S03 done. Current source47a633b independently passes typecheck/lint,2461unit tests and11composed browser proofs. CAP-05/39/42 verified; current bundle CAP-40 and scratch/bundle CAP-41 verified with nonempty graph/cloud extensions still owned. Only remaining Coder branches need exact DB/Author graph input or provider registrations; provider presentation fill accepted98ee79c; final Archivist and report close follow.
 
 ## Resume authorization — 2026-09-24
 
@@ -192,7 +192,7 @@ Status **verified** at f978eb3/823012b, integration/proof owner **S02 CP5**, CA-
 | CA-37 | Dismissal never blocks; attempted bundle is not saved | authored commit/external save → encrypted state → approved UX | approved DEC-71 schedule; DEC-72 explicit post-delivery confirmation | S02 CP3/4; S03 CP1–4 | agreed | native d75830d/fallbacka93a87c; no-op/atomic reminder59caafb; dismissal/RPC/UIa016752 landed | Independent SAVE-S02 and current J1/J2 at47a633b pass; unchanged schema/chart no-commit counterexample closed59caafb with reopen/stale guards; exact worker deadlines and negative control passed; no pending S03 proof |
 | CA-38 | AppFolder account isolation and exact-byte atomic head | registered provider + S04/S05 adapter → DurableHomePort receipt → S07 | stable account/vault binding; null=create-if-absent, stale=conflict; never unconditional overwrite | human registrations; S04/S05 CP0–3; S07 CP1/2/5 | agreed | S01 CP2–3 DurableHomePort/publishCandidate landed 13e83f1/8674766; S04/S05 real provider adapters/qualification planned | Orchestrator focused protocol gates pass at 8674766, exact CAS/hash/readback on stateful double; live scope/CORS/CAS still blocked INPUT-DROPBOX/ONEDRIVE; J4/J5 S07 planned |
 | CA-39 | Actual transport, lifecycle and egress preserve authority | S02 IO channel + S07 config/bootstrap/token writer → adapters/scheduler → receipt | tokens/keys separated; lock/cancel correlated; selected-provider-only network | S02 CP3; S07 CP1–5 | agreed | IO/bootstrap/channel d75830d plus confirmation lifecycle full CP3 a93a87c landed; provider config/tokens/egress S07 planned | production handlers/MessageChannel with Worker constructor doubles, cancellation/disposal and no-key component tests passed; actual built data/IO/MessagePort J1 passed823012b; J4/J5/J6 planned; local security discovery owner S07 CP1 |
-| CA-40 | Approved status/recovery/remedy meaning on every surface | S02 receipt/countdown + S03 policy → DTO → VM → routes/UI | scratch/configured/confirmed/stale distinct; remedy for each displayed state | S02 CP4/5; S03 CP3/4; S06 history; S07 provider | agreed | S02 mounted/readers/countdown7b1bb58/f978eb3; S03 consistent local/bundle statusd8b4e14/47a633b landed | Independent current J1/CAP05/J2/status at47a633b pass; inherited provenance copy corrected and tested; provider design fill pending; S06/S07 future history/cloud proofs remain planned |
+| CA-40 | Approved status/recovery/remedy meaning on every surface | S02 receipt/countdown + S03 policy → DTO → VM → routes/UI | scratch/configured/confirmed/stale distinct; remedy for each displayed state | S02 CP4/5; S03 CP3/4; S06 history; S07 provider | agreed | S02 mounted/readers/countdown7b1bb58/f978eb3; S03 consistent local/bundle statusd8b4e14/47a633b landed | Independent current J1/CAP05/J2/status at47a633b pass; inherited provenance copy corrected and tested; provider design ready98ee79c; S06/S07 future history/cloud proofs remain planned |
 | CA-41 | Compaction preserves identity/provenance/chain/history | S06 candidate writer + graph reader → publication/hydrate/chainState/history/restore | GRAPH-CONTRACT mapping below; original covered commit evidence, no count-derived chain | DB/Author input; S06 CP1 candidate/reader, CP2 install/readers, CP3 schedule, CP4 J3/J1 | unresolved exact nonempty wire/traversal; direction and retention meaning approved | planned | blocked GRAPH-S06; provisional against accepted Author source and S06 CP1/2, no positive nonempty proof yet |
 
 ### CA-34/35 mapping and comparison
@@ -234,7 +234,7 @@ S04/S05 CP0 owns its probe before implementation relies on a premise; human regi
 
 ### CA-40 design-fill boundaries
 
-Accepted `f05-vault-security.html` at 58bffc8 covers named-vault create/recovery/re-view and remains unchanged. Designer 4c31ded adds `f05-bundle-save.html` and `f05-scratch-reminders.html` with four design inventory rows, resolving save/reminder DF-F05-1 coverage under approved DEC-71/72. These inputs are ready for S02 CP3/4 and S03 CP1/2; they do not verify application behavior. Provider authorization/reconnect/disconnect coverage remains DF-F05-1 with Orchestrator/Designer before S07 CP2/4. MOD-022 is local code reveal; use the accepted vault-specific source for vault recovery. Do not enable conditional Google Drive card. Don't copy “prior copy remains current” literally when newer local changes exist; retain confirmed time with pending count per design.md's authoritative backup language.
+Accepted `f05-vault-security.html` at 58bffc8 covers named-vault create/recovery/re-view and remains unchanged. Designer 4c31ded adds `f05-bundle-save.html` and `f05-scratch-reminders.html` with four design inventory rows, resolving save/reminder DF-F05-1 coverage under approved DEC-71/72. These inputs are ready for S02 CP3/4 and S03 CP1/2; they do not verify application behavior. Provider authorization/reconnect/disconnect coverage is now accepted98ee79c in f05-provider-states.html; S07 CP2/4 consumes it after separate required inputs. MOD-022 is local code reveal; use the accepted vault-specific source for vault recovery. Do not enable conditional Google Drive card. Don't copy “prior copy remains current” literally when newer local changes exist; retain confirmed time with pending count per design.md's authoritative backup language.
 
 CA-40 inherited CAP-05 mapping: worker error.retryAfterMs (including invalid-recovery-code with a positive delay) is the only delay input. RecoveryMachine deadline/remainingMs is ephemeral presentation state; zero/absent delay enables a fresh request, positive delay disables it, stop cancels the timer, and the worker still rejects premature attempts. S02 CP5 updates RecoveryRoute clock injection, machine/VM/screen and tests together; proposed input/type changes are provisional until that checkpoint. Exact assertions and commands are in S02 Verification. CA-40 also covers S06 CP2 retained-history presentation: scope, counts and empty announcements must describe retained authored events, not a cutoff at the newest checkpoint.
 
@@ -293,7 +293,7 @@ Owner S07 CP1 harness/config/guard and three discovered specs; CP3 lifecycle ext
 | GRAPH-S02 | CAP-40 / CA-35 / S02 CP2 | cleared at c7e6507; Orchestrator independently verified 26 leased paths, source/config/fixture hashes, exact gate | 25 files/209 tests, typecheck/lint exit 0; bounded pin/export, all current branches, provenance/covered chain and lifecycle assertions; J1 and current vault-only sync/bundle now independently passed823012b |
 | DEC-71 | cleared policy/design/implementation proof | approval27e9a34; design4c31ded; S03 CP1–4 accepted47a633b | independent actual-worker J2 exact intervals and restart passed |
 | DEC-72 | cleared policy/design and S02 proof | approved27e9a34, design4c31ded, fullCP3 a93a87c, J1 accepted823012b | native/write-close and fallback delivered-then-explicit-confirmation both independently passed; no OS durability claim |
-| DF-F05-1 | remaining provider UI CAP-43/CA-40/S07 CP2/4 | Vault/security accepted 58bffc8; save/reminder accepted 4c31ded. Orchestrator/Designer supplies only remaining provider authorization/reconnect/disconnect details | Accepted scoped provider design source before corresponding UI; no reopened vault/save/reminder mock |
+| DF-F05-1 | cleared design inputs; S07 application remains pending | Vault58bffc8, save/reminder4c31ded, provider98ee79c accepted | all approved required F05 design surfaces now have detailed sources; provider registration/qualification and actual application proofs still S04/05/S07 |
 | INPUT-DROPBOX | CAP-43 / CA-38 / S04 live + S07 provider enablement | Human supplies public registered client ID, exact redirect URIs, production/public-client/AppFolder configuration and authorized test accounts; S04 consumes, S07 wires | redacted input identity + narrow scope/discovery/isolation/CAS/CORS probe |
 | INPUT-ONEDRIVE | CAP-43 / CA-38 / S05 live + S07 provider enablement | Human supplies Entra SPA registration/client ID/redirects/account type and test accounts; S05 consumes, S07 wires | same, plus actual final-publication CAS qualification |
 | GATE-F05 | next-feature F06 dispatch | Human demo verdict after implementation; Orchestrator prepares built revision package | verdict with build/config identity; no approval presumed |
@@ -398,6 +398,10 @@ Ended h-z_uR/CqY3I, raw `.program/results/F05-SESSION-03.attempt1.result.md`; de
 Endedh-S9Em/C6lAC, raw `.program/results/F05-SESSION-03.attempt2.result.md`; done4/4. CP1 59caafb(17paths), CP2 a016752(25), CP3 d8b4e14(19), CP4 47a633b(11);58unique paths all withinr3; no residual code. Independent typecheck/lint0;223files2461unitpass3inheritedskips0; fresh-build command `SHEAF_PW_PORT=8081 pnpm exec playwright test --project=e2e --project=browser bundle-backup recovery-countdown sync/bundle scratch-reminders backup-status --workers=1 --global-timeout=900000` selected11passed11exit0/no retries/skips. Build/source/config/served-worker identities47a633b checked; new evidence `.program/recovery/F05-S03-r3-independent/`, prior full evidence preserved `.program/recovery/F05-S03-r3/`. Coder full e2e81/81pass at identical final source,6.7m; root reviewed changed-file/config digests and independently reran required composed gates rather than repeating full slow suite. Short-phone reminder and desktop stale-home screenshots inspected; Coder37screens/36axevariants reported. Architecture delta consumed27dd483; M05/M47 pre-existing seeds untouched, tracked F05 delta files used. No-op producer defect closed59caafb; existing author edits retain exact-count/stale/reopen assertions. No pending receive or worker.
 
 Follow-up disposition: cloud/provider status and J4 carried S07; nonempty graph/J3 carried DB/Author+S06; inherited cramped600px Settings rows carried M46 next Planner UI maintenance assignment, clipped900px rail branding carried M39 next Planner UI maintenance assignment (not introduced by S03). Prior ERR_NETWORK_CHANGED startup failure retained as environmental event, closed by same-configuration final and independent current-build passes without timeout/retry changes. Owned320px toolbar interference fixed47a633b, original gate unchanged and fullsuite81passed. These are named obligations, not unowned completion claims.
+
+### Provider design receive and seam recheck — 2026-09-25
+
+DESIGN-F05-PROVIDER-STATES h-djr8/DRxZj ended done; commit98ee79c exactly new mocks/f05-provider-states.html and two added design.md inventory rows, no existing mock/row edits. Root inspected diff, source/account/disconnect/no-receipt mapping and desktop wrong-account/320px200%-text disconnect images. Designer80renders/fivewidths and30a11yaudits0violations; no application/provider proof. All assigned provider states plus adjacent cancellation/error/quota/unavailable states have sources; no second design gap found. Raw result `.program/results/DESIGN-F05-PROVIDER-STATES.result.md`, source/evidence digest checked. S07 Reads/source instructions updated. No running worker/pending receive. Only exact protected graph input and provider registrations block remaining Coder branches; final Archivist next.
 ## Handoff Notes
 
 ### Orchestrator preflight receive — 2026-09-24
@@ -1758,3 +1762,45 @@ tests/unit/workers/theme-handlers.test.ts
 tests/unit/workflows/chart-services.test.ts
 tests/unit/workflows/durability.test.ts
 ```
+
+
+### DESIGN-F05-PROVIDER-STATES — accepted
+
+I’ll read the envelope and its required context, then build the provider-state mock and add only the permitted inventory rows. I’m using the frontend-design skill for the mock.
+
+
+The envelope calls for supplemental states within the existing durable-home screens. I’ll keep the same visual language and make sure cancellation, reconnect, quota failure, and disconnect preserve the last confirmed backup time and local-change count.
+
+
+I’ve confirmed the state contracts: provider consent stays external, reconnect must match the stored account, and disconnect retains both local data and the remote backup. I’ll use labelled preview controls to exercise the return states without contacting either provider, then inspect them with the agent-browser skill.
+
+
+The mock now covers all requested states, and its first renders fit all five required widths. I’ll inspect the screenshots next, then check keyboard focus, 200% text, and both provider variants before committing the two allowed files.
+
+
+The visual pass found an unavailable-provider state that still exposed a reconnect button in the surrounding mock. I’ve corrected it. The dialogs fit all five widths; longer phone states scroll as intended. Keyboard, text-size, and accessibility checks are still running.
+
+
+The 30 accessibility audits reported no violations. Keyboard checks confirmed Tab wrapping and Escape returning focus to the launcher; the OneDrive reconnect and disconnect flows preserved the backup facts. Two automation attempts stalled during fixture changes, so I’m checking the remaining text-size case in a fresh browser session before recording the final evidence.
+
+
+Verification is complete: 80 state renders inspected across the five widths, 30 accessibility audits with no reported violations, and keyboard and 200% text checks completed. Existing mocks are unchanged, and `design.md` has exactly two added inventory rows. I’m committing the two permitted files now.
+
+
+## Handoff
+
+- **session:** DESIGN-F05-PROVIDER-STATES
+- **status:** done
+- **checkpoint:** 1
+- **commit SHA:** `98ee79cf7b3654fb7e6a676692557a6a8cd349fd`
+- **notes:** Provider-state design fill delivered; existing semantics and mocks preserved.
+- **delivered:** Interactive provider/account selection, authorization returns, reconnect/account guard, quota remedy, and disconnect states; two added inventory rows.
+- **verification:** Inspected 80 renders at 320/430/768/1024/1440px; 30 accessibility audits reported zero violations. Checked keyboard containment/return, 200% text, and unchanged backup facts. Committed paths verified. [Evidence](/Users/the.phoenix/WebstormProjects/sheaf/.program/design-f05-provider-states/verification.json).
+- **surprises:** Automation stalls recorded; fresh-session checks completed. Unrelated workspace changes preserved.
+- **followUp:** SESSION-07 CP2/4 can consume this design source. Provider registration, live qualification, and DB inputs remain separate prerequisites.
+- **needsOwnerCorrection:** —
+- **needsDesignSource:** —
+- **blockedReason:** —
+- **filesTouched:**
+  - `program/sheaf/mocks/f05-provider-states.html`
+  - `program/sheaf/specs/design.md`
