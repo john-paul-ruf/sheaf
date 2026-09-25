@@ -1043,3 +1043,34 @@ Keyboard wrapping, focus return, and 200% text at a 320px-wide short viewport no
   - [program/sheaf/mocks/f05-bundle-save.html](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/mocks/f05-bundle-save.html)
   - [program/sheaf/mocks/f05-scratch-reminders.html](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/mocks/f05-scratch-reminders.html)
   - [program/sheaf/specs/design.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/specs/design.md)
+
+
+### REPLAN-F05-APPROVAL receive — 2026-09-24
+
+Accepted plan-only 9749c76. Orchestrator independently verified seven exact paths, all seven sessions’ unchanged leases/dependencies/resources/checkpoint counts and byte-identical prior Handoff Notes; diff check passed. Current app typecheck and lint rerun exit 0 during this boundary. No application change, no arch delta, no new capability proof. Scoped review precedes S02 full CP3. Raw final follows verbatim.
+
+I’ll read the replan prompt, current STATE, and Designer handoff, then update the planning artifacts and return a full Handoff.
+
+
+The saved plan still contains active instructions to resume CP2 and wait for DEC-71/72. Both checkpoints and approvals are already recorded, and Designer’s save/reminder fill is accepted. I’m reconciling those instructions while preserving the historical handoffs and the remaining DB/provider gates.
+
+
+The fallback has a concrete implementation gap: without a native picker, `createFileSavePort` returns `unconfirmed` before delivering a file, and bootstrap then disposes the transfer. S02 CP3 will own delivery, operation-bound confirmation, and lifecycle tests; CP4 will prove that path through the real app and restart. No lease expansion or S06 graph producer is needed.
+
+
+The plan now resumes S02 at full CP3, preserves CP1/CP2 and partial CP3, and assigns S03 the approved reminder schedule. I’m checking that leases, dependencies, checkpoint counts, and historical handoffs are unchanged, then I’ll commit the seven authorized planning files.
+
+
+Committed the bounded replan as `9749c76`. S02 resumes full CP3; accepted checkpoints and historical handoffs are preserved.
+
+## Handoff
+
+- **status:** done — planning reconciliation only.
+- **checkpoint:** 1/1.
+- **commit:** `9749c76`
+- **filesTouched:** Under `program/sheaf/prompts/durable-home-backup/`: `MASTER.md`, `STATE.md`, `SESSION-02.md`, `SESSION-03.md`, `SESSION-06.md`, `SESSION-07.md`, `PLAN-CHECK.md`.
+- **verification:** Lease/dependency/resource invariants, Files/STATE agreement, checkpoint counts, DAG, concurrent-source disjointness, historical handoff preservation and diff checks passed. Commit contains exactly seven authorized files. No application tests or capability proofs run.
+- **notes:** DEC-71/72 and accepted Designer sources reconciled throughout active instructions. S02 owns fallback delivery/explicit confirmation at CP3 and real-entry J1 at CP4. S03 owns persisted reminders. Seven sessions/28 checkpoints retained; no lease expansion.
+- **surprises:** Current no-picker path returns `unconfirmed` without delivery, then bootstrap disposes the transfer. The complete correction and lifecycle tests are explicitly assigned to S02.
+- **followUp:** Orchestrator receives this commit, refreshes operational records, requests scoped Archivist planning-completeness review, then resumes S02 full CP3 under its unchanged lease.
+- **blockers:** Exact DB/Author GRAPH-CONTRACT still gates S06; provider registrations, qualification and provider design remain outstanding. J1 remains unverified and gates dependent execution. Outside config, roadmap and arch changes were preserved.
