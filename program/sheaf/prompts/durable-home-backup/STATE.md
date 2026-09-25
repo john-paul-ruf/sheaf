@@ -100,6 +100,15 @@ Original-plan F05 gaps included absent sync/vault/home/exporter implementations.
 
 Graph sequencing decision (REPLAN-F05-GRAPH): S02 proves the complete graph current producers can emit; S06 co-owns nonempty producer/reader/gate before pointer use. This reversible checkpoint boundary preserves all required positive proofs. Recommended nonempty graph direction is approved; exact protected wire/version/backward-reader specification remains DB/Author input under GRAPH-CONTRACT.
 
+## Approval planning review disposition — 2026-09-24
+
+Scoped Archivist AO6jT reviewed 9749c76 and implementation d75830d; returned two findings, no additional S02 ownership gap. Read-only raw final is preserved below and in .program/results/ARCHIVIST-F05-APPROVAL.result.md.
+
+- F05-APPROVAL-01: S03 CP2/J2 browser-worker clock mechanism unspecified; CAP-42/CA-37 proof prerequisite unready. Owner REPLAN-F05-REMINDER-CLOCK must specify exact real-worker clock control plus negative control and required paths before S03 dispatch; S03 implements and proves. This does not block S02.
+- F05-APPROVAL-02: stale pending-policy architecture text superseded by narrow append 70f640c in M51-platform.md and F05-boundaries.md. Policy/design input ready, implementation/proofs still assigned. Closed as documentation input correction.
+- S02 may resume full CP3 under unchanged file lease with fresh r7 instruction envelope; CP1/CP2 and partial CP3 preserved. SAVE-S02 and J1 real-transport/build/restart/receipt assertions are assigned before their gates; provider and S06 future producer not prerequisites.
+- Independently rerun current typecheck and lint: exit 0, unchanged implementation through d75830d. No new J1/capability proof.
+
 ## Verification Baseline
 
 ### VB-01 — effective local commands and evidence
@@ -1074,3 +1083,90 @@ Committed the bounded replan as `9749c76`. S02 resumes full CP3; accepted checkp
 - **surprises:** Current no-picker path returns `unconfirmed` without delivery, then bootstrap disposes the transfer. The complete correction and lifecycle tests are explicitly assigned to S02.
 - **followUp:** Orchestrator receives this commit, refreshes operational records, requests scoped Archivist planning-completeness review, then resumes S02 full CP3 under its unchanged lease.
 - **blockers:** Exact DB/Author GRAPH-CONTRACT still gates S06; provider registrations, qualification and provider design remain outstanding. J1 remains unverified and gates dependent execution. Outside config, roadmap and arch changes were preserved.
+
+
+### ARCHIVIST-F05-APPROVAL receive — verbatim final
+
+I’ll read the scoped envelope and repository instructions, then review the specified records without editing files.
+
+
+The replan assigns fallback delivery and confirmation to S02 CP3, with receipt readers and the first restart journey at CP4. I’m checking those assignments against the actual channel lifetime, test harness, and leased files for any prerequisites the plan still misses.
+
+
+The save path uses real data-to-IO channels and binds completion to the operation, app, home, and artifact. Its existing tests use worker and destination doubles, so they do not prove J1. I also found architecture text that still calls DEC-71/72 pending; the current plan correctly records those approvals and assigns the remaining implementation.
+
+
+One S03 proof prerequisite needs clarification: CP2 requires exact reminder intervals through the production worker, but the plan does not name the browser clock-control mechanism. The existing fake clock belongs to node handler tests; the browser harness starts the production worker with `Date.now()`. I’ll report this separately from S02’s assigned save work.
+
+
+## Archivist Note
+
+- **role:** archivist
+- **mode:** planning-completeness
+- **registryUpdated:** false
+- **reconciled:** []
+- **conventionsAdded:** []
+- **cleanupBriefs:** []
+- **logEntry:**
+
+  **2026-09-24 — Scoped approval-continuation review.** Reviewed plan `9749c76`, receive HEAD `37aef4f`, approval `27e9a34`, Designer delivery `4c31ded`, and implementation through `d75830d`. **Two actionable documentation/planning findings remain; neither establishes a missing S02 implementation owner.** No files, logs, readiness records, or dispatch status were changed.
+
+  **Scope:** CAP-39/40/41/42; CA-36/37/39/40; S02 CP3–6; S03 approved reminder inputs; S06 only for future graph ownership. Inspected the supplied raw results, current PLAN-CHECK, affected STATE agreements/readiness/blockers, session leases, scoped operational records, relevant architecture and approved requirements/database/design sources, production save composition, receipt enforcement, sampled tests, runner configuration, and restart fixtures.
+
+  **Consolidated findings**
+
+  1. **F05-APPROVAL-01 — S03’s exact-time browser proof needs a concrete worker-clock mechanism.**
+
+     **CAP/CA:** CAP-42; CA-37.
+
+     **Evidence:** [SESSION-03.md:161](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/prompts/durable-home-backup/SESSION-03.md:161) requires interval-boundary assertions through a controlled browser clock propagated into the worker. Its [verification instructions](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/prompts/durable-home-backup/SESSION-03.md:183) offer a “typed test-only ClockPort injection in the owned worker harness,” but do not identify that browser mechanism.
+
+     The production constructor supplies `Date.now()` directly in [data.worker.ts:47](/Users/the.phoenix/WebstormProjects/sheaf/src/workers/data.worker.ts:47). The existing [browser harness:104](/Users/the.phoenix/WebstormProjects/sheaf/tests/browser/worker/runtime.ts:104) calls ordinary `startApp()`. The leased [node helper:74](/Users/the.phoenix/WebstormProjects/sheaf/tests/unit/workers/data-worker.ts:74) injects `FakeClock` into handlers with fake-indexeddb; it does not control the real-entry browser worker. S03 does not lease the production worker entry or existing browser runtime helper.
+
+     **Affected consumer:** S03 CP2/J2 exact 10m/1h/24h/daily and restart assertions.
+
+     **Owner/correction:** Planner/Orchestrator should name the concrete browser-worker clock-control mechanism and assign its implementation and self-test to S03 before CP2. It may fit the already-leased `tests/e2e/fixtures/durability.ts`; otherwise amend the exact required paths. The future mechanism need not exist now, but its production-worker connection must be explicit. This is a mechanical planning correction, not a new policy question or S02 prerequisite.
+
+     **Closure assertion:** Through the real entry and actual worker, demonstrate no reminder immediately before each deadline and eligibility exactly at it, persisted dismissal progression after page replacement, and repeated daily dismissal. Include a negative control proving that changing only the page clock cannot falsely satisfy the worker assertion, plus the retained real-clock journey.
+
+  2. **F05-APPROVAL-02 — Referenced architecture still presents settled approvals as missing inputs.**
+
+     **CAP/CA:** CAP-40/42; CA-37/40.
+
+     **Evidence:** [M51-platform.md:52](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/M51-platform.md:52) says fallback implementation is “pending DEC-72.” [F05-boundaries.md:14](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/F05-boundaries.md:14) still assigns fallback semantics to a human and reminder policy as a gate; [line 38](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/F05-boundaries.md:38) calls save/reminder design decision-dependent outstanding work.
+
+     These describe the prior close, while approval `27e9a34`, design `4c31ded`, and current CA-37/40 establish those inputs as ready. The implementation remains unfinished.
+
+     **Affected consumers:** S02/S03 agents reading their architecture references.
+
+     **Owner/correction:** Orchestrator should add a narrowly scoped supersession clarification or route reconciliation to the authorized documentation pass: approvals/design are complete; S02 CP3/4 and S03 CP1/2 retain implementation/proof ownership. Preserve the historical close evidence.
+
+     **Closure assertion:** Current architecture instructions no longer request DEC-71/72 or save/reminder design again, and do not promote their approval into capability verification. No product decision is required.
+
+  **Assigned implementation gaps confirmed, without additional ownership findings**
+
+  - **Fallback delivery and confirmation — S02 CP3, CAP-40/CA-37/39.** `createFileSavePort` currently returns `unconfirmed` without delivering bytes; `saveBundle` then aborts/disposes its transfer. The replan explicitly assigns verified download delivery, pending-operation lifetime, typed callers, confirmation UI, teardown, and paired tests inside S02’s lease. A later button over the disposed operation is expressly prohibited.
+
+  - **Receipt authority — S02 CP3/4, CAP-40/41/CA-36/37.** `connectBundle` validates operation/app/home/artifact identity, live session, pin ownership, and frontier bounds/regression before atomically writing the receipt and releasing its pin. Sampled tests cover non-saved outcomes, forged identities, old completion, quota failure, lock/reopen, replay, and a newer edit remaining outside the captured frontier. SAVE-S02 appropriately requires additional fallback, timeout, and lifecycle assertions; those future tests are not yet passing evidence.
+
+  - **Readers and first composed journey — S02 CP4.** Current app-session/record readers still use absolute sequence, and reset inventory lacks confirmed backup time. The minimum receipt-relative readers and fixtures are assigned before J1, with broader reset coverage at CP5. This resolves inherited PC-F05-04’s checkpoint-order problem without altering chain-sequence meaning.
+
+  - **Recovery obligations — S02 CP5/6.** The inherited CAP-05 countdown has machine, route, VM, screen, and test ownership at CP5. Interrupted-pin handling and vault-only complete artifact recovery remain CP6 obligations. Neither is discharged by native component results.
+
+  - **Reminder policy — S03 CP1/2.** Approved escalation, encrypted operational dismissal state, authored-commit identity, no-op/rejection exclusions, restart persistence, and home-assignment suppression have named implementation owners. Finding 1 concerns the concrete browser proof mechanism, not the approved behavior.
+
+  **SAVE-S02/J1 proof-path assessment**
+
+  Package scripts resolve directly to Vitest and Playwright. Existing discovery covers the assigned unit/UI and planned e2e locations. Playwright builds before preview, uses a strict assigned port, and disallows server reuse. Vite embeds build identity.
+
+  J1 specifies real `/` entry, built data/IO workers, actual MessagePorts and IndexedDB, `protectDevice`/`importDemoWorkbook` seeding, captured artifact decoding, and page replacement within the same isolated context. Native destination doubles are separated from the actual fallback-download case. Download capture alone cannot confirm a receipt.
+
+  S02 owns the planned harness/spec/fixture paths, deadlines, output evidence, and cleanup before acceptance. VB-02 correctly identifies `deleteLocalStore`’s blocked-deletion weakness and requires correction or guaranteed context disposal. Shared `dist:build` and `playwright:output` remain exclusive resources.
+
+  The first real-entry bundle proof remains **CP4**, before dependent fan-out; CP3 component results do not substitute for it. Full artifact/error coverage remains CP6.
+
+  **Inherited dispositions and boundaries**
+
+  The original planning findings concerning minimum J1 readers and recovery countdown have explicit current assignments. S06 retains nonempty graph producer/reader/publication ownership behind exact DB/Author mapping; it is not a prerequisite for S02’s supported bundle journey. Provider registrations, provider design, live qualification, and demo verdict remain separate obligations.
+
+  **Verification limits:** This pass performed read-only inspection. It ran no application tests, builds, browser journeys, or provider calls. Reported typecheck/lint and the prior 2402-test close remain inherited evidence. No full-history review, cleanup scout, full graph audit, or visual re-verification was performed. Existing modified configuration/roadmap and untracked architecture files were left untouched. This note does not clear dispatch or verify any capability.
