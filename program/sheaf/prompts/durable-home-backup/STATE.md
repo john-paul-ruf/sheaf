@@ -433,7 +433,11 @@ r6 ended context-exhausted, first nondeclarative exhaustion on this CP1 shape. N
 
 ## Baseline Author clarification receive — 2026-09-25
 
-Recovery1 r7 returned a declared Author seam before writing; all25files still match3bf69d9f465e. This is not a second context exhaustion. Root DB under standing explicit approval committed17a73ae: V1 reason-not-recorded compatibility, actual original import-scope authority, V2 complete encrypted baseline scope/entry, consumer assertion cannot supply missing facts, ambiguous legacy non-import reconstruction rejects/preserves. CA35/41 accepted source now afe37f3+91ad694+17a73ae. S06CP1 codec/real projection/vault-only proof, CP2continuity remain planned; F06 owns real durable-home baseline establishment. Delta review pending before resumed dispatch; no new product or destructive choice.
+Recovery1 r7 returned a declared Author seam before writing; all25files still match3bf69d9f465e. This is not a second context exhaustion. Root DB under standing explicit approval committed17a73ae: V1 reason-not-recorded compatibility, actual original import-scope authority, V2 complete encrypted baseline scope/entry, consumer assertion cannot supply missing facts, ambiguous legacy non-import reconstruction rejects/preserves. CA35/41 accepted source now afe37f3+91ad694+17a73ae. S06CP1 codec/real projection/vault-only proof, CP2continuity remain planned; F06 owns real durable-home baseline establishment. Delta review Agk_X received; BASELINE-01 fixed by Author8c303fd safe-integer admission/refusal and inspected against toSqlInteger/copy. Updated CP1 tests assigned; ready to resume with no new product/destructive choice.
+
+## Baseline delta review disposition — 2026-09-25
+
+Agk_X found integer-domain mismatch only; root confirmed toSqlInteger rejects outside safe range and evidence copy calls it. DB8c303fd fixes supported bound and explicit preserve/refuse behavior, plus current append non-producer clarification. Review requested this exact correction; no full rereview warranted. S06CP1 owns max/max+1/2^63 assertions through real projection/copy/recovery; no proof accepted. Author input17a73ae+8c303fd supplied. Same71path lease, instructionr8, same fresh-recovery context to resume unchanged25files.
 
 ## Handoff Notes
 
@@ -2225,4 +2229,44 @@ The import commit supplies authority for original present baselines. The remaini
 - **needsDesignSource:** —
 - **blockedReason:** Required CA-35/41 baseline reconstruction cannot preserve facts absent from the authenticated source. Copying fixture SQL rows or treating a conflict’s asserted metadata as independent baseline authority would not establish the required vault-only proof.
 - **filesTouched:** No implementation files changed or committed. Created only the allowed administrative evidence file `test-results/f05/s06/recovery1-baseline-contract.json`.
+
+
+
+### ARCHIVIST baseline delta receive — 2026-09-25
+
+Read-only review received; single BASELINE-01 range gap independently confirmed and exact supported-domain correction8c303fd supplied. No source changed; all implementation/proof due S06.
+
+I’ll read the scoped recovery record, approved baseline contract, and affected producers and consumers, then return a read-only delta note with any source-backed gaps.
+
+
+
+The Author clarification supplies explicit mappings for the recovery gap: legacy absence gets an “unknown reason” compatibility value, while V2 carries its own scope metadata. I’m checking those mappings against import origins, SQL constraints, digest semantics, and S06’s test ownership.
+
+
+
+I found one remaining contract mismatch: V2 permits a positive uint64 generation, but requires direct mapping into SQL005’s `INTEGER`; the current projection binder accepts only safe JavaScript integers. The legacy absence and authority rules are covered by the clarification. All 25 preserved implementation files still match their inventory hashes.
+
+
+
+## Archivist Note
+
+- **role:** archivist
+- **registryUpdated:** false
+- **reconciled:** []
+- **conventionsAdded:** []
+- **logEntry:** Scoped planning-completeness delta at `e264f84`, against Author `afe37f3` / `91ad694` / `17a73ae`. **One source-backed contract gap remains for CAP-40/44, CA-35/41.**
+
+  **BASELINE-01 — Generation range does not fit its prescribed SQL mapping.** `database.md:926` permits positive uint64 `establishedGeneration`; lines 969–970 require direct column mapping. SQL005:330 uses `INTEGER`, while `projection/engine.ts:319` narrows bindings to safe JavaScript integers. `checkpoint-history.ts:34` uses that narrowing during copying. Thus `2^53` already exceeds the current adapter range; `2^63` exceeds SQLite’s signed integer range altogether. Preserving encrypted bytes alone cannot satisfy the required exact reconstructed SQL row.
+
+  **Affected consumers:** S06 CP1 baseline reconstruction, candidate/vault-only recovery, CP2 evidence copying and installed continuity; future F06 baseline establishment.
+
+  **Correction route:** DB/Author specifies the supported projection range and explicit preservation/refusal disposition, or an exact representation compatible with the approved schema. Planner carries that disposition into CP1/2; S06 implements within its existing lease. No silent narrowing, rounding, or SQL relaxation.
+
+  **Closing assertion:** Boundary fixtures exercise the approved maximum and values immediately beyond it through codec → authenticated graph → actual projection → vault-only recovery/copy. Supported values remain exact; unsupported values preserve source bytes, installed head and receipt without cleanup. A read-only in-memory Python SQLite probe confirmed the signed-range limitation; this was not application acceptance.
+
+  **Other scoped checks:** The clarification resolves reasonless V1 absence without inventing a known cause, supplies independent V2 scope authority, typed null combinations, bounds and logical ordering, and assigns preservation/refusal fixtures to S06. Actual promotion supplies lineage, acceptance time and original commit frontier. Current append emits record events and retains existing baseline roots; it must not be treated as producing a new `import.accepted` baseline. No additional producer is demanded here.
+
+  Current authored-state hashing omits SQL baseline metadata and streams legacy baseline entries; its adaptation and exact metadata-preservation assertions remain CP1 work. Digest equality alone cannot establish scope metadata preservation. F06 retains ownership of real reconciliation establishment; authenticated storage fixtures need no F06 command.
+
+  Reviewed recovery r7, both evidence files, affected STATE/SESSION-06 records, full baseline clarification, original graph/evidence contracts, relevant architecture, producers, SQL, graph/digest/copy consumers and test ownership. All **25 source hashes match** `3bf69d9f465e`. Earlier ordering/evidence dispositions were not reopened. No full-history review, cleanup scout, application tests/builds, edits, commits or spawning occurred. Implementation and candidate/installed/composed proofs remain pending; dispatch and readiness are unchanged.
 
