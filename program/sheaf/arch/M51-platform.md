@@ -61,3 +61,8 @@ handoff variant) reads the result through `COPY_HANDOFF{result}` instead.
 - 2026-09-23 — F03: `clipboard.ts` landed by SESSION-07 (`2185774`..`e062f41`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-07 staple
   folded into a new "Clipboard" section.
+
+
+<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
+## M51 — platform
+createFileSavePort feature-detects the native picker, opens it before awaiting bytes, writes and closes once, and never retains a writable handle. Only fulfilled write+close returns saved; cancellation/error/absence return cancelled/failed/unconfirmed. Abort rejects pending work and requests stream abort. No share/download confirmation or UI is implemented pending DEC-72.

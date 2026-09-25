@@ -214,3 +214,8 @@ Tail codec validates the assignment payload and supported wrap version.
 <!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
 ## M33 — data worker
 readAppHead removes eager graph loading from pin/release. backup-graph authenticates every current producer descendant and original covered chain, retains the source head, independently reconstructs authored state in SQLite, and rejects unsupported nonempty retained/conflict/audit roots without mutation. Backup handlers own app keys and active cursors through abort, error, release, lock, reset, session replacement and teardown. Release cancels readers before removing retention roots.
+
+
+<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
+## M33 — workers
+io.worker is a real dedicated worker composition root for receiveBundle, holds ciphertext Blob parts, and offers output only after second-pass verification. It has no key/store/projection path. backup.connectBundle composes durable pin, bounded graph, publication and ciphertext transport. Captured candidate/frontier/vault identity remain data-worker-owned. Native saved completion validates live session and home, checks frontier bounds/regression, and atomically commits receipt/time plus pin release. Rejected/interrupted operations preserve pins for recovery and do not advance confirmation. Worker lock/reset/session replacement/dispose abort transfers via existing backup.disposeAll. Optional HomeState receipts add app/operation/artifact/candidate/generation/frontier/time; pre-receipt homes decode unchanged. General status/count readers remain CP4/5 work.

@@ -229,3 +229,8 @@ carries a port.**
   growing `DATA_WORKER_ERROR_KINDS_V1`); the SESSION-07 pointer (recorded
   jointly in `M01-domain-model.md`) left as a one-line cross-reference rather
   than restated.
+
+
+<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
+## M32 — worker protocol
+DataWorkerClient.prepareBundle uses a separate ioVersion=1 attach message and two transferred ports; messages.ts remains byte-free. The worker-to-worker channel has sequential acknowledgements, refusal/timeout/abort handling. The page control channel binds operation/app/home/artifact hash, accepts one completion, and rejects mismatches/replays. io-client accepts only exact artifact/ready/completed shapes and owns termination/disposal.

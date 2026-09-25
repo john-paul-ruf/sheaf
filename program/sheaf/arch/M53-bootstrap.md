@@ -53,3 +53,8 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-06
   "no-change" note folded into the `spawnImportWorker` paragraph as confirming
   evidence, rather than left as a standalone staple with nothing to reconcile.
+
+
+<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
+## M53 — bootstrap
+startApp owns AppRuntime.saveBundle, spawnIoWorker's literal Vite URL, and each transfer's AbortController. lock/pagehide/dispose cancel saves and terminate IO resources. Data/IO constructors remain lazy until explicit use. Tests can inject destination and constructors.

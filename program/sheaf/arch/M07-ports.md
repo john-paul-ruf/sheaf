@@ -163,3 +163,8 @@ worker transport, receipt persistence and UI DTOs remain S02 outputs.
 <!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
 ## M07 — application ports
 BackupAppGraphV1 carries metadata, bounded readObject/canonicalAuthoredState readers and an owned AbortSignal. ProjectionAuthoredStatePort is structurally checked against the engine in both directions.
+
+
+<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
+## M07 — application ports
+FileSavePort.save(Promise<Blob>, AbortSignal) returns saved/cancelled/failed/unconfirmed. Its first consumer is AppRuntime.saveBundle. Only ciphertext Blobs reach the platform adapter. No fallback policy is supplied.
