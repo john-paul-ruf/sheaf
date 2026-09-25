@@ -427,6 +427,10 @@ Adw4M reviewed Author afe37f3/plan109513b. F05-GRAPH-APPROVED-01 independently c
 S06 r5 declared-blocked with23uncommitted files; exact full-file recovery snapshot/inventory in .program/recovery/F05-S06-r5, source digest24d6b6d895d68cf7317c2285626e154a4b7425deee2f456a2dd7d6e88d99b2d1. No checkpoint/arch accepted. Root DB under existing explicit approval supplied91ad694: closed maps for detection/resolution/merge, lossless alternatives, baseline/report/status and same-commit effect mapping, no SQL/outer-event change. CA35/41 agreement now includes afe37f3+91ad694; producers/proofs remain planned S06CP1/2/4. Scoped delta review A-j3X received: no additional gap; changed boundary ready for S06 resumed implementation, all proofs still pending. Partial typecheck/lint217tests/build are worker-reported component evidence, not full acceptance.
 
 
+## S06 recovery at open checkpoint — 2026-09-25
+
+r6 ended context-exhausted, first nondeclarative exhaustion on this CP1 shape. No checkpoint commit;25file partial inventory3bf69d9f465e8ecfbbee9c0af807f38dde603eb537acb55b2517b64f8d727a44 independently matched and preserved in .program/recovery/F05-S06-r6.tar.gz, including additions and unaccepted arch. Prior r5 recovery directory was archived and byte-verified then removed from scratch to avoid root lint scanning copied TS; original source untouched. Fresh recovery1 under unchanged71path lease r4/instructionr7 owns remaining CP1 evidence replay/effects/proof and CP2–4. No new Author/lease input missing. All nonempty capability proof remains pending.
+
 ## Handoff Notes
 
 ### Orchestrator preflight receive — 2026-09-24
@@ -2120,4 +2124,64 @@ The revised CP1 explicitly owns the evidence decoders, projection reconstruction
   - Remaining implementation is explicitly owned by S06 CP1: conflict-page decoding, typed evidence replay, actual `pending_conflicts`/`applied_merges` reconstruction, and preservation tests. The current rejection in `backup-graph.ts:104–146`, replay exclusion in `app-session.ts:604`, and history-only copying in `checkpoint-history.ts` are unfinished assigned work—not additional owner gaps. CP2 owns installed continuity.
   - Closing assertions remain required: nonempty pending/resolved/merge fixtures through actual projection mutations; exact source/baseline/report preservation; conflict history keyed by conflict ID; wrong-subject, missing-effect, missing-baseline and invalid-report rejection without installation, receipt advancement, or cleanup; no duplicate application after reconstruction.
   - Adw4M’s assigned ordering correction was not reopened. F06 actions, full compaction acceptance, unrelated capabilities, and a full-history reconciliation were outside this delta. No tests, builds, file edits, commits, or agent spawning occurred. Reported component passes remain inherited partial evidence; readiness is unchanged.
+
+
+
+### SESSION-06 r6 receive — context exhausted, partial work preserved
+
+No commits; native ended;25file hashes checked and complete verified archive created.7 import browser cases and224component tests are partial inherited evidence; no full candidate/installed/J3 proof accepted. Scratch lint interference corrected by archiving own backup copies only. New fresh recovery1 scheduled with unchanged lease and complete original evidence mappings.
+
+I acknowledge lease r4 and instruction revision r6. I’ll read the clarified conflict/merge mapping and preserved implementation, then resume the open checkpoint without resetting or reapplying backups.
+
+
+The clarification supplies the missing payload contract. Detection preserves alternatives without changing authored data; resolution and merge verify earlier mutations in the same commit. I’m wiring that validation into replay and the graph reader, with tests for reconstructed conflict rows and rejected effects.
+
+
+The structural decoder is in place and preserves canonical provenance separately from the legacy record-event format. It checks payload keys, baseline states, reports and alternatives. Source authority and mutation effects still need replay validation; decoding alone does not establish those proofs.
+
+
+The payload tests pass 27 cases, including lossless provenance, distinct absent/deleted baselines, false-success reports and duplicate effects. The graph reader now checks referenced conflict events, subjects and causal source commits. Projection reconstruction is still unfinished, so nonempty conflict/merge recovery is not yet accepted.
+
+
+The new graph test passes with two conflict pages whose logical order is opposite their physical revisions. Reversed or duplicate pages, wrong subjects, missing source commits and substituted events reject without storage changes. The candidate writer now builds bounded conflict pages from original detections and resolutions; replay and SQL evidence rows remain the next CP1 work.
+
+
+The evidence-copy test now verifies that baseline distinctions and pending/resolved conflict and merge rows survive copying without changing authored records. The broader run exposed a fixture-ordering error, which I corrected. Root lint also picked up the preserved `.program/recovery` backup files; I’ll rerun it excluding that backup directory without changing the backups or lint configuration.
+
+
+Typecheck and the 224 component tests pass. I’m using the Playwright skill to check the existing worker import journey against a fresh build on port 8081. This verifies the runtime-fixture regression; it does not substitute for the unfinished compaction journey.
+
+
+The worker import journey passed all 7 tests on the fresh build, and the served index and worker assets matched the emitted files. CP1 is still open: evidence replay, same-commit effect validation and complete nonempty recovery proofs remain unfinished. I’m preserving the current source inventory and partial evidence for continuation.
+
+
+## Handoff
+
+- **session:** SESSION-06
+- **status:** blocked
+- **checkpoint:** 0/4 committed; CP1 remains open. No checkpoint SHAs.
+- **notes:** Lease r4/instruction r6 acknowledged; all six instruction hashes matched. Base `e2f21646a4b751afef578de2444adb80a3cd8a51`. CAP-44 and CA-35/36/40/41 acceptance remain pending.
+- **delivered:** Extended the preserved implementation with original evidence payload decoding, conflict-reference validation, bounded conflict-page construction, and transactional copying of baseline/conflict/merge/history rows. Production evidence replay and effects validation remain incomplete.
+- **verification:**
+  - `pnpm typecheck` → exit 0.
+  - Candidate component selector → **24 files, 224 passed**, exit 0.
+  - History-only negative control → **1 selected test failed**, as intended; source restored and full selector passed.
+  - `pnpm lint` → 23 parser errors in preserved recovery backups. `pnpm exec eslint . --ignore-pattern '.program/recovery/**'` → exit 0.
+  - `SHEAF_BUILD_ID=e2f2164-S06-r6-open-3bf69d9f465e pnpm build` → exit 0.
+  - `SHEAF_PW_PORT=8081 SHEAF_BUILD_ID=e2f2164-S06-r6-open-3bf69d9f465e pnpm exec playwright test --project=browser worker/import-journey --workers=1 --global-timeout=900000` → **7 passed**.
+  - Served index/harness/data-worker/IO-worker hashes matched emitted artifacts. Runner stopped; port 8081 is clear.
+  - Exact commands, assertions, limitations and hashes: [partial-evidence-r6.json](/Users/the.phoenix/WebstormProjects/sheaf/test-results/f05/s06/partial-evidence-r6.json).
+- **surprises:** Root lint scans Orchestrator’s recovery copies outside the TypeScript projects. Those backups and lint configuration remain untouched. A fixture initially used unsorted random field IDs; corrected before the final passing run.
+- **followUp:** Preserve all **25 uncommitted files** inventoried in the evidence document. Inventory SHA-256: `3bf69d9f465e8ecfbbee9c0af807f38dde603eb537acb55b2517b64f8d727a44`. Finish typed evidence replay, authoritative baseline/conflict/merge reconstruction, shared-validator and same-commit effects-once checks, remaining adversarial fixtures and complete candidate recovery before committing CP1. CP2–4 remain unfinished. The architecture fragment is explicitly unaccepted.
+- **needsOwnerCorrection:** —
+- **needsDesignSource:** —
+- **blockedReason:** Context exhausted at CP1. No new Author or lease blocker was identified; remaining implementation and proofs remain assigned to S06. Partial passes do not satisfy checkpoint acceptance.
+- **filesTouched:** No committed files. This continuation changed seven leased files:
+  - `src/persistence/projection/checkpoint-history.ts`
+  - `src/workers/data/backup-graph.ts`
+  - `src/workers/data/compaction.ts`
+  - `src/workers/data/record-event-payloads.ts`
+  - `tests/unit/projection/compaction.test.ts`
+  - `tests/unit/workers/backup-graph.test.ts`
+  - `tests/unit/workers/record-event-payloads.test.ts`
 
