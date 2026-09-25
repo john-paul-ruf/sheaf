@@ -1,116 +1,144 @@
 # Final Report — F05 durable-home-backup
 
-**Outcome: blocked/incomplete.** S01 is done. S02 has two completed checkpoints and a committed, verified native-save contribution to CP3. S03–S07 have not run. No complete F05 capability, native-browser backup journey, live provider qualification or demo approval is claimed. This report closes the orchestration attempt with owned obligations; it does not authorize F06 or retire required F05 behavior.
+**Current outcome: blocked/incomplete feature; S01, S02 and S03 accepted.** The approved save-confirmation and reminder recommendations are implemented and independently verified. Users can create a separate vault, save a complete current-format encrypted bundle, explicitly confirm an unobservable save after delivery, reopen truthful backup status, and dismiss persistent scratch reminders on the approved schedule. This supersedes the blocked policy boundary reported at4cf629a. It does not claim cloud qualification, compaction, OS-native durability, F05 demo approval or permission to start F06.
 
 ## Delivered and accepted
 
-| Work | Commit | Acceptance |
+| Session / work | Commits | Current acceptance |
 |---|---|---|
-| S01 CP1 independent vault protection | 694c741e3882c7a238eeba20459516d1f71b800d | opaque vault key/recovery/KDF producer |
-| S01 CP2 authenticated vault transport | 13e83f15b6438406fef1b088e85d3600691a831c | scoped authenticated references/codecs/ports |
-| S01 CP3 publication candidates | 8674766580be6be7a5b846371c797b2c9e73201c | exact-byte CAS/readback on stateful double; later bounded correction below |
-| S02 CP1 home assignment and snapshot retention | 03ee57104dbe10e99351e2e1808a2be5aacf21bd | atomic encrypted assignment, restart and pinned CSV append retention |
-| S02 CP2 current-producer graph | c7e6507f87347461afd82c39497ed6eef9df67d5 | bounded hash/CBOR/export, authored-state SQLite reconstruction, all current graph branches, covered chain/provenance and owned key/cursor lifecycle |
-| S02 partial CP3 native save | d75830df961fc9713b12539312594b4f16d78693 | IO worker/bootstrap, ciphertext channels, bundle second-pass, correlated atomic native receipt; full CP3 remains open |
-| Fixed vault security design fill | 58bffc8897f9de0326ff9f94380ad84a80733789 | new mock plus five inventory rows, existing mocks unchanged |
+| S01 vault crypto and authenticated publication contracts |694c741,13e83f1,8674766|3/3; bounded publication correction subsequently c7e6507|
+| S02 atomic home/pin retention and current graph |03ee571,c7e6507|Current producers, covered chain/provenance, bounded encoding/hash/export and lifecycle|
+| S02 complete save confirmation |partiald75830d, fullCP3a93a87c|Native observed write/close or delivered bundle followed by explicit “I saved this bundle”; failure/cancel never confirms|
+| S02 mounted journey, reset/countdown, vault-only recovery |7b1bb58,f978eb3,7ee5ce8|6/6 accepted after corrections below; actual workers/ports/IndexedDB and same-context restart|
+| Receipt and hydration corrections |2cd5ad4,823012b|All locally held device frontiers counted; concurrent readers share hydration and visit writes; deterministic negative regressions plus real import proof|
+| S03 reminder producer and no-op correction |59caafb|Unchanged schema/chart requests create no commit; accepted authored trigger written atomically with encrypted catalog|
+| S03 dismissal, escalation and restart |a016752|Actual worker-clock proof, precise10m/1h/24h/repeateddaily, persistent badge, no-op/stale/duplicate guards|
+| S03 consistent status and accessibility |d8b4e14,47a633b|4/4 accepted; scratch/bundle status/remedy across shell/frame/home/settings/detail/reset, preserved-value copy and old-journey compatibility|
+| Vault, save and reminder design sources |58bffc8,4c31ded|Approved scoped mocks; existing mocks preserved|
+| Provider presentation fill |98ee79c|Detailed selection/authorization/reconnect/quota/disconnect states; design only, registration/application proofs separate|
 
-Changed APIs include VaultCryptoPort/createVaultCrypto, DurableHomePort publication, bounded BackupAppGraphV1 readers and ProjectionAuthoredStatePort, sha256Chunks/encodeCanonicalChunks, AppRuntime.saveBundle, backup.connectBundle, receiveBundle and FileSavePort outcomes. Architecture deltas were consumed in 5d73ba2, c25742f, 5a977e6 and385e794. Exact source/test paths are in the checkpoint commits and verbatim STATE handoffs; no Orchestrator product code was written.
+Key APIs: independent VaultCryptoPort; authenticated DurableHomePort; bounded BackupAppGraphV1/ProjectionAuthoredStatePort and streaming hash/CBOR; data↔IO bundle transfer and FileSavePort; readAppDurability and receipt-relative count; inflight AppSessionRegistry.open; scratchReminderSchedule/dismissScratchReminder/backupFreshness; getScratchReminder/dismissScratchReminder; honest schema unchanged outcome; shared reminder machine and status selector. Exact files and commits are in STATE handoffs. Orchestrator wrote no application code.
 
 ## Verification and limits
 
-Orchestrator independently ran `pnpm verify` at implementation revision d75830d: typecheck exit0, lint exit0, **214 test files /2402 passed /3 inherited skipped**, production build exit0. Build still reports chunks over500kB; this is a warning, not a failed gate. CP2 was independently checked with exact GRAPH-S02:25files/209pass. Earlier S01 focused16files/71pass/1inheritedskip and S02 CP1 focused11files/119pass also passed independently. Worker partial-CP3 selected gate was19files/106pass; closing full suite includes those tests.
+Current implementation revision **47a633bde5528de15e0d7bf274f733bf7f4e7159**. Orchestrator independently ran:
 
-The native component gate uses production data/IO handlers, MessageChannels, crypto and SQLite, with isolated fake-indexeddb, Worker-constructor doubles and native destination doubles. It proves cancellation/failure/stale/forged/replayed completion protection and captured-frontier persistence, not actual OS durability or the real-entry J1 journey. No browser/e2e/provider/security acceptance gate was substituted with the build. No live credentials supplied, provider contacted, or publication/deployment attempted.
+- `pnpm typecheck` and `pnpm lint`: exit0.
+- `pnpm test`:223 files, **2461 passed /3 inherited skips**, exit0.
+- `SHEAF_PW_PORT=8081 pnpm exec playwright test --project=e2e --project=browser bundle-backup recovery-countdown sync/bundle scratch-reminders backup-status --workers=1 --global-timeout=900000`:5 files, **11 passed**,0 skips/retries, exit0; fresh build/strict port/no reused server.
 
-Ignored evidence paths: `test-results/f05/s02/graph-current/evidence.json` and `test-results/f05/s02/native-save/evidence.json`; source/config/fixture/build inventories were checked against committed paths before documentation updates. Durable claims and exact counts are recorded here and in STATE, not inferred from scratch. The native contribution inventory SHA256 is `8a04d2fa49a11105b52a33d024a084e39759b219bbfae28590ae255263f776ae`. No current visual/native-platform qualification is claimed. Designer produced80 renders across16states/fivewidths; Orchestrator inspected source/diff and320px reuse output; these are design evidence only.
+The11 cases exercise vault-only full current graph recovery, malformed/interrupted output, both save destinations and receipts after page replacement, local recovery countdown, consistent backup facts, real-worker clock bridge, page-only-clock negative control, every dismissal deadline across replacement, separate real-clock edits, authored families/home assignment suppression, and responsive/keyboard/axe behavior. Build IDs, configuration/source inventories, served data-worker assets and saved artifact hashes checked at receive. Coder's **full end-to-end suite81/81passed**,6.7m, ran against source identical to47a633b; recorded changed-source/config digests were checked. Root did not repeat that slow full suite, but independently reran all due composed capability gates above. No build substituted for typecheck or browser proof.
 
-## Resume and demo obligations
+Unit persistence uses production handlers/commands/crypto/SQLite over fake-indexeddb. Browser proofs use actual production workers, MessagePorts and browser IndexedDB; native-save destination remains a writable-handle fixture, not OS-picker durability. Download delivery is real. S03 reported37 inspected screenshots and36 axe variants at320/600/900/1200; root inspected compact-phone reminder and desktop stale-home output, plus earlier save/design samples. Two inherited layout issues are carried below, not hidden by a full visual-parity claim. Existing >500kB chunk warning remains. No provider registration/account/credential was supplied, no live provider was contacted, and no external publication/deployment occurred.
 
-1. Human resolves DEC-72: proposed explicit “I saved this bundle” after delivery on unobservable platforms, or remain unconfirmed. Designer supplies the approved outcome details; S02 completes CP3, CP4 J1, CP5 receipt/count surfaces and inherited CAP-05 countdown, CP6 interruption/artifact recovery.
-2. Human resolves DEC-71 reminder timing; Designer/S03 implement and prove it. Proposed schedule remains unapproved.
-3. Human/DB Author resolves GRAPH-CONTRACT: typed retained references plus bounded conflict/audit page/descendant/version rules, or an authoritative fixed-role alternative with coverage. S06 owns nonempty writers/readers/publication/fixtures before pointer installation and J3/J1 proof. No protected specs/migrations were changed.
-4. Human supplies public Dropbox/Entra registrations, exact redirects and authorized test accounts. S04/S05 qualify scope/CORS/CAS; S07 owns account-bound configuration, scheduling, egress controls and proof. Do not send passwords/tokens in chat.
-5. After implementation, S07 GATE-F05 demo must show setup/import/edit → bundle/vault/save → cold reopen and recovery; reminders/status; two compactions with history/restore and subsequent bundle; isolated provider backup/race/offline behavior and egress controls. Record built/config identity and obtain human verdict before F06. That demo is not ready now.
+The r9 S02 receive failed sync/bundle at7ee5ce8 despite a claimed pass. Acceptance was withheld;823012b closed the actual concurrent hydration/visit cause with failing-before deterministic tests and independently passing real import/artifact checks. S03's inherited no-op producer defect was assigned and fixed59caafb, not masked in the reminder layer. ERR_NETWORK_CHANGED during an earlier S03 page replacement remains recorded as environment failure; final and independent runs passed unchanged timeout/retry policy. A320px sticky-toolbar interception was corrected47a633b with original journey assertions retained.
+
+Ignored evidence is not the completion artifact. Evidence was consumed at receive and the exact outcomes are recorded here and in committed STATE; scratch retains raw handoffs, diagnostics and source inventories for recovery.
+
+## Remaining input, owner and acceptance conditions
+
+| Obligation | Supplier / implementation owner | Required closure |
+|---|---|---|
+| GRAPH-CONTRACT nonempty retained/conflict/audit format |DB/Author supplies exact protected contract; S06 CP1/2/4 implements and proves|User approved typed authenticated retained refs and bounded conflict/audit direction. Still require exact local scope/kind/descendant/covered-chain/version/backward-reader specification, then positive nonempty writer/reader/publication, two-compaction history/restore/restart and J3/J1. No Spec/DB worker or protected edit was dispatched.|
+| Dropbox registration and live account premises |Human public registration/redirect/account supplier; S04 qualification, S07 integration|AppFolder scope/discovery/isolation/CORS/exact CAS/readback with authorized test accounts; no secrets in report.|
+| OneDrive registration and final-write premise |Human Entra SPA registration/redirect/account supplier; S05 qualification, S07 integration|Same plus demonstrated final-publication conditional-write guarantee; unresolved premise cannot enable provider.|
+| Provider scheduling/status/egress |S07 CP1–5 after named predecessors|Real configured IO adapters, selected-provider CSP/fetch guard, discovery/selftests for credential-free local security J6, offline/restart/manual/autobackup J4 and live J5. Local security proof remains required even if credentials absent.|
+| F05 demo and next-feature gate |S07 prepares; human gives verdict|Current-built setup/import/edit→vault/bundle/save/reopen/recover; reminders/status; compaction/history/restore→new bundle; account isolation/CAS/offline/egress. No verdict inferred from trust in recommendations.|
+
+DEC-71 and DEC-72 no longer need human answers. Exact protected graph specification and external provider inputs are not inferred from approval of their recommended direction. Required obligations retain producers and proof checkpoints; blocked work is not completion.
 
 ## Orchestration
 
-**Concurrency:** cap3, Native binding; peak two workers including Designer, one Coder at a time due dependencies. **Wall clock:** measured window from first recorded dispatch2026-09-24 20:51:19 CDT to report assembly2026-09-25T03:34:45.724668+00:00: 103.4minutes; excludes unrecorded startup and final Archivist duration, to be amended at close. No per-worker hands-on duration inferred: runtime log end labels repeat start timestamps.
+**Concurrency:** Native demiurge binding, cap3. One Coder active at a time from dependency/shared-resource constraints; disjoint S02r7 and reminder-clock Planner launched before collection. No binding change, shell worker processes, live lease changes, interrupts or worker budgets. Native transport timeouts reattached to original handles.
 
-**Sessions run:**2 Planner sessions across7 Coder launches (S01 once, S02 six times). **Checkpoints committed by Coder:**6 checkpoint-labelled commits:5 complete checkpoints and1 explicitly partial CP3. Also2 bounded replan workers,1 scoped Designer,2 planning-completeness Archivist checks and final Archivist below.
+**Sessions run:**3 of7 Planner sessions;13 Coder launches total (S01×1,S02×10,S03×2). **Checkpoint-labelled Coder commits:**14 from git:13 complete checkpoints plus the preserved partialCP3d75830d; additionally2 explicit S02 correction commits. These totals do not count Designer, Planner, orchestration or arch commits as Coder checkpoints.
+
+**Wall clock:** prior measured initial segment114.1minutes (first dispatch2026-09-24 20:51:19 CDT through2026-09-25T03:45:25.910931Z). Continuation timing only where recorded: S02r10 launch04:59:41Z→received05:10:53Z; S03r2 launch05:12:10Z→received05:17:06Z; S03r3 launch05:17:36Z→received06:08:27Z. These include verification/receive time and are not hands-on estimates. Some early continuation dispatches have no timestamp; no duration invented. Final close timestamp appended after Archivist.
 
 ### Wave plan as executed
 
 | Wave | Sessions | Notes |
 |---|---|---|
-| Preflight | Archivist AO787 → replan P7OBZ | Five planning gaps corrected5e38ca7 before Coder |
-| W1 | S01 CDKpX + DESIGN-F05-VAULT DH0OA | Both launched before collection, disjoint exact leases; no Archivist concurrent |
-| W2-r1 | S02 CQwhv | CP0 append retention lease gap |
-| W2-r2 | S02 C9rR1 | CP0 shared eager graph contract gap |
-| W2-r3 | S02 C4l0k | CP1 committed; hash/CBOR seam |
-| W2-r4 | S02 CaVon | CP2 preserved uncommitted; protected graph mapping gap |
-| Quiet replan | Planner PK74w → Archivist AJwdH | f1eae46 co-owns future graph producer/reader/proof; scoped recheck |
-| W2-r5 | S02 CAZU0 | CP2 committed and independently accepted |
-| W2-r6 | S02 CfLns | Native partial CP3 committed; actual DEC72/design stop |
-| Close | final Archivist | no running Coder; all receives reconciled |
-
-All Native waits began after the whole eligible wave was launched. Five-minute await transport timeouts were reattached to the same handles, never treated as worker termination or used to spawn a replacement. No observed runtime concurrency degradation; later idle slots followed the dependency graph.
+| Initial preflight/W1 |Archivist→replan; S01 + vault Designer|Initial planning correction5e38ca7; source-disjoint launches before collection|
+| Initial W2r1–r6 |S02 six attempts; quiet graph replan/Archivist|Three lease amendments and graph split; CP1/2 and partialCP3; initial report4cf629a|
+| Approval preparation |save/reminder Designer→approval Planner→scoped Archivist|Approval27e9a34, design4c31ded, plan9749c76, findings assigned|
+| resume-1 |S02r7 + reminder-clock Planner|Both launched before waits; fullCP3a93a87c; plan37303ce|
+| resume-2 |S02r8|No code; execution shortfall, fully received|
+| resume-3 |S02r9|CP4–6 committed; independent import failure blocked acceptance|
+| resume-4 |S02r10|823012b negative regression and required gates; S02 accepted|
+| resume-5 |S03r2|CP0 no-op producer counterexample; no code; precise lease amendment|
+| resume-6 |S03r3|All4CPs accepted;11browser/current2461unit checks|
+| Quiet provider fill |DESIGN-F05-PROVIDER-STATES|Already-approved missing presentation detail; no Coder concurrent|
+| Final |Archivist continuation final pass|Report assembled first; no active Coder/pending receive|
 
 ### Blocked
 
 | S | Reason | Last checkpoint | Dependents stalled |
 |---|---|---|---|
-| S02 | DEC72 and save-outcome design; J1 absent |2/6 plus partialCP3 d75830d| S03–S07 |
-| S03 | S02/J1 and DEC71/reminder design |0/4| S06/S07 |
-| S04 | S01/S02 input proof + Dropbox registration/qualification |0/3| S07 |
-| S05 | S01/S02 input proof + OneDrive registration/qualification |0/3| S07 |
-| S06 | S02/S03 and GRAPH-CONTRACT DB/Author input |0/4| S07 |
-| S07 | All required predecessor proofs |0/5| F05 acceptance/F06 |
+| S04 |INPUT-DROPBOX|0/3|S07|
+| S05 |INPUT-ONEDRIVE|0/3|S07|
+| S06 |exact DB/Author GRAPH-CONTRACT; S02/S03 prerequisites now satisfied|0/4|S07|
+| S07 |S04/S05/S06 contracts and proofs|0/5|F05 acceptance/F06 gate|
 
 ### Blocker escalations
 
-| S | Class | Action / human ask | Disposition |
+| S / area | Class | Action | Disposition |
 |---|---|---|---|
-| Plan | Missing leases/readers/security discovery | bounded replan5e38ca7 | closed planning defects; implementation retains owners |
-| S02 r1 | Mechanical append writer lease | r2 added append.ts+paired test9466660 | closed03ee571 |
-| S02 r2 | Accepted producer bounded-read defect | r3 expanded shared publication/frontier/fixtures760dae1 | closedc7e6507 |
-| S02 r3 | Incremental hash/CBOR prerequisite | r4 added four exact paths3093131 | closedc7e6507 |
-| S02 r4 | Current/future graph owner split + DB meaning | replanf1eae46 and scoped Archivist; concrete GRAPH-CONTRACT human ask | current producer closedc7e6507; future positive proof carried Author/S06 |
-| S02 r5 | Safe native work remained | same-context r6 continuation; no new lease | natived75830d closed; fallback still blocked |
-| S02/S03 | Product decisions | async DEC72/DEC71 asks | unanswered, no defaults selected |
-| S04/S05 | External registrations/accounts | async supplier question | unanswered; owners retained |
-| Transcript | AR-1 source unavailable | program/demiurge/specs/database.md absent; existing local chat-shaped event convention retained | noncritical format-validation debt to Orchestrator/Archivist; no dispatch/evidence inference |
+| Initial preflight |missing readers/tests/discovery owners|replan5e38ca7|plan closed; S06/S07 future proofs owned|
+| S02 initialr1–r4 |append writer, bounded shared API, incremental primitives, future graph mapping|lease9466660/760dae1/3093131 + replanf1eae46|current graph closedc7e6507; exact nonempty Author/S06 remains|
+| DEC71/72 + graph direction |product recommendations|user trust approval27e9a34; design4c31ded and replan9749c76|policies implemented/proved; exact graph format still supplier-owned|
+| S03 clock harness |missing concrete actual-worker proof mechanism|replan37303ce|implemented/proveda016752/47a633b|
+| S02r7/r8 |context terminal then execution shortfall|same lease recovery, no product question|CP4–6 landed; S02accepted823012b|
+| S02r9 receive |required integration regression|withheld done, same-context r10 correction|closed823012b, independent proof|
+| S03 compatibility |five missing old-journey test leases|controlledr2 amendment50aed81|assertions preserved, full81pass|
+| S03r2 |inherited command no-op producer gap|controlledr3 amendment0634e89, six exact paths|closed59caafb, no history rewrite|
+| DF-F05-1 |missing scoped designs|vault, save/reminder, provider fill workers|provider design accepted98ee79c; application cloud proof stillS07|
+| INPUT providers |unavailable external registrations/accounts|retain supplier and S04/S05/S07 owners|blocked, not waived|
+| AR-1 transcript |source grammar unavailable|program/demiurge/specs/database.md absent; existing blockquote convention retained|carried Orchestrator/Archivist until source supplied; noncritical|
 
 ### Interim Archivist checks
 
-Seven sessions: no routine interim drift pass required. Planning-completeness passes were AO787 (five gaps, routed together) and affected-path AJwdH (remaining pin/cursor/lifecycle work already owned; closedc7e6507). Both read-only; raw results preserved and planning/source revisions recorded in STATE. Final pass follows below.
+Seven sessions: no recurring interim checks required. Initial planning AO787 and affected graph AJwdH preserved. Approval review AO6jT read-only identified actual-worker clock mechanism and stale architecture policy summaries;37303ce and70f640c/8c8a53d closed assignments before S03. Final Archivist initial pass5959ca4 retained historically; continuation final return appended below once. No Archivist concurrent with Coder.
 
 ### Lease violations
 
-None in Coder checkpoint commits or touched implementation files. Every commit inspected against its active exact lease. One r3 attempt to stage ignored arch scratch failed with no commit; fragment was consumed by Orchestrator. Shared external changes were preserved. Replan and Designer commits matched their assigned paths.
+None in accepted Coder/Designer/Planner commits. Every checkpoint commit path checked against its active lease; S03's58 unique paths inside r3. Shared human edits preserved. Initial failed attempt to stage ignored arch scratch produced no commit. M05/M47 pre-existing untracked seeds were preserved; accepted deltas went into separately tracked F05 files.
 
 ### Checkpoint shortfalls
 
-No inflated completed-checkpoint claim. S02 has2 complete checkpoints plus explicitly partialCP3, not3/6. Its earlier returns were declared owner/contract blockers; no missing handoff or crashed checkpoint was inferred. No uncommitted implementation remains.
+S02r7 explicitly stopped after fullCP3 on context exhaustion; r8 made no progress despite no external blocker. Both received honestly, recovered within same session. S02r9 claimed done but root required-gate failure blocked acceptance;823012b closes it. No fewer checkpoint commits than a finally accepted checkpoint claim. S03r2 declared CP0 ownership blocker with no edits, corrected before resume. No unreceived patch or unfinished checkpoint remains.
 
 ### Wave plan corrections
 
-S04/S05/S06 source leases are disjoint, but all reserve shared dist:build/playwright:output; serialize unless a future reviewed envelope isolates outputs. A distinct port alone is insufficient. None of those sessions ran. No source overlap was silently waived.
+S04/S05/S06 source leases disjoint but shared dist/build and Playwright outputs collide; retain serialized reservations unless a reviewed isolation plan is supplied. Different ports alone are insufficient. Five exact compatibility specs and six no-op producer/mapping/test paths were added to S03 only after prior worker ended and S02 released its lease; no active overlap.
 
 ### Granularity feedback for Planner
 
-S02 r1/r2 returned before any checkpoint; r3/r4 found further transitive prerequisites. Three mechanical lease amendments and graph replan were required to establish the full producer/primitive/consumer proof path. Preflight should inspect all writers and bounded dependencies as one path, not one module at a time. No context exhaustion or checkpoint re-slice was reported. r5 left explicitly independent native work unfinished; r6 completed it before stopping at a real protected input. Count these distinct returns as recurrence evidence within this cycle, not one observation.
+Initial S02 repeated transitive prerequisite returns established recurrence within one cycle. Continuation added S03 actual-worker clock specification, five old-journey lease gaps and command no-op producer gap. Trace command writer→atomic state→UI acknowledgement→test harness and all accepted mutation paths before dispatch. S02r7 exhausted context afterCP3; r8 had an execution shortfall, not a planning blocker. Recovery completed without checkpoint re-slice. No turn/token ceiling was imposed. No elapsed wait timeout was treated as a worker failure.
 
 ### Process effectiveness
 
-First-dispatch completion:1/2 Planner sessions dispatched accepted without redispatch (S01). S02 required six dispatches. Five unplanned planning/ownership corrections: initial preflight replan, append lease, bounded publication lease, hash/CBOR lease, graph ownership replan. The three lease amendments retained returned worker context; the two replans used separate Planner workers. Design fill was an already known planned seam. Affected CAP39/40/44 and inherited CAP05/CAP45 planning assignments retain exact owners in STATE.
+First-dispatch completion: **1/3** Planner sessions dispatched accepted without redispatch/unplanned correction (S01). **8 unplanned planning/ownership corrections:** initial preflight, append lease, bounded API lease, streaming primitive lease, graph split replan, reminder-clock replan, S03 compatibility lease, S03 no-op producer lease. Affected CAP05/39/40/41/42/44/45 as assigned in STATE. Five mechanical lease amendments retained ended-worker context; three broader assignments used Planner. Approval reconciliation and scoped design fills follow newly approved/fixed inputs and are counted separately, not hidden as implementation failures.
 
-Integration rework after earlier acceptance: one corrective checkpoint, S02 CP2 c7e6507, replaces S01's eager shared graph/publication storage while preserving bytes/identity; CA35/CAP40 and future CAP44 affected. Provenance regression was fixed within that checkpoint, not deferred. Product choices and registration input absence are separate from these planning defects. No provider capacity or implementation context terminal occurred; Native await transport timeouts caused reattachment only.
+Integration rework after earlier acceptance: S02CP2 c7e6507 corrected S01's eager shared graph contract (CAP40/future44). Before final S02 acceptance,2cd5ad4 corrected multi-device count and823012b corrected hydration/visit concurrency exposed by mounted composition; both relevant negative regressions preserved. S03 no-op correction addresses inherited command semantics, not a newly invented reminder policy. Product input absence, one environment network event, context terminal and execution shortfall are separate categories. No provider capacity failure reported.
 
 ### Capability completion
 
-No complete F05 CAP newly verified. CAP39 crypto/home contribution landed, page/recovery proof S02 pending. CAP40 current graph and native component landed, fullCP3/J1/recovery S02 and nonempty extension S06 pending. CAP41 receipt writer landed, readers/status S02/S03/S07 pending. CAP42 blockedDEC71/S03. CAP43 blockedregistrations/S04/S05/S07. CAP44 blockedGRAPH-CONTRACT/Author/S06. CAP45 native transport contribution landed, provider egress/security S07 pending. Inherited CAP05 countdown required and ownedS02CP5. Current CAP/CA tables cite landed commits and separate future proofs.
+| CAP | Current status | Remaining owner / proof |
+|---|---|---|
+|05 inherited|verified47a633b countdown/replacement-passphrase path|none for this inherited obligation|
+|39|verified current create-vault/attach/recovery/J1|none for current capability|
+|40|current-producer complete bundle/confirmation/recovery verified|required positive nonempty extension DB/Author+S06CP1/2/4|
+|41|scratch/bundle surface consistency verifiedd8b4e14/47a633b|cloud extension S07CP2–4/J4|
+|42|verified59caafb/a016752/47a633b|none for required reminder behavior|
+|43|blocked external inputs and adapters/composition|S04/S05/S07 live qualification/J4/J5|
+|44|blocked exact protected graph contract|DB/Author+S06J3/J1|
+|45|IO lifecycle contribution landed; provider/egress/security incomplete|S07CP1/5,J4/J5/J6; live inputs separate|
 
 ### Follow-up closure ledger
+
+Historical raw entries below are verbatim from the first receive records. Their earlier disposition prose is historical; the current closure table immediately following them supersedes policy/pending claims. No handoff text is rewritten.
+
 
 Every received Coder/Designer `surprises` and `followUp` entry is reproduced verbatim below; grouped obligations retain individual owners. Planner follow-ups are included separately. Historical claims remain verbatim even when later corrected.
 
@@ -188,79 +216,177 @@ Every received Coder/Designer `surprises` and `followUp` entry is reproduced ver
 
 **Closed:** REPLAN-F05-GRAPH scoped review2b6522e, current-producer CP2c7e6507. **Carried:** J1 S02CP4/6; protected graph mapping Author and positive extension S06 as above.
 
+
+### Current disposition of initial follow-ups
+
+| Source | Current disposition at continuation close |
+|---|---|
+|S01|**closed** CA mappings/current descendant/J1/recovery/readers atc7e6507/a93a87c/823012b; DEC71/72 approved27e9a34 and implemented. **carried** exact nonempty Author/S06, providerS04/05/S07, chunk warningS07 verification/Planner performance.|
+|S02r1|**closed** retention03ee571 and fallback/J1a93a87c/823012b.|
+|S02r2|**closed** bounded APIc7e6507 and fallback/J1a93a87c/823012b.|
+|S02r3|**closed** streaming primitivesc7e6507, consumed arch, save/UI/countdown/recoverya93a87c/f978eb3/823012b.|
+|S02r4|**closed** preserved current graph/cursor/lifecyclec7e6507 and J1823012b; **carried** exact nonempty contract DB/Author and S06CP1/2/4; scope split remains explicitf1eae46.|
+|S02r5|**closed** independent native/fallback/UI workd75830d/a93a87c/823012b; **carried** nonempty contract Author/S06.|
+|S02r6|**closed** fullCP3a93a87c, CP4/5/6 and independent current recovery823012b/47a633b; **carried** S06nonempty, S07/Planner chunk-size observation.|
+|Vault Designer|**closed** vault/save/reminder detail58bffc8/4c31ded and DEC71/72; provider design disposition recorded below; **carried** provider application S07.|
+|Initial Planner follow-ups|**closed** current producer/gatesc7e6507/823012b; **carried** exact nonempty mapping Author/S06.|
+
+### Continuation handoffs — verbatim follow-ups and current dispositions
+
+#### DESIGN-F05-SAVE-REMINDERS
+
+> - **surprises:** Provider authorization/reconnect/disconnect designs remain adjacent DF-F05-1 gaps outside this envelope.
+
+> - **followUp:** SESSION-02 can consume the save design for CP3/4; SESSION-03 can consume reminders for CP1/2. They retain responsibility for actual save receipts, persisted scheduling, and J1/J2 proofs.
+
+**closed** save/reminder inputs4c31ded, implemented S02a93a87c/823012b and S03a016752/47a633b; provider fill separately recorded below.
+
+#### REPLAN-F05-APPROVAL
+
+> - **surprises:** Current no-picker path returns `unconfirmed` without delivery, then bootstrap disposes the transfer. The complete correction and lifecycle tests are explicitly assigned to S02.
+
+> - **followUp:** Orchestrator receives this commit, refreshes operational records, requests scoped Archivist planning-completeness review, then resumes S02 full CP3 under its unchanged lease.
+
+**closed** scoped review8c8a53d, current no-picker correctiona93a87c and J1823012b.
+
+#### REPLAN-F05-REMINDER-CLOCK
+
+> - **surprises:** Durability fixture is a future S02 output. Existing S03 ownership covers its extension and browser tests; `LEASES.json` remains unchanged.
+
+> - **followUp:** Orchestrator reconciles STATE’s VB-02/J2, CAP-42, CA-37, and finding disposition. After fully receiving S02 r7, recheck landed worker/bootstrap/protocol/fixture contracts before S03 dispatch. S03 CP2 implements and proves the mechanism; CP4 reruns J2.
+
+**closed** recheck6223610 and actual-worker mechanism/proof a016752/47a633b; no future harness obligation remains.
+
+#### F05-SESSION-02.attempt7
+
+> - **surprises:** Worker double originally passed ports by reference, causing cancellation to stall; corrected to actual transferable-port semantics. Superseded stalled runs were terminated. Existing large-chunk build warning remains. Unrelated changes preserved; owned browser and preview stopped.
+
+> - **followUp:** Resume S02 at CP4: authoritative receipt/count readers, vault creation/recovery UI, mounted routes, and actual-download/native-destination J1 with same-context reopen. CP5 retains reset consequences and CAP-05 countdown proof; CP6 retains interrupted-pin and complete vault-only artifact recovery. S06 nonempty-graph proofs remain separate. Architecture delta is `.program/signal/F05-SESSION-02.arch.md`.
+
+**closed** port-double correctiona93a87c and CP4–6 acceptance823012b; arch9850d14 consumed. **carried** nonempty Author/S06; chunk warningS07 verification/Planner performance.
+
+#### F05-SESSION-02.attempt8
+
+> - **surprises:** No external prerequisite or lease blocker established. This attempt did not fulfill the requested implementation.
+
+> - **followUp:** S02 still owns CP4 home/vault RPC and mounted UI, receipt-relative readers, and J1; CP5 reset/status integration and CAP-05 countdown; CP6 interrupted-pin handling and complete vault-only artifact recovery. CAP-39/40/41 and applicable CA-34/35/36/37/40 integration proofs remain incomplete.
+
+**closed** execution shortfall via r9 implementation and r10acceptance823012b; no fabricated external blocker.
+
+#### F05-SESSION-02.attempt9
+
+> - **surprises:** Self-review exposed CA-36 undercount across multiple locally held device frontiers: regression reproduced **1 instead of 3**, then passed after `2cd5ad4`. Countdown negative controls failed both intended cases against the old implementation. Temporary unrelated port occupation resolved without intervention. Browser harness navigation-before-unlock race corrected. Existing large-chunk warning remains. Native destination is doubled; no OS durability claim is made. Pre-existing configuration, roadmap, and architecture changes preserved.
+
+> - **followUp:** S03 owns CAP-41 consumer/reminder integration and J2; S06 owns nonempty conflict/audit/retained-graph extensions and J3/J1 reruns. Crash-retained pins remain conservatively recoverable through worker `exportGraph`/`release`; no blind startup sweep or restored confirmation authority. Existing-home adoption remains future work. Inherited empty-library unavailable copy remains outside this lease.
+
+**closed** all-device count2cd5ad4, countdownf978eb3, receive counterexample823012b, S03reminder/status47a633b. **carried** nonempty Author/S06; conservative retained pins and existing-home adoption F06 Planner/M33; inherited empty-library unavailable copy F06 Planner/M42; OS-picker qualification S07 release verification; chunk warning S07/Planner.
+
+#### F05-SESSION-02.attempt10
+
+> - **surprises:** The concurrency defects existed before CP4; source comparisons confirm unchanged implementations at `a93a87c` and `ee34258`. CP4’s receipt await exposed the disposed-projection failure; it was treated as a regression, not waived. An initial nonexistent test selector was corrected. Temporary trace extraction was removed before final lint. Native destination remains doubled; no OS durability claim.
+
+> - **followUp:** Orchestrator can close the r9 receive counterexample using this evidence and consume the [architecture delta](/Users/the.phoenix/WebstormProjects/sheaf/.program/signal/F05-SESSION-02.arch.md). S03 retains J2/consumer integration; S06 retains nonempty graph extensions and J3/J1 reruns. Pre-existing program and architecture changes remain untouched.
+
+**closed** concurrent hydration/visit regression823012b, architecture8876404, current STATE5333da8 and S03J247a633b. **carried** nonempty Author/S06 and native OS qualification S07; pre-existing human changes preserved.
+
+#### F05-SESSION-03.attempt1
+
+> - **surprises:** `executeSchemaChange` unconditionally commits prepared drafts; `SchemaApplyResultV1` requires a commit for successful application. `saveChart` unconditionally calls `commitSave` after validation. Suppressing reminders downstream would leave the prohibited authored commits intact. Initial diagnostic attempts exposed the zero-draft exception and an invalid assumption about the imported theme; neither was counted as passing evidence.
+
+> - **followUp:** Orchestrator should issue a bounded correction and replacement lease, then resume CP1. Preserve S02’s accepted receipt/concurrency behavior. S03 retains all four checkpoints, J2, status integration, accessibility, and full-suite acceptance.
+
+**closed** exact r3 amendment0634e89 and command-layer no-op correction59caafb with preserved stale guards/reopen counts; full S03proof47a633b.
+
+#### F05-SESSION-03.attempt2
+
+> - **surprises:** Fixed an owned 320px sticky-toolbar interception exposed by full integration. An earlier browser run encountered `ERR_NETWORK_CHANGED`; retained in evidence, without increasing timeouts or enabling retries. New schema `unchanged` outcome is mapped through command, protocol, handler, route and VM. Legacy absent provenance retains existing import wording.
+
+> - **followUp:** Orchestrator should consume the architecture delta and update STATE. S07 retains cloud/provider status and J4 proofs; S06 retains nonempty graph/publication and J3 proofs. Unrelated inherited visual issues remain with M46 (`schema.module.css`, cramped 600px Settings rows) and M39 (`app-shell.module.css`, clipped 900px rail branding). Pre-existing changes preserved.
+
+**closed** reminder/status acceptance6223610, arch27dd483,320px interception47a633b, independent11browser2461unit; earlier network event superseded by relevant unchanged-configuration passes. **carried** cloud status/J4S07, nonempty graph/J3Author+S06, inherited600pxSettings layout M46 and900pxrailbranding M39 for next Planner UI maintenance assignment. Legacy absent provenance preserves existing contract; no invented attribution.
+
+#### DESIGN-F05-PROVIDER-STATES
+
+> - **surprises:** Automation stalls recorded; fresh-session checks completed. Unrelated workspace changes preserved.
+
+> - **followUp:** SESSION-07 CP2/4 can consume this design source. Provider registration, live qualification, and DB inputs remain separate prerequisites.
+
+**closed** presentation gap98ee79c, exact2file commit and sample visual/source checked; automation stalls superseded by fresh-session checks. **carried** provider registration/live qualificationS04/05/S07 and exact graph inputDB/Author+S06. No application capability claim from mock.
+
 ### Working-tree preservation and completion condition
 
-All implementation and orchestration changes are committed through STATE95a539d before final Archivist. No active Coder, pending receive, unconsumed arch fragment or implementation recovery remains. Pre-existing PROGRAM-CONFIG.md and ROADMAP.md changes, plus remaining untracked architecture seeds, are preserved. Those unrelated changes mean the protocol's globally empty `git status --porcelain` condition cannot honestly be asserted. They will not be committed/reset solely to make a clean-tree claim. The committed report is an incomplete/blocked close record, not product completion or permission to start another feature.
+All accepted implementation is committed. Pre-existing PROGRAM-CONFIG.md and ROADMAP.md modifications and untracked architecture seeds remain untouched; no global clean-tree claim is made. Root will prove the report commit landed and show the residual status, not commit/reset unrelated work to satisfy an empty-status appearance. The committed report is a blocked/incomplete feature record; required obligations retain named suppliers and implementation/proof owners.
 
-### Final receive and duration
+### Final receive, follow-up closure and duration
 
-Final Archivist documentation commit5959ca4184e315ccc0d9903dbd005633e859e284 inspected:25 paths within arch/log/cleanup lease; protected config/roadmap hashes unchanged. Architecture convention promoted locally; original config preserved. Orchestrator corrected the stale inheritance/preflight summaries and narrowed remaining design fill in STATE1580f61, preserving all historical handoffs. This closes the final Archivist's machine-actionable summary follow-up. CL03/05 classification remains carried to Planner; no cleanup authorized. AR-1 validation remains carried to Orchestrator/Archivist with the missing source as resumption condition. Standing framework recommendations remain with their framework maintainer and stable log IDs.
+Continuation final Archivist3ea3606 reconciled25authorized documentation files; root checked every path and all20protected hashes. Current-summary follow-up is **closed** by STATEdc05efa: DEC71/72, approval review, VB02, CA37 producer/proof prose, CA40 countdown, seam preflight and graph resumption now match accepted47a633b/98ee79c. Historical handoffs remain verbatim. Architecture convention promoted complete prerequisite tracing at1cycle/7instances; broader report count8 also includes initial preflight. Framework recommendations retain stable IDs and their framework-maintainer owner. The212export CL03/05 classification brief remains **carried** to Planner, unaccepted; no removal is authorized. AR-1 grammar validation remains **carried** to Orchestrator/Archivist until its source exists.
 
-Measured wall clock through final receive: **114.1minutes**, first recorded dispatch2026-09-24 20:51:19 CDT to2026-09-25T03:45:25.910931+00:00. No unrecorded startup or hands-on duration inferred. Final report commit follows this timestamp. Final Archivist ran once (same-handle reattachment on transport timeout), no Coder concurrent, no retries or alternate models. All worker handles ended and were received.
+No Coder/Designer/Archivist remains active; all receives, deltas and handles reconciled. All own implementation/orchestration documents are committed except this report, which is committed separately immediately after assembly. Pre-existing external changes remain as recorded. No retries or alternate models for final Archivist; wait timeouts reattached to the same handle.
+
+Measured overall recorded wall-clock window: **279.7minutes**, from first dispatch2026-09-25T01:51:19Z to final receive/report assembly2026-09-25T06:31:02.396416+00:00. This includes the initial blocked boundary and continuation; it is not uninterrupted hands-on time. Earlier per-attempt recorded intervals above remain the only attributed durations.
 
 ### Archivist's Note
 
-I’ll read the full role and run record, then reconcile the documentation against the committed implementation. I’ll preserve the protected config and roadmap changes and keep the incomplete capability boundaries explicit.
+I’ll read the final-mode envelope and required record, then reconcile the permitted documentation and verify that protected files remain unchanged.
 
 
-The report distinguishes the accepted graph and native-save components from the unfinished F05 journey. I also found the prior history under `ROSHI-LOG.md`; I’ll read it before creating `ARCHIVIST-LOG.md` so existing recommendations carry forward.
+The report now accepts S02 and S03, while several architecture sections still describe their save, reader and reminder work as pending. I’m checking those sections against the landed code and keeping the nonempty-graph and provider obligations separate.
 
 
-I found two direct contradictions in the architecture: M24 and M27 still say “planned” above landed code, and M07 still describes the superseded eager graph API. I’ll fold those deltas into the current contracts and mark the receipt/status readers and real-browser journey as still pending.
+I found current-summary drift in STATE: the CA-37 heading still marks fallback and reminder proofs as planned, despite the accepted CA/CAP rows and later receive records. I’ll report the exact locations for Orchestrator to correct and leave STATE untouched.
 
 
-The three lease amendments and graph replan show repeated prerequisite gaps within this cycle. I’ll record that recurrence now in the architecture conventions and log, while preserving the externally owned PROGRAM-CONFIG changes.
+The continuation adds three more prerequisite corrections: the worker-clock harness, five existing browser specs affected by reminders, and the no-op command producers. I’m checking the inherited convention against those cases and refreshing the registry from actual imports.
 
 
-The code confirms the receipt writer landed, but the existing status readers still use absolute local sequence counts. Those readers remain S02 CP4/5 work. The native tests use production channel handlers with doubled worker constructors and save destination; they do not establish J1 or an actual OS save.
+The source trace matches the accepted local behavior: receipts use app-scoped captured frontiers, pending counts cover all locally held devices, and reminders persist with authored commits. The registry also needs the new M33→M05 and M37→M05 imports. I’m consolidating these facts into the module sections and keeping the remaining graph, provider and security proofs explicitly assigned.
 
 
-I’ve reconciled the eager graph description with the bounded API and separated the M56 unit-test record from M57 property tests. The registry now derives runtime edges from source imports. The cleanup rescan found 211 value exports with no textual reference outside their defining file; that supports the existing classification brief, not a claim that all 211 are dead code.
+The documentation now distinguishes accepted local/bundle behavior from the remaining Author/S06 and provider/S07 work. I’m finishing the standing ledger, preserving recommendation IDs, and checking that every file outside the authorized documentation set is unchanged.
 
 
-The reconciliation is ready for final checks. I’ve carried forward the full recommendation backlog, marked the paired-test handoff recommendation adopted based on current role text, and refreshed the cleanup classification brief. The remaining F05 blockers are still assigned to S02, S06, S04/S05 and S07, with product and author inputs kept separate from mechanical corrections.
+The reconciliation is complete. I found stale present-tense summaries in STATE and recorded their exact correction locations for Orchestrator. I’m checking the protected-file hashes before committing the 25 authorized documentation files.
 
-
-Final checks passed: inherited recommendation IDs and documentation links are intact, and the protected config, roadmap, role documents and pre-existing seeds match their captured hashes. I’m committing only the 25 reconciled documentation files with explicit pathspecs.
-
+Committed **`3ea3606`** — 25 authorized documentation files reconciled. Protected files and pre-existing changes remain untouched. No delegation or implementation tests were run.
 
 ## Archivist Note
 
 - **role:** archivist
-- **mode:** final
-- **commit:** `5959ca4184e315ccc0d9903dbd005633e859e284` — 25 documentation files; explicit add/commit pathspecs.
-- **registryUpdated:** true — [MODULE-REGISTRY.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/MODULE-REGISTRY.md), mechanically derived runtime imports.
-- **reconciled:** eager graph → bounded readers; landed IO/native receipt versus unfinished readers/J1; M56/M57 proof placement; planned versus implemented modules. Current contracts and owners: [F05-boundaries.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/F05-boundaries.md).
-- **conventionsAdded:** complete backup prerequisite tracing, promoted on three mechanical returns plus one graph-contract return within F05. Exact wording in [PROGRAM-CONVENTIONS.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/PROGRAM-CONVENTIONS.md).
-- **proposedForFramework:** boundedness/lifetime preflight—1 cycle, 4 returns; synchronize present-tense receive summaries—1 cycle, 1 observation across 2 locations.
-- **logEntry:** dated final entry created in [ARCHIVIST-LOG.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/ARCHIVIST-LOG.md), continuing ROSHI history with stable IDs preserved.
-- **verification:** documentation checks passed; protected config/roadmap, roles and existing seeds preserved. No implementation tests rerun.
+- **registryUpdated:** true — all 65 module rows checked mechanically from runtime imports.
+- **reconciled:** 23 tracked architecture documents, including current module contracts, registry, boundaries and conventions; cleanup ledger updated.
+- **conventionsAdded:** Complete prerequisite tracing now explicitly covers no-op producers, worker-clock proof mechanisms and affected existing journeys. Threshold: **1 cycle, 7 instances**.
+- **proposedForFramework:**
+  - Extend prerequisite tracing with those concrete checks — **1 cycle, 7 instances**.
+  - Reconcile present-tense decision/baseline/agreement/preflight prose at receive — **1 cycle, 2 instances**.
+- **logEntry:** Appended the dated continuation entry to [ARCHIVIST-LOG.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/ARCHIVIST-LOG.md), preserving historical entries and recommendation IDs.
+- **verification:** Documentation checks passed; the 1,022-file inventory showed only the 25 authorized changes; all 20 protected external hashes matched.
 
-**F05 remains BLOCKED/INCOMPLETE.** S02 owns remaining save semantics, J1, receipt/status readers, countdown and interruption recovery; S06 awaits GRAPH-CONTRACT; S04/S05 await provider inputs; S07 owns cloud integration. Orchestrator should refresh stale inheritance/preflight summaries. No full capability, OS-save or provider qualification is claimed.
+S01–S03 acceptance is recorded without implying overall F05 completion. Exact graph inputs and S06 proof, provider qualification and S07 composition/security proof remain owned obligations. Credential-free J6 remains mandatory.
+
+Stale STATE summaries are documented with correction locations and closure criteria in [F05-boundaries.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/arch/F05-boundaries.md). Orchestrator owns those corrections; STATE was not edited.
 
 ### cleanupBriefs
 
 - **title:** Prove or name every unconsumed export
-- **targetArea:** CL-03/05, `src/**`
-- **confidence:** low for removal
-- **proposedPlannerTask:** classify the refreshed 211-export inventory; identify consumers or retained contracts before proposing changes.
-- **requiredChecks:** reference/discovery checks, boundary assertions, focused tests and `pnpm verify` for approved changes.
-- **risks:** internal, dynamic, external and future uses prevent treating textual absence as dead code.
-- **ledger:** [CLEANUP-LEDGER.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/CLEANUP-LEDGER.md); no cleanup performed.
+- **targetArea:** `src/**`, existing CL-03/05 campaign
+- **confidence:** Low for removal; high for measured textual absence
+- **proposedPlannerTask:** Classify 212 exported declarations without outside-file textual consumers before planning visibility changes or removal.
+- **requiredChecks:** Focused boundary, known-answer, worker and recovery checks; `pnpm verify` and affected browser/e2e assertions after approved implementation.
+- **risks:** Dynamic, external and future consumers can escape textual searches.
+- **status:** Briefed, not accepted; no implementation cleanup performed.
 
 ### standingRecommendations
 
-Full open backlog; paired-test handoff recommendation marked adopted.
+Full open backlog; IDs preserved:
 
 | id | pattern | cycles | instances | firstSeen | status |
-| --- | --- | ---: | ---: | --- | --- |
-| `442cb40af6e1a830` | Interim cadence below 16 sessions | 5 | 24 | F01 | open |
-| `f1442f23b7f0949d` | Cleanup ledger missing from framework envelope | 4 | 5 | F01 | open |
-| `b027c25ef168decb` | STATE table-cell validation | 1 | 6 | F02 | open |
-| `06e04ece038e736d` | Unleased-module fragment routing | 1 | 6 | F02 | open |
-| `1c51a85390a3f964` | Live sibling rule notification | 1 | 1 | F03 | open |
-| `242f2bb3c9d6af33` | Exact seed-function references | 1 | 1 | F04 | open |
-| `abf5cf9b579e46b5` | Exact worker-tier count assertions | 1 | 1 | F04 | open |
-| `941f0fdbdd02f2c4` | Complete bounded-backup prerequisite trace | 1 | 4 | F05 | promoted locally; framework open |
-| `52cdcf97581fa215` | Receive-summary currency | 1 | 1 | F05 | open |
-
+|---|---|---:|---:|---|---|
+| `442cb40af6e1a830` | Interim drift cadence remains size-based | 5 | 24 | F01 | open |
+| `f1442f23b7f0949d` | Standard Archivist envelope omits cleanup-ledger ownership | 4 | 5 | F01 | open |
+| `b027c25ef168decb` | Malformed STATE table rows lack detection | 1 | 6 | F02 | open |
+| `06e04ece038e736d` | Unleased modules lack explicit fragment-update routing | 1 | 6 | F02 | open |
+| `1c51a85390a3f964` | Shared rules discovered mid-run lack sibling notification | 1 | 1 | F03 | open |
+| `242f2bb3c9d6af33` | Seed instructions should name the producing function | 1 | 1 | F04 | open |
+| `abf5cf9b579e46b5` | First worker-tier proofs should assert exact counts | 1 | 1 | F04 | open |
+| `941f0fdbdd02f2c4` | Trace complete prerequisites before redispatch | 1 | 7 | F05 | Convention promoted; framework refinement open |
+| `52cdcf97581fa215` | Receive updates tables but leaves current prose stale | 1 | 2 | F05 | open |
