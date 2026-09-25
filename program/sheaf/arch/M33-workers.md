@@ -254,3 +254,14 @@ receipt/count meaning, and cross-worker stale-write guards are unchanged.
 
 
 Independent receive at 823012b: typecheck/lint exit 0; 220 unit files, 2438 passed / 3 inherited skips; exact combined fresh-build browser gate 4 passed, exit 0. Prior r9 import counterexample closed by deterministic negative regressions and real import/artifact proof. Future S06 nonempty graphs and S07 provider/egress proofs remain separate.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M33 — worker composition
+
+`createEventStore` persists the latest authored triggering commit in the existing encrypted catalog entry in the same atomic append transaction. It preserves prior dismissal progression; import/reconciliation commits remain counted but do not prompt. `createDataWorkerHandler` refreshes authoritative backup context before queries/dismissals. Dismissal compares app/home/trigger/count/eligibility, writes only encrypted operational catalog state, and authors no event. Existing home assignment clears scratch reminder state.
+
+`getRecord` enriches preserved-invalid issue parameters with `preservedSource` from actual projected field provenance when available. It does not fabricate provenance for older imports. New runtime edge M33 -> M05.
+
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.

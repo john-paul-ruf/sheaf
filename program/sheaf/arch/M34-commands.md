@@ -147,3 +147,12 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   commands" section; the head export list and dependency-must-not test
   description updated to name every F04 file.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M34 — commands
+
+`SchemaApplyResultV1` adds `unchanged {schemaRevision}`. Unchanged normalized app/table/field names, required flags and current field ordering produce no draft/commit. Stale and validation guards still precede no-op acceptance. `ChartCommandResultV1.saved.commit === null` now also represents an identical canonical saved definition, not only an already-set pin. Historical commits are untouched.
+
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.

@@ -186,3 +186,12 @@ DurabilityServices, durabilityMachine and BundleSaveRoute provide transient prep
 `/app/:appId/backup` mounts SCR-038/SCR-039 with real home services, vault creation/reuse, separate labelled recovery cards, secret-confirmed vault-code review, and the existing operation-bound save flow. App home links to this route. Library and readable reset display the same confirmed timestamp and pending count. Reset offers the app backup route and re-enumerates on return. Recovery codes lists authenticated connected homes and links to scoped review. The countdown disables premature UI submission and clears entered codes.
 
 Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M54 — routes
+
+`ScratchReminderRoute` is mounted once per keyed opened app. Route/generation changes re-query; backup choice suppresses the reminder so setup remains reachable. Dismissal uses the machine; home choice navigates to the existing app backup route. If the original launcher disappeared, closing focuses the app heading. Schema `unchanged` announces no changes without fabricating a saved receipt. Chart services notify the same refresh boundary as record/schema/theme actions.
+
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.

@@ -252,3 +252,12 @@ prepareBundle optionally reports disposal to its owner. AppRuntime.saveBundle(ap
 `refreshBackupContext` authenticates the latest bootstrap/catalog before save completion, preserving a concurrent newer edit as pending while rejecting writer-epoch or session replacement. `connectBundle` releases its own pin after a graceful cancellation when the same session is still available. Lock, process termination or failed cleanup conservatively retain encrypted pins; existing `exportGraph` and `release` recover/release them after unlock without inferring completion or pruning another operation. No blind startup sweep or age-based retention rule is introduced.
 
 Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M32 — worker protocol
+
+`SchemaApplyOutcomeV1` adds `unchanged {schemaRevision}`. New requests `getScratchReminder {appId}` and `dismissScratchReminder {appId, homeId, triggeringCommitId, dismissalCount}`. Both return nullable `ScratchReminderViewV1 {appId, homeId, triggeringCommitId, dismissalCount, nextEligibleAtEpochMs, eligible, deviceOnlyChangeCount}`; dismissal additionally returns `dismissed | stale`. No test-only opcode, key bytes or authority claim is introduced.
+
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.

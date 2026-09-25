@@ -69,3 +69,13 @@ malformed-output, interruption and restart assertions, and now checks import
 console/page errors, served build identity and the saved artifact hash.
 
 Independent receive at 823012b: typecheck/lint exit 0; 220 unit files, 2438 passed / 3 inherited skips; exact combined fresh-build browser gate 4 passed, exit 0. Prior r9 import counterexample closed by deterministic negative regressions and real import/artifact proof. Future S06 nonempty graphs and S07 provider/egress proofs remain separate.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M56 / M61 — proof mechanisms
+
+Unit tests independently reopen/decrypt persisted catalog state; test storage is fake-indexeddb, with production commands, crypto and SQLite projection. Browser J2 enters `/`, selects the unique emitted real data worker named by the built bootstrap, verifies served asset hashes, and changes only that live worker's dynamic Date.now. Acquisition/evaluation/readback/closure remain bounded at 10 seconds. Exact deadlines and all five dismissal/reopen cycles cross real RPC, production handlers, encrypted catalog and browser IndexedDB; a page-only clock negative control and separate real-clock journey remain distinct.
+
+`backup-status.spec.ts` proves shell/app/settings/detail agreement after reopen and explicit zero after a delivered-then-confirmed bundle. Responsive/axe/keyboard checks cover 320/600/900/1200px and a short phone. Existing journey adaptations dismiss only expected post-ack reminders and preserve their original assertions. J1's native destination remains the existing writable-handle fixture; browser download delivery and crypto/transport/persistence are real. Future provider states/connection proofs remain S07; nonempty graph publication remains S06.
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.

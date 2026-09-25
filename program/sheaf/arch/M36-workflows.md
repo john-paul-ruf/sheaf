@@ -226,3 +226,12 @@ DurabilityServices, durabilityMachine and BundleSaveRoute provide transient prep
 `RecoveryInput` requires `ClockPort`; RecoveryRoute supplies `wiring.clock`. Positive worker retryAfterMs (including invalid-recovery-code responses) enters an ephemeral deadline-based waiting state. Ticks clamp remaining time to zero; waiting ignores submit/retry, clears secret drafts, and cancels its timer on exit/stop. The recovery VM exposes canSubmit, remainingMs and remainingSeconds. Expiry permits a request and never grants authority; successful recovery still requires installing a replacement local passphrase.
 
 Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+
+
+<!-- durable-home-backup SESSION-03 r3 -->
+## M36 — workflows
+
+`ReminderServices` and `createReminderServices(port)` expose typed query/dismiss operations. `scratchReminderMachine` owns checking/ready/dismissing/failed states, cancels obsolete query results, rejects mismatched app and acknowledged dismissal identity, and ignores repeated dismissal while pending. `createChartServices(port, onAuthored?)` notifies only after saved non-null commits or deletion; drafts, queries, stale responses and no-op saves do not notify.
+
+
+Independent receive at47a633b: typecheck/lint exit0;223files/2461unit pass/3inherited skips; exact combined current-build browser gate11pass/0skip/0retry. Original full e2e81pass is Coder-run, source-identical evidence reviewed; focused composed gates independently rerun. S06/S07 future graph/provider proofs remain owned.
