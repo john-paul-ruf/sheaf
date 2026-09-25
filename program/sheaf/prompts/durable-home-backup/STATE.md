@@ -395,3 +395,47 @@ I’m recording the final evidence and checking that every checkpoint commit sta
   - `tests/unit/sync/protocol/provider-double.test.ts`
   - `tests/unit/sync/protocol/publication.test.ts`
   - `tests/unit/sync/protocol/references.test.ts`
+
+### DESIGN-F05-VAULT receive — 2026-09-24
+
+Accepted commit 58bffc8897f9de0326ff9f94380ad84a80733789: exact new mock and five added inventory rows only; no existing mock changed. Orchestrator inspected diff, required states, evidence manifest and compact screenshot. Designer reports 80 rendered states across five classes and keyboard/200%-text checks. Fixed vault-secret/recovery portion of DF-F05-1 ready; save/reminder/provider surfaces still owned by Orchestrator/Designer, policy gates unresolved. No application capability proof or arch delta. Native lifecycle endedBy=end_turn; lease released.
+
+I’ll read the design-fill envelope and existing design sources, then build and verify the scoped mocks. I’m using the frontend-design skill for this work.
+
+
+The existing mocks establish the shell styling and separate local and vault recovery scopes. I’ll preserve those contracts and add detail only in the new file. Your no-delegation instruction takes precedence over the skill’s agent workflow; I’ll inspect the renders myself using the agent-browser skill.
+
+
+The fixed contract offers either a new named-vault passphrase or reuse of the local passphrase, entered again. Recovery issuance must label each code’s scope and show both codes together when the passphrase is reused. I’m adding those states, named-vault unlock errors and cancellation, and vault-code re-view. Reminder and save-confirmation surfaces remain outside this fill.
+
+
+The mock and inventory additions are written. The compact render keeps the two recovery scopes distinct in a full-height sheet. I’m now checking all five widths, including scroll access to the code warnings and actions, error focus, keyboard behavior, and cancellation return.
+
+
+The first pass exposed an inherited input-focus rule that suppressed the specified Leaf outline. I corrected it in the new mock. The 320px create and wrong-secret states fit without horizontal overflow, and Escape restores focus to the launcher.
+
+
+The browser CLI stalled during repeated modal previews, so I’m switching to the Playwright skill to finish the render checks. Evidence will stay in the fill’s private directory; application build and test outputs remain untouched.
+
+
+All five layout classes rendered successfully in Playwright. Inspection caught an extra background scrollbar at 320px; I’ve fixed that in the new file and am rechecking the final version. The remaining checks cover acknowledgment, retry, re-view, focus return, and enlarged text.
+
+
+Verification is complete: 80 state/viewport renders fit horizontally, all measured buttons meet the 44px minimum, and the 320px layout remains scrollable at 200% text size. I also tightened Tab/Shift+Tab containment and verified error focus, draft clearing, acknowledgment, re-view, and focus restoration. I’m committing the two authorized files now.
+
+
+## Handoff
+
+- **session:** DESIGN-F05-VAULT
+- **status:** done
+- **checkpoint:** 1
+- **commit:** `58bffc8897f9de0326ff9f94380ad84a80733789`
+- **notes:** Filled named-vault secret and recovery details within the exact write set.
+- **delivered:** MOD-020 choice/create/reuse; MOD-021 issuance and acknowledgment; MOD-023 unlock/error/cancel; distinct vault-code re-view. Added four component rows and one screen row.
+- **verification:** Playwright Chromium rendered 16 states at 320×740, 430×932, 768×1024, 1024×768 and 1440×1000. Visually inspected every class. Verified overflow, 200% text, keyboard containment, error focus, acknowledgment and cancellation. Commit contains exactly the two authorized files. [Evidence](/Users/the.phoenix/WebstormProjects/sheaf/.program/design-f05-vault/README.md).
+- **surprises:** Browser CLI stalled; completed verification with Playwright. No design-policy deviations.
+- **followUp:** SESSION-02/07 can consume these scoped designs. Orchestrator/Designer retains reminders, saved/cancelled/failed/unconfirmed outcomes, and provider authorization/reconnect/disconnect. DEC-71/72 remain unresolved; this fill does not clear those checkpoint gates.
+- **blockedReason:** —
+- **filesTouched:**
+  - [f05-vault-security.html](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/mocks/f05-vault-security.html)
+  - [design.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/specs/design.md)
