@@ -258,14 +258,12 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
 
 ## Known gaps with owners (recorded, not defects)
 
-- The chain guard keeps the accumulated commit set in memory. Correct at
-  current scale; revisit for long tails.
 - Test-time fixture output `dist/__projection__/` joins the F08 precache
   exclusion debt.
-- Deliberate absences with later owners: baselines' full read path (F03
-  writes them; nothing reads a baseline page back through the projection yet
-  — the baseline is a recovery artifact, not a query source), conflicts,
-  merges.
+- The F05 authored-state cursor consumes supplied baseline states for backup
+  hashing; this is not a general baseline query or merge path. Nonempty
+  retained/conflict/audit graph production and readers await GRAPH-CONTRACT
+  and S06; reconciliation actions remain later work.
 
 ## Closed in F03 (was open at `5ab3b07`, resolved here — not re-carried)
 
@@ -286,6 +284,14 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
   definition cache already carries the whole `FieldDefV1`. S03 CP1 wired the
   cache to refresh on `field.changed`, closing the gap with no migration and
   no `list-fields` change.
+
+## Durable-home implementation (F05, current)
+
+The assignment event moves app_state.durable_home_id from null to assigned identity; repeated assignment fails. No migration changed.
+
+Isolated projection hydration accepts streamed record pages and disposes on iterator failure. Authored-state SQL cursors include provenance, restoration, schema, rules, formulas, charts and supplied baseline states, excluding computed volatile values/local status. Replay retains last verified device hashes rather than decoded commit history. Provenance lookup uses field-ID bytes across durable decode, fixing restoration evidence loss.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
 
 ## Change History
 
@@ -327,11 +333,4 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
   which broke and needed a lease correction) rather than leaving the theme
   counterexample as an isolated session surprise with no forward-looking
   contract. See PROGRAM-CONFIG's Conventions for the promoted rule.
-
-<!-- durable-home-backup SESSION-02 CP1 -->
-The assignment event moves app_state.durable_home_id from null to assigned identity; repeated assignment fails. No migration changed.
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M12 — projection
-Isolated projection hydration accepts streamed record pages and disposes on iterator failure. Authored-state SQL cursors include provenance, restoration, schema, rules, formulas, charts and supplied baseline states, excluding computed volatile values/local status. Replay retains last verified device hashes rather than decoded commit history. Provenance lookup uses field-ID bytes across durable decode, fixing restoration evidence loss.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

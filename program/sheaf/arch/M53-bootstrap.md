@@ -1,18 +1,19 @@
 # M53 — Bootstrap (`src/bootstrap/`)
 
 Extracted from specs/architecture.md §Module Contracts (Browser bootstrap).
-Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
+Reconciled against `d75830d` (F05 partial).
 
 - **Owns:** Runtime capability decision, lock lifetime, worker composition,
   lifecycle fan-out.
 - **Exports (landed):** `app-bootstrap.ts` → `startApp(options?):
   StartAppResult` (`{kind:'unsupported', missing, report}` |
   `{kind:'ready', report, app}`), `AppRuntime` (`client`, `lockNow(reason)`,
-  `onLock`, `setIdleTimeout(minutes)`, `noteActivity()`, `dispose()`),
+  `onLock`, `setIdleTimeout(minutes)`, `noteActivity()`, `saveBundle(appId)`, `dispose()`),
   `LockReason` (`user` | `pagehide` | `idle-timeout`), `UnlockedSession`, and a
   `CapabilityReport` re-export; `import-worker.ts` → `spawnImportWorker()` and
   `createImportWorkerClient()` (F02, unchanged by F03).
-- **Depends on:** M50, M51, M32.
+- **Runtime imports:** M51 and M32. Worker URL construction reaches M33
+  separately; see [current registry](MODULE-REGISTRY.md).
 - **Must not:** read user records; call a provider; retain any key after
   locking; start the data worker before capability checks pass.
 
@@ -34,6 +35,12 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
   import runs through this same spawned worker and lifetime unchanged — no
   second import worker was needed for the new formats.
 
+## Durable-home implementation (F05, current)
+
+startApp owns AppRuntime.saveBundle, spawnIoWorker's literal Vite URL, and each transfer's AbortController. lock/pagehide/dispose cancel saves and terminate IO resources. The IO constructor is lazy until save; the data client retains its existing lazy lifecycle. Tests can inject destination and constructors.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -53,8 +60,4 @@ Reconciled against the tree at `425562d` (F03 final; code ≡ `30396a9`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-06
   "no-change" note folded into the `spawnImportWorker` paragraph as confirming
   evidence, rather than left as a standalone staple with nothing to reconcile.
-
-
-<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
-## M53 — bootstrap
-startApp owns AppRuntime.saveBundle, spawnIoWorker's literal Vite URL, and each transfer's AbortController. lock/pagehide/dispose cancel saves and terminate IO resources. Data/IO constructors remain lazy until explicit use. Tests can inject destination and constructors.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

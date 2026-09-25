@@ -1,7 +1,7 @@
 # M07 — Application ports (`src/application/ports/`)
 
 Extracted from specs/architecture.md §Module Contracts (Application ports).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled against `d75830d` (F05 partial implementation).
 
 - **Owns:** Dependency-inversion contracts.
 - **Exports (full target):** LocalEventRepository, ProjectionEngine,
@@ -26,6 +26,10 @@ Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
 | `staging-catalog.ts` | `StagingCatalogPort` | M23 cancellation (F02) |
 | `projection.ts` | `ProjectionEnginePort` | M34/M35 (F02, extended F03, F04) |
 | `event-repository.ts` | `LocalEventRepository` | M34 commands (F02, extended F04) |
+| `backup.ts` | `BackupAppGraphV1`, snapshot identity | M24 publication / M33 exporter (F05) |
+| `durable-home.ts` | `DurableHomePort` | M24 publication (F05; live adapters pending) |
+| `vault-crypto.ts` | `VaultCryptoPort` | M24 publication / M33 home state (F05) |
+| `file-save.ts` | `FileSavePort` | M53 native save (F05 partial CP3) |
 
 ### `envelope-store.ts` (F02, S04)
 
@@ -104,6 +108,36 @@ union — see `M01-domain-model.md`'s "Type-held rule"), `RecordRuleIRV1`,
 `SchemaImpactCountsV1`, `SchemaEventPayloadsV1`, `SchemaEventV1`;
 `PlannedEventV1.event: DomainEventV1`.
 
+## Durable-home implementation (F05, current)
+
+`backup.ts`: `BackupAppGraphV1` is the worker-owned export contract.
+`BackupGraphObjectV1` contains metadata only: authenticated reference, expected
+payload kind and descendant references. `readObject(storageId, signal)` reads
+one pinned transport object; `canonicalAuthoredState(signal)` streams canonical
+CBOR reconstructed independently in SQLite. The graph's owned `AbortSignal`
+invalidates reads and publication when its lifetime ends. `checkpointChains`
+and `deviceChains` carry authenticated per-device sequence/hash evidence.
+`BackupSnapshotIdentityV1` binds app/home/vault IDs, generation, exact candidate
+head SHA-256, frontier, retained app and generation roots, and final device chains.
+It is not an external save receipt or proof of complete authored-state replay.
+
+New `durable-home.ts`: `DurableHomePort.readHead/readObject/createObject/
+compareAndSwapHead`, `HeadObjectV1`, `HeadReceiptV1`. A constructed port is bound
+to one authenticated provider account/vault location. Object writes are immutable;
+null CAS revision means create-if-absent, never unconditional replace. Receipts
+name SHA-256 of the exact canonical head bytes plus opaque provider revision.
+
+New `vault-crypto.ts`: opaque `VaultKeyRefV1`, `VaultSecretsV1`, `VaultCryptoPort`
+create/openWithPassphrase/openWithRecovery/wrapApp/openApp/protectLocally/
+openLocally/destroy. No raw-key return or provider SDK type. File-save and native transport/receipt production landed in partial S02 CP3;
+UI DTO/readers and J1 remain S02 CP4/5 outputs.
+
+ProjectionAuthoredStatePort is structurally checked against the engine in both directions.
+
+FileSavePort.save(Promise<Blob>, AbortSignal) returns saved/cancelled/failed/unconfirmed. Its first consumer is AppRuntime.saveBundle. Only ciphertext Blobs reach the platform adapter. No fallback policy is supplied.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -132,39 +166,4 @@ union — see `M01-domain-model.md`'s "Type-held rule"), `RecordRuleIRV1`,
   surface's kind count corrected to 26 (21 F03 + query-records + list-charts +
   chart-dataset), stated once rather than left as three separate running
   counts.
-
-<!-- durable-home-backup SESSION-01 -->
-## M07 — application ports
-
-New `backup.ts`: `BackupAppGraphV1` is the trusted worker export contract;
-`BackupGraphObjectV1` carries actual transport bytes, authenticated reference,
-expected payload kind and descendant references from the payload's owner.
-`canonicalAuthoredState` is canonical CBOR with an `appId` byte-string member,
-independently reconstructed by S02. `checkpointChains` and `deviceChains` carry
-per-device sequence/hash evidence; the exporter must authenticate their origins.
-`BackupSnapshotIdentityV1` binds app/home/vault IDs, generation, exact candidate
-head SHA-256, frontier, retained app and generation roots, and final device chains.
-It is not an external save receipt or proof of complete authored-state replay.
-
-New `durable-home.ts`: `DurableHomePort.readHead/readObject/createObject/
-compareAndSwapHead`, `HeadObjectV1`, `HeadReceiptV1`. A constructed port is bound
-to one authenticated provider account/vault location. Object writes are immutable;
-null CAS revision means create-if-absent, never unconditional replace. Receipts
-name SHA-256 of the exact canonical head bytes plus opaque provider revision.
-
-New `vault-crypto.ts`: opaque `VaultKeyRefV1`, `VaultSecretsV1`, `VaultCryptoPort`
-create/openWithPassphrase/openWithRecovery/wrapApp/openApp/protectLocally/
-openLocally/destroy. No raw-key return or provider SDK type. File-save contract,
-worker transport, receipt persistence and UI DTOs remain S02 outputs.
-
-
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M07 — application ports
-BackupAppGraphV1 carries metadata, bounded readObject/canonicalAuthoredState readers and an owned AbortSignal. ProjectionAuthoredStatePort is structurally checked against the engine in both directions.
-
-
-<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
-## M07 — application ports
-FileSavePort.save(Promise<Blob>, AbortSignal) returns saved/cancelled/failed/unconfirmed. Its first consumer is AppRuntime.saveBundle. Only ciphertext Blobs reach the platform adapter. No fallback policy is supplied.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

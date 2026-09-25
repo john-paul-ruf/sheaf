@@ -120,6 +120,12 @@ A legacy `sheaf.built-in.v1` app accepts only a built-in palette key.
   (F04: covers `schema-commands.ts`, `formula-env.ts`, `chart-commands.ts`,
   `theme-commands.ts`, with a negative control).
 
+## Durable-home implementation (F05, current)
+
+`buildHomeAssignment` creates one authored commit and rejects an app that already has a home.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F02 planning).
@@ -140,6 +146,4 @@ A legacy `sheaf.built-in.v1` app accepts only a built-in palette key.
   folded into a new "F04: schema, formula-environment and chart/theme
   commands" section; the head export list and dependency-must-not test
   description updated to name every F04 file.
-
-<!-- durable-home-backup SESSION-02 CP1 -->
-`buildHomeAssignment` creates one authored commit and rejects an app that already has a home.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

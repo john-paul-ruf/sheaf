@@ -85,8 +85,8 @@ Carried to the GATE-F04 reviewer alongside the F03 BIFF12 item.
 ## Dependency must-nots (ship as tests)
 
 - No import from `src/persistence/`, `src/crypto/`, `src/workers/`, `src/ui/`,
-  `src/application/`, any third-party package (zip.js is reached only through
-  M13's `zip.ts`), or any other adapter directory. Swept by
+  `src/application/`, any third-party package (M13's `zip.ts` is the landed native
+  reader; zip.js was never installed), or any other adapter directory. Swept by
   `tests/unit/import/module-boundaries.test.ts`.
 
 ## Change History

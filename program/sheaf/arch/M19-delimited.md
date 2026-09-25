@@ -64,7 +64,7 @@ value. Below a row's `cellCount` with no value fact ⇒ `blank`; at or above it
 ⇒ `missing`. **Never collapse them.**
 
 **Terminal summary ⇒ completed.** A cancelled stream ends with no summary.
-M21's `inferWorkbook`/`inferProposal` throw on a stream with no summary rather
+M21's `inferWorkbook` throws on a stream with no summary rather
 than synthesising one; M36's cancel path awaits the parser's terminal event
 before invoking cleanup.
 

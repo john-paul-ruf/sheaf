@@ -1,16 +1,17 @@
 # M32 — Worker protocol (`src/workers/protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC).
-Reconciled against the tree at `5bc19fb` (F04 final; formulas-queries-charts).
+Reconciled against `d75830d` (F05 partial).
 
 - **Owns:** Thread boundary semantics: versioned typed RPC, correlation,
   cancellation, progress, transfer ownership, error redaction.
-- **Depends on:** M01 safe types only — `messages.ts` in fact imports nothing
-  at all, proved by `tests/unit/workers/module-boundaries.test.ts`.
+- **Runtime dependencies:** M01 and M11 across the module; see the mechanically
+  derived [registry](MODULE-REGISTRY.md). `messages.ts` itself imports nothing,
+  proved by `tests/unit/workers/module-boundaries.test.ts`.
 - **Must not:** carry key bytes, passphrases in responses, or repository
   objects; locked responses expose no decrypted values; errors crossing the
   boundary are redacted via allowlist (CA-04). **Key bytes are type-excluded,
-  not merely absent** — the union names no `Uint8Array`, `ArrayBuffer`,
+  not merely absent** — the page RPC union in `messages.ts` names no `Uint8Array`, `ArrayBuffer`,
   `Transferable`, port, or key type anywhere, and a grep assertion pins it.
   Import bytes therefore live in `import-messages.ts`, never here. **F04: a
   logo crosses as base64 text** (`AppLogoWireV1.pngBase64`), for the same
@@ -192,6 +193,12 @@ carries a port.**
 `redact.ts` → `DataWorkerCommandError(kind, {retryAfterMs?})` and
 `redactError(cause)`. No error message ever crosses the boundary.
 
+## Durable-home implementation (F05, current)
+
+DataWorkerClient.prepareBundle uses a separate ioVersion=1 attach message and two transferred ports; messages.ts remains byte-free. The worker-to-worker channel has sequential acknowledgements, refusal/timeout/abort handling. The page control channel binds operation/app/home/artifact hash, accepts one completion, and rejects mismatches/replays. io-client accepts only exact artifact/ready/completed shapes and owns termination/disposal.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -229,8 +236,4 @@ carries a port.**
   growing `DATA_WORKER_ERROR_KINDS_V1`); the SESSION-07 pointer (recorded
   jointly in `M01-domain-model.md`) left as a one-line cross-reference rather
   than restated.
-
-
-<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
-## M32 — worker protocol
-DataWorkerClient.prepareBundle uses a separate ioVersion=1 attach message and two transferred ports; messages.ts remains byte-free. The worker-to-worker channel has sequential acknowledgements, refusal/timeout/abort handling. The page control channel binds operation/app/home/artifact hash, accepts one completion, and rejects mismatches/replays. io-client accepts only exact artifact/ready/completed shapes and owns termination/disposal.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

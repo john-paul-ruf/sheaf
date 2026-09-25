@@ -70,6 +70,25 @@ specs/database.md §Canonical values. Reconciled against the tree at `5ab3b07`
     and a two-commit per-device chain inside one `EventSegmentV1`, all byte-
     exact through the production encoder and M08's digest.
 
+## Durable-home implementation (F05, current)
+
+`vault.ts` implements canonical migration-006 header/index/manifest/footer codecs,
+reference/frontier readers and cross-record identity guards. Rejects unknown or
+duplicate fields, unsupported versions, invalid IDs/hashes/padding, unordered or
+duplicate lists, forbidden live/deleted overlap and inconsistent generations.
+Optional recordCount remains absent versus literal zero. SHA-256 stays injected
+outside this codec module; no crypto or third-party dependency is added.
+
+Bundle framing: 18-byte preamble (`SHEAF-BUNDLE`, uint16 version, uint32 header
+length), 17-byte trailer (uint64 footer length, `SHEAF-END`), big-endian. Header
+and footer bounded to 16 MiB. Directory bounds enforce contiguous byte ranges,
+storage-ID ordering/uniqueness is codec-checked. M27 now assembles and second-pass checks the ciphertext artifact. M33/M24
+own authenticated reachability; neither framing nor a Blob proves an OS save.
+
+CanonicalArray and encodeCanonicalChunks emit definite-length canonical CBOR without accumulating the complete authored state; byte-equivalence and error/cancellation tests accompany the public API.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -85,26 +104,4 @@ specs/database.md §Canonical values. Reconciled against the tree at `5ab3b07`
   folded into the public API; heading de-scoped from "F01 public API"; the
   accumulated-set rule and the opaque-payload rule recorded where they bind
   callers.
-
-<!-- durable-home-backup SESSION-01 -->
-## M09 — persistence codecs
-
-`vault.ts` implements canonical migration-006 header/index/manifest/footer codecs,
-reference/frontier readers and cross-record identity guards. Rejects unknown or
-duplicate fields, unsupported versions, invalid IDs/hashes/padding, unordered or
-duplicate lists, forbidden live/deleted overlap and inconsistent generations.
-Optional recordCount remains absent versus literal zero. SHA-256 stays injected
-outside this codec module; no crypto or third-party dependency is added.
-
-Bundle framing: 18-byte preamble (`SHEAF-BUNDLE`, uint16 version, uint32 header
-length), 17-byte trailer (uint64 footer length, `SHEAF-END`), big-endian. Header
-and footer bounded to 16 MiB. Directory bounds enforce contiguous byte ranges,
-storage-ID ordering/uniqueness is codec-checked. These framing contracts are not
-S02's complete bundle assembly/reachability/save implementation.
-
-
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M09 — codecs
-CanonicalArray and encodeCanonicalChunks emit definite-length canonical CBOR without accumulating the complete authored state; byte-equivalence and error/cancellation tests accompany the public API.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

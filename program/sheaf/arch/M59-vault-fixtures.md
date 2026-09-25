@@ -1,27 +1,9 @@
 # M59 — vault-fixtures (`tests/fixtures/vaults/`)
 
-## Status
+## Current contract
 
-Planned at `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51` for F05; no implementation readiness is implied.
-
-## Public API and internal structure
-
-versioned generated vault KATs. Session Files tables own the exact source/test paths. Types and boundaries derive from specs/architecture.md Module Contracts and specs/database.md; migrations remain DB-owned.
-
-## Contract and conventions
-
-F05 fixtures isolated in f05; production generator self-tests compare actual byte output. F01 local-v1 fixture remains authoritative.
-
-## Dependencies
-
-See PROGRAM-CONFIG runtime [R]/declared [D] edges and F05 IMPORT-EDGES.md. Recheck actual imports after producer checkpoint; projected dependencies are not realized.
-
-## Change History
-
-- 2026-09-24 — Planner seeded from approved author contracts; implementation pending.
-
-<!-- durable-home-backup SESSION-01 -->
-## M59 — vault fixtures
+S01 generated known answers landed; byte compatibility retained at `c7e6507`.
+F05 outputs stay isolated under `f05/`; the F01 `local-v1/` KATs remain authoritative and unchanged.
 
 `tests/fixtures/vaults/f05/{head.cbor,checkpoint.shf,manifest.shf,index.shf}` are
 byte-exact deterministic producer known answers. `generate.ts` writes only those
@@ -30,4 +12,11 @@ corrupted answer, and open the graph from the fixture vault passphrase/recovery
 via real crypto and existing checkpoint codecs. This is an empty-app fixture;
 full application reconstruction/storage/restart remains S02/S06 proof.
 
+## Evidence and limits
 
+Implementation: S01 `694c741` / `13e83f1` / `8674766`, S02 `c7e6507` / `d75830d`, as applicable to the paths above. See [F05 boundaries](F05-boundaries.md) for CA ownership and proof limits, and [current registry](MODULE-REGISTRY.md) for mechanically derived runtime edges.
+
+## Change History
+
+- 2026-09-24 — Planner seed at `2c35bfb` described future work.
+- 2026-09-24 — Final reconciliation replaced that planned status with the landed subset and folded received implementation deltas. No full F05 capability is claimed.

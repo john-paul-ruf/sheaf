@@ -126,7 +126,8 @@
   `APPEND_MAX_EVENTS = 10_000`, `APPEND_MAX_SEGMENT_BYTES = 16_777_216` →
   `append-too-large`; source and snapshot re-sealed under the app key; head
   grows `sourceManifests`/`snapshotManifests`/`eventSegments`, `schemaRevision
-  + 1`; one transaction deleting the superseded head and the workflow.
+  + 1`; one transaction deleting the workflow and the superseded head only when
+  the shared backup retention check says it is unpinned (F05 `03ee571`).
 - `events.ts`: `appCreated` carries `relationships`; `tableCreated({table,
   sourceSheet})` writes the F03 form; `inferenceDecision` takes a
   `WorkbookStatementV1`; `importAccepted` evidence ledger lists every sheet
@@ -254,6 +255,14 @@ else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
   `AppHeadV1.baselinePages` lists every page. Owner: M01/database owner at F06
   planning (re-upload must read `baselinePages`, not the single field).
 
+## Durable-home implementation (F05, current)
+
+`appendTable` accepts an optional `isHeadPinned` dependency. Its production
+caller and `createEventStore` use the same encrypted-home retention reader.
+Unpinned old heads and import workflow cleanup retain their prior behavior.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F02 planning).
@@ -288,12 +297,4 @@ else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
   S07's own disclosure that it now reuses `encodeFieldDef`; the theme-codec
   counterexample cross-referenced to `M12-projection.md`'s new "Duplicate
   codecs" section rather than described twice.
-
-<!-- durable-home-backup SESSION-02 CP1 -->
-## M23 — CSV append retention
-
-`appendTable` accepts an optional `isHeadPinned` dependency. Its production
-caller and `createEventStore` use the same encrypted-home retention reader.
-Unpinned old heads and import workflow cleanup retain their prior behavior.
-
-
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

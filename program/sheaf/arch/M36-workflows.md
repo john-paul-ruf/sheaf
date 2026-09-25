@@ -169,9 +169,10 @@ hooks, not a new XState machine.
 ## Known gaps with owners
 
 - `recoveryMachine` exposes `retryAfterMs` but has **no ticking countdown
-  actor** — the countdown is `unlockMachine`'s only. Owner: the next session
-  that touches the unlock/recovery machines (F05's vault-recovery work at the
-  latest). Unchanged by F03/F04 (neither touched the recovery machine).
+  actor** — the countdown is `unlockMachine`'s only. Explicit owner: F05
+  S02 CP5 (PC-F05-02, CAP-05), with clock wiring, machine/VM/UI tests and
+  real-entry recovery-countdown proof. Still unimplemented at `d75830d`;
+  native bundle receipt work does not close it.
 - `PARSER_STOP_TIMEOUT_MS = 5_000` remains a fixed bound; F03 measured real
   xlsx cancel latency (13.5–17.9 ms) and left it unchanged rather than tuning
   it — ~280× headroom, not a defect.

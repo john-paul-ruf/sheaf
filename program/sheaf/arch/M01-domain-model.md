@@ -175,6 +175,12 @@ in M37/M43 — see those fragments' own CA-33 sections).
 not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
 005 in `tests/unit/domain/snapshots.test.ts`.
 
+## Durable-home implementation (F05, current)
+
+`HomeId` and `VaultId` are domain ID kinds. `durable-home.assigned` carries home/vault identity, home kind and app-wrap version.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -209,6 +215,4 @@ not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
   currency-code gap removed from "known gaps" and its disposition recorded
   where the gap used to be listed, so a reader does not find a defect note for
   something already fixed.
-
-<!-- durable-home-backup SESSION-02 CP1 -->
-`HomeId` and `VaultId` are domain ID kinds. `durable-home.assigned` carries home/vault identity, home kind and app-wrap version.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

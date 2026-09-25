@@ -1,27 +1,8 @@
 # M24 — sync-protocol (`src/sync/protocol/`)
 
-## Status
+## Current contract
 
-Planned at `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51` for F05; no implementation readiness is implied.
-
-## Public API and internal structure
-
-vault codec/graph/publication contracts (planned S01). Session Files tables own the exact source/test paths. Types and boundaries derive from specs/architecture.md Module Contracts and specs/database.md; migrations remain DB-owned.
-
-## Contract and conventions
-
-Canonical migration-006 graph and conditional head. Distinguish ciphertext hashes, local reference hashes and semantic authored-state hashes. Never infer receipt from queued bytes.
-
-## Dependencies
-
-See PROGRAM-CONFIG runtime [R]/declared [D] edges and F05 IMPORT-EDGES.md. Recheck actual imports after producer checkpoint; projected dependencies are not realized.
-
-## Change History
-
-- 2026-09-24 — Planner seeded from approved author contracts; implementation pending.
-
-<!-- durable-home-backup SESSION-01 -->
-## M24 — sync protocol
+Landed S01; bounded readers supersede the initial eager API at S02 CP2 `c7e6507`.
 
 `references.ts#referenceFromLocal` authenticates real SHF1 using parent/bootstrap
 scope + expected kind, verifies the local plaintext semantic hash, and derives
@@ -38,25 +19,30 @@ wrong app/predecessor, and mismatched final frontier.
 production crypto/vault ports and entropy. It re-authenticates every supplied
 object/edge, verifies supplied graph closure and checkpoint app/frontier, confirms
 chain evidence, and hashes canonical authored-state bytes separately from local
-head and ciphertext hashes. S02 still owns payload-specific descendant extraction
-and independent semantic reconstruction; these are not inferred by M24.
+head and ciphertext hashes. M33 now supplies payload-specific descendant extraction and independent
+semantic reconstruction for current producers. Nonempty local retained/conflict/
+audit branches reject pending GRAPH-CONTRACT/S06; M24 does not infer their layouts.
 
 Replace candidates authenticate the prior index against exact head bytes,
 preserve other app entries, deletion markers, device receipts and the current
 index's retention roots, increment once, and bind previous head/index/manifest
 hashes and opaque provider revision. No historical retention list is promoted.
 Permanent marker resurrection and frontier regression fail closed.
-Candidate bytes live in a private WeakMap; `readPublicationCandidate` returns
-copies. `publishCandidate` rechecks predecessor bytes/revision, uploads immutable
+Candidate metadata and bounded reader live in a private WeakMap;
+`readPublicationCandidate` returns metadata copies (object IDs, not byte arrays). `publishCandidate` rechecks predecessor bytes/revision, uploads immutable
 objects first, then performs exact head CAS, validates its receipt and reads back matching
 head bytes/revision. A concurrent newer publication during that read fails
 confirmation conservatively; no retry or reconciliation is invented. It performs
 no local persistence, provider SDK call, reconciliation or UI readiness update.
 Provider adapters remain the authority for actual successful external CAS.
 
-
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M24 — sync protocol
 Publication candidates retain authenticated references and byte hashes, reread one object at a time, and reject changed bytes or ended graph lifetimes. readPublicationObject replaces object-byte arrays. Frontier verification consumes ordered segments incrementally. Existing encrypted fixture bytes are unchanged.
+
+## Evidence and limits
+
+Implementation: S01 `694c741` / `13e83f1` / `8674766`, S02 `c7e6507` / `d75830d`, as applicable to the paths above. See [F05 boundaries](F05-boundaries.md) for CA ownership and proof limits, and [current registry](MODULE-REGISTRY.md) for mechanically derived runtime edges.
+
+## Change History
+
+- 2026-09-24 — Planner seed at `2c35bfb` described future work.
+- 2026-09-24 — Final reconciliation replaced that planned status with the landed subset and folded received implementation deltas. No full F05 capability is claimed.

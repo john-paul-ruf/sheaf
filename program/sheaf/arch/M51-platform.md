@@ -10,7 +10,8 @@ Baseline. Reconciled against the tree at `425562d` (F03 final; code ≡
   `CapabilityEntry {id, classification, detected, reason}`,
   `CapabilityClassificationV1`, `CAPABILITY_IDS`; `file-pick.ts` →
   `WORKBOOK_FILE_EXTENSIONS`, `PickedWorkbookV1`, `pickWorkbookFile(files)`;
-  `clipboard.ts` (F03) → `copyText(text) → Promise<"copied"|"unavailable">`.
+  `clipboard.ts` (F03) → `copyText(text) → Promise<"copied"|"unavailable">`;
+  `file-save.ts` (F05 partial CP3) → `createFileSavePort`.
 - **Depends on:** browser APIs only.
 - **Must not:** user-agent sniff (feature-gate only); treat an optional
   capability as required; invent a device class.
@@ -46,6 +47,12 @@ by the route (`app-runtime.tsx`/route table), **never imported by
 `src/ui/**`** — the handoff card's "Copy instructions" button (SCR-019's
 handoff variant) reads the result through `COPY_HANDOFF{result}` instead.
 
+## Durable-home implementation (F05, current)
+
+createFileSavePort feature-detects the native picker, opens it before awaiting bytes, writes and closes once, and never retains a writable handle. Only fulfilled write+close returns saved; cancellation/error/absence return cancelled/failed/unconfirmed. Abort rejects pending work and requests stream abort. No share/download confirmation or UI is implemented pending DEC-72.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -61,8 +68,4 @@ handoff variant) reads the result through `COPY_HANDOFF{result}` instead.
 - 2026-09-23 — F03: `clipboard.ts` landed by SESSION-07 (`2185774`..`e062f41`).
 - 2026-09-23 — reconciled by Archivist (F03 final pass): the SESSION-07 staple
   folded into a new "Clipboard" section.
-
-
-<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
-## M51 — platform
-createFileSavePort feature-detects the native picker, opens it before awaiting bytes, writes and closes once, and never retains a writable handle. Only fulfilled write+close returns saved; cancellation/error/absence return cancelled/failed/unconfirmed. Abort rejects pending work and requests stream abort. No share/download confirmation or UI is implemented pending DEC-72.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

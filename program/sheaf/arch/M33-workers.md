@@ -1,16 +1,16 @@
 # M33 — Worker entries (`src/workers/**`, minus `protocol/`)
 
 Extracted from specs/architecture.md §Module Contracts (Workers and RPC) +
-§Runtime Topology. Reconciled against the tree at `5bc19fb` (F04 final;
-formulas-queries-charts).
+§Runtime Topology. Reconciled against implementation `d75830d` (F05 partial; final report incomplete).
 
 - **Owns:** Per-worker composition roots and key confinement.
 - **Landed scope:** `data.worker.ts` (sole owner of the main IndexedDB
   database and of every unlocked key handle) and `import.worker.ts` (parse
-  only, every accepted format). `io.worker` (F05) and `export.worker` (F07)
-  do not exist yet — do not stub them.
-- **Depends on:** M08, M09, M11, M12, M21, M22, M23, M32, M34, M35, M65
-  (F03), migrations index.
+  only, every accepted format), and `io.worker.ts` (F05 ciphertext bundle
+  receiver). `export.worker` (F07) does not exist yet.
+- **Runtime dependencies:** M01, M02, M08–M24 where listed in the
+  [current registry](MODULE-REGISTRY.md), M27, M32, M34 and M35. The registry
+  derives each edge from source; M65 vocabulary is type-only in this module.
 - **Must not:** import DOM/React; send key bytes or catalog plaintext to the
   page beyond view-safe session results; open any network connection. The
   **import** worker additionally holds no key, no IndexedDB handle and no
@@ -142,6 +142,38 @@ and append both surface `columnKey`.
 - `handlers.ts`: `lock()` and `dispose()` destroy every open projection and
   app key **and** dispose the import handlers.
 
+## Durable-home implementation (F05, current)
+
+`createDataWorkerHandler` composes `createBackupHandlers` with the production
+envelope store, crypto, clock, current session and vault crypto adapter. Its
+`backup` home creation/assignment member is worker-internal. A separate
+`prepareBundle` attach path now composes saving from bootstrap; home-choice
+RPC/UI exposure and status readers remain S02 work.
+
+`home-state.ts` owns the strict encrypted `local.home-state` payload: bundle
+home/vault identity, separate vault bootstrap/recovery material, locally
+protected vault key, app-key wraps and durable backup pins. Catalog identity
+is checked after authentication. Assignment ends scratch without setting a
+successful-backup timestamp.
+
+`AppEventStoreV1.appendHome` atomically commits assignment, new head, app-key
+wrap/home state and catalog. It checks app/head identity and current session
+revision. Replacing an existing home payload deletes its superseded envelope
+in the same transaction.
+
+`pin` stores an authenticated current-head retention root before returning.
+`release` preserves current heads, other pins and roots retained by the app;
+otherwise it deletes the retired head atomically with the pin update. Pins
+survive worker restart and are separate from import workflows/cleanup tickets.
+
+Tail codec validates the assignment payload and supported wrap version.
+
+readAppHead removes eager graph loading from pin/release. backup-graph authenticates every current producer descendant and original covered chain, retains the source head, independently reconstructs authored state in SQLite, and rejects unsupported nonempty retained/conflict/audit roots without mutation. Backup handlers own app keys and active cursors through abort, error, release, lock, reset, session replacement and teardown. Release cancels readers before removing retention roots.
+
+io.worker is a real dedicated worker composition root for receiveBundle, holds ciphertext Blob parts, and offers output only after second-pass verification. It has no key/store/projection path. backup.connectBundle composes durable pin, bounded graph, publication and ciphertext transport. Captured candidate/frontier/vault identity remain data-worker-owned. Native saved completion validates live session and home, checks frontier bounds/regression, and atomically commits receipt/time plus pin release. Invalid/interrupted operations preserve pins for recovery and do not advance confirmation. Valid non-saved completion releases its pin; the bootstrap abort path can retain one, whose recovery remains CP6. Worker lock/reset/session replacement/dispose abort transfers via existing backup.disposeAll. Optional HomeState receipts add app/operation/artifact/candidate/generation/frontier/time; pre-receipt homes decode unchanged. General status/count readers remain CP4/5 work.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
 ## Change History
 
 - 2026-09-08 — fragment seeded (Forge, F01 planning).
@@ -183,39 +215,4 @@ and append both surface `columnKey`.
   fact recorded as a closed F02/F03 latent defect that F04 made load-bearing,
   rather than left as a bare one-line note; the SESSION-07 pointer left as a
   cross-reference to `M01-domain-model.md`.
-
-<!-- durable-home-backup SESSION-02 CP1 -->
-## M33 — worker-owned home state and retention
-
-`createDataWorkerHandler` composes `createBackupHandlers` with the production
-envelope store, crypto, clock, current session and vault crypto adapter. Its
-`backup` member is worker-internal; page RPC/UI exposure remains future S02 work.
-
-`home-state.ts` owns the strict encrypted `local.home-state` payload: bundle
-home/vault identity, separate vault bootstrap/recovery material, locally
-protected vault key, app-key wraps and durable backup pins. Catalog identity
-is checked after authentication. Assignment ends scratch without setting a
-successful-backup timestamp.
-
-`AppEventStoreV1.appendHome` atomically commits assignment, new head, app-key
-wrap/home state and catalog. It checks app/head identity and current session
-revision. Replacing an existing home payload deletes its superseded envelope
-in the same transaction.
-
-`pin` stores an authenticated current-head retention root before returning.
-`release` preserves current heads, other pins and roots retained by the app;
-otherwise it deletes the retired head atomically with the pin update. Pins
-survive worker restart and are separate from import workflows/cleanup tickets.
-
-
-Tail codec validates the assignment payload and supported wrap version.
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M33 — data worker
-readAppHead removes eager graph loading from pin/release. backup-graph authenticates every current producer descendant and original covered chain, retains the source head, independently reconstructs authored state in SQLite, and rejects unsupported nonempty retained/conflict/audit roots without mutation. Backup handlers own app keys and active cursors through abort, error, release, lock, reset, session replacement and teardown. Release cancels readers before removing retention roots.
-
-
-<!-- durable-home-backup SESSION-02 partial CP3 d75830d -->
-## M33 — workers
-io.worker is a real dedicated worker composition root for receiveBundle, holds ciphertext Blob parts, and offers output only after second-pass verification. It has no key/store/projection path. backup.connectBundle composes durable pin, bounded graph, publication and ciphertext transport. Captured candidate/frontier/vault identity remain data-worker-owned. Native saved completion validates live session and home, checks frontier bounds/regression, and atomically commits receipt/time plus pin release. Rejected/interrupted operations preserve pins for recovery and do not advance confirmation. Worker lock/reset/session replacement/dispose abort transfers via existing backup.disposeAll. Optional HomeState receipts add app/operation/artifact/candidate/generation/frontier/time; pre-receipt homes decode unchanged. General status/count readers remain CP4/5 work.
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.

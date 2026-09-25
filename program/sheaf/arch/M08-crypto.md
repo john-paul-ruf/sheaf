@@ -1,13 +1,12 @@
 # M08 — Cryptography (`src/crypto/`)
 
 Extracted from specs/architecture.md §Module Contracts (Cryptography) + §Local
-Key Hierarchy and At-Rest Format. F01 scope. Reconciled against the tree at
-`2c0248a`.
+Key Hierarchy and At-Rest Format. Reconciled against `d75830d` (F05 partial).
 
 - **Owns:** All clear-key creation/derivation/use and every encrypted envelope.
 - **Depends on:** libsodium (`libsodium-wrappers-sumo@0.8.4`), platform
   entropy, M09 (canonical CBOR — see the dependency note), M01 (errors,
-  `StorageId16`), M07 (`ClockPort`, `EntropyPort`), M10 (constants +
+  `StorageId16`), M07 type-only ports, M10 (constants +
   `migrateEnvelope`).
 - **Must not:** export key bytes (opaque handles only); persist anything;
   import Dexie/envelope-store/UI. The same passphrase across scopes must derive
@@ -44,8 +43,8 @@ Key Hierarchy and At-Rest Format. F01 scope. Reconciled against the tree at
 - `envelope.ts` — `encryptEnvelope(input)`, `decryptEnvelope(frame, scope, key,
   expectedPayloadKind?)`, types `EncryptEnvelopeInput`, `DecryptedEnvelopeV1`.
 - `hash.ts` (F02) — `sha256(bytes): Promise<Uint8Array>`, `SHA256_BYTES` (32),
-  via the single `loadSodium()` bootstrap and `crypto_hash_sha256`. **Every
-  durable Sheaf hash is this function over a canonical encoding** — M09's commit
+  via the single `loadSodium()` bootstrap and `crypto_hash_sha256`. **Durable hashes use SHA-256 over the specified exact bytes**, via this
+  one-shot API or F05 `sha256Chunks` — M09's commit
   digest, M23's `semanticSha256` and chunked source identity, and M21's evidence
   fingerprints all route through it. Pinned to the FIPS 180-4 vectors.
 
@@ -80,26 +79,7 @@ RFC 5869 fallback shipped, implemented over
 the one-shot form accepts arbitrary-length keys as extract requires). KATs
 cover the shipped path either way.
 
-## Change History
-
-- 2026-09-08 — fragment seeded (Forge, F01 planning).
-- 2026-09-08 — implemented by SESSION-02 (`acca5a8`). CA-02 producer side
-  verified: `envelope-kat.json` committed (2 vectors incl. a max-uint64
-  revision), byte-exact AAD + ciphertext re-derived through the production
-  `encryptEnvelope`, D6 element-type decomposition asserted, full tamper matrix
-  + per-byte property mutations rejecting with `IntegrityError`.
-- 2026-09-08 — consumed through the real entry and real WASM by SESSION-07
-  (`9174b6d`, re-run at `2c0248a`); M54 reaches `parseRecoveryCode` through a
-  dynamic import so a page that never sees SCR-004 never loads the chunk.
-- 2026-09-08 — reconciled by Roshi (F01 final pass): session-delta staple merged;
-  AD-10's no-prefix fact recorded here alongside the format it constrains.
-- 2026-09-08 — F02 `hash.ts` implemented by SESSION-01 (`3ffee63`); consumed by
-  M09 (injected `Sha256Fn`), M21, M23 and M33.
-- 2026-09-08 — reconciled by Roshi (F02 final pass): the `hash.ts` staple folded
-  into the landed API; heading de-scoped from "F01 public API".
-
-<!-- durable-home-backup SESSION-01 -->
-## M08 — cryptography
+## Durable-home implementation (F05, current)
 
 `kdf.ts` adds migration-006 descriptors and `deriveVaultPassphraseKey` /
 `deriveVaultRecoveryKey`; context labels are exactly `sheaf/vault/passphrase/v1`
@@ -118,9 +98,25 @@ or failure. Recovery-code formatting is unchanged; independently generated vault
 secrets use vault-specific HKDF. `vault-port.ts#createVaultCrypto(entropy)` is the
 production M07 adapter, including scoped open and cleanup on rejected secrets.
 
-
-
-
-<!-- durable-home-backup SESSION-02 CP2 c7e6507 -->
-## M08 — crypto
 sha256Chunks incrementally hashes exact ordered bytes and finalizes its sodium state on cancellation or producer failure. Existing SHA-256 semantics are unchanged.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+
+## Change History
+
+- 2026-09-08 — fragment seeded (Forge, F01 planning).
+- 2026-09-08 — implemented by SESSION-02 (`acca5a8`). CA-02 producer side
+  verified: `envelope-kat.json` committed (2 vectors incl. a max-uint64
+  revision), byte-exact AAD + ciphertext re-derived through the production
+  `encryptEnvelope`, D6 element-type decomposition asserted, full tamper matrix
+  + per-byte property mutations rejecting with `IntegrityError`.
+- 2026-09-08 — consumed through the real entry and real WASM by SESSION-07
+  (`9174b6d`, re-run at `2c0248a`); M54 reaches `parseRecoveryCode` through a
+  dynamic import so a page that never sees SCR-004 never loads the chunk.
+- 2026-09-08 — reconciled by Roshi (F01 final pass): session-delta staple merged;
+  AD-10's no-prefix fact recorded here alongside the format it constrains.
+- 2026-09-08 — F02 `hash.ts` implemented by SESSION-01 (`3ffee63`); consumed by
+  M09 (injected `Sha256Fn`), M21, M23 and M33.
+- 2026-09-08 — reconciled by Roshi (F02 final pass): the `hash.ts` staple folded
+  into the landed API; heading de-scoped from "F01 public API".
+- 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
