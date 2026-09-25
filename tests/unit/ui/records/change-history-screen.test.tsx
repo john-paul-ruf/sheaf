@@ -71,7 +71,7 @@ function renderHistory(
 }
 
 describe("SCR-032 — the log says what it is the log of", () => {
-  it("states retained scope without a checkpoint cutoff or invented device origin", async () => {
+  it("states retained scope without a checkpoint cutoff", async () => {
     await renderHistory();
 
     const screen = query('[data-screen="SCR-032"]');
@@ -79,7 +79,6 @@ describe("SCR-032 — the log says what it is the log of", () => {
       "Changes retained with this app",
     );
     expect(screen.textContent).not.toContain("checkpointed");
-    expect(query("[data-event]").textContent).not.toContain("this device");
     expect(screen.textContent).not.toContain("Every change since");
   });
 

@@ -180,6 +180,7 @@ function HistoryEntry({
         <time dateTime={isoInstant(entry.wallTimeMs)}>
           {formatInstant(entry.wallTimeMs)}
         </time>
+        {" · this device"}
         {entry.tableName === null ? "" : ` · ${entry.tableName}`}
         {changed === "" ? "" : ` · ${changed}`}
       </p>
