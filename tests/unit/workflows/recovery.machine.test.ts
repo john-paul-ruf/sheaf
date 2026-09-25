@@ -3,7 +3,7 @@
  * session cannot be used until a replacement passphrase is installed (FR-23).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createActor } from "xstate";
 import { recoveryMachine } from "../../../src/application/workflows/recovery.machine.js";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../../src/application/workflows/services.js";
 import {
   SETUP_RECOVERY_CODE,
+  fakeClock,
   fakeServices,
   rejects,
   resolves,
@@ -37,6 +38,7 @@ function start(
       services: fake.services,
       policy: wordCountPassphrasePolicy,
       codeFormat,
+      clock: fakeClock(),
     },
   });
   actor.start();
@@ -169,6 +171,7 @@ describe("recoveryMachine", () => {
       kind: "rate-limited",
       retryAfterMs: 4_000,
     });
+    actor.stop();
   });
 
   it("holds neither the code nor the new passphrase after their transitions", async () => {
@@ -193,4 +196,31 @@ describe("recoveryMachine", () => {
     expect(final).not.toContain(NEXT);
     expect(actor.getSnapshot().context.draft).toBeUndefined();
   });
+});
+
+it.each(["rate-limited", "invalid-recovery-code"] as const)("%s: enforces 4000 → 3000 → 0 and cancels the timer", async (kind) => {
+  vi.useFakeTimers();
+  const clock = fakeClock();
+  const fake = fakeServices({ unlockWithRecoveryCode: rejects(workerError(kind, 4000)) });
+  const actor = createActor(recoveryMachine, { input: { services: fake.services, policy: wordCountPassphrasePolicy, codeFormat: acceptsAnyFormat, clock } }).start();
+  try {
+    actor.send({ type: "SUBMIT_CODE", recoveryCode: SETUP_RECOVERY_CODE });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(actor.getSnapshot().value).toBe("waiting");
+    expect(actor.getSnapshot().context.remainingMs).toBe(4000);
+    expect(actor.getSnapshot().context.draft).toBeUndefined();
+    actor.send({ type: "SUBMIT_CODE", recoveryCode: SETUP_RECOVERY_CODE }); actor.send({ type: "RETRY" });
+    expect(fake.names()).toEqual(["unlockWithRecoveryCode"]);
+    clock.advance(1000); await vi.advanceTimersByTimeAsync(1000);
+    expect(actor.getSnapshot().context.remainingMs).toBe(3000);
+    clock.advance(9000); await vi.advanceTimersByTimeAsync(1000);
+    expect(actor.getSnapshot().value).toBe("enterCode");
+    expect(actor.getSnapshot().context.remainingMs).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    actor.send({ type: "SUBMIT_CODE", recoveryCode: SETUP_RECOVERY_CODE });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.names()).toHaveLength(2);
+    actor.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { actor.stop(); vi.useRealTimers(); }
 });

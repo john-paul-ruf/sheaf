@@ -1,3 +1,4 @@
+import { useLocation } from "react-router";
 import { useMachine } from "@xstate/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { durabilityMachine } from "../application/workflows/durability.machine.js";
@@ -11,8 +12,9 @@ import { VaultDialog } from "../ui/security/vault-dialogs.js";
 import { formatInstant } from "../ui/records/values.js";
 
 export function HomeDurabilityRoute({ area, app }: { readonly area: AppAreaWiring; readonly app: AppRuntime }): ReactNode {
+  const location = useLocation();
   const homes = useMemo(() => createHomeServices(app.client), [app]);
-  const [dialog, setDialog] = useState<"create" | "review" | "save" | null>(null);
+  const [dialog, setDialog] = useState<"create" | "review" | "save" | null>(location.search === "?review=code" ? "review" : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [codes, setCodes] = useState<{ recoveryCode: string; localRecoveryCode: string | null } | null>(null);

@@ -13,7 +13,8 @@
  *    is committed through `changePassphrase{via:'recovery'}`.
  */
 
-import { assign, fromPromise, setup } from "xstate";
+import { assign, fromCallback, fromPromise, setup } from "xstate";
+import type { ClockPort } from "../ports/clock.js";
 import type { UnlockedSessionViewV1 } from "../../workers/protocol/messages.js";
 import {
   toSecurityError,
@@ -26,12 +27,16 @@ import {
 } from "./services.js";
 
 export interface RecoveryInput {
+  readonly clock: ClockPort;
   readonly services: SecurityServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
 }
 
 export interface RecoveryContext {
+  readonly clock: ClockPort;
+  readonly retryAfterMs: number;
+  readonly remainingMs: number;
   readonly services: SecurityServices;
   readonly policy: PassphrasePolicyPort;
   readonly codeFormat: RecoveryCodeFormatPort;
@@ -55,7 +60,8 @@ export type RecoveryEvent =
       readonly passphrase: string;
       readonly confirmation: string;
     }
-  | { readonly type: "RETRY" };
+  | { readonly type: "RETRY" }
+  | { readonly type: "TICK"; readonly remainingMs: number };
 
 export const recoveryMachine = setup({
   types: {
@@ -64,6 +70,13 @@ export const recoveryMachine = setup({
     input: {} as RecoveryInput,
   },
   actors: {
+    countdown: fromCallback<RecoveryEvent, { clock: ClockPort; retryAfterMs: number }>(({ input, sendBack }) => {
+      const deadline = input.clock.nowEpochMs() + input.retryAfterMs;
+      const timer = setInterval(() => {
+        sendBack({ type: "TICK", remainingMs: Math.max(0, deadline - input.clock.nowEpochMs()) });
+      }, 1000);
+      return () => { clearInterval(timer); };
+    }),
     checkFormat: fromPromise(
       async ({
         input,
@@ -107,6 +120,9 @@ export const recoveryMachine = setup({
   id: "recovery",
   initial: "enterCode",
   context: ({ input }) => ({
+    clock: input.clock,
+    retryAfterMs: 0,
+    remainingMs: 0,
     services: input.services,
     policy: input.policy,
     codeFormat: input.codeFormat,
@@ -172,13 +188,30 @@ export const recoveryMachine = setup({
           ],
         },
         onError: {
-          target: "enterCode",
+          target: "refused",
           actions: [
-            assign({ error: ({ event }) => toSecurityError(event.error) }),
+            assign(({ event }) => {
+              const error = toSecurityError(event.error);
+              const retryAfterMs = Math.max(0, error.retryAfterMs ?? 0);
+              return { error, retryAfterMs, remainingMs: retryAfterMs };
+            }),
             "clearDraft",
           ],
         },
       },
+    },
+    refused: {
+      always: [
+        { guard: ({ context }) => context.remainingMs > 0, target: "waiting" },
+        { target: "enterCode" },
+      ],
+    },
+    waiting: {
+      invoke: { src: "countdown", input: ({ context }) => ({ clock: context.clock, retryAfterMs: context.retryAfterMs }) },
+      on: { TICK: {
+        actions: assign({ remainingMs: ({ event }) => Math.max(0, event.remainingMs) }),
+      } },
+      always: { guard: ({ context }) => context.remainingMs === 0, target: "enterCode", actions: assign({ retryAfterMs: 0 }) },
     },
     /** FR-23: the only way out of a recovered session is a new passphrase. */
     definePassphrase: {

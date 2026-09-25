@@ -213,6 +213,11 @@ export function LibraryTileList({
                 </time>
               )}
             </dd>
+            {tile.durability !== undefined && <>
+              <dt>Last confirmed backup</dt>
+              <dd>{tile.durability.confirmedAtMs === null ? "Never confirmed" : formatInstant(tile.durability.confirmedAtMs)}</dd>
+              <dt>Changes only on this device</dt><dd data-library-pending={tile.durability.deviceOnlyChangeCount}>{tile.durability.deviceOnlyChangeCount}</dd>
+            </>}
           </dl>
         </li>
       ))}

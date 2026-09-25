@@ -897,6 +897,7 @@ export type SessionStatusViewV1 = LockedSessionViewV1 | UnlockedSessionViewV1;
  * than implying an unknown number (FR-23).
  */
 export interface ResetInventoryAppV1 {
+  readonly confirmedAtMs: number | null;
   readonly appId: string;
   readonly displayName: string;
   readonly deviceOnlyChangeCount: number;

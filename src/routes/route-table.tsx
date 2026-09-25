@@ -2307,6 +2307,7 @@ function RecoveryRoute({
       services: wiring.services,
       policy: wiring.policy,
       codeFormat: wiring.codeFormat,
+      clock: wiring.clock,
     },
   });
   const { onUnlocked } = runtime;
@@ -2392,9 +2393,15 @@ function RecoveryCodesRoute({
   readonly wiring: SecurityWiring;
 }): ReactNode {
   const [reveal, setReveal] = useState({ key: 0, isOpen: false });
+  const { state } = useLibraryApps(wiring.records);
+  const vaults = state.kind === "ready" ? [...new Map(state.apps.flatMap((app) =>
+    app.durability?.homeId != null && app.durability.homeName !== null
+      ? [[app.durability.homeId, { homeId: app.durability.homeId, name: app.durability.homeName, href: hashHref(`${appPath(app.appId)}/backup?review=code`) }] as const] : [])).values()]
+    : state.kind === "loading" ? "loading" as const : "unavailable" as const;
 
   return (
     <RecoveryCodesScreen
+      vaults={vaults}
       // recovery-codes.html, verbatim: what this screen is, in one line.
       announcement="Each code is labelled by what it can recover."
       nav={nav}
@@ -2535,6 +2542,7 @@ function ResetReadableRoute({
 
   return (
     <ResetReadableScreen
+      backupHref={(appId) => hashHref(`${appPath(appId)}/backup`)}
       busy={snapshot.matches("purging")}
       nav={nav}
       onAcknowledge={(acknowledged) => {

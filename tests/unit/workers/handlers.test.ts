@@ -11,6 +11,7 @@
 // First import: the shim must be installed before `dexie` is evaluated (D8).
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { formatRecoveryCode } from "../../../src/crypto/recovery-code.js";
 import { LOCAL_STORE_V1 } from "../../../src/migrations/001_local_store_v1.js";
 import { DataWorkerCommandError } from "../../../src/workers/protocol/redact.js";
 import type { UnlockedSessionViewV1 } from "../../../src/workers/protocol/messages.js";
@@ -318,3 +319,21 @@ describe("the protocol surface", () => {
     });
   });
 });
+
+it("CAP-05 refuses a direct premature recovery request without changing durable state", async () => {
+  const code = await setup();
+  const wrong = await formatRecoveryCode(new Uint8Array(32));
+  await worker.handler.handle({ kind: "lock" });
+  const before = await readClearBootstrapRow();
+  const rows = await countEnvelopeRows();
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    await expect(worker.handler.handle({ kind: "unlockWithRecoveryCode", recoveryCode: wrong })).rejects.toMatchObject({ kind: "invalid-recovery-code", retryAfterMs: attempt === 6 ? 2000 : 0 });
+  }
+  await expect(worker.handler.handle({ kind: "unlockWithRecoveryCode", recoveryCode: code })).rejects.toMatchObject({ kind: "rate-limited", retryAfterMs: 2000 });
+  worker.clock.advance(1000);
+  await expect(worker.handler.handle({ kind: "unlockWithRecoveryCode", recoveryCode: code })).rejects.toMatchObject({ kind: "rate-limited", retryAfterMs: 1000 });
+  expect(await readClearBootstrapRow()).toEqual(before);
+  expect(await countEnvelopeRows()).toBe(rows);
+  worker.clock.advance(1000);
+  await expect(worker.handler.handle({ kind: "unlockWithRecoveryCode", recoveryCode: code })).resolves.toMatchObject({ session: { unlockedVia: "recovery-code" } });
+}, CRYPTO_TIMEOUT_MS);

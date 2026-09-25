@@ -139,14 +139,13 @@ import {
 const VOLATILE_MAX_AGE_MS = 60_000;
 import type { WorkerSessionContextV1 } from "./event-store.js";
 import {
-  deviceOnlyChangeCount,
-  loadApp,
   openAppKey,
   type AppStoragePortsV1,
 } from "./event-store.js";
 import { encodeAuthoredRecordBytes } from "./record-event-payloads.js";
 import type { LocalCatalogAppEntryV1, LocalCatalogV1 } from "./catalog.js";
 import { toThemeWire } from "./theme-handlers.js";
+import { readAppDurability } from "./home-state.js";
 import type { AppDurabilityViewV1 } from "../protocol/messages.js";
 
 export interface RecordHandlerDependenciesV1 {
@@ -183,11 +182,11 @@ export interface RecordHandlersV1 {
   getSnapshotPage(request: GetSnapshotPageRequestV1): Promise<DataWorkerResponseV1>;
   findInSnapshot(request: FindInSnapshotRequestV1): Promise<DataWorkerResponseV1>;
   listInertItems(request: ListInertItemsRequestV1): Promise<DataWorkerResponseV1>;
-  /** The device-only count for every catalog app, from its decrypted head. */
-  deviceOnlyChangeCounts(
+  /** Durable heads and home receipts, including apps whose projections are closed. */
+  appDurabilityFacts(
     localRoot: EnvelopeKeyRefV1,
     catalog: LocalCatalogV1,
-  ): Promise<ReadonlyMap<string, number>>;
+  ): Promise<ReadonlyMap<string, AppDurabilityViewV1>>;
   /** Lock: every projection destroyed, every app key zeroized. */
   disposeAll(): void;
   /**
@@ -752,45 +751,12 @@ export function createRecordHandlers(
      * a catalog cache — check 7's rule that nothing cached authorizes a
      * destructive action.
      */
-    async deviceOnlyChangeCounts(
-      localRoot: EnvelopeKeyRefV1,
-      catalog: LocalCatalogV1,
-    ): Promise<ReadonlyMap<string, number>> {
-      const counts = new Map<string, number>();
-      const deviceId = decodeDomainId("device", catalog.deviceId);
+    async appDurabilityFacts(localRoot, catalog): Promise<ReadonlyMap<string, AppDurabilityViewV1>> {
+      const facts = new Map<string, AppDurabilityViewV1>();
       for (const entry of catalog.apps) {
-        const open = registry.get(entry.appId);
-        if (open !== undefined) {
-          counts.set(entry.appId, open.deviceOnlyChangeCount());
-          continue;
-        }
-        if (entry.appHeadStorageId === null) {
-          // A listed-only app holds no local head; there is nothing here to
-          // count and saying zero would be the same claim as "none".
-          counts.set(entry.appId, 0);
-          continue;
-        }
-        const appKey = await openAppKey(
-          deps.ports,
-          localRoot,
-          entry,
-          parseEnvelopeTransport,
-        );
-        try {
-          const loaded = await loadApp(
-            deps.ports,
-            appKey,
-            entry.appHeadStorageId,
-          );
-          counts.set(
-            entry.appId,
-            deviceOnlyChangeCount(loaded.head.frontier, deviceId),
-          );
-        } finally {
-          deps.ports.crypto.destroyKey(appKey);
-        }
+        facts.set(entry.appId, await readAppDurability(deps.ports, { localRoot, catalog }, entry));
       }
-      return counts;
+      return facts;
     },
 
     disposeAll(): void {

@@ -4,7 +4,7 @@
  * exact secret, and every state has something to announce.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createActor, type Actor, type AnyStateMachine } from "xstate";
 import {
   IDLE_TIMEOUT_OPTION_VMS,
@@ -310,6 +310,7 @@ describe("SCR-004 recovery (CAP-05)", () => {
       input: {
         services: fakeServices().services,
         policy: wordCountPassphrasePolicy,
+        clock: fakeClock(),
         codeFormat: { isWellFormed: () => Promise.resolve(false) },
       },
     });
@@ -332,6 +333,7 @@ describe("SCR-004 recovery (CAP-05)", () => {
           unlockWithRecoveryCode: rejects(workerError("invalid-recovery-code")),
         }).services,
         policy: wordCountPassphrasePolicy,
+        clock: fakeClock(),
         codeFormat: anyFormat,
       },
     });
@@ -360,6 +362,7 @@ describe("SCR-004 recovery (CAP-05)", () => {
           }),
         }).services,
         policy: wordCountPassphrasePolicy,
+        clock: fakeClock(),
         codeFormat: anyFormat,
       },
     });
@@ -694,4 +697,21 @@ describe("refusal announcements", () => {
       retryable: false,
     });
   });
+});
+
+it("projects the current recovery wait, expires it, and never carries the secret", async () => {
+  vi.useFakeTimers();
+  const clock = fakeClock();
+  const actor = createActor(recoveryMachine, { input: { clock, codeFormat: anyFormat, policy: wordCountPassphrasePolicy,
+    services: fakeServices({ unlockWithRecoveryCode: rejects(workerError("invalid-recovery-code", 4000)) }).services } }).start();
+  try {
+    actor.send({ type: "SUBMIT_CODE", recoveryCode: SETUP_RECOVERY_CODE });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(selectRecoveryVm(actor.getSnapshot())).toMatchObject({ remainingMs: 4000, remainingSeconds: 4, canSubmit: false });
+    clock.advance(1000); await vi.advanceTimersByTimeAsync(1000);
+    expect(selectRecoveryVm(actor.getSnapshot())).toMatchObject({ remainingMs: 3000, remainingSeconds: 3, canSubmit: false });
+    clock.advance(3000); await vi.advanceTimersByTimeAsync(3000);
+    expect(selectRecoveryVm(actor.getSnapshot())).toMatchObject({ remainingMs: 0, remainingSeconds: 0, canSubmit: true });
+    expect(JSON.stringify(selectRecoveryVm(actor.getSnapshot()))).not.toContain(SETUP_RECOVERY_CODE);
+  } finally { actor.stop(); vi.useRealTimers(); }
 });

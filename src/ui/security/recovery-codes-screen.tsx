@@ -7,6 +7,7 @@ import { cx } from "../primitives/class-names.js";
 import { Dialog } from "../primitives/dialog.js";
 import { PassphraseField } from "../primitives/passphrase-field.js";
 import { RecoveryCodeCard } from "../primitives/recovery-code-card.js";
+import { InlineLink } from "../primitives/inline-link.js";
 import { SecretScopeLabel } from "../primitives/secret-scope-label.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { UnlockedFrame, type SecurityNavigation } from "./frames.js";
@@ -19,11 +20,7 @@ import styles from "./security.module.css";
  * authority to redisplay the local code, so the current passphrase is required
  * every time.
  *
- * **The vault section is empty and says so.** The mock illustrates it with a
- * Dropbox and a OneDrive vault; F01 has no durable homes at all, so showing
- * those rows would be fictional data (STA-025 forbids it) and dropping the
- * section would hide a scope the screen exists to explain. What is rendered is
- * the fact: no durable home is connected to this device yet.
+ * The vault section lists only authenticated homes read from the local store.
  *
  * The masked placeholder shows the code's *shape* — eight groups of seven —
  * and no prefix, because the shipped format has none (AD-10).
@@ -32,6 +29,7 @@ import styles from "./security.module.css";
 const MASKED_CODE = Array.from({ length: 8 }, () => "•".repeat(7)).join("-");
 
 export interface RecoveryCodesScreenProps {
+  readonly vaults?: readonly { readonly homeId: string; readonly name: string; readonly href: string }[] | "loading" | "unavailable";
   readonly nav: SecurityNavigation;
   readonly onOpenReveal: () => void;
   /**
@@ -49,6 +47,7 @@ export interface RecoveryCodesScreenProps {
 
 export function RecoveryCodesScreen({
   nav,
+  vaults = [],
   onOpenReveal,
   revealDialog,
   announcement,
@@ -95,11 +94,13 @@ export function RecoveryCodesScreen({
 
         <section className={cx(styles["card"])}>
           <h2 className={cx(styles["cardTitle"])}>Vault recovery code</h2>
-          <p className={cx(styles["lede"])}>
-            A vault recovery code is issued when you create a durable home. No
-            durable home is connected to this device yet, so there is no vault
-            code to show.
-          </p>
+          {vaults === "loading" ? <p>Reading this device’s vaults…</p> : vaults === "unavailable" ? <p role="alert">Vaults could not be read. Reopen Recovery codes to try again.</p>
+            : vaults.length === 0 ? <p className={cx(styles["lede"])}>A vault recovery code is issued when you create a durable home. No durable home is connected to this device yet, so there is no vault code to show.</p>
+              : vaults.map((vault) => <div key={vault.homeId} className={cx(styles["stack"])}>
+                <SecretScopeLabel scope={{ kind: "vault", vaultName: vault.name }} />
+                <p>Opens only this home’s encrypted index and apps. It cannot unlock this device’s local store.</p>
+                <InlineLink target={{ kind: "internal", href: vault.href }}>Re-view {vault.name} vault code</InlineLink>
+              </div>)}
         </section>
 
         {revealDialog}

@@ -101,7 +101,9 @@ function EnterCode({
       className={cx(styles["form"])}
       onSubmit={(event) => {
         event.preventDefault();
+        if (!vm.canSubmit) return;
         onSubmitCode(code);
+        setCode("");
       }}
     >
       <StatusBanner tone="info" title="Your data stays in place">
@@ -111,6 +113,8 @@ function EnterCode({
       {vm.error !== undefined && (
         <StatusBanner tone="danger" title={announceRefusal(vm.error)} />
       )}
+
+      {!vm.canSubmit && <p role="status" data-recovery-wait={vm.remainingMs}>Try again in {vm.remainingSeconds} seconds.</p>}
 
       <RecoveryCodeField
         autoFocus
@@ -128,9 +132,8 @@ function EnterCode({
       />
 
       <div className={cx(styles["actions"])}>
-        <Button tone="primary" type="submit">
-          Recover and unlock
-        </Button>
+        {vm.canSubmit ? <Button tone="primary" type="submit">Recover and unlock</Button>
+          : <Button tone="primary" isDisabled disabledReason="Wait for the recovery countdown to finish.">Recover and unlock</Button>}
       </div>
     </form>
   );

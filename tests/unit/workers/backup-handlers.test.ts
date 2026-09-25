@@ -344,3 +344,37 @@ it.each(["native", "fallback-confirm", "fallback-dismiss"] as const)("composes %
     expect((await worker.backup.read(home.homeId)).receipts ?? []).toHaveLength(mode === "fallback-dismiss" ? 0 : 1);
   } finally { abort.abort(); transfer.dispose(); client.terminate(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 }, 120_000);
+
+it("reset and library read the same receipt across edit, cancellation, fresh save and restart; old reset tokens refuse", async () => {
+  await resetLocalDatabase();
+  worker = createTestHandler().handler;
+  await ask(worker, { kind: "setup", passphrase: LOCAL });
+  const appId = await importCsv(worker);
+  const home = await worker.backup.createBundleHome(appId, "Reset vault", VAULT);
+  const check = async (pending: number, time: number | null) => {
+    await ask(worker!, { kind: "closeApp", appId });
+    const inventory = await ask(worker!, { kind: "resetReadable" });
+    if (inventory.phase !== "inventory") throw new Error("expected reset inventory");
+    expect(inventory.inventory.apps[0]).toMatchObject({ appId, deviceOnlyChangeCount: pending, confirmedAtMs: time });
+    expect((await ask(worker!, { kind: "listLibrary" })).apps[0]?.durability).toMatchObject({ deviceOnlyChangeCount: pending, confirmedAtMs: time });
+    worker!.dispose(); worker = createTestHandler().handler;
+    await ask(worker, { kind: "unlock", passphrase: LOCAL });
+    expect((await ask(worker, { kind: "openApp", appId })).session).toMatchObject({ deviceOnlyChangeCount: pending, durability: { confirmedAtMs: time } });
+    return inventory.confirmToken;
+  };
+  const first = await preparedBundle(worker, appId);
+  try { expect((await first.complete("saved"))["kind"]).toBe("completed"); } finally { await first.dispose(); }
+  const time = (await worker.backup.read(home.homeId)).lastSuccessfulBackupMs;
+  await check(0, time);
+  await ask(worker, { kind: "changeTheme", appId, themeKey: "indigo", mode: "light", density: "compact", customAccent: null, logo: { kind: "keep" } });
+  await check(1, time);
+  const cancelled = await preparedBundle(worker, appId);
+  try { expect((await cancelled.complete("cancelled"))["kind"]).toBe("completed"); } finally { await cancelled.dispose(); }
+  const token = await check(1, time);
+  const fresh = await preparedBundle(worker, appId);
+  try { expect((await fresh.complete("saved"))["kind"]).toBe("completed"); } finally { await fresh.dispose(); }
+  const before = await readClearBootstrapRow();
+  await expect(ask(worker, { kind: "resetReadable", confirmToken: token })).rejects.toMatchObject({ kind: "stale-confirmation" });
+  expect(await readClearBootstrapRow()).toEqual(before);
+  await check(0, (await worker.backup.read(home.homeId)).lastSuccessfulBackupMs);
+}, 120_000);

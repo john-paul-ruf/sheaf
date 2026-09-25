@@ -1,3 +1,4 @@
+import { formatInstant } from "../records/values.js";
 import { useState, type ReactNode } from "react";
 import type { ReadableResetVm } from "../../application/view-models/security.js";
 import { announceRefusal } from "../../application/view-models/security.js";
@@ -43,6 +44,7 @@ export interface ResetReadableScreenProps {
   /** Re-enumerates after a stale confirmation, reopening every gate. */
   readonly onRetry: () => void;
   readonly onCancel: () => void;
+  readonly backupHref?: (appId: string) => string;
   readonly topBarActions?: ReactNode;
 }
 
@@ -57,6 +59,7 @@ export function ResetReadableScreen({
   onRetry,
   onCancel,
   topBarActions,
+  backupHref,
 }: ResetReadableScreenProps): ReactNode {
   const [typed, setTyped] = useState("");
   const loading = vm.inventory === "loading";
@@ -134,9 +137,11 @@ export function ResetReadableScreen({
               ) : (
                 <ul className={cx(styles["list"])}>
                   {vm.inventory.map((row) => (
-                    <li key={row.appId}>
+                    <li key={row.appId} data-reset-app={row.appId}>
                       {row.displayName} — {row.deviceOnlyChangeCount} changes
                       only on this device
+                      <p>Last confirmed backup: {row.confirmedAtMs === null ? "Never confirmed" : formatInstant(row.confirmedAtMs)}</p>
+                      {backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref(row.appId) }}>Back up before reset</InlineLink>}
                     </li>
                   ))}
                 </ul>

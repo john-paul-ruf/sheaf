@@ -147,7 +147,7 @@ export function encodeHomeState(state: HomeStateV1): Uint8Array {
 }
 
 /** Authenticates the catalog's home identity as well as its encrypted payload. */
-export async function readHomeState(ports: AppStoragePortsV1, context: WorkerSessionContextV1,
+export async function readHomeState(ports: AppStoragePortsV1, context: Pick<WorkerSessionContextV1, "localRoot" | "catalog">,
   entry: LocalCatalogHomeEntryV1): Promise<HomeStateV1> {
   const frame = await ports.store.getEnvelope(decodeStorageId16(entry.homeStateStorageId));
   if (frame === undefined) throw new IntegrityError("home state is missing");
@@ -177,7 +177,7 @@ export function pendingChangeCount(frontier: BundleReceiptV1["confirmedFrontier"
 }
 
 /** Both closed and open app readers use the current durable head and app-scoped receipt. */
-export async function readAppDurability(ports: AppStoragePortsV1, context: WorkerSessionContextV1,
+export async function readAppDurability(ports: AppStoragePortsV1, context: Pick<WorkerSessionContextV1, "localRoot" | "catalog">,
   app: LocalCatalogAppEntryV1): Promise<AppDurabilityViewV1> {
   let home: HomeStateV1 | undefined;
   if (app.homeId !== null) {

@@ -146,6 +146,36 @@ for (const destination of ["download", "native"] as const) test(`J1 ${destinatio
       await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", destination === "download" ? "2" : "1");
       await expect(page.locator("[data-backup-time]")).toHaveAttribute("data-backup-time", confirmedAt!);
     }
+    await followHash(page, "#/library");
+    await expect(page.locator("[data-library-pending]")).toHaveAttribute("data-library-pending", destination === "download" ? "2" : "1");
+    if (destination === "download") await inspectDurability(page, "library-backup");
+    await followHash(page, "#/settings/security/reset");
+    await expect(page.locator("[data-reset-app]")).toContainText(`${destination === "download" ? 2 : 1} changes only on this device`);
+    await expect(page.locator("[data-reset-app]")).toContainText("Last confirmed backup:");
+    if (destination === "download") await inspectDurability(page, "readable-reset");
+    await page.getByRole("link", { name: "Back up before reset" }).click();
+    await page.getByRole("button", { name: "Save a fresh bundle", exact: true }).click();
+    const freshDownload = destination === "download" ? page.waitForEvent("download") : null;
+    await page.getByRole("button", { name: "Choose destination" }).click();
+    if (freshDownload !== null) {
+      await freshDownload;
+      await page.getByRole("button", { name: "I saved this bundle", exact: true }).click();
+    }
+    await expect(page.locator("[data-pending-count]")).toHaveAttribute("data-pending-count", "0");
+    const freshTime = await page.locator("[data-backup-time]").getAttribute("data-backup-time");
+    expect(Number(freshTime)).toBeGreaterThan(Number(confirmedAt));
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.close(); page = await context.newPage(); await openApp(page); await attemptUnlock(page, PASSPHRASE);
+    await expect(screen(page, "SCR-010")).toBeVisible();
+    await expect(page.locator("[data-library-pending]")).toHaveAttribute("data-library-pending", "0");
+    await followHash(page, "#/settings/security/reset");
+    await expect(page.locator("[data-reset-app]")).toContainText("0 changes only on this device");
+    await followHash(page, `${appHash}/backup`);
+    await expect(page.locator("[data-backup-time]")).toHaveAttribute("data-backup-time", freshTime!);
+    await followHash(page, "#/settings/security/recovery-codes");
+    await page.getByRole("link", { name: "Re-view Fieldwork bundle vault code" }).click();
+    await expect(page.getByRole("dialog")).toContainText("Re-view Fieldwork bundle vault code");
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Lock device" }).click();
     await page.getByRole("link", { name: /local recovery code/i }).click();
     await page.getByLabel("Local recovery code", { exact: true }).fill(vaultCode!.trim());

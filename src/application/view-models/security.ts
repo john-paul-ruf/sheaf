@@ -444,6 +444,9 @@ export type RecoveryVm =
   | {
       readonly screen: "SCR-004";
       readonly step: "enterCode";
+      readonly canSubmit: boolean;
+      readonly remainingMs: number;
+      readonly remainingSeconds: number;
       readonly codeScope: string;
       readonly codeReach: string;
       readonly losslessFact: string;
@@ -557,12 +560,17 @@ export function selectRecoveryVm(
   return {
     screen,
     step: "enterCode",
+    canSubmit: !snapshot.matches("waiting"),
+    remainingMs: context.remainingMs,
+    remainingSeconds: Math.ceil(context.remainingMs / 1000),
     codeScope: LOCAL_RECOVERY_CODE_SCOPE,
     codeReach: LOCAL_RECOVERY_CODE_REACH,
     losslessFact: RECOVERY_LOSSLESS_FACT,
     codeMisspelled: context.codeMisspelled,
     error,
-    announcement: context.codeMisspelled
+    announcement: snapshot.matches("waiting")
+      ? `Too many failed attempts. Try again in ${Math.ceil(context.remainingMs / 1000)} seconds.`
+      : context.codeMisspelled
       ? "That is not a complete local recovery code. Check it and try again."
       : error === undefined
         ? "Enter this device's local recovery code."
@@ -867,6 +875,7 @@ export interface LockedResetVm {
 
 /** One app as a readable reset lists it. Empty in F01 — and truthfully so. */
 export interface ResetInventoryRowVm {
+  readonly confirmedAtMs: number | null;
   readonly appId: string;
   readonly displayName: string;
   readonly deviceOnlyChangeCount: number;
@@ -1013,6 +1022,7 @@ export function selectResetVm(
           appId: app.appId,
           displayName: app.displayName,
           deviceOnlyChangeCount: app.deviceOnlyChangeCount,
+          confirmedAtMs: app.confirmedAtMs,
         }));
 
   const staleConfirmation = snapshot.matches("staleConfirmation");

@@ -726,12 +726,13 @@ export function createDataWorkerHandler(
     catalog: LocalCatalogV1,
     root: LocalRootKeyHandle,
   ): Promise<ResetInventoryViewV1> {
-    const counts = await records.deviceOnlyChangeCounts(root, catalog);
+    const facts = await records.appDurabilityFacts(root, catalog);
     return {
       apps: catalog.apps.map((app) => ({
         appId: app.appId,
         displayName: app.displayName,
-        deviceOnlyChangeCount: counts.get(app.appId) ?? 0,
+        deviceOnlyChangeCount: facts.get(app.appId)!.deviceOnlyChangeCount,
+        confirmedAtMs: facts.get(app.appId)!.confirmedAtMs,
       })),
       appCount: catalog.apps.length,
       homeCount: catalog.homes.length,
