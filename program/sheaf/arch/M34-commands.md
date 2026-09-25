@@ -140,3 +140,6 @@ A legacy `sheaf.built-in.v1` app accepts only a built-in palette key.
   folded into a new "F04: schema, formula-environment and chart/theme
   commands" section; the head export list and dependency-must-not test
   description updated to name every F04 file.
+
+<!-- durable-home-backup SESSION-02 CP1 -->
+`buildHomeAssignment` creates one authored commit and rejects an app that already has a home.

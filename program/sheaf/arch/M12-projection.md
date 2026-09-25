@@ -327,3 +327,6 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
   which broke and needed a lease correction) rather than leaving the theme
   counterexample as an isolated session surprise with no forward-looking
   contract. See PROGRAM-CONFIG's Conventions for the promoted rule.
+
+<!-- durable-home-backup SESSION-02 CP1 -->
+The assignment event moves app_state.durable_home_id from null to assigned identity; repeated assignment fails. No migration changed.

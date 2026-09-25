@@ -209,3 +209,6 @@ not projectable), `IMPORT_KINDS`, `ImportLineageV1`. Pinned against migration
   currency-code gap removed from "known gaps" and its disposition recorded
   where the gap used to be listed, so a reader does not find a defect note for
   something already fixed.
+
+<!-- durable-home-backup SESSION-02 CP1 -->
+`HomeId` and `VaultId` are domain ID kinds. `durable-home.assigned` carries home/vault identity, home kind and app-wrap version.

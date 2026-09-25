@@ -183,3 +183,29 @@ and append both surface `columnKey`.
   fact recorded as a closed F02/F03 latent defect that F04 made load-bearing,
   rather than left as a bare one-line note; the SESSION-07 pointer left as a
   cross-reference to `M01-domain-model.md`.
+
+<!-- durable-home-backup SESSION-02 CP1 -->
+## M33 — worker-owned home state and retention
+
+`createDataWorkerHandler` composes `createBackupHandlers` with the production
+envelope store, crypto, clock, current session and vault crypto adapter. Its
+`backup` member is worker-internal; page RPC/UI exposure remains future S02 work.
+
+`home-state.ts` owns the strict encrypted `local.home-state` payload: bundle
+home/vault identity, separate vault bootstrap/recovery material, locally
+protected vault key, app-key wraps and durable backup pins. Catalog identity
+is checked after authentication. Assignment ends scratch without setting a
+successful-backup timestamp.
+
+`AppEventStoreV1.appendHome` atomically commits assignment, new head, app-key
+wrap/home state and catalog. It checks app/head identity and current session
+revision. Replacing an existing home payload deletes its superseded envelope
+in the same transaction.
+
+`pin` stores an authenticated current-head retention root before returning.
+`release` preserves current heads, other pins and roots retained by the app;
+otherwise it deletes the retired head atomically with the pin update. Pins
+survive worker restart and are separate from import workflows/cleanup tickets.
+
+
+Tail codec validates the assignment payload and supported wrap version.

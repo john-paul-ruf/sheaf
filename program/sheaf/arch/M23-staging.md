@@ -288,3 +288,12 @@ else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
   S07's own disclosure that it now reuses `encodeFieldDef`; the theme-codec
   counterexample cross-referenced to `M12-projection.md`'s new "Duplicate
   codecs" section rather than described twice.
+
+<!-- durable-home-backup SESSION-02 CP1 -->
+## M23 — CSV append retention
+
+`appendTable` accepts an optional `isHeadPinned` dependency. Its production
+caller and `createEventStore` use the same encrypted-home retention reader.
+Unpinned old heads and import workflow cleanup retain their prior behavior.
+
+
