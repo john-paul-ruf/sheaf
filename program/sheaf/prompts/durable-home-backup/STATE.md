@@ -7,7 +7,7 @@
 - Intent: make a scratch app recoverable as an encrypted bundle or provider vault, expose confirmed backup truth and reminders, and compact history without losing reconciliation or restoration facts.
 - Plan revision: `2c35bfb620d060c46b6f3022a2a2e8d22ddc3d51`, 2026-09-24. Seven sessions, 28 checkpoint commits planned (3+6+4+3+3+4+5). Replan base `309313170b997d2546794c6173ebcabfbd44ac5f`: S01 done; S02 CP1 03ee571 and CP2 c7e6507 accepted after independent receive checks.
 - User instruction `plan feature f05` authorizes F05 planning despite the previous roadmap planning gate. It is not evidence that a demo was viewed and does not silently resolve the F04 review debt.
-- Readiness: resumed by user approval 2026-09-24. S02 CP2 and partial CP3 remain accepted; DEC-71/72 and recommended GRAPH-CONTRACT direction approved. Designer save/reminder fill precedes S02 continuation. S06 still requires exact DB/Author contract and S02/S03; provider registrations remain unavailable. No new implementation or capability proof claimed.
+- Readiness: resumed by user approval 2026-09-24. S02 CP2 and partial CP3 remain accepted; DEC-71/72 and recommended GRAPH-CONTRACT direction approved. Designer save/reminder fill accepted 4c31ded; policy-plan reconciliation precedes S02 continuation. S06 still requires exact DB/Author contract and S02/S03; provider registrations remain unavailable. No new implementation or capability proof claimed.
 
 ## Resume authorization — 2026-09-24
 
@@ -985,3 +985,45 @@ The final gate passed: 19 files, 106 tests, plus typecheck, lint, and build. Evi
 
   Ignored architecture delta: `.program/signal/F05-SESSION-02.arch.md`. No pending implementation changes.
 
+
+
+### F05 DESIGN-F05-SAVE-REMINDERS receive — 2026-09-24
+
+Accepted commit 4c31ded: exactly two new mocks and four added design inventory rows; no existing mocks or sections changed. Orchestrator checked commit paths, clean lease status, diff check exit 0, evidence report and sampled desktop/mobile images. No application code/proof change; no arch delta applicable. Save/reminder design input ready, provider design remains DF-F05-1 owner Designer. Raw final follows verbatim.
+
+I’ll read the Design-Fill Envelope and existing design references, then create the scoped mocks and verify them at the required layouts.
+
+
+The envelope fixes both policies: reminders escalate after successive dismissals, and an unobservable download needs explicit confirmation after delivery. I’m using the frontend-design and agent-browser skills, with your envelope’s no-delegation rule taking precedence.
+
+
+I’ll add two interactive detail mocks: one for bundle save outcomes and one for scratch reminders. Both will show the last confirmed backup and current pending count, with review controls for stepping through each state.
+
+
+The mocks now cover native confirmation, explicit confirmation after delivery, cancellation, failures, and reminder dismissal. I’m checking all five widths, keyboard focus, and whether newer edits remain pending after an older snapshot is confirmed.
+
+
+The rendered states fit all five widths without horizontal overflow. I found and fixed a reverse-Tab issue in the modal. I also verified that confirming a delivered snapshot leaves two newer edits pending and keeps “Bundle out of date” visible.
+
+
+Keyboard wrapping, focus return, and 200% text at a 320px-wide short viewport now work in both mocks. The accessibility checks reported no violations. I’m recording the evidence and checking the exact three-file commit, while preserving the existing mocks and unrelated edits.
+
+
+## Handoff
+
+- **session:** DESIGN-F05-SAVE-REMINDERS
+- **status:** done
+- **checkpoint:** 1
+- **commit SHA:** `4c31ded2f016a7205664511d7875b6898b972b24`
+- **notes:** Completed save/reminder design sources for CA-37/40 and CAP-40/41/42 using approved DEC-71/72. Production capability proofs remain with Coder.
+- **delivered:** Two interactive standalone mocks; two added control rows and two added screen rows. Includes save outcomes, post-delivery confirmation, escalating reminders, persistent badges, truthful receipt/count displays, and keyboard/error/cancel contracts.
+- **verification:** Rendered 85 states across 320/430/768/1024/1440px; no horizontal overflow; actions ≥44px. Verified focus containment/return, dismissal, concurrent-change counts, and 200% text. Three accessibility audits reported zero violations. Existing mocks and unrelated edits preserved. Verified commit contains exactly the three authorized files. [Evidence](/Users/the.phoenix/WebstormProjects/sheaf/.program/design-f05-save-reminders/verification.md).
+- **surprises:** Provider authorization/reconnect/disconnect designs remain adjacent DF-F05-1 gaps outside this envelope.
+- **followUp:** SESSION-02 can consume the save design for CP3/4; SESSION-03 can consume reminders for CP1/2. They retain responsibility for actual save receipts, persisted scheduling, and J1/J2 proofs.
+- **needsOwnerCorrection:** —
+- **needsDesignSource:** No remaining gap within this envelope.
+- **blockedReason:** —
+- **filesTouched:**
+  - [program/sheaf/mocks/f05-bundle-save.html](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/mocks/f05-bundle-save.html)
+  - [program/sheaf/mocks/f05-scratch-reminders.html](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/mocks/f05-scratch-reminders.html)
+  - [program/sheaf/specs/design.md](/Users/the.phoenix/WebstormProjects/sheaf/program/sheaf/specs/design.md)
