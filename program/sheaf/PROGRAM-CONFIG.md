@@ -59,6 +59,8 @@ Parsed from `specs/architecture.md` § Stack Decision (approved 2026-09-08). Do 
 ## Module Registry
 
 IDs are stable and never reused. Ordered by dependency depth, leaves first.
+**F05 registry audit (2026-09-24):** Imports From now distinguishes `[R]` runtime imports mechanically derived from committed non-test sources (TypeScript AST, including value re-exports; type-only imports excluded) from `[D]` declared edges not realized at plan HEAD `2c35bfb`. File-level evidence is in `prompts/durable-home-backup/IMPORT-EDGES.md`. A declared edge is not an implemented producer.
+
 The **Path** column is the leasing unit — session `Owns` globs are derived from
 it. Per-module public API, contracts, and must-nots live in
 `specs/architecture.md` § Module Contracts (authoritative detail source) as
@@ -193,64 +195,64 @@ as closed, not open.
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
 | M01 | Domain model | src/domain/model/ | Stable opaque IDs, event unions, provenance, baseline refs, domain errors | — | ids.ts, events.ts, provenance.ts |
-| M02 | Validation | src/domain/validation/ | The one shared validator: rules, referential integrity, schema impact | M01, M03 (result types) | validate-record.ts, schema-transition.ts |
-| M03 | Formulas | src/domain/formulas/ | Parser, stable-ref IR, function catalog, dependency graph, evaluator | M01 | parser.ts, ir.ts, catalog.ts, evaluator.ts |
-| M04 | Capacity | src/domain/capacity/ | Five independent budgets, calibration, degradation states | M01 | budgets.ts, estimates.ts |
-| M05 | Policy | src/domain/policy/ | Cross-cutting pure policies: freshness, reminders, removal, allowed actions | M01, M04 | allowed-actions.ts, backup-freshness.ts |
-| M06 | Reconciliation | src/domain/reconciliation/ | Three-way merge, conflict classification, applied log | M01, M02, M05 | reconcile.ts, decision-table.ts |
+| M02 | Validation | src/domain/validation/ | The one shared validator: rules, referential integrity, schema impact | M01 [R], M03 [D] | validate-record.ts, schema-transition.ts |
+| M03 | Formulas | src/domain/formulas/ | Parser, stable-ref IR, function catalog, dependency graph, evaluator | M01 [R] | parser.ts, ir.ts, catalog.ts, evaluator.ts |
+| M04 | Capacity | src/domain/capacity/ | Five independent budgets, calibration, degradation states | M01 [D] | budgets.ts, estimates.ts |
+| M05 | Policy | src/domain/policy/ | Cross-cutting pure policies: freshness, reminders, removal, allowed actions | M01 [D], M04 [D] | allowed-actions.ts, backup-freshness.ts |
+| M06 | Reconciliation | src/domain/reconciliation/ | Three-way merge, conflict classification, applied log | M01 [D], M02 [D], M05 [D] | reconcile.ts, decision-table.ts |
 
 ### Ports
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M07 | Application ports | src/application/ports/ | All dependency-inversion interfaces (repo, projection, crypto, provider, file, clock, entropy, capacity probe, lifecycle) | M01 | ports.ts (or one file per port) |
+| M07 | Application ports | src/application/ports/ | All dependency-inversion interfaces (repo, projection, crypto, provider, file, clock, entropy, capacity probe, lifecycle) | M01 [D] | ports.ts (or one file per port) |
 
 ### Infrastructure — crypto and persistence
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M08 | Crypto | src/crypto/ | KDF, key hierarchy, recovery codes, envelope/stream AEAD, wrapping, suite versioning | libsodium, M07 (implements CryptoPort) | keys.ts, envelope.ts, kdf.ts |
-| M09 | Codecs | src/persistence/codecs/ | Canonical CBOR, compression, framing, versioned decode | — | canonical-cbor.ts, framing.ts |
-| M10 | Migrations | src/migrations/ | Every durable format transition. **DB-phase owned, permanently. No session's `Owns` may include this path.** | M09 (old/new codecs), transactional ports | 001–006 + index.ts (exist) |
-| M11 | Envelope store | src/persistence/envelope-store/ | The only persistent local DB connection; encrypted transactions, staging, revisions, quota | Dexie, M09, M10 (runner), M07 | store.ts, staging.ts |
-| M12 | Projection | src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, replay, hydration, FTS, invalidation. Runs only in data worker | SQLite WASM, M01, M02, M03 (F04) | hydrate.ts, query-exec.ts |
+| M08 | Crypto | src/crypto/ | KDF, key hierarchy, recovery codes, envelope/stream AEAD, wrapping, suite versioning | M01 [R], M09 [R], M10 [R], M07 [D] | keys.ts, envelope.ts, kdf.ts |
+| M09 | Codecs | src/persistence/codecs/ | Canonical CBOR, compression, framing, versioned decode | M01 [R], M10 [R] | canonical-cbor.ts, framing.ts |
+| M10 | Migrations | src/migrations/ | Every durable format transition. **DB-phase owned, permanently. No session's `Owns` may include this path.** | M09 [D] | 001–006 + index.ts (exist) |
+| M11 | Envelope store | src/persistence/envelope-store/ | The only persistent local DB connection; encrypted transactions, staging, revisions, quota | M01 [R], M10 [R], M09 [D], M07 [D] | store.ts, staging.ts |
+| M12 | Projection | src/persistence/projection/ | Unlocked in-memory SQLite lifecycle, replay, hydration, FTS, invalidation. Runs only in data worker | M01 [R], M02 [R], M03 [R], M09 [R], M10 [R] | hydrate.ts, query-exec.ts |
 
 ### Infrastructure — import
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M13 | Import source | src/import/source/ | Random-access source over File/Blob/staged chunks; content sniffing; **landed F03:** the native container readers (zip/XML/CFB/OPC), no third-party package | M07 (FilePort) | source.ts, sniff.ts |
-| M14 | Pre-flight | src/import/preflight/ | Metadata-only sizing, safety bounds, macro detection, selection plan. Never iterates cells; **landed F03:** `preflightWorkbook` (multi-sheet) beside the F02 delimited path | M13, M04 | preflight.ts, refusal.ts |
-| M15 | OOXML adapter | src/import/formats/ooxml/ | Streaming XLSX/OPC facts, incl. (F04) chart/pivot part definitions | M13, M65 | index.ts (landed) |
-| M16 | XLSB adapter | src/import/formats/xlsb/ | Streaming XLSB records, macro-sheet detection. **Landed F03** | M13, M65, M17 (`ptg.ts`) | index.ts (landed) |
-| M17 | BIFF adapter | src/import/formats/biff/ | Bounded CFB + BIFF/XLS records, VBA/XLM refusal signals, the shared `Ptg` decoder. **Landed F03** | M13, M65 | index.ts, ptg.ts (landed) |
-| M18 | ODS adapter | src/import/formats/ods/ | Streaming ODS facts. **Landed F03** | M13, M65 | index.ts (landed) |
-| M19 | Delimited adapter | src/import/formats/delimited/ | Chunked CSV/TSV detection and row facts | M13, M65 (F03) | — |
-| M20 | HTML-table adapter | src/import/formats/html-table/ | Non-executing tokenizer for legacy HTML-as-XLS. **Landed F03** | M13, M65 | index.ts (landed) |
-| M21 | Inference | src/import/inference/ | Evidence-weighted schema/type/relationship proposals, rejection memory, and (F04) live-structure (formula/chart/rule) mapping | M01, M03, M65 | — |
-| M22 | Snapshots | src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted source chunks, inert inventory; **landed F03:** the per-sheet v2 format + writer | M08, M11 (via ports) | — |
-| M23 | Staging | src/import/staging/ | Provisional encrypted import model, atomic promotion, no-partial-app guarantee; multi-sheet promotion + append (D38, F03); durable codecs for rule IR/formulas/charts and built-in theme palettes (F04) | M08, M11 (via ports), M03 (F04), M65 (F03) | — |
-| M65 | Workbook facts | src/import/facts/ | The format-neutral `WorkbookFact` stream vocabulary every adapter emits (v2: sheets, typed values, formats, formulas, declared tables, validations, merges, preserved parts, and — F04 — chart/pivot part definitions), the adapter/inventory interfaces, and the fact→canonical-CBOR value mapping. Sole home of the vocabulary since D32 closed | M01 (`values` only) | workbook-facts.ts, adapter.ts (landed) |
+| M13 | Import source | src/import/source/ | Random-access source over File/Blob/staged chunks; content sniffing; **landed F03:** the native container readers (zip/XML/CFB/OPC), no third-party package | M07 [D] | source.ts, sniff.ts |
+| M14 | Pre-flight | src/import/preflight/ | Metadata-only sizing, safety bounds, macro detection, selection plan. Never iterates cells; **landed F03:** `preflightWorkbook` (multi-sheet) beside the F02 delimited path | M13 [R], M19 [R], M65 [R], M04 [D] | preflight.ts, refusal.ts |
+| M15 | OOXML adapter | src/import/formats/ooxml/ | Streaming XLSX/OPC facts, incl. (F04) chart/pivot part definitions | M01 [R], M13 [R], M65 [R] | index.ts (landed) |
+| M16 | XLSB adapter | src/import/formats/xlsb/ | Streaming XLSB records, macro-sheet detection. **Landed F03** | M01 [R], M13 [R], M17 [R], M65 [R] | index.ts (landed) |
+| M17 | BIFF adapter | src/import/formats/biff/ | Bounded CFB + BIFF/XLS records, VBA/XLM refusal signals, the shared `Ptg` decoder. **Landed F03** | M01 [R], M13 [R], M65 [R] | index.ts, ptg.ts (landed) |
+| M18 | ODS adapter | src/import/formats/ods/ | Streaming ODS facts. **Landed F03** | M01 [R], M13 [R], M65 [R] | index.ts (landed) |
+| M19 | Delimited adapter | src/import/formats/delimited/ | Chunked CSV/TSV detection and row facts | M01 [R], M13 [R], M65 [D] | — |
+| M20 | HTML-table adapter | src/import/formats/html-table/ | Non-executing tokenizer for legacy HTML-as-XLS. **Landed F03** | M01 [R], M13 [R], M65 [R] | index.ts (landed) |
+| M21 | Inference | src/import/inference/ | Evidence-weighted schema/type/relationship proposals, rejection memory, and (F04) live-structure (formula/chart/rule) mapping | M01 [R], M03 [R], M65 [R] | — |
+| M22 | Snapshots | src/import/snapshots/ | Normalized read-only sheet snapshots, encrypted source chunks, inert inventory; **landed F03:** the per-sheet v2 format + writer | M01 [R], M09 [R], M23 [R], M08 [D], M11 [D] | — |
+| M23 | Staging | src/import/staging/ | Provisional encrypted import model, atomic promotion, no-partial-app guarantee; multi-sheet promotion + append (D38, F03); durable codecs for rule IR/formulas/charts and built-in theme palettes (F04) | M01 [R], M02 [R], M03 [R], M09 [R], M13 [R], M21 [R], M22 [R], M65 [R], M08 [D], M11 [D] | — |
+| M65 | Workbook facts | src/import/facts/ | The format-neutral `WorkbookFact` stream vocabulary every adapter emits (v2: sheets, typed values, formats, formulas, declared tables, validations, merges, preserved parts, and — F04 — chart/pivot part definitions), the adapter/inventory interfaces, and the fact→canonical-CBOR value mapping. Sole home of the vocabulary since D32 closed | M01 [R] | workbook-facts.ts, adapter.ts (landed) |
 
 ### Infrastructure — sync and export
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M24 | Sync protocol | src/sync/protocol/ | Provider-neutral vault layout, generation head, CAS, tombstones, adoption manifests | M08, M09, M07 | vault-index.ts, publish-plan.ts |
-| M25 | Dropbox adapter | src/sync/providers/dropbox/ | Dropbox PKCE/tokens, App Folder ops, error translation. Implements DurableHomePort | M50 (config), M07 | — |
-| M26 | OneDrive adapter | src/sync/providers/onedrive/ | Microsoft SPA PKCE, approot/Graph ops, 24h renewal, error translation. Implements DurableHomePort | M50 (config), M07 | — |
-| M27 | Bundle adapter | src/sync/providers/bundle/ | Manual encrypted bundle assembly/open, staleness semantics | M24, M07 | — |
-| M28 | Adoption | src/sync/adoption/ | Index-only discovery, sizing, selective transfer, atomic adoption | M24, M25–M27, M04, M08, M11, M09, M02 | — |
-| M29 | Sync scheduler | src/sync/scheduler/ | Debounce, manual/visibility triggers, resume retry, truthful status | M24, M30, M07 | — |
-| M30 | Sync coordinator | src/sync/coordinator/ | Pull/push orchestration, baseline selection, reconciliation invocation, confirmed heads | M24–M27, M06, M02, M11 | — |
-| M31 | Export | src/export/ | Plaintext XLSX/CSV/PNG/PDF generation, complete-local-data scope, delivery | projection cursors, SheetJS, pdf-lib, M51 | — |
+| M24 | Sync protocol | src/sync/protocol/ | Provider-neutral vault layout, generation head, CAS, tombstones, adoption manifests | M08 [D], M09 [D], M07 [D] | vault-index.ts, publish-plan.ts |
+| M25 | Dropbox adapter | src/sync/providers/dropbox/ | Dropbox PKCE/tokens, App Folder ops, error translation. Implements DurableHomePort | M50 [D], M07 [D] | — |
+| M26 | OneDrive adapter | src/sync/providers/onedrive/ | Microsoft SPA PKCE, approot/Graph ops, 24h renewal, error translation. Implements DurableHomePort | M50 [D], M07 [D] | — |
+| M27 | Bundle adapter | src/sync/providers/bundle/ | Manual encrypted bundle assembly/open, staleness semantics | M24 [D], M07 [D] | — |
+| M28 | Adoption | src/sync/adoption/ | Index-only discovery, sizing, selective transfer, atomic adoption | M24 [D], M25 [D], M26 [D], M27 [D], M04 [D], M08 [D], M11 [D], M09 [D], M02 [D] | — |
+| M29 | Sync scheduler | src/sync/scheduler/ | Debounce, manual/visibility triggers, resume retry, truthful status | M24 [D], M30 [D], M07 [D] | — |
+| M30 | Sync coordinator | src/sync/coordinator/ | Pull/push orchestration, baseline selection, reconciliation invocation, confirmed heads | M24 [D], M25 [D], M26 [D], M27 [D], M06 [D], M02 [D], M11 [D] | — |
+| M31 | Export | src/export/ | Plaintext XLSX/CSV/PNG/PDF generation, complete-local-data scope, delivery | M51 [D] | — |
 
 ### Workers
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M32 | Worker protocol | src/workers/protocol/ | Versioned typed RPC, cancellation, progress, transfer, error redaction | M01 (safe types) | messages.ts, client.ts |
-| M33 | Worker entries | src/workers/*.worker.ts **+ src/workers/<name>/** (leasing unit: `src/workers/**` minus `protocol/`) | Per-worker composition: data (keys+DB+projection+F04 structure/chart/theme handlers), import (parse, all formats since F03), io (ciphertext+OAuth I/O), export (plaintext, no network) | M32 + composed app/infra per worker | data.worker.ts + data/{handlers,catalog,session}.ts (landed); import.worker.ts + import/{parse-session,adapters}.ts (landed); io.worker.ts, export.worker.ts |
+| M32 | Worker protocol | src/workers/protocol/ | Versioned typed RPC, cancellation, progress, transfer, error redaction | M01 [R], M11 [R] | messages.ts, client.ts |
+| M33 | Worker entries | src/workers/data.worker.ts, src/workers/data/, src/workers/import.worker.ts, src/workers/import/, src/workers/io.worker.ts, src/workers/io/, src/workers/export.worker.ts, src/workers/export/ | Per-worker composition: data (keys+DB+projection+F04 structure/chart/theme handlers), import (parse, all formats since F03), io (ciphertext+OAuth I/O), export (plaintext, no network) | M01 [R], M02 [R], M08 [R], M09 [R], M11 [R], M12 [R], M13 [R], M14 [R], M15 [R], M16 [R], M17 [R], M18 [R], M19 [R], M20 [R], M21 [R], M22 [R], M23 [R], M32 [R], M34 [R], M35 [R] | data.worker.ts + data/{handlers,catalog,session}.ts (landed); import.worker.ts + import/{parse-session,adapters}.ts (landed); io.worker.ts, export.worker.ts |
 
 > M33 path correction (Roshi, post-F01): the entry file is a composition root
 > only; every command body lives beside it in `src/workers/data/` so it is
@@ -262,38 +264,38 @@ as closed, not open.
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M34 | Commands | src/application/commands/ | The only user-authored mutation entrance; atomic commit + CommitConfirmed | M01–M06, M07 | execute-command.ts |
-| M35 | Queries | src/application/queries/ | Typed queries, pagination, truthful partial scope, chart datasets | M01, M04, M07 | — |
-| M36 | Workflows | src/application/workflows/ | XState machines: setup, unlock, import, re-upload, OAuth, backup, adoption, export, removal, reset | M34, M35, M07, M05 | — |
-| M37 | View models | src/application/view-models/ | Plaintext-minimized per-surface models and announcements | M35, M36, M01 (safe types) | — |
+| M34 | Commands | src/application/commands/ | The only user-authored mutation entrance; atomic commit + CommitConfirmed | M01 [R], M02 [R], M03 [R], M04 [D], M05 [D], M06 [D], M07 [D] | execute-command.ts |
+| M35 | Queries | src/application/queries/ | Typed queries, pagination, truthful partial scope, chart datasets | M01 [R], M03 [R], M04 [D], M07 [D] | — |
+| M36 | Workflows | src/application/workflows/ | XState machines: setup, unlock, import, re-upload, OAuth, backup, adoption, export, removal, reset | M01 [R], M32 [R], M34 [D], M35 [D], M07 [D], M05 [D] | — |
+| M37 | View models | src/application/view-models/ | Plaintext-minimized per-surface models and announcements | M01 [R], M36 [R], M35 [D] | — |
 
 ### UI
 
 | ID | Module | Path | Owns (approved surfaces) | Imports From | Key Files (planned) |
 |----|--------|------|--------------------------|--------------|---------------------|
-| M38 | UI primitives | src/ui/primitives/ | CTL-001–120 wrappers, semantic states | React Aria, M37 (types) | — |
-| M39 | UI layout | src/ui/layout/ | Compact/wide/tablet/desktop shells, safe areas, focus order | M38 | — |
+| M38 | UI primitives | src/ui/primitives/ | CTL-001–120 wrappers, semantic states | M37 [D] | — |
+| M39 | UI layout | src/ui/layout/ | Compact/wide/tablet/desktop shells, safe areas, focus order | M38 [R] | — |
 | M40 | UI theme | src/ui/theme/ | Shell tokens, app token mapping, contrast enforcement | — | tokens.css, theme.ts |
-| M41 | UI security | src/ui/security/ | SCR-001–009; MOD-020–024, 032–033, 037 | M38–M40, M37 | — |
-| M42 | UI library | src/ui/library/ | SCR-010–015; MOD-003; SHT-011 | M38–M40, M37 | — |
-| M43 | UI import | src/ui/import/ | SCR-016–023, 043–045; MOD-004–008, 034–035; SHT-013 | M38–M40, M37 | — |
-| M44 | UI records | src/ui/records/ | SCR-024–032; MOD-009–011; SHT-001–010, 016 | M38–M40, M37 | — |
-| M45 | UI charts | src/ui/charts/ | SCR-033–034, 053; MOD-012–013; SHT-012, 017. **Landed F04** | M38–M40, M37, Chart.js | — |
-| M46 | UI schema | src/ui/schema/ | SCR-035–037; MOD-014–015; SHT-014. **Landed F04** | M38–M40, M37 | — |
-| M47 | UI durability | src/ui/durability/ | SCR-038–042; MOD-001–002, 016–019, 025–026, 036; SHT-015 | M38–M40, M37 | — |
-| M48 | UI reconciliation | src/ui/reconciliation/ | SCR-046–048; SHT-018 | M38–M40, M37 | — |
-| M49 | UI ownership | src/ui/ownership/ | SCR-049–052; MOD-027–031 | M38–M40, M37 | — |
+| M41 | UI security | src/ui/security/ | SCR-001–009; MOD-020–024, 032–033, 037 | M37 [R], M38 [R], M39 [R], M40 [D] | — |
+| M42 | UI library | src/ui/library/ | SCR-010–015; MOD-003; SHT-011 | M38 [R], M40 [R], M41 [R], M39 [D], M37 [D] | — |
+| M43 | UI import | src/ui/import/ | SCR-016–023, 043–045; MOD-004–008, 034–035; SHT-013 | M38 [R], M41 [R], M39 [D], M40 [D], M37 [D] | — |
+| M44 | UI records | src/ui/records/ | SCR-024–032; MOD-009–011; SHT-001–010, 016 | M37 [R], M38 [R], M39 [R], M40 [R], M45 [R] | — |
+| M45 | UI charts | src/ui/charts/ | SCR-033–034, 053; MOD-012–013; SHT-012, 017. **Landed F04** | M37 [R], M38 [R], M44 [R], M39 [D], M40 [D] | — |
+| M46 | UI schema | src/ui/schema/ | SCR-035–037; MOD-014–015; SHT-014. **Landed F04** | M37 [R], M38 [R], M40 [R], M44 [R], M39 [D] | — |
+| M47 | UI durability | src/ui/durability/ | SCR-038–042; MOD-001–002, 016–019, 025–026, 036; SHT-015 | M38 [D], M39 [D], M40 [D], M37 [D] | — |
+| M48 | UI reconciliation | src/ui/reconciliation/ | SCR-046–048; SHT-018 | M38 [D], M39 [D], M40 [D], M37 [D] | — |
+| M49 | UI ownership | src/ui/ownership/ | SCR-049–052; MOD-027–031 | M38 [D], M39 [D], M40 [D], M37 [D] | — |
 
 ### Entry, platform, and composition
 
 | ID | Module | Path | Owns | Imports From | Key Files (planned) |
 |----|--------|------|------|--------------|---------------------|
-| M50 | Config | src/config/ | Validated public build config, provider IDs, origin allowlist, format flags | — | public-config.ts |
-| M51 | Platform | src/platform/ | File acquisition, save/share handoff, install prompt, visibility, storage estimate; **landed F03:** clipboard | browser APIs | — |
-| M52 | PWA | src/pwa/ | Manifest, service worker, precache, Chromium share-target inbox, safe update | Workbox, M50 | sw.ts, manifest |
-| M53 | Bootstrap | src/bootstrap/ | Capability checks, lock/unlock lifetime, composition, worker startup/termination | M50–M52, M32 | — |
-| M54 | Routes | src/routes/ | Hash routes, guards, approved screen composition, OAuth return routing; CA-07 amendment 3 (snapshot routes, F03), amendment 4 (chart/structure/settings/theme routes, F04) | M41–M49, M37 | — |
-| M55 | Entry | src/main.tsx | Minimal browser entry + fatal bootstrap handling | M53, M54 | main.tsx |
+| M50 | Config | src/config/ | Validated public build config, provider IDs, origin allowlist, format flags | M10 [R] | public-config.ts |
+| M51 | Platform | src/platform/ | File acquisition, save/share handoff, install prompt, visibility, storage estimate; **landed F03:** clipboard | — | — |
+| M52 | PWA | src/pwa/ | Manifest, service worker, precache, Chromium share-target inbox, safe update | M50 [D] | sw.ts, manifest |
+| M53 | Bootstrap | src/bootstrap/ | Capability checks, lock/unlock lifetime, composition, worker startup/termination | M32 [R], M51 [R], M50 [D], M52 [D] | — |
+| M54 | Routes | src/routes/ | Hash routes, guards, approved screen composition, OAuth return routing; CA-07 amendment 3 (snapshot routes, F03), amendment 4 (chart/structure/settings/theme routes, F04) | M08 [R], M36 [R], M37 [R], M38 [R], M41 [R], M42 [R], M43 [R], M44 [R], M45 [R], M46 [R], M51 [R], M53 [R], M47 [D], M48 [D], M49 [D] | — |
+| M55 | Entry | src/main.tsx | Minimal browser entry + fatal bootstrap handling | M40 [R], M54 [R], M53 [D] | main.tsx |
 
 ### Tests
 
@@ -481,3 +483,9 @@ needs real Dropbox/OneDrive test accounts, and is never a checkpoint gate.
 | Design | /program/sheaf/specs/design.md + /program/sheaf/mocks/*.html (56 mocks; SCR/MOD/SHT/CTL/STA inventories) | Every UI session |
 | Architecture | /program/sheaf/specs/architecture.md | Stack, module contracts, invariants (parsed into this file) |
 | Database | /program/sheaf/specs/database.md + /src/migrations/ | Any session touching the data layer |
+
+## F05 planning authorization and verification baseline (2026-09-24)
+
+The human instruction **“plan feature f05”** explicitly authorizes F05 planning past Custom Rule 8's planning gate. It does not assert a demo was reviewed or close the F04 residual review findings. `prompts/durable-home-backup/STATE.md` is the current planning record; F04 handoffs remain historical. No F05 Coder session was executed by Planner.
+
+Actual checks at plan HEAD `2c35bfb`: `pnpm typecheck` exit 0; four targeted catalog/event-store/workflow-boundary/config files, **47 tests passed**; Playwright discovery **212 tests in 46 files**. Inherited full baseline is F04 final `5bc19fb`: typecheck/lint pass, unit **2339 passed / 3 skipped**, browser **141 passed**, e2e **71 passed**. Command forms are unchanged; F05 STATE records discovery gaps, resources and new runner owners.
