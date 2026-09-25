@@ -44,3 +44,9 @@ AR-1 remains format-transcript validation debt: the cited `program/demiurge/spec
 Inspected source and sampled assertions in `workers/backup-graph.test.ts`, `workers/backup-handlers.test.ts`, projection, publication, bundle and save tests; full STATE/raw handoffs, original planning findings and graph review. Initial five findings were dispositioned by `5e38ca7`; the bounded graph replan is `f1eae46`. Their future proofs remain owned future work, not passing evidence.
 
 The Final Report records root `pnpm verify` at `d75830d`: typecheck/lint/build exit 0, 214 files / 2402 passing / 3 inherited skips. Native selected 19 files / 106 passing is worker-reported and included in that full suite. Archivist ran no implementation tests, browser journeys, provider requests, OS-save probes or new format qualification. Aggregate green results do not close the gaps above.
+
+
+<!-- durable-home-backup APPROVAL-2026-09-24 -->
+## Approval continuation — 2026-09-24
+
+Supersedes prior-close references to pending DEC-71/72 and missing save/reminder design, while preserving that historical evidence. User approved the proposed schedule (first authored change, then 10m/1h/24h/daily after successive dismissals) and explicit “I saved this bundle” after unobservable delivery, recorded in 27e9a34. Designer save/reminder mocks and inventory landed 4c31ded. S02 CP3/4 still owns delivery, operation-bound confirmation and J1 proof; S03 CP1/2 owns encrypted reminder scheduling and J2. Approval/design readiness is not implementation or capability verification. Exact graph DB/Author contract and provider inputs remain separate owned prerequisites. Current plan 9749c76 governs continuation.
