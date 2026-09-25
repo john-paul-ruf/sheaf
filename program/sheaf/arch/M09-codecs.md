@@ -105,3 +105,11 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   accumulated-set rule and the opaque-payload rule recorded where they bind
   callers.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M09 — F05 compaction (M09 codecs)
+
+- **M09 codecs.** `event-commit.ts` exports `encodeEventProvenance` / `decodeEventProvenance` (original event bytes unchanged). `vault.ts` manifest audit/conflict reference lists keep caller (logical) order; scope/shape/duplicate checks retained. Payload-authenticated order/range checks live in the graph reader.
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).

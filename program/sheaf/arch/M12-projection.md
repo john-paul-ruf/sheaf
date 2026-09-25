@@ -334,3 +334,11 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   counterexample as an isolated session surprise with no forward-looking
   contract. See PROGRAM-CONFIG's Conventions for the promoted rule.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M12 — F05 compaction (M12 projection)
+
+- **M12 projection.** `ProjectionCheckpointExportPort` (`checkpoint()`, `records(signal)`), `authoredRecords`, `checkpointMetadata`, `copyCheckpointHistory`, `hydrateBaselines`, `checkpointEvidence`; original `conflict.detected` / `conflict.resolved` / `merge.applied` replay writes only evidence SQL and validates against the shared validator, baseline and same-commit effects.
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).

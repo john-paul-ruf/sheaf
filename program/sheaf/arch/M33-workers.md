@@ -206,3 +206,17 @@ Source: production `47a633b`, current STATE/Final Report; [F05 boundaries](F05-b
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
 
 - 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M33 — F05 compaction (M33 workers)
+
+- **M33 workers.**
+  - `backup-graph.ts`: V2 traversal with owning-context reconciliation, historical head authentication, original-chain reconstruction; `openBackupGraphProjection(graph, signal, clock?)`, `originalGraphCommits(graph, signal)`.
+  - `event-store.ts`: `loadApp` of a V2 head returns every original commit (from audit) so `chainState` continues the original chain.
+  - `app-session.ts`: V2 (or evidence-bearing) heads hydrate through the authenticated graph projection; V1 path unchanged.
+  - `compaction.ts` (new): `prepareCompaction` (candidate + authored/history/evidence equivalence), `compactApp` (atomic head/catalog/ticket CAS, optional `exclusive` swap), `drainCompactionCleanup`, `postCheckpointCommitCount`, `CompactionGate`, `createCompactionScheduler`; `COMPACTION_TAIL_THRESHOLD = 128` post-checkpoint commits, `COMPACTION_INTERVAL_MS = 1500`.
+  - `handlers.ts`: `createDataWorkerHandler` composes one scheduler (started on setup/unlock, stopped on lock/reset/dispose). Every `handle()` call and `backup.connectBundle` transfer runs through the gate; commands only wait while an already-started swap or its cleanup commits. `DataWorkerDependencies.compaction` (threshold/interval/timers) is for component tests only. No new protocol message.
+  - `catalog.ts` `withCompactedApp`; `import-handlers.ts` exports `SessionCatalogPort` (+ `sealWithCompactedApp`), and promotion/cancel/unlock-sweep cleanup consults reachability; `home-state.ts` `reachableAppObjects` (current heads + every durable pin closure), and `isBackupHeadPinned` uses it; `backup-handlers.ts` pin release tickets unreachable closure objects instead of deleting inline.
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).

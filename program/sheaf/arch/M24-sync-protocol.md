@@ -46,3 +46,11 @@ Implementation: S01 `694c741` / `13e83f1` / `8674766`, S02 `c7e6507` / `d75830d`
 
 - 2026-09-24 — Planner seed at `2c35bfb` described future work.
 - 2026-09-24 — Final reconciliation replaced that planned status with the landed subset and folded received implementation deltas. No full F05 capability is claimed.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M24 — F05 compaction (M24 protocol)
+
+- **M24 protocol.** `verifyBackupFrontier` enforces basis-frontier coverage; genesis/terminal guards unchanged. Container/reference 006 and `minimumReaderVersion` stay 1.
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).

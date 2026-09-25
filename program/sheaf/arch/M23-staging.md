@@ -298,3 +298,11 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   counterexample cross-referenced to `M12-projection.md`'s new "Duplicate
   codecs" section rather than described twice.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M23 — F05 compaction (M23 staging)
+
+- **M23 staging.** `roots.ts`: discriminated `AppHeadV1 | AppHeadV2` (`headVersion: 2`, typed `retainedRoots`, `auditPages`, `conflictPages`) and `RecordPageV1 | RecordPageV2` (`recordRevision`, `createdCommitId`, `updatedCommitId`, sorted `provenance`); `TypedStorageRefV1`, `CommitEvidenceRefV1`, `EventEvidenceRefV1`, `AuditPageV1`, `ConflictPageV1`, V2 baseline pages with authenticated scope. V1 bytes unchanged. `append.ts` preserves the head discriminant and every root. `cleanup.ts`: `compaction` cleanup reason, `prepareCleanupTicket`, `CleanupOptionsV1.beforeCompactionBatch` (required for compaction tickets, run before every destructive CAS; `false` preserves the ticket), batch-bound validation, empty-ticket removal. Import reasons and `abandonStage` unchanged (its input excludes `compaction`).
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).

@@ -221,3 +221,11 @@ Source and current proof scope: [F05 boundaries](F05-boundaries.md), production 
   module's own fragment states its own open questions.
 
 - 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.
+
+
+<!-- durable-home-backup SESSION-06 r9 -->
+## M44 — F05 compaction (M37/M44 history)
+
+- **M37/M44 history.** `ChangeHistoryVm.scope` is `"retained-history"`, `emptiness` `"no-retained-changes"`, announcements "N retained change(s) shown." / "No retained changes yet."; the screen copy describes retained history (no checkpoint cutoff). The per-entry " · this device" origin line is unchanged.
+
+Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
