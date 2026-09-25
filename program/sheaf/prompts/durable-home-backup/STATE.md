@@ -1816,3 +1816,37 @@ Verification is complete: 80 state renders inspected across the five widths, 30 
 - **filesTouched:**
   - `program/sheaf/mocks/f05-provider-states.html`
   - `program/sheaf/specs/design.md`
+
+
+### REPLAN-F05-GRAPH-APPROVED receive — 2026-09-25
+
+Accepted plan-only commit109513b: exact six-file lease, historical handoffs and protected hashes verified; no application changes. Typecheck/lint baseline independently exit0 at afe37f3. Author contract afe37f3 supplied; S06 remains pending scoped completeness review and implementation.
+
+I’ll read the accepted graph contract, current plan, and implementation paths, then reconcile the six allowed planning files and commit only the changed paths.
+
+
+The accepted contract supplies the V2 head, record-page, and evidence formats. I’m tracing their consumers now so S06 owns the full preservation path, including later edits, import appends, bundle decoding, and recovery proofs.
+
+
+The source trace shows two concrete lease gaps: import append rebuilds the head using a V1-only type, and the bundle reader assumes a single retained source head. S06 also needs to replace the current revision-zero record mapping and reconstruct history from audit evidence before installing a compacted head.
+
+
+I’m checking cleanup and recovery alongside the V2 readers so the plan covers the full path through reopen and vault-only recovery. J3 will exercise the real periodic trigger at the production threshold, without adding a release debug API.
+
+The batch now includes import append, projection history/export, bundle-decoder fixtures, counts, cleanup tickets, and scheduler composition. Initial imports store rows in checkpoint pages rather than record-created events, so S06 must also retain the authenticated original checkpoint needed to reconstruct row history. I found no remaining discrepancy requiring a DB/Author edit in this scope.
+
+The lease check passes: S06’s 66 pathspecs match its Files table and LEASES.json, and its source lease remains disjoint from S04/S05. S01–03 and the full historical receive/handoff section are byte-identical. I’m finishing the current readiness summaries and source inventory before committing.
+
+The final check also caught a graph-versus-state counting seam: retained historical baseline pages must not inflate the current-head baseline stream. That correction is now assigned to S06 CP1. Validation passes, protected-file hashes match, and I’ll commit only the six authorized planning files.
+
+## Handoff
+
+- **status:** done — bounded plan-only reconciliation.
+- **commits:** `109513b386721927f1c3a7b7b7b58a81780da106`
+- **filesTouched:** Under `program/sheaf/prompts/durable-home-backup/`: `MASTER.md`, `STATE.md`, `SESSION-06.md`, `SESSION-07.md`, `PLAN-CHECK.md`, `LEASES.json`.
+- **verification:** Lease/Files/STATE consistency, dependency graph, concurrency disjointness and diff checks passed. Historical handoffs, S01–03 acceptance and protected-file hashes unchanged. Commit contains exactly six authorized paths. No application tests or builds run.
+- **notes:** CA-35/41 Author input supplied; S06 pending implementation with candidate/installed/composed proofs planned. Expanded S06 to 66 pathspecs covering consumers, cleanup and harness seams.
+- **surprises:** Initial-import checkpoint retention, audit ordering, historical baseline counting and provenance mappings needed explicit assignments. No remaining Author/schema discrepancy identified.
+- **followUp:** Orchestrator receives scoped completeness review, refreshes current summaries, then dispatches S06 with port8081 and exclusive build/output resources.
+- **unresolvedBlockers:** `PLAN-REVIEW-GRAPH-APPROVED` gates S06 dispatch. `INPUT-DROPBOX`, `INPUT-ONEDRIVE`, S07 predecessor proofs and `GATE-F05` remain unchanged.
+
