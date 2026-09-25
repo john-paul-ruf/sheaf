@@ -1069,6 +1069,7 @@ function OpenedApp({
     appId,
     displayName: session.displayName,
     theme: session.theme,
+    ...(session.durability === undefined ? {} : { durability: session.durability }),
   };
   const nav: AppNavigation = {
     library: ROUTE_HREFS.library,

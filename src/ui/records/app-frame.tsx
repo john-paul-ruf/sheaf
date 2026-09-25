@@ -4,6 +4,10 @@ import { AppShell, type ShellDestination } from "../layout/app-shell.js";
 import { cx } from "../primitives/class-names.js";
 import { appThemeVariables, useAppRenderMode } from "../theme/app-theme.js";
 import visuallyHidden from "../primitives/visually-hidden.module.css";
+import { selectBackupStatus, type AppDurabilityVm } from "../../application/view-models/durability.js";
+import { InlineLink } from "../primitives/inline-link.js";
+import { StatusBanner } from "../primitives/status-banner.js";
+import { formatInstant } from "./values.js";
 
 /**
  * The frame every generated-app surface sits in (M44 over M39).
@@ -76,6 +80,7 @@ export type AppArea = "home" | "records" | "snapshots" | "history" | "charts" | 
  * else's theme.
  */
 export interface AppIdentity {
+  readonly durability?: AppDurabilityVm;
   readonly appId: string;
   readonly displayName: string;
   readonly theme: AppThemeVm;
@@ -181,8 +186,28 @@ export function AppFrame({
             {announcement}
           </span>
         )}
+        {app.durability !== undefined && area !== "home" && area !== "settings" && (
+          <aside aria-label="App backup status" data-frame-backup>
+            <AppBackupStatus compact facts={app.durability} href={`${nav.appHome}/backup`} />
+          </aside>
+        )}
         {children}
       </AppShell>
     </div>
   );
+}
+
+export function AppBackupStatus({ facts, href, compact = false }: { readonly facts: AppDurabilityVm; readonly href: string; readonly compact?: boolean }): ReactNode {
+  const status = selectBackupStatus(facts);
+  if (compact) return <p>
+    <strong>{status.title}</strong>{" · "}
+    Last confirmed backup: <span data-status-time={facts.confirmedAtMs ?? "never"}>{facts.confirmedAtMs === null ? "Never confirmed" : formatInstant(facts.confirmedAtMs)}</span>{" · "}
+    <span data-status-count={facts.deviceOnlyChangeCount}>{facts.deviceOnlyChangeCount} {facts.deviceOnlyChangeCount === 1 ? "change" : "changes"} only on this device.</span>{" "}
+    <InlineLink target={{ kind: "internal", href }}>{status.remedy}</InlineLink>
+  </p>;
+  return <StatusBanner title={status.title} tone={status.tone}
+    action={<InlineLink target={{ kind: "internal", href }}>{status.remedy}</InlineLink>}>
+    <p>Last confirmed backup: <span data-status-time={facts.confirmedAtMs ?? "never"}>{facts.confirmedAtMs === null ? "Never confirmed" : formatInstant(facts.confirmedAtMs)}</span></p>
+    <p data-status-count={facts.deviceOnlyChangeCount}>{facts.deviceOnlyChangeCount} {facts.deviceOnlyChangeCount === 1 ? "change" : "changes"} only on this device.</p>
+  </StatusBanner>;
 }

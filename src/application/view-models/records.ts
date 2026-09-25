@@ -510,6 +510,7 @@ export interface MetricVm {
  * S05's, and a field here could only ever be filled with a fiction (STA-025).
  */
 export interface AppHomeVm {
+  readonly durability?: AppSessionViewV1["durability"];
   readonly screen: "SCR-024";
   readonly appId: string;
   readonly displayName: string;
@@ -581,6 +582,7 @@ export function selectAppHomeVm(
 ): AppHomeVm {
   return {
     screen: "SCR-024",
+    ...(session.durability === undefined ? {} : { durability: session.durability }),
     appId: session.appId,
     displayName: session.displayName,
     theme: session.theme,
@@ -1612,7 +1614,10 @@ export function toIssueVm(issue: RecordIssueViewV1, fields: readonly AppFieldVie
     severity: issue.severity,
     token,
     parameters: issue.messageParameters,
-    sentence: ruleSentence(issue, fields) ?? ISSUE_SENTENCE[token],
+    sentence: token === "preserved-invalid" && issue.messageParameters["preservedSource"] !== undefined &&
+      issue.messageParameters["preservedSource"] !== "initial-import" && issue.messageParameters["preservedSource"] !== "workbook-reupload"
+      ? "This value was kept unchanged and does not fit the field."
+      : ruleSentence(issue, fields) ?? ISSUE_SENTENCE[token],
   };
 }
 

@@ -532,6 +532,14 @@ describe("the record form (SCR-028 / SCR-029)", () => {
 });
 
 describe("command outcomes", () => {
+  it("does not claim an earlier authored value preserved after conversion came from import", () => {
+    const issue = { fieldId: "f", kind: "type", severity: "warning" as const,
+      messageKey: "validation.preserved-invalid", messageParameters: { preservedSource: "user" } };
+    expect(toIssueVm(issue).sentence).toBe("This value was kept unchanged and does not fit the field.");
+    expect(toIssueVm({ ...issue, messageParameters: { preservedSource: "initial-import" } }).sentence)
+      .toBe("This value came in from the import unchanged and does not fit the field.");
+    expect(toIssueVm({ ...issue, messageParameters: {} }).sentence).toContain("import unchanged");
+  });
   it("reads a commitId of null as a truthful no-op, never a failure", () => {
     const vm = toCommandOutcomeVm({
       outcome: "accepted",

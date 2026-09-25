@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { AppDurabilityVm } from "../../application/view-models/durability.js";
+import { selectBackupStatus } from "../../application/view-models/durability.js";
 import { AppFrame, type AppIdentity, type AppNavigation } from "../records/app-frame.js";
 import { Button } from "../primitives/button.js";
 import { InlineLink } from "../primitives/inline-link.js";
@@ -17,14 +18,14 @@ export function HomeScreen({ app, nav, facts, onCreate, onSave, onReveal, topBar
   readonly topBarActions: ReactNode;
   readonly children: ReactNode;
 }): ReactNode {
+  const status = selectBackupStatus(facts);
   return <AppFrame app={app} nav={nav} area="home" title="Durable home" topBarActions={topBarActions}>
     <div className={styles["stack"]} data-screen={facts.homeId === null ? "SCR-038" : "SCR-039"}>
       <p className={styles["eyebrow"]}>{app.displayName} · Durability</p>
       <h1 className={styles["title"]}>{facts.homeId === null ? "Give this app a durable home." : "Backup detail"}</h1>
       <p>The local copy keeps working. A durable home makes an encrypted copy recoverable on your terms.</p>
       <InlineLink target={{ kind: "internal", href: nav.appHome }}>Back to app</InlineLink>
-      <StatusBanner tone={facts.confirmedAtMs !== null && facts.deviceOnlyChangeCount === 0 ? "success" : "warning"}
-        title={facts.homeId === null ? "On this device only · not backed up" : facts.confirmedAtMs === null ? "Backup not confirmed" : facts.deviceOnlyChangeCount > 0 ? "Bundle out of date" : "Backup confirmed"}>
+      <StatusBanner tone={status.tone} title={status.title}>
         <dl className={styles["facts"]}><div><dt>Last confirmed backup</dt><dd data-backup-time={facts.confirmedAtMs ?? "never"}>{facts.confirmedAtMs === null ? "Never confirmed" : formatInstant(facts.confirmedAtMs)}</dd></div>
           <div><dt>Changes only on this device</dt><dd data-pending-count={facts.deviceOnlyChangeCount}>{facts.deviceOnlyChangeCount}</dd></div></dl>
       </StatusBanner>

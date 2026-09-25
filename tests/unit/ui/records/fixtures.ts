@@ -188,7 +188,7 @@ export function detail(
         kind: "value",
         severity: "warning",
         messageKey: "validation.preserved-invalid",
-        messageParameters: { field: "Quoted amount" },
+        messageParameters: { field: "Quoted amount", preservedSource: "initial-import" },
       },
     ],
     indexedFieldIds: [

@@ -64,12 +64,14 @@ describe("SCR-037 — app settings", () => {
     expect(appearance.querySelector('[aria-hidden="true"]')?.textContent).toBe("FL");
   });
 
-  it("states durability from this device's facts, and offers no backup", async () => {
+  it("states receipt facts and links scratch backup to the mounted chooser", async () => {
     await open();
     const durability = query('[data-section="durability"]');
     expect(durability.textContent).toContain("On this device only · not backed up");
     expect(durability.textContent).toContain("3 changes only on this device.");
     expect(queryAll("button").map((candidate) => candidate.textContent)).not.toContain("Back up now");
+    expect(durability.textContent).toContain("Never confirmed");
+    expect(durability.querySelector("a")?.getAttribute("href")).toBe(`#/app/${APP_ID}/backup`);
   });
 
   it("renames the app through a preview, and says so only after the commit", async () => {

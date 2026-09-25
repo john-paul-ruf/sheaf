@@ -449,7 +449,12 @@ export function createRecordHandlers(
         ...toSummaryView(detail),
         createdCommitId: encodeDomainId(detail.createdCommitId),
         updatedCommitId: encodeDomainId(detail.updatedCommitId),
-        issues: detail.issues.map(toIssueView),
+        issues: detail.issues.map((issue) => {
+          const view = toIssueView(issue);
+          if (issue.messageKey !== "validation.preserved-invalid" || issue.fieldId === null) return view;
+          const source = [...detail.provenance].find(([fieldId]) => encodeDomainId(fieldId) === view.fieldId)?.[1].source;
+          return source === undefined ? view : { ...view, messageParameters: { ...view.messageParameters, preservedSource: source } };
+        }),
         indexedFieldIds: detail.cells.map((cell) => encodeDomainId(cell.fieldId)),
         references: planRecordReferences(session.projection, detail).map(toReferenceView),
       };

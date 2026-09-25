@@ -11,7 +11,7 @@ import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { logoSource } from "../theme/app-theme.js";
-import { AppFrame, type AppNavigation } from "./app-frame.js";
+import { AppBackupStatus, AppFrame, type AppNavigation } from "./app-frame.js";
 import { TableSwitcherTrigger } from "./table-switcher-sheet.js";
 import {
   describeRecordCount,
@@ -154,7 +154,8 @@ export function AppHomeScreen({
           )}
         </section>
 
-        {vm.isScratch && (
+        {vm.durability !== undefined && backupHref !== undefined && <AppBackupStatus facts={vm.durability} href={backupHref} />}
+        {vm.isScratch && vm.durability === undefined && (
           <StatusBanner
             title="On this device only · not backed up"
             tone="warning"
@@ -167,6 +168,8 @@ export function AppHomeScreen({
             {backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref }}>Choose a durable home</InlineLink>}
           </StatusBanner>
         )}
+
+        {vm.isScratch && vm.durability !== undefined && backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref }}>Choose a durable home</InlineLink>}
 
         {!vm.isScratch && backupHref !== undefined && <InlineLink target={{ kind: "internal", href: backupHref }}>Backup detail</InlineLink>}
 

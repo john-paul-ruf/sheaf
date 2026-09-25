@@ -899,7 +899,7 @@ export function selectAppSettingsVm(input: {
           ].join(" · "),
     durabilityTitle: input.isScratch ? "On this device only · not backed up" : changes,
     durabilityDetail: input.isScratch
-      ? `${input.appName} has no durable home. ${changes} Choosing a durable home and backing up arrive in a later release.`
+      ? `${input.appName} has no durable home. ${changes}`
       : "",
   };
 }

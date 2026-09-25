@@ -101,13 +101,14 @@ export function session(): AppSessionViewV1 {
     lastOpenedAtEpochMs: null,
     isScratch: true,
     deviceOnlyChangeCount: 3,
+    durability: { homeId: null, homeName: null, confirmedAtMs: null, deviceOnlyChangeCount: 3 },
     tables: [],
   };
 }
 
 export function wiring(schema: SchemaServices, overrides: Partial<AppAreaWiring> = {}): AppAreaWiring {
   return {
-    identity,
+    identity: { ...identity, durability: session().durability! },
     nav,
     records: {} as AppAreaWiring["records"],
     charts: {} as AppAreaWiring["charts"],

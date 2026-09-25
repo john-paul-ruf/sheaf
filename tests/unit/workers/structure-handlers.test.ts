@@ -238,6 +238,9 @@ describe("every D59 change, previewed and applied at one revision (CA-28)", () =
       expect(reopened.type).toEqual({ kind: "currency", currencyCode: "EUR" });
       const fields = (await ask(handler, { kind: "openApp", appId })).session?.tables.find((table) => table.displayName === "Jobs")?.fields;
       expect(fields?.find((field) => field.displayName === "Quoted amount")?.type).toEqual({ kind: "currency", currencyCode: "EUR" });
+      const kept = (await records(jobs.tableId)).find((record) => record.values.some((entry) => entry.fieldId === quoted.fieldId && entry.value.kind === "invalid"))!;
+      const detail = (await ask(handler, { kind: "getRecord", appId, recordId: kept.recordId })).record!;
+      expect(detail.issues.find((issue) => issue.fieldId === quoted.fieldId)?.messageParameters["preservedSource"]).toBe("user");
     },
     SLOW,
   );

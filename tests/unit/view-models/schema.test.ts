@@ -199,7 +199,7 @@ describe("CP3: calculations and settings", () => {
     expect(unread.structureSummary).toBeNull();
     expect(unread.snapshotsSummary).toBeNull();
     expect(unread.durabilityDetail).toBe(
-      "Field Log has no durable home. 1 change only on this device. Choosing a durable home and backing up arrive in a later release.",
+      "Field Log has no durable home. 1 change only on this device.",
     );
     const read = selectAppSettingsVm({ appId: "a", appName: "Field Log", isScratch: false, deviceOnlyChangeCount: 0, structure: structure(), sheets: [] });
     expect(read.structureSummary).toBe("2 tables · 9 fields · 1 relationship");

@@ -5,7 +5,7 @@ import { cx } from "../primitives/class-names.js";
 import { InlineLink } from "../primitives/inline-link.js";
 import { StatusBanner } from "../primitives/status-banner.js";
 import { TextField } from "../primitives/text-field.js";
-import { AppFrame, type AppIdentity, type AppNavigation } from "../records/app-frame.js";
+import { AppBackupStatus, AppFrame, type AppIdentity, type AppNavigation } from "../records/app-frame.js";
 import { logoSource } from "../theme/app-theme.js";
 import styles from "./schema.module.css";
 import themeStyles from "./theme.module.css";
@@ -21,7 +21,7 @@ import themeStyles from "./theme.module.css";
  * logo" links to SCR-036 with the stored theme's summary (app-settings.html's
  * Appearance card), and is absent where no route serves it: a row that leads
  * nowhere is not a row. Durability states only the facts this device holds, and offers no
- * backup, because in this release there is nowhere for one to go.
+ * unsupported provider connection; bundle backup uses the mounted chooser.
  */
 
 export interface AppSettingsScreenProps {
@@ -159,9 +159,9 @@ export function AppSettingsScreen({
             <span className={cx(styles["eyebrow"])} id="settings-durability">
               Durability
             </span>
-            <StatusBanner title={vm.durabilityTitle} tone="warning">
+            {app.durability !== undefined ? <AppBackupStatus facts={app.durability} href={`${nav.appHome}/backup`} /> : <StatusBanner title={vm.durabilityTitle} tone="warning">
               {vm.durabilityDetail === "" ? undefined : vm.durabilityDetail}
-            </StatusBanner>
+            </StatusBanner>}
           </section>
 
           <section aria-labelledby="settings-ownership" className={cx(styles["card"])} data-section="ownership">

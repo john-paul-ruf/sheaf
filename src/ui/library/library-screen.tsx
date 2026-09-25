@@ -11,6 +11,7 @@ import { InlineLink } from "../primitives/inline-link.js";
 import { logoSource } from "../theme/app-theme.js";
 import { UnlockedFrame, type SecurityNavigation } from "../security/frames.js";
 import styles from "./library.module.css";
+import { selectBackupStatus } from "../../application/view-models/durability.js";
 
 /**
  * SCR-010 — the populated library (library.html, CAP-14, FR-19).
@@ -177,6 +178,7 @@ export function LibraryTileList({
         >
           <div className={cx(styles["identity"])}>
             <TileMark tile={tile} />
+            {tile.durability !== undefined && tile.status !== "scratch" && <span className={cx(styles["status"])}>{selectBackupStatus(tile.durability).title}</span>}
             {tile.status === "scratch" && (
               <span className={cx(styles["status"])}>{SCRATCH_STATUS}</span>
             )}
@@ -209,10 +211,11 @@ export function LibraryTileList({
             </dd>
             {tile.durability !== undefined && <>
               <dt>Last confirmed backup</dt>
-              <dd>{tile.durability.confirmedAtMs === null ? "Never confirmed" : formatInstant(tile.durability.confirmedAtMs)}</dd>
+              <dd data-library-backup-time={tile.durability.confirmedAtMs ?? "never"}>{tile.durability.confirmedAtMs === null ? "Never confirmed" : formatInstant(tile.durability.confirmedAtMs)}</dd>
               <dt>Changes only on this device</dt><dd data-library-pending={tile.durability.deviceOnlyChangeCount}>{tile.durability.deviceOnlyChangeCount}</dd>
             </>}
           </dl>
+          {tile.durability !== undefined && <InlineLink target={{ kind: "internal", href: `${appHref(tile.appId)}/backup` }}>{selectBackupStatus(tile.durability).remedy}</InlineLink>}
         </li>
       ))}
     </ul>
