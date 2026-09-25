@@ -18,7 +18,7 @@
       "tests/unit/crypto/**",
       "tests/unit/sync/protocol/**"
     ],
-    "concurrent": "\u2014"
+    "concurrent": "—"
   },
   {
     "n": 2,
@@ -45,6 +45,7 @@
       "src/bootstrap/io-worker.ts",
       "src/domain/model/events.ts",
       "src/domain/model/ids.ts",
+      "src/import/staging/append.ts",
       "src/import/staging/roots.ts",
       "src/persistence/projection/**",
       "src/platform/file-save.ts",
@@ -104,6 +105,7 @@
       "tests/unit/domain/events.test.ts",
       "tests/unit/domain/ids.test.ts",
       "tests/unit/projection/**",
+      "tests/unit/staging/append.test.ts",
       "tests/unit/staging/roots.test.ts",
       "tests/unit/sync/bundle/**",
       "tests/unit/ui/architecture.test.ts",
@@ -147,7 +149,7 @@
       "tests/unit/workflows/recovery.machine.test.ts",
       "tests/unit/workflows/reset.machine.test.ts"
     ],
-    "concurrent": "\u2014"
+    "concurrent": "—"
   },
   {
     "n": 3,
@@ -253,7 +255,7 @@
       "tests/unit/workflows/schema-services.test.ts",
       "tests/unit/workflows/theme-services.test.ts"
     ],
-    "concurrent": "\u2014"
+    "concurrent": "—"
   },
   {
     "n": 4,
@@ -463,6 +465,6 @@
       "vite.config.ts",
       "vitest.config.ts"
     ],
-    "concurrent": "\u2014"
+    "concurrent": "—"
   }
 ]
