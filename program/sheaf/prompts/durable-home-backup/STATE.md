@@ -422,6 +422,10 @@ Adw4M reviewed Author afe37f3/plan109513b. F05-GRAPH-APPROVED-01 independently c
 
 
 
+## Original evidence mapping clarification — 2026-09-25
+
+S06 r5 declared-blocked with23uncommitted files; exact full-file recovery snapshot/inventory in .program/recovery/F05-S06-r5, source digest24d6b6d895d68cf7317c2285626e154a4b7425deee2f456a2dd7d6e88d99b2d1. No checkpoint/arch accepted. Root DB under existing explicit approval supplied91ad694: closed maps for detection/resolution/merge, lossless alternatives, baseline/report/status and same-commit effect mapping, no SQL/outer-event change. CA35/41 agreement now includes afe37f3+91ad694; producers/proofs remain planned S06CP1/2/4. Scoped review of changed boundary required before resumed dispatch. Partial typecheck/lint217tests/build are worker-reported component evidence, not full acceptance.
+
 ## Handoff Notes
 
 ### Orchestrator preflight receive — 2026-09-24
@@ -2036,4 +2040,58 @@ I’m preserving six uncommitted checkpoint-1 files. Targeted checks pass 78 tes
 - **needsDesignSource:** —
 - **blockedReason:** CP1 requires an unleased consumer adaptation. The checkpoint remains open; partial implementation is preserved without committing an incomplete gate.
 - **filesTouched:** — committed; six uncommitted files inventoried above.
+
+
+
+### SESSION-06 r5 receive — Author payload-map gap
+
+Native ended; no commits;23file hashes independently checked and full files saved including additions, unaccepted arch copied. Existing outside changes unchanged. Exact contract input supplied91ad694 under previously approved DB re-entry. Await scoped changed-boundary review; same implementation preserved.
+
+I acknowledge lease r4 and instruction revision r5. I’ll inspect the preserved checkpoint-1 work and current instructions, then continue from those files without resetting or reapplying the backup patch.
+
+
+All six instruction hashes match r5, and the six preserved implementation files are present. I’m reviewing the graph and projection code before completing the V2 consumer adaptations; candidate validation remains the checkpoint-1 acceptance boundary.
+
+
+The runtime fixture and both head writers now preserve the V1/V2 discriminant. Typecheck’s remaining failure is in the leased graph test, where a legacy malformed-head fixture needs an explicit V1 version. I’m moving on to authenticated graph traversal and its rejection tests.
+
+
+The graph reader now validates historical head hashes, resolves legacy aliases only through independently typed edges, and checks record-page ownership after collecting all parent constraints. It also counts only the selected head’s baselines when reconstructing state. I’ve added a regression with two historical heads sharing children and an extra historical baseline.
+
+
+The historical graph regression passes. A new provenance test exposed a cache bug: byte-string evidence was being converted into a map. The cache now preserves byte strings and arrays, and the focused codec/projection checks pass 52 tests. I’m continuing with audit evidence resolution and original-chain validation.
+
+
+Audit pages now resolve original commits and verify their hashes, logical order, checkpoint coverage, and chains. For V2 state reconstruction, the reader replays from the authenticated original import checkpoint, copies history without reapplying covered mutations, and compares authored state. Existing graph and vault-only recovery tests still pass; candidate construction and its full proof are not complete yet.
+
+
+Typecheck passes with the runtime consumer fix and the new projection export port. I’m now building the candidate writer: it will preserve original audit evidence, seal bounded V2 pages, and validate the candidate through the graph reader before any installed head can change.
+
+
+The first real import-and-edit candidate test passes. It produces a V2 head with an empty tail and authenticated audit roots, matches the original authored state, and leaves installed storage unchanged. I’m extending validation to conflict evidence and complete history before treating checkpoint 1 as ready.
+
+
+The candidate now passes publication and vault-only recovery tests for the imported workbook, including schema, theme, chart, and full history comparisons. The broader component selection passes 216 tests. That is partial evidence: nonempty conflict/merge fixtures, adversarial graph cases, browser proofs, and installation are still outstanding.
+
+
+I found a contract gap in the required conflict/merge proof. The accepted text defines the new pages and references, but the referenced event payloads remain `unknown`; no producer or decoder defines how their fields map to the existing SQL constraints. I’m checking the remaining sources before returning this as a bounded Author correction, rather than inventing a durable payload layout.
+
+
+The source sweep found no conflict/merge payload definitions beyond the event names and semantic descriptions. A read-only probe confirms that the outer codec accepts empty payloads for all three kinds, while typed replay excludes them. The missing input is the authoritative payload-to-projection mapping—not a new lifecycle state or F06 action. Typecheck, lint, and 217 component tests pass; I’m preserving the open checkpoint with its source inventory.
+
+
+## Handoff
+
+- **session:** SESSION-06
+- **status:** blocked
+- **checkpoint:** 0/4 committed; CP1 remains open. No checkpoint SHAs.
+- **notes:** Lease r4/instruction r5 acknowledged. Base `19cfa364f135ef63ee3820be62ae3d8c9b5b3f86`. Preserved original six-file partial implementation and extended it within the lease. CAP-44 and CA-35/36/40/41 acceptance remain pending.
+- **delivered:** Partial V2 candidate writer, bounded projection export, original audit/import-checkpoint retention, historical graph validation, original-history reconstruction, consumer adaptations, and candidate publication→vault-only recovery tests. No pointer installation or scheduler enabled.
+- **verification:** `pnpm typecheck`, `pnpm lint`, scoped `git diff --check` → exit 0. Candidate component selector → **24 files, 217 passed**, exit 0. `SHEAF_BUILD_ID=19cfa364-S06-r5-open-24d6b6d895d6 pnpm build` → exit 0. Exact test command, file hashes and build artifacts are recorded in [partial-evidence.json](/Users/the.phoenix/WebstormProjects/sheaf/test-results/f05/s06/partial-evidence.json). No browser, installed, J3 or J1 acceptance claimed.
+- **surprises:** The accepted contract defines conflict pages/references, but not the referenced original event payload mappings. [`DomainEventV1.payload`](/Users/the.phoenix/WebstormProjects/sheaf/src/migrations/004_event_format_v1.ts:78) remains `unknown`; repository searches found no producer or decoder for `conflict.detected`, `conflict.resolved`, or `merge.applied`. A read-only probe confirmed all three accept empty/unrelated payload maps through the outer codec and remain excluded from typed replay. This does **not** imply a missing lifecycle enum or justify changing the outer codec.
+- **followUp:** Preserve all **23 uncommitted files**, including new files, inventoried with hashes in the evidence document. Source inventory digest: `24d6b6d895d68cf7317c2285626e154a4b7425deee2f456a2dd7d6e88d99b2d1`. Resume CP1 after the mapping correction; conflict/merge validation, remaining adversarial/browser proofs and CP2–4 are unfinished. The unaccepted architecture delta is preserved in `.program/signal/SESSION-06.arch.md`. Existing outside work is untouched; no server remains running.
+- **needsOwnerCorrection:** Orchestrator → bounded Author clarification in `program/sheaf/specs/database.md`: supply the original conflict/merge payload maps and variants, subject identity rules, and mappings to migration 005’s baseline/report/status constraints. Specify whether resolution/merge results are applied by these events or accompanying record/schema events. Then refresh SESSION-06’s fixture/replay instructions. The new reference/page layouts need no redesign.
+- **needsDesignSource:** —
+- **blockedReason:** Required CA-35/41 conflict/merge recovery proofs cannot validate original payloads and reconstructed effects without an authoritative mapping. Inventing that durable contract would exceed Coder’s assignment; passing current-workbook tests cannot substitute for this proof.
+- **filesTouched:** — committed. All 23 uncommitted source/test paths and their exact hashes are preserved in the linked recovery inventory.
 
