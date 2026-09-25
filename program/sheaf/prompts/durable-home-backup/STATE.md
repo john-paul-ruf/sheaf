@@ -13,7 +13,7 @@
 
 | # | Session | Modules | Owns | Status | Checkpoint | Completed | Notes |
 |---|---|---|---|---|---|---|---|
-| S01 | Vault keys and authenticated transport contracts | M07 M08 M09 M24 M56 M57 M59 M62 | `src/application/ports/backup.ts`, `src/application/ports/durable-home.ts`, `src/application/ports/vault-crypto.ts`, `src/crypto/**`, `src/persistence/codecs/vault.ts`, `src/sync/protocol/**`, `tests/fixtures/vaults/f05/**`, `tests/property/sync/**`, `tests/provider-contract/shared/**`, `tests/unit/codecs/vault.test.ts`, `tests/unit/crypto/**`, `tests/unit/sync/protocol/**` | in-progress | 0/3 | — | Native h-sa5r / CDKpX; r1 base 0f7c68c; minimal shared producer |
+| S01 | Vault keys and authenticated transport contracts | M07 M08 M09 M24 M56 M57 M59 M62 | `src/application/ports/backup.ts`, `src/application/ports/durable-home.ts`, `src/application/ports/vault-crypto.ts`, `src/crypto/**`, `src/persistence/codecs/vault.ts`, `src/sync/protocol/**`, `tests/fixtures/vaults/f05/**`, `tests/property/sync/**`, `tests/provider-contract/shared/**`, `tests/unit/codecs/vault.test.ts`, `tests/unit/crypto/**`, `tests/unit/sync/protocol/**` | done | 3/3 | 2026-09-24 | CP1 694c741, CP2 13e83f1, CP3 8674766; producer contribution accepted, composed proofs remain S02/S06 |
 | S02 | Create a vault and save the first encrypted bundle through the real app | M01 M07 M12 M23 M27 M30 M32 M33 M36 M37 M41 M42 M44 M46 M47 M51 M53 M54 M56 M60 M61 | `src/application/commands/home-commands.ts`, `src/application/ports/event-repository.ts`, `src/application/ports/file-save.ts`, `src/application/ports/projection.ts`, `src/application/view-models/durability.ts`, `src/application/view-models/library.ts`, `src/application/view-models/records.ts`, `src/application/view-models/security.ts`, `src/application/workflows/durability-services.ts`, `src/application/workflows/durability.machine.ts`, `src/application/workflows/import.machine.ts`, `src/application/workflows/recovery.machine.ts`, `src/application/workflows/reset.machine.ts`, `src/bootstrap/app-bootstrap.ts`, `src/bootstrap/io-worker.ts`, `src/domain/model/events.ts`, `src/domain/model/ids.ts`, `src/import/staging/roots.ts`, `src/persistence/projection/**`, `src/platform/file-save.ts`, `src/routes/app-area-hooks.tsx`, `src/routes/app-runtime.tsx`, `src/routes/durability-routes.tsx`, `src/routes/guards.tsx`, `src/routes/route-table.tsx`, `src/routes/schema-routes.tsx`, `src/routes/theme-routes.tsx`, `src/sync/coordinator/bundle.ts`, `src/sync/providers/bundle/**`, `src/ui/durability/**`, `src/ui/library/library-screen.tsx`, `src/ui/library/library.module.css`, `src/ui/records/app-frame.tsx`, `src/ui/records/app-home-screen.tsx`, `src/ui/records/records.module.css`, `src/ui/schema/app-settings-screen.tsx`, `src/ui/security/recovery-codes-screen.tsx`, `src/ui/security/recovery-screen.tsx`, `src/ui/security/reset-readable-screen.tsx`, `src/ui/security/vault-dialogs.tsx`, `src/workers/data.worker.ts`, `src/workers/data/app-session.ts`, `src/workers/data/backup-graph.ts`, `src/workers/data/backup-handlers.ts`, `src/workers/data/catalog.ts`, `src/workers/data/event-store.ts`, `src/workers/data/handlers.ts`, `src/workers/data/home-state.ts`, `src/workers/data/import-handlers.ts`, `src/workers/data/record-event-payloads.ts`, `src/workers/data/record-handlers.ts`, `src/workers/io.worker.ts`, `src/workers/io/**`, `src/workers/protocol/client.ts`, `src/workers/protocol/io-channel.ts`, `src/workers/protocol/io-client.ts`, `src/workers/protocol/io-messages.ts`, `src/workers/protocol/messages.ts`, `src/workers/protocol/redact.ts`, `tests/browser/projection/fixtures/projection.entry.ts`, `tests/browser/projection/fixtures/projection.worker.ts`, `tests/browser/sync/bundle.spec.ts`, `tests/browser/sync/fixtures/**`, `tests/browser/worker/app.spec.ts`, `tests/browser/worker/usage-journey.spec.ts`, `tests/e2e/bundle-backup.spec.ts`, `tests/e2e/fixtures/app.ts`, `tests/e2e/fixtures/durability.ts`, `tests/e2e/recovery-countdown.spec.ts`, `tests/unit/bootstrap/file-save.test.ts`, `tests/unit/bootstrap/lifecycle.test.ts`, `tests/unit/commands/fakes.ts`, `tests/unit/commands/home-commands.test.ts`, `tests/unit/domain/events.test.ts`, `tests/unit/domain/ids.test.ts`, `tests/unit/projection/**`, `tests/unit/staging/roots.test.ts`, `tests/unit/sync/bundle/**`, `tests/unit/ui/architecture.test.ts`, `tests/unit/ui/durability/**`, `tests/unit/ui/library/fixtures.ts`, `tests/unit/ui/library/library-screens.test.tsx`, `tests/unit/ui/records/app-home-screen.test.tsx`, `tests/unit/ui/records/fixtures.ts`, `tests/unit/ui/records/route-guards.test.ts`, `tests/unit/ui/recovery-screen.test.tsx`, `tests/unit/ui/schema/harness.ts`, `tests/unit/ui/schema/settings.test.tsx`, `tests/unit/ui/security-surfaces.test.tsx`, `tests/unit/ui/shells.test.tsx`, `tests/unit/view-models/durability.test.ts`, `tests/unit/view-models/library.test.ts`, `tests/unit/view-models/records.test.ts`, `tests/unit/view-models/security.test.ts`, `tests/unit/workers/backup*.test.ts`, `tests/unit/workers/catalog.test.ts`, `tests/unit/workers/chart-handlers.test.ts`, `tests/unit/workers/data-worker.ts`, `tests/unit/workers/event-store.test.ts`, `tests/unit/workers/handlers.test.ts`, `tests/unit/workers/home-state.test.ts`, `tests/unit/workers/import-handlers.test.ts`, `tests/unit/workers/io*.test.ts`, `tests/unit/workers/module-boundaries.test.ts`, `tests/unit/workers/projection-port.test.ts`, `tests/unit/workers/protocol.test.ts`, `tests/unit/workers/query-handlers.test.ts`, `tests/unit/workers/record-event-payloads.test.ts`, `tests/unit/workers/redact.test.ts`, `tests/unit/workers/reset.test.ts`, `tests/unit/workers/structure-handlers.test.ts`, `tests/unit/workers/theme-handlers.test.ts`, `tests/unit/workflows/durability.test.ts`, `tests/unit/workflows/fakes.ts`, `tests/unit/workflows/import.machine.test.ts`, `tests/unit/workflows/module-boundaries.test.ts`, `tests/unit/workflows/recovery.machine.test.ts`, `tests/unit/workflows/reset.machine.test.ts` | pending | — | — | Requires S01; DEC-72 and DF-F05-1 before affected save/UI checkpoints |
 | S03 | Scratch reminders and consistent backup status at every entry | M05 M32 M33 M36 M37 M42 M44 M47 M54 M56 M61 | `src/application/view-models/durability.ts`, `src/application/view-models/library.ts`, `src/application/view-models/records.ts`, `src/application/view-models/security.ts`, `src/application/workflows/durability-services.ts`, `src/application/workflows/durability.machine.ts`, `src/application/workflows/import.machine.ts`, `src/application/workflows/records-services.ts`, `src/application/workflows/reset.machine.ts`, `src/application/workflows/schema-services.ts`, `src/application/workflows/theme-services.ts`, `src/domain/policy/**`, `src/routes/app-area-hooks.tsx`, `src/routes/app-runtime.tsx`, `src/routes/durability-routes.tsx`, `src/routes/guards.tsx`, `src/routes/route-table.tsx`, `src/routes/schema-routes.tsx`, `src/routes/theme-routes.tsx`, `src/ui/durability/**`, `src/ui/library/library-screen.tsx`, `src/ui/library/library.module.css`, `src/ui/records/app-frame.tsx`, `src/ui/records/app-home-screen.tsx`, `src/ui/records/records.module.css`, `src/ui/schema/app-settings-screen.tsx`, `src/ui/security/recovery-codes-screen.tsx`, `src/ui/security/reset-readable-screen.tsx`, `src/ui/security/vault-dialogs.tsx`, `src/workers/data/app-session.ts`, `src/workers/data/backup-handlers.ts`, `src/workers/data/catalog.ts`, `src/workers/data/event-store.ts`, `src/workers/data/handlers.ts`, `src/workers/data/home-state.ts`, `src/workers/data/import-handlers.ts`, `src/workers/data/record-event-payloads.ts`, `src/workers/data/record-handlers.ts`, `src/workers/protocol/client.ts`, `src/workers/protocol/messages.ts`, `src/workers/protocol/redact.ts`, `tests/browser/worker/app.spec.ts`, `tests/browser/worker/usage-journey.spec.ts`, `tests/e2e/append-import.spec.ts`, `tests/e2e/backup-status.spec.ts`, `tests/e2e/charts.spec.ts`, `tests/e2e/fixtures/durability.ts`, `tests/e2e/fixtures/records.ts`, `tests/e2e/fixtures/structure.ts`, `tests/e2e/fixtures/workbook.ts`, `tests/e2e/gate-f02-demo.spec.ts`, `tests/e2e/gate-f04-demo.spec.ts`, `tests/e2e/records-crud.spec.ts`, `tests/e2e/relationships.spec.ts`, `tests/e2e/scratch-reminders.spec.ts`, `tests/e2e/structure.spec.ts`, `tests/e2e/theme.spec.ts`, `tests/unit/policy/**`, `tests/unit/ui/durability/**`, `tests/unit/ui/library/fixtures.ts`, `tests/unit/ui/library/library-screens.test.tsx`, `tests/unit/ui/records/app-home-screen.test.tsx`, `tests/unit/ui/records/fixtures.ts`, `tests/unit/ui/records/route-guards.test.ts`, `tests/unit/ui/schema/harness.ts`, `tests/unit/ui/schema/settings.test.tsx`, `tests/unit/ui/security-surfaces.test.tsx`, `tests/unit/ui/shells.test.tsx`, `tests/unit/view-models/durability.test.ts`, `tests/unit/view-models/library.test.ts`, `tests/unit/view-models/records.test.ts`, `tests/unit/view-models/security.test.ts`, `tests/unit/workers/catalog.test.ts`, `tests/unit/workers/chart-handlers.test.ts`, `tests/unit/workers/data-worker.ts`, `tests/unit/workers/event-store.test.ts`, `tests/unit/workers/handlers.test.ts`, `tests/unit/workers/import-handlers.test.ts`, `tests/unit/workers/module-boundaries.test.ts`, `tests/unit/workers/protocol.test.ts`, `tests/unit/workers/query-handlers.test.ts`, `tests/unit/workers/record-event-payloads.test.ts`, `tests/unit/workers/redact.test.ts`, `tests/unit/workers/reset.test.ts`, `tests/unit/workers/structure-handlers.test.ts`, `tests/unit/workers/theme-handlers.test.ts`, `tests/unit/workflows/chart-services.test.ts`, `tests/unit/workflows/durability.test.ts`, `tests/unit/workflows/fakes.ts`, `tests/unit/workflows/import.machine.test.ts`, `tests/unit/workflows/module-boundaries.test.ts`, `tests/unit/workflows/records-services.test.ts`, `tests/unit/workflows/reset.machine.test.ts`, `tests/unit/workflows/schema-services.test.ts`, `tests/unit/workflows/theme-services.test.ts` | pending | — | — | Requires S02 and DEC-71 |
 | S04 | Dropbox App Folder backup transport | M25 M56 M62 | `src/sync/providers/dropbox/**`, `tests/provider-contract/dropbox/**`, `tests/unit/sync/dropbox/**` | pending | — | — | Requires S01/S02 and INPUT-DROPBOX before live premise; no configured provider claim |
@@ -158,11 +158,11 @@ Status **planned**, integration/proof owner **S02 CP5**, CA-40; source F04 STATE
 
 | ID | Required meaning / authority | Producer → boundary → consumer | Mapping / constraints | Correction + proof owners / checkpoints | Agreement | Producer | Proof / evidence / checked sources |
 |---|---|---|---|---|---|---|---|
-| CA-34 | Independent local/vault/app protection, existing app ciphertext preserved | M08 planned vault wraps → migration006 header/index → S02 home writer/recovery UI | exact scoped KDF + independent salts; opaque existing app key wrapped; separate recovery | S01 CP1–3; S02 CP1/4/6 | agreed | planned | planned; keys/kdf, migrations001/003/006; provisional against S01 CP3 |
-| CA-35 | Complete authenticated graph and distinct digests | roots.ts/SHF1 + S02 exporter → migration006 manifest/index/bundle → fresh decoder | actual ciphertext hash/reference revision; reconstructed authored-state hash; full reachable graph | S01 CP2–3, S02 CP2/6, S06 CP4 | agreed | planned | planned J1/J3; provisional S01 CP3 + S02 CP2 |
+| CA-34 | Independent local/vault/app protection, existing app ciphertext preserved | M08 planned vault wraps → migration006 header/index → S02 home writer/recovery UI | exact scoped KDF + independent salts; opaque existing app key wrapped; separate recovery | S01 CP1–3; S02 CP1/4/6 | agreed | S01 CP1–3 landed 694c741/13e83f1/8674766: createVaultCrypto + VaultCryptoPort; S02 home writer planned | Orchestrator independently checked S01 scope/key/reference/frontier/publication assertions: 16 files, 71 pass/1 inherited skip, typecheck/lint exit 0 at 8674766; complete graph/save/restart J1 and compaction J3 remain planned |
+| CA-35 | Complete authenticated graph and distinct digests | roots.ts/SHF1 + S02 exporter → migration006 manifest/index/bundle → fresh decoder | actual ciphertext hash/reference revision; reconstructed authored-state hash; full reachable graph | S01 CP2–3, S02 CP2/6, S06 CP4 | agreed | S01 CP2–3 landed 13e83f1/8674766: referenceFromLocal/authenticateReference/verifyBackupFrontier/buildPublicationCandidate; S02 exporter and S06 compaction planned | Orchestrator independently checked S01 scope/key/reference/frontier/publication assertions: 16 files, 71 pass/1 inherited skip, typecheck/lint exit 0 at 8674766; complete graph/save/restart J1 and compaction J3 remain planned |
 | CA-36 | Confirmation, count and absolute sequence remain distinct | event-store + S02 HomeState receipt → protocol/VM/reset | covered frontier only; null never→zero/current; edits during backup stay pending | S02 CP5; S03 CP3; S06 CP2; S07 CP2/3 | agreed | planned | planned J1/J2/J3/J4; current absolute-count defect source-backed |
 | CA-37 | Dismissal never blocks; bundle attempted is not saved | committed authored change / external save → encrypted operational state → approved UX | DEC-71 schedule and DEC-72 fallback are human choices | human decisions; S02 CP3/4; S03 CP1/2; Designer DF-F05-1 | unresolved | planned | blocked for affected decisions; native saved outcome remains agreed |
-| CA-38 | AppFolder account isolation and exact-byte atomic head | registered provider + S04/S05 adapter → DurableHomePort receipt → S07 | stable account/vault binding; null=create-if-absent, stale=conflict; never unconditional overwrite | human registrations; S04/S05 CP0–3; S07 CP1/2/5 | agreed | planned | blocked live premises; primary docs reviewed, no live claim |
+| CA-38 | AppFolder account isolation and exact-byte atomic head | registered provider + S04/S05 adapter → DurableHomePort receipt → S07 | stable account/vault binding; null=create-if-absent, stale=conflict; never unconditional overwrite | human registrations; S04/S05 CP0–3; S07 CP1/2/5 | agreed | S01 CP2–3 DurableHomePort/publishCandidate landed 13e83f1/8674766; S04/S05 real provider adapters/qualification planned | Orchestrator focused protocol gates pass at 8674766, exact CAS/hash/readback on stateful double; live scope/CORS/CAS still blocked INPUT-DROPBOX/ONEDRIVE; J4/J5 S07 planned |
 | CA-39 | Actual transport, lifecycle and egress preserve authority | S02 IO channel + S07 config/bootstrap/token writer → real adapters + scheduler → S02 receipt consumer | tokens/keys separated; lock/cancel correlated; provider-only network; no launch dependency | S02 CP3; S07 CP1–5 | agreed | planned | planned J4/J5/J6; J6 local discovery and controls S07 CP1; provisional after S02/S04/S05 land |
 | CA-40 | Approved status/recovery/remedy meaning on every surface | S02 receipt + S03 policy → worker DTO → VM → routes/UI | scratch badge vs home configured vs confirmed vs stale; every status has remedy | S02 CP4/5 (CAP-05 countdown CP5); S03 CP3/4; S06 CP2/4 history; S07 CP4; Designer | agreed | planned | planned J1/J2/J3/J4 plus CAP-05 S02 CP5 proof; design-fill dependency separate |
 | CA-41 | Compaction preserves identity/provenance/chain/history | S06 checkpoint/audit writer → hydrate/chainState/history/restore → new commit/backup | semantic state+frontier equivalence, baseline absence distinct, deleted restoration preserved | S06 CP1–4 | agreed | planned | planned J3; provisional against S06 CP2 readers/presentation and CP3 scheduling |
@@ -283,3 +283,115 @@ Seven sessions because there are three genuine artifact boundaries: shared vault
 ### Orchestrator preflight receive — 2026-09-24
 
 Read-only Archivist review AO787 returned five findings PC-F05-01–05; raw note preserved in .program/results/ARCHIVIST-F05-PLANNING.result.md and append-only archivist-notes. Bounded Planner correction P7OBZ landed 5e38ca77701df0d61c4b231446f6b6e55ce2d430, all twelve committed files inside its plan-only envelope. No application changes or arch delta. Orchestrator rechecked the affected checkpoint contracts and exact new history/recovery source/test leases, current migration003 scope origin, and S07 security discovery route; planning review cleared for S01. All implementation/CAP proofs remain planned or blocked. Typecheck and lint independently rerun at unchanged application source 2c35bfb, both exit 0; no build/browser/live proof claimed. User go clears startup objection; product questions DEC-71/72 remain pending.
+
+### SESSION-01 receive — accepted 2026-09-24
+
+Raw final reply saved .program/results/F05-SESSION-01.result.md. Three explicit checkpoint commits inspected individually; all 31 filesTouched paths within r1; leased tree clean, no residual commit. Orchestrator ran typecheck/lint (both 0) and exact focused crypto/codec/protocol/property selector (16 files, 71 passed, one inherited skip, exit 0) against CP3 8674766. Due production assertion sources inspected, including actual AEAD scope/kind rejection, fixture regeneration and forged exact-hash receipt readback rejection. Full 2364/3-skip suite and build were reported by Coder, not independently rerun at receive. No browser/live gate due here. Architecture delta consumed in 5d73ba2 and preserved under results. Native transport await timed out repeatedly but same handle reattached; final lifecycle endedBy=end_turn, no recovery or checkpoint shortfall. Future graph descendant/semantic reconstruction and storage/save evidence remain S02, compaction S06, real provider qualification S04/S05/S07. No capability promoted to complete. Pre-existing outside plan edits remain untouched.
+
+I’ll read the exact envelope and required program context, then check the session’s prerequisites and write set before making changes.
+
+
+This session owns crypto and transport contracts, with no UI work or live provider calls. The lease is clear. I’m checking the migration and existing key handling before adding vault protection.
+
+
+The source check confirms the corrected CA-35 mapping: scope comes from authenticated parent context, while revision and padded length come from SHF1. Local reference digests hash plaintext, not ciphertext.
+
+Checkpoint 1 will add independent vault derivation and opaque key wrapping, with rejection tests and the existing local crypto vectors kept unchanged.
+
+
+The vault wrapping code and initial rejection tests are in place. App wraps bind both app and vault IDs; vault wraps bind the KDF descriptor; local protection uses a separate scope. The tests also check that the rewrapped app key opens the original scratch ciphertext.
+
+
+Checkpoint 1 is committed as `694c741`: 49 crypto tests passed, one inherited slow calibration test remained skipped, and typecheck/lint passed.
+
+Checkpoint 2 will add strict vault codecs, SHF1 reference authentication, bundle framing contracts, and a stateful provider double. Its tests will check that failed uploads and stale CAS attempts leave the head unchanged.
+
+
+The codec and reference tests are running. Scope and payload-kind substitution tests call the real AEAD decryption path. The provider double exercises atomic create/replace races, immutable-object conflicts, and interrupted uploads. Next I’m checking continuity from checkpoint chain evidence through decoded event segments.
+
+
+Checkpoint 2 is committed as `13e83f1`: 63 tests passed across 14 files, one inherited slow test skipped, and typecheck/lint passed. The new boundary check initially misclassified an import between ports; I corrected the path rule and reran it with negative controls.
+
+Checkpoint 3 will bind publication candidates to the authenticated predecessor, preserve unchanged apps and permanent markers, and verify deterministic fixture regeneration. Complete application-graph export and storage/restart proof remain assigned to S02/S06.
+
+
+The candidate builder is implemented. It re-authenticates supplied graph objects, checks checkpoint-to-tail continuity, hashes the supplied canonical authored state, and holds private copies of candidate bytes. Publication uploads immutable objects before attempting the head CAS; the new tests check stale predecessors, interruptions, and forged receipts.
+
+I’m now finishing fixture regeneration and the full verification pass.
+
+
+The focused suite passes: 70 tests across 16 files, with one inherited slow test skipped. Fixture regeneration matched every committed byte, and the recovery test opened the checkpoint from the vault secret alone.
+
+The full suite, typecheck, and lint are running. I’m reviewing the final diff and documenting which graph-export and integration proofs remain with later sessions.
+
+
+The full suite passed: 2,363 tests across 207 files, with the three inherited skips unchanged. Typecheck and lint passed too. The production build is running.
+
+These results verify the shared producer contracts. S02 still owns complete graph export, save confirmation and restart proof; S06 owns compaction integration; S04/S05/S07 own provider qualification and composition.
+
+
+Self-review found a receipt case worth strengthening: the correct candidate hash alone does not prove the head was written. Publication now also reads back matching head bytes and revision, with a test that rejects a forged exact-hash receipt. I’m rerunning the required gates after that change before committing checkpoint 3.
+
+
+All three checkpoints are committed. Final verification passed: 71 focused tests across 16 files, 2,364 tests across the full 207-file suite, plus typecheck, lint and build. The three inherited full-suite skips remain, and Vite reported a large-chunk warning.
+
+I’m recording the final evidence and checking that every checkpoint commit stayed inside the lease.
+
+
+## Handoff
+
+- **session:** F05 SESSION-01
+- **status:** done
+- **checkpoint:** 3 of 3, committed separately.
+- **notes:** Shared producer contributions for CAP-39/40/44 completed. CA-34 lands `createVaultCrypto`; CA-35 lands `referenceFromLocal`, `authenticateReference`, `verifyBackupFrontier`, and `buildPublicationCandidate`; CA-38 lands `DurableHomePort` and `publishCandidate`. Complete user capabilities remain unverified.
+- **delivered:** Independent vault secrets and opaque app-key wrapping; strict migration-006 codecs and bundle framing; authenticated references and frontier checks; immutable publication candidates, conditional publication and receipt/readback validation; stateful provider double; reproducible encrypted fixtures. Existing scratch ciphertext and local crypto vectors remain unchanged. Commits:
+  - CP1: `694c741e3882c7a238eeba20459516d1f71b800d`
+  - CP2: `13e83f15b6438406fef1b088e85d3600691a831c`
+  - CP3: `8674766580be6be7a5b846371c797b2c9e73201c`
+- **verification:**
+  - CP1 `pnpm test tests/unit/crypto`: 7 files, 49 passed, 1 inherited skip; exit 0.
+  - CP2 focused crypto/codec/protocol/property command: 14 files, 63 passed, 1 inherited skip; exit 0.
+  - Final `pnpm test tests/unit/crypto tests/unit/codecs/vault.test.ts tests/unit/sync/protocol tests/property/sync`: 16 files, 71 passed, 1 inherited skip; exit 0. Discovery matched intended scope.
+  - Final `pnpm test`: 207 files, 2,364 passed, 3 inherited skips; exit 0.
+  - `pnpm typecheck`, `pnpm lint`, and `pnpm build`: exit 0.
+  - Crypto tests reject wrong secrets, altered KDFs, app/vault substitution and destroyed handles. Reference tests use real `decryptEnvelope` to reject scope/kind substitution and distinguish plaintext from ciphertext hashes.
+  - Protocol tests reject missing/extra objects, broken chains, resurrection, stale predecessors, forged receipts—including a correct hash without a published head—and cancellation during readback. Failed CAS/interrupted-upload tests preserve the prior head.
+  - Fixture self-tests regenerate all four files byte-identically, detect corruption, and recover the checkpoint through real crypto/codecs. Provider storage is a stateful double; application storage/restart and platform save were not exercised.
+  - All three commit path sets verified inside lease; leased tree clean. Final build source matches CP3, with patch identity recorded in [evidence.json](/Users/the.phoenix/WebstormProjects/sheaf/test-results/f05/s01/evidence.json).
+- **surprises:** Lease r1 used throughout. Corrected a boundary-test false positive for imports between ports. Self-review added exact head readback and cancellation checks. A newer concurrent head during readback conservatively rejects confirmation. Vite reports chunks above 500 kB. No outside-lease source changes caused.
+- **followUp:** Orchestrator must update CA-34/35/38 mappings before consumer dispatch. S02 owns authenticated descendant extraction, independent authored-state reconstruction, complete bundle assembly, save receipts and J1 restart proof. S06 owns compaction/J3. S04/S05 own live provider qualification; S07 owns account-bound composition and lifecycle integration. DEC-71/72 remain with their existing owners. Architecture delta: [F05-SESSION-01.arch.md](/Users/the.phoenix/WebstormProjects/sheaf/.program/signal/F05-SESSION-01.arch.md). No server started.
+- **needsOwnerCorrection:** —
+- **needsDesignSource:** —
+- **blockedReason:** —
+- **filesTouched:**
+  - `src/application/ports/backup.ts`
+  - `src/application/ports/durable-home.ts`
+  - `src/application/ports/vault-crypto.ts`
+  - `src/crypto/kdf.ts`
+  - `src/crypto/keys.ts`
+  - `src/crypto/recovery-code.ts`
+  - `src/crypto/vault-port.ts`
+  - `src/crypto/vault.ts`
+  - `src/persistence/codecs/vault.ts`
+  - `src/sync/protocol/frontier.ts`
+  - `src/sync/protocol/publication.ts`
+  - `src/sync/protocol/references.ts`
+  - `tests/fixtures/vaults/f05/README.md`
+  - `tests/fixtures/vaults/f05/checkpoint.shf`
+  - `tests/fixtures/vaults/f05/generate.ts`
+  - `tests/fixtures/vaults/f05/head.cbor`
+  - `tests/fixtures/vaults/f05/helpers.ts`
+  - `tests/fixtures/vaults/f05/index.shf`
+  - `tests/fixtures/vaults/f05/manifest.shf`
+  - `tests/fixtures/vaults/f05/publication.ts`
+  - `tests/property/sync/vault.test.ts`
+  - `tests/provider-contract/shared/double.ts`
+  - `tests/unit/codecs/vault.test.ts`
+  - `tests/unit/crypto/vault-port.test.ts`
+  - `tests/unit/crypto/vault.test.ts`
+  - `tests/unit/sync/protocol/fixtures.test.ts`
+  - `tests/unit/sync/protocol/frontier.test.ts`
+  - `tests/unit/sync/protocol/module-boundaries.test.ts`
+  - `tests/unit/sync/protocol/provider-double.test.ts`
+  - `tests/unit/sync/protocol/publication.test.ts`
+  - `tests/unit/sync/protocol/references.test.ts`
