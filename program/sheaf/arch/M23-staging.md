@@ -61,7 +61,8 @@
   `LoadedImportStageV1`, `ImportWorkflowResumeV1`.
 - `cleanup.ts` → `cancelImportStage`, `processCleanupTickets`,
   `sweepStaleImports`, cleanup-ticket codec, `CLEANUP_BATCH_SIZE = 32`,
-  `CLEANUP_REASONS`, `CleanupReceiptV1`.
+  `CLEANUP_REASONS`, `CleanupReceiptV1`; (F05, S06) the `compaction` reason —
+  see "S06 compaction", below.
 - `promotion.ts` → `promoteImport`, `PromotionResultV1`,
   `PROMOTION_REJECTIONS` (F02: `schema-invalid | record-invalid | no-proposal
   | empty-table`; F03 adds `append-too-large`), `PromotionReceiptV1`.
@@ -69,7 +70,8 @@
   `BaselinePageV1`, their encode/decode pairs, `encodeAppHeadBody`/
   `encodeCheckpointBody`, `compareRecordKeys`, `RECORD_PAGE_MAX_RECORDS =
   1024`, `PAGE_MAX_DECODED_BYTES = 524288`, `encodeAppTheme`/`decodeAppTheme`
-  (F04: v2), and (F04) the formula/chart/filter codecs below.
+  (F04: v2), and (F04) the formula/chart/filter codecs below; (F05, S06) the
+  discriminated `AppHeadV2`/`RecordPageV2` variants below.
 - `events.ts` → `encodeImportEventPayload`: the semantic payload↔CBOR mapping
   for every import-class event.
 - `theme.ts` → `DEFAULT_APP_THEME`, `DEFAULT_THEME_KEY`, `APP_ACCENT_ORDER`,
@@ -127,7 +129,9 @@
   `append-too-large`; source and snapshot re-sealed under the app key; head
   grows `sourceManifests`/`snapshotManifests`/`eventSegments`, `schemaRevision
   + 1`; one transaction deleting the workflow and the superseded head only when
-  the shared backup retention check says it is unpinned (F05 `03ee571`).
+  the shared backup retention check says it is unpinned (F05 `03ee571`); (F05,
+  S06) preserves the `AppHeadV1`/`AppHeadV2` discriminant and every V2 root —
+  see "S06 compaction", below.
 - `events.ts`: `appCreated` carries `relationships`; `tableCreated({table,
   sourceSheet})` writes the F03 form; `inferenceDecision` takes a
   `WorkbookStatementV1`; `importAccepted` evidence ledger lists every sheet
@@ -191,6 +195,41 @@ relationship, validation-rule, inert, decision, lineage codecs (internal).
   session cache; see `M12-projection.md`'s "Duplicate codecs" section for the
   payload-evolution seam this created (S08 lease r2, a counterexample).
 
+## S06 compaction (CA-35/41, CAP-44, current)
+
+`roots.ts` adds a discriminated `AppHeadV1 | AppHeadV2` (`headVersion: 2`,
+typed `retainedRoots`, `auditPages`, `conflictPages`) and
+`RecordPageV1 | RecordPageV2` (`recordRevision`, `createdCommitId`,
+`updatedCommitId`, sorted `provenance`), plus `TypedStorageRefV1`,
+`CommitEvidenceRefV1`, `EventEvidenceRefV1`, `AuditPageV1`, `ConflictPageV1`
+and V2 baseline pages with authenticated scope. **V1 bytes are unchanged** —
+every existing F02–F04 encode/decode pair above keeps producing and accepting
+exactly its old shape; V2 is additive, selected by the discriminant, not a
+migration.
+
+`append.ts` preserves the head discriminant and every root through an
+appended import — an app that already compacted to V2 stays V2 after a CSV/
+workbook append, and the append writer never downgrades it back to a V1
+shape.
+
+`cleanup.ts` adds the `compaction` cleanup reason, `prepareCleanupTicket`,
+and `CleanupOptionsV1.beforeCompactionBatch` (required for compaction
+tickets, run before every destructive CAS; `false` preserves the ticket) —
+batch-bound validation and empty-ticket removal follow the same rules as the
+existing import cleanup reasons. Import cleanup reasons and `abandonStage`
+are unchanged; `abandonStage`'s accepted-reason input explicitly excludes
+`compaction`, so a compaction ticket can never be swept as an abandoned
+import.
+
+Independent receive at `2d8ff2d`: typecheck/lint exit 0; full unit 229
+files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass;
+browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/
+gate-f02/import-journey 18/18 (port 8081, fresh build). CP1 intermittent
+counterexample closed `7e785e4` (fixture picked a random warned demo row;
+production refusal was correct, not loosened). See `M33-workers.md` for the
+compaction gate/scheduler that drives these codecs and `M09-codecs.md` for
+the paired event-provenance codec.
+
 ## Contracts held by the code, not by its callers
 
 - **Chunk lists are contiguous from zero.** A gap is a decode failure.
@@ -210,7 +249,9 @@ relationship, validation-rule, inert, decision, lineage codecs (internal).
   `tests/unit/staging/theme.test.ts` (reads `tokens.css` as text, never
   imports `src/ui/**`).
 - **Cleanup sweep triggers:** unlock, cancel, post-promotion temporaries, and
-  (F03) an abandoned F02-era stage found by the unlock sweep.
+  (F03) an abandoned F02-era stage found by the unlock sweep, and (F05) a
+  compaction ticket left mid-batch (drained under the same reachability CAS
+  as an import ticket).
 - **F03: the baseline is one or more pages.** Promotion writes the original-
   import baseline as **one or more** `BaselinePageV1` pages (each ≤ 512 KiB
   decoded CBOR, record-page key order), via `paginateBaseline(scopeId,
@@ -236,7 +277,8 @@ M01 (`bytes`, `ids`, `errors`, `values`, `events`, `schema` — F03), M03 (F04,
 formula definitions), M09 (`canonical-cbor`, `event-commit`), M13/M14/M19/M21
 shapes, M22 chunking, M65 (F03, fact stream), and the M07 ports — nothing
 else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
-`src/ui/`, no `src/workers/`.
+`src/ui/`, no `src/workers/`. S06's compaction additions above introduce no
+new edge: they reuse the same M01/M09 dependencies this module already had.
 
 ## Dependency must-nots (ship as tests)
 
@@ -261,7 +303,7 @@ else. No `src/crypto/`, no `src/persistence/envelope-store/`, no `dexie`, no
 caller and `createEventStore` use the same encrypted-home retention reader.
 Unpinned old heads and import workflow cleanup retain their prior behavior.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d`, S06 `084ecf9` (+ correction `7e785e4`) through `2d8ff2d` (as applicable to this module); F05 STATE at `9d72cf7` and Final Report `53f7c73`. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
 
 ## Change History
 
@@ -298,11 +340,8 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   counterexample cross-referenced to `M12-projection.md`'s new "Duplicate
   codecs" section rather than described twice.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
-
-
-<!-- durable-home-backup SESSION-06 r9 -->
-## M23 — F05 compaction (M23 staging)
-
-- **M23 staging.** `roots.ts`: discriminated `AppHeadV1 | AppHeadV2` (`headVersion: 2`, typed `retainedRoots`, `auditPages`, `conflictPages`) and `RecordPageV1 | RecordPageV2` (`recordRevision`, `createdCommitId`, `updatedCommitId`, sorted `provenance`); `TypedStorageRefV1`, `CommitEvidenceRefV1`, `EventEvidenceRefV1`, `AuditPageV1`, `ConflictPageV1`, V2 baseline pages with authenticated scope. V1 bytes unchanged. `append.ts` preserves the head discriminant and every root. `cleanup.ts`: `compaction` cleanup reason, `prepareCleanupTicket`, `CleanupOptionsV1.beforeCompactionBatch` (required for compaction tickets, run before every destructive CAS; `false` preserves the ticket), batch-bound validation, empty-ticket removal. Import reasons and `abandonStage` unchanged (its input excludes `compaction`).
-
-Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
+- 2026-09-25 — S06 compaction (CAP-44): discriminated `AppHeadV2`/
+  `RecordPageV2` roots, the `compaction` cleanup reason and
+  `beforeCompactionBatch` gate landed (`084ecf9`, counterexample closed
+  `7e785e4`, through `2d8ff2d`), independently verified. Reconciled here
+  rather than left as a stapled delta (Principle 2).

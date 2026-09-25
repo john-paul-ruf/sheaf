@@ -112,6 +112,9 @@ Labels resolve as the label field else the key, as display text.
 | `filter-sql.ts` (F04) | Prepared-statement composition for `query-records`, from literal fragments only |
 | `authored-functions.ts` (F04) | Two deterministic SQL functions: `sheaf_authored_kind`, `sheaf_fold_text` |
 | `chart-query.ts` (F04) | `chartDataset(handle, query, labelOf)` — the bounded aggregation behind `chart-dataset` |
+| `checkpoint-export.ts` (F05, S06) | `ProjectionCheckpointExportPort` — `checkpoint()` and `records(signal)`, the streamed/bounded readers M33's `backup-graph.ts` composes into a compaction candidate; `authoredRecords`, `checkpointMetadata`, `copyCheckpointHistory`, `hydrateBaselines` |
+| `evidence-events.ts` (F05, S06) | The **original** (uncompacted) `conflict.detected` / `conflict.resolved` / `merge.applied` replay handlers, writing evidence rows only — this is where `requireReport` validates against the shared validator, so a warned/invalid demo row correctly refuses a candidate that hard-codes an empty report (see `M09-codecs.md`'s `encodeEventProvenance`/`decodeEventProvenance`) |
+| `checkpoint-history.ts` (F05, S06) | `checkpointEvidence` — the same-commit conflict/audit evidence a compaction candidate/installed session must reproduce alongside baseline history |
 
 ## Dependency edges
 
@@ -132,6 +135,8 @@ Labels resolve as the label field else the key, as display text.
 - **M12 → `@sqlite.org/sqlite-wasm`.** M12 is the first product module that
   imports it, reachable from the production entry graph since F02
   (`index.html` → app-bootstrap → the data-worker chunk).
+
+No new runtime dependency edge was added by the F05 files above: `checkpoint-export.ts`, `evidence-events.ts` and `checkpoint-history.ts` all stay inside M12's existing M01/M02/M09/M10 edge set. `src/workers/data/backup-graph.ts` and `src/workers/data/compaction.ts` (M33) are the consumers — see `M33-workers.md`.
 
 ## Dependency must-nots (ship as tests)
 
@@ -223,6 +228,15 @@ Labels resolve as the label field else the key, as display text.
   `chartRevision = 0` for a new chart or held revision + 1, and a payload
   consistent with its definition; a taken ordinal is refused by `UNIQUE
   (chart_ordinal)`. History subject `chart`, subject id = `objectId`.
+- **F05 (S06): the *original* conflict/audit event kinds replay through
+  `evidence-events.ts`, not `apply-events.ts`'s ordinary row effects.**
+  `conflict.detected`/`conflict.resolved`/`merge.applied` write evidence rows
+  only — no record/schema mutation — and are validated against the shared
+  validator, the record's baseline and same-commit effects before being
+  accepted into a compaction candidate. This is the producer
+  `M09-codecs.md`'s `decodeEventProvenance` and M33's compaction candidate
+  consume; it is scoped to the compaction working set and does not change any
+  F02–F04 replay guard above.
 
 ## Duplicate codecs: M12's session cache vs. M23's durable roots (payload-evolution seam)
 
@@ -260,10 +274,11 @@ PROGRAM-CONFIG's Conventions for the promoted form of this rule.
 
 - Test-time fixture output `dist/__projection__/` joins the F08 precache
   exclusion debt.
-- The F05 authored-state cursor consumes supplied baseline states for backup
-  hashing; this is not a general baseline query or merge path. Nonempty
-  retained/conflict/audit graph production and readers await GRAPH-CONTRACT
-  and S06; reconciliation actions remain later work.
+- Nonempty retained/conflict/audit graph **production and vault-only readers
+  are now landed and independently verified** (S06 CP1–CP4, `2d8ff2d`; see
+  "S06 compaction", below) — this closes the F05-final-pass gap that named
+  them as awaiting GRAPH-CONTRACT/S06. S07's cloud consumption of the V2
+  graph remains the only remaining owner.
 
 ## Closed in F03 (was open at `5ab3b07`, resolved here — not re-carried)
 
@@ -291,11 +306,42 @@ The assignment event moves app_state.durable_home_id from null to assigned ident
 
 Isolated projection hydration accepts streamed record pages and disposes on iterator failure. Authored-state SQL cursors include provenance, restoration, schema, rules, formulas, charts and supplied baseline states, excluding computed volatile values/local status. Replay retains last verified device hashes rather than decoded commit history. Provenance lookup uses field-ID bytes across durable decode, fixing restoration evidence loss.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+### S06 compaction (CA-35/36/41, CAP-44, current)
+
+`checkpoint-export.ts`'s `ProjectionCheckpointExportPort` (`checkpoint()`,
+`records(signal)`) is the streamed, cancellable read M33's `backup-graph.ts`
+composes a compaction candidate from — it never materializes the whole
+authored state in memory, matching the same bounded-reader convention as the
+S02 current-producer exporter. `authoredRecords`, `checkpointMetadata`,
+`copyCheckpointHistory` and `hydrateBaselines` are the paired helpers CP2's
+installed-session hydration and CP1's candidate history reconstruction share,
+so the two paths cannot silently diverge in what "history" means.
+`checkpointEvidence` (in `checkpoint-history.ts`) reproduces the same
+conflict/audit evidence a compacted head must still expose after a pointer
+swap. The original (pre-compaction) `conflict.detected`/`conflict.resolved`/
+`merge.applied` events replay through `evidence-events.ts`'s dedicated
+handlers, which write evidence rows only and validate every report against
+the shared validator before a candidate is accepted — this is what refused
+the intermittent CP1 counterexample (a fixture row with warnings and a
+hard-coded empty report) rather than the check being loosened; see
+`M09-codecs.md` for the paired provenance codec and `M33-workers.md` for the
+traversal/compaction consumer.
+
+Independent receive at `2d8ff2d`: typecheck/lint exit 0; full unit 229
+files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass;
+browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/
+gate-f02/import-journey 18/18 (port 8081, fresh build). CP1 intermittent
+counterexample closed `7e785e4` (fixture picked a random warned demo row;
+production refusal was correct, not loosened). Real-browser quota refusal
+remains proven component-level only (Chromium ignores the CDP quota
+override) — carried as final-report debt to S07/security harness, not a
+gap in this module.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d`, S06 `084ecf9` (+ correction `7e785e4`) through `2d8ff2d`; F05 STATE at `9d72cf7` and Final Report `53f7c73`. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
 
 ## Change History
 
-- 2026-09-08 — fragment seeded (Forge, F02 planning).
+- 2026-09-08 — fragment seeded (Forge, F01 planning).
 - 2026-09-08 — module created and implemented by SESSION-02 (`063f35a`): engine,
   order keys, hydration, replay, and the closed query surface, proven in a real
   browser (`tests/browser/projection/**`, 29/29). CA-13 producer READY; the
@@ -334,11 +380,9 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   counterexample as an isolated session surprise with no forward-looking
   contract. See PROGRAM-CONFIG's Conventions for the promoted rule.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
-
-
-<!-- durable-home-backup SESSION-06 r9 -->
-## M12 — F05 compaction (M12 projection)
-
-- **M12 projection.** `ProjectionCheckpointExportPort` (`checkpoint()`, `records(signal)`), `authoredRecords`, `checkpointMetadata`, `copyCheckpointHistory`, `hydrateBaselines`, `checkpointEvidence`; original `conflict.detected` / `conflict.resolved` / `merge.applied` replay writes only evidence SQL and validates against the shared validator, baseline and same-commit effects.
-
-Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
+- 2026-09-25 — S06 compaction (CAP-44) landed three new internal files
+  (`checkpoint-export.ts`, `evidence-events.ts`, `checkpoint-history.ts` —
+  file count 16 → 19, no new dependency edge) and the original-evidence
+  replay contract (`084ecf9`, counterexample closed `7e785e4`, through
+  `2d8ff2d`). "Known gaps" nonempty-graph entry moved to closed; reconciled
+  here rather than left as a stapled delta (Principle 2).

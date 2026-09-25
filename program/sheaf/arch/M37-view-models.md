@@ -1,7 +1,8 @@
 # M37 — View models (`src/application/view-models/`)
 
 Extracted from specs/architecture.md §Module Contracts (View models).
-Reconciled through production `47a633b` (F05 continuation).
+Reconciled through production `47a633b` plus S06 compaction through `2d8ff2d`
+(F05 continuation).
 
 - **Owns:** Minimum-data projections for approved surfaces + announcements.
 - **Depends on:** M05 freshness policy; M36 (machine snapshot types + the ordering and phrase
@@ -13,7 +14,7 @@ Reconciled through production `47a633b` (F05 continuation).
   "your passphrase" unqualified (exact-secret scope strings live in the VM per
   design.md §Content Patterns).
 
-## Files (current through `47a633b`)
+## Files (current through `2d8ff2d`)
 
 `security.ts`, `library.ts`, `import.ts`, `records.ts`, and (F04, new)
 `schema.ts`, `theme.ts`, plus F05 `durability.ts`. **There is no `snapshots.ts` or `charts.ts`.** Both
@@ -109,7 +110,7 @@ file — additive at the wire, rewritten at the VM):**
 `isPinned`), `ReviewRuleVm` — the review screen's per-statement articles for a
 computed column, a rebuilt chart, and a converted validation rule.
 
-### `records.ts` (F02, extended F03, F04)
+### `records.ts` (F02, extended F03, F04, F05)
 
 `selectAppHomeVm`, `selectRecordsListVm`, `selectRecordDetailVm`,
 `selectRecordFormVm`, `selectChangeHistoryVm`, `selectDeleteRecordDialogVm`,
@@ -187,8 +188,51 @@ here — not filed as a `M38-ui-primitives.md` delta, where an identical block
 was mistakenly also stapled; see PROGRAM-CONFIG's fragment-reconciliation
 note for the move.
 
-**F04 additions (SESSION-08):** `LibraryTileVm.themeTile?` — see `library.ts`,
-above (recorded once, there).
+**F05 addition (SESSION-06, CA-40, CAP-44) — retained-history change log.**
+`selectChangeHistoryVm`'s output gains a truthful **retained-history** shape
+for a compacted app: `ChangeHistoryVm.scope` is the literal
+`"retained-history"` (replacing the F02–F04-only `"since-last-checkpoint"`
+for such an app), `emptiness` is `"no-retained-changes"`, and the
+announcements are "N retained change(s) shown." / "No retained changes yet."
+This is a **third, additive** scope/emptiness pair, not a redefinition of the
+F02 contract below — an app that has never compacted still reads
+`"since-last-checkpoint"`/`"no-changes-since-checkpoint"` exactly as before.
+Each entry's " · this device"/origin-device line is unchanged by compaction.
+`M44-ui-records.md`'s `change-history-screen.tsx` is the sole consumer of
+this new scope; see that fragment for the screen-copy wording this VM value
+selects.
+
+### `schema.ts` (new, F04, SESSION-06; extended SESSION-08)
+
+`selectStructureVm(structure, selection)` → `StructureVm` (tables with
+`fieldCountLabel`/`hasKey`, a table with fields/rules/metrics/`calculations`,
+field detail with calculation, options, connection + detection-source
+evidence, dashboard values). Nothing the read lacks is drawn: no per-choice
+record counts, no type-inference evidence, no saved-rule failing counts.
+
+`typeLabel`, `typeChoicesFor`, `typeForChoice`, `CHANGEABLE_TYPES`,
+`CALCULATED_COLUMN_TYPES`; `ruleFieldChoices`, `operatorChoicesFor`,
+`ruleValueFrom`, `ruleValueText`, `ruleValueHint`, `ruleSentence`,
+`describeRuleCondition`.
+
+MOD-014: `selectImpactVm({change, preview, structure, wasStale})` →
+`ImpactDialogVm {title, counts, preservation, applyLabel, blocker,
+staleNote}`; a refused preview shows no counts. `describeChange`,
+`describeSchemaRefusal` (incl. known `schema.*` transition keys),
+`describeApplyFailure`, `describeFormulaError` (appends S03's best-guess
+position). `describeChange` for `change-field-type` with `optionLabels`
+(lease r2): `"Change {field} to Choice list with the choices A, B"`.
+
+MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`,
+`LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three
+targets.
+
+### `theme.ts` (new, F04, SESSION-08)
+
+`ThemeDraft`, `draftFromTheme`, `draftTheme`, `draftLogo`,
+`selectThemeVerdict`, `selectThemeEditorVm` (SCR-036), `describeThemeSummary`
+("Cedar · light · comfortable"), `describeContrastCheck` (design.md headings
++ mode), `describeLogoRefusal`, `describeThemeOutcome`.
 
 ## Contracts worth recording
 
@@ -212,9 +256,11 @@ above (recorded once, there).
 - **`totalCount` is the table's count even on a search page.** The VM names the
   field `tableRecordCount` and carries `scope` beside it, so the sentence a
   surface writes has to say which was searched.
-- **The change log is post-checkpoint only.** `ChangeHistoryVm.scope` is the
-  literal `"since-last-checkpoint"` and the empty state is
-  `"no-changes-since-checkpoint"`.
+- **The change log's `scope` is one of two additive literals — never a
+  cutoff a reader has to infer.** `"since-last-checkpoint"` (F02–F04, every
+  app before its first compaction) and `"retained-history"` (F05, S06, after)
+  are both explicit; nothing computes "since when" from a checkpoint id at
+  the surface.
 - **`commitId: null` is a no-op, not a failure.** `RecordCommandOutcomeVm` gives
   it its own `no-op` member so it can never render as an error.
 - **A nulled violation count reads "not measured yet", never "none".**
@@ -247,38 +293,6 @@ above (recorded once, there).
   fails the suite. F04's two new files (`schema.ts`, `theme.ts`) were
   pre-issued into S06's and S08's leases before dispatch (WF-BOUNDARY), so
   neither session hit this as a blocking seam.
-
-## `schema.ts` (new, F04, SESSION-06; extended SESSION-08)
-
-`selectStructureVm(structure, selection)` → `StructureVm` (tables with
-`fieldCountLabel`/`hasKey`, a table with fields/rules/metrics/`calculations`,
-field detail with calculation, options, connection + detection-source
-evidence, dashboard values). Nothing the read lacks is drawn: no per-choice
-record counts, no type-inference evidence, no saved-rule failing counts.
-
-`typeLabel`, `typeChoicesFor`, `typeForChoice`, `CHANGEABLE_TYPES`,
-`CALCULATED_COLUMN_TYPES`; `ruleFieldChoices`, `operatorChoicesFor`,
-`ruleValueFrom`, `ruleValueText`, `ruleValueHint`, `ruleSentence`,
-`describeRuleCondition`.
-
-MOD-014: `selectImpactVm({change, preview, structure, wasStale})` →
-`ImpactDialogVm {title, counts, preservation, applyLabel, blocker,
-staleNote}`; a refused preview shows no counts. `describeChange`,
-`describeSchemaRefusal` (incl. known `schema.*` transition keys),
-`describeApplyFailure`, `describeFormulaError` (appends S03's best-guess
-position). `describeChange` for `change-field-type` with `optionLabels`
-(lease r2): `"Change {field} to Choice list with the choices A, B"`.
-
-MOD-015: `selectUnsupportedFormulaVm`. SCR-037: `selectAppSettingsVm`,
-`LATER_RELEASE`. `formulaChangeFor` builds `save-formula` for all three
-targets.
-
-## `theme.ts` (new, F04, SESSION-08)
-
-`ThemeDraft`, `draftFromTheme`, `draftTheme`, `draftLogo`,
-`selectThemeVerdict`, `selectThemeEditorVm` (SCR-036), `describeThemeSummary`
-("Cedar · light · comfortable"), `describeContrastCheck` (design.md headings
-+ mode), `describeLogoRefusal`, `describeThemeOutcome`.
 
 ## Known gaps with owners (open at `5bc19fb`)
 
@@ -314,9 +328,11 @@ targets.
 
 `durability.ts` forwards authenticated `AppDurabilityViewV1` facts and exports `selectBackupStatus`: M05 freshness produces title, tone and remedy. Runtime M37→M05 is realized; wire references remain type-only. Library, app-home/frame, Settings and backup-detail consumers share the same receipt-relative facts, explicit zero and nullable confirmation time. `AppHomeVm.durability?` forwards them without supplying authority. Recovery VM exposes `canSubmit`, `remainingMs` and `remainingSeconds`; worker throttling remains authoritative. Reset uses current inventory facts.
 
-Schema zero-event preview says “No changes to save.” `toIssueVm` uses neutral preserved-value copy for known authored/other non-import provenance; initial-import/workbook-reupload and legacy absent provenance keep existing import wording. Source `d8b4e14`, paired VM/worker tests; no stored provenance rewrite.
+Schema zero-event preview says "No changes to save." `toIssueVm` uses neutral preserved-value copy for known authored/other non-import provenance; initial-import/workbook-reupload and legacy absent provenance keep existing import wording. Source `d8b4e14`, paired VM/worker tests; no stored provenance rewrite.
 
-Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+Compaction itself changes no `AppDurabilityViewV1` fact: a periodic compaction never advances the pending count or confirmed time, only a subsequent real mutation/receipt does (CA-36, S06 CP2). The retained-history change log above is a separate VM surface from backup status and shares no field with it.
+
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`, S06 through `2d8ff2d`.
 
 ## Change History
 
@@ -362,13 +378,11 @@ Source and current proof scope: [F05 boundaries](F05-boundaries.md), production 
   fragment-reconciliation note); "Known gaps" reconciled against the F04
   Capability Readiness table so a reader does not find a gap already closed
   by CAP-29/31/32/33 still described as open.
-
 - 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.
-
-
-<!-- durable-home-backup SESSION-06 r9 -->
-## M37 — F05 compaction (M37/M44 history)
-
-- **M37/M44 history.** `ChangeHistoryVm.scope` is `"retained-history"`, `emptiness` `"no-retained-changes"`, announcements "N retained change(s) shown." / "No retained changes yet."; the screen copy describes retained history (no checkpoint cutoff). The per-entry " · this device" origin line is unchanged.
-
-Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
+- 2026-09-25 — S06 compaction (CAP-44): `selectChangeHistoryVm`'s
+  `"retained-history"`/`"no-retained-changes"` scope/emptiness pair landed
+  (`084ecf9` through `2d8ff2d`), independently verified. Folded into
+  `records.ts`'s F05 addition and the Durability section rather than left as
+  a delta duplicated verbatim into both this file and `M44-ui-records.md`
+  (Principle 2); the screen-copy half of that same delta is reconciled in
+  `M44-ui-records.md` instead, with a cross-reference here.

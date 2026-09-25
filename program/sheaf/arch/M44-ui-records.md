@@ -42,6 +42,9 @@ chips and sort (SHT-004–009), computed-value display, SCR-036's dark/light
 per-app chrome on `AppFrame`, and the app nav's Charts/Structure/Settings
 destinations.
 
+F05 (S06 @ `2d8ff2d`): SCR-032's change-history screen renders the new
+retained-history scope after compaction (see "Retained history", below).
+
 ### Files (23)
 
 `app-frame.tsx`, `app-home-screen.tsx`, `records-screen.tsx`,
@@ -137,6 +140,33 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
   structure` is present) and pinned-chart tiles (mark → filtered records,
   "View data table" → SCR-033, "Edit chart").
 
+## Retained history (F05, S06, CA-40, CAP-44)
+
+`change-history-screen.tsx` renders `ChangeHistoryScreen` from
+`ChangeHistoryVm` (M37's `selectChangeHistoryVm`) exactly as it did in
+F02–F04, but that VM now carries a third scope value for a compacted app:
+`scope: "retained-history"`, `emptiness: "no-retained-changes"`, with
+announcements "N retained change(s) shown." / "No retained changes yet." The
+screen's copy describes **retained history** — every authored event the
+compaction candidate proved it preserved, with no "since the last checkpoint"
+framing — rather than a cutoff at the newest checkpoint; an app that has
+never compacted still reads the unchanged F02 "since last checkpoint" copy.
+See `M37-view-models.md`'s "records.ts (F02, extended F03, F04, F05)" section
+for the VM value contract this screen switches on; this fragment owns only
+the screen's presentation of it.
+
+The per-entry **" · this device"** origin-device line is unchanged by
+compaction — S06 CP2's implementation had briefly dropped it without
+authorization, and the correction (`fccc345`) restored it before receipt, so
+every retained-history entry still names its originating device exactly as a
+pre-compaction entry does.
+
+Independent receive at `2d8ff2d`: typecheck/lint exit 0; full unit 229
+files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass;
+browser J3 2/2 (real UI history/restore through the real entry, at 320/600/
+900/1200 with axe checked), sync/compaction+bundle 3/3, J1/append/status/
+records/gate-f02/import-journey 18/18 (port 8081, fresh build).
+
 ## Known gaps with owners (open at `5bc19fb`)
 
 - **`InlineLink`'s `externalHandoff` still throws** (M38 backlog, unchanged
@@ -186,9 +216,9 @@ Two F02 files were already beyond the plan's Files table (Custom Rule 7):
 
 ## Shared app backup status (F05)
 
-`AppIdentity.durability?` and exported `AppBackupStatus({facts, href, compact?})` render shared detailed/compact receipt facts on app frame/home and in M46 Settings. M37 supplies freshness and remedies; Back up now / Save a fresh bundle reaches the mounted backup route. Safety status uses system tokens independently of app theme. The owned 320px sticky-toolbar interception was fixed at `47a633b` and the original integration assertions retained. S06 still owns future retained-history/restore presentation with its reader; this status work does not close it.
+`AppIdentity.durability?` and exported `AppBackupStatus({facts, href, compact?})` render shared detailed/compact receipt facts on app frame/home and in M46 Settings. M37 supplies freshness and remedies; Back up now / Save a fresh bundle reaches the mounted backup route. Safety status uses system tokens independently of app theme. The owned 320px sticky-toolbar interception was fixed at `47a633b` and the original integration assertions retained. S06's retained-history/restore presentation is now landed (see "Retained history", above) — this status work and that presentation share no field.
 
-Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`.
+Source and current proof scope: [F05 boundaries](F05-boundaries.md), production `47a633b`, S06 through `2d8ff2d`.
 
 ## Change History
 
@@ -219,13 +249,12 @@ Source and current proof scope: [F05 boundaries](F05-boundaries.md), production 
   longer has; two new open gaps (chart-recolour timing, no add-plain-field
   surface) recorded from the Final Report's residual-gaps list so this
   module's own fragment states its own open questions.
-
 - 2026-09-25 — Continuation final reconciliation: folded accepted S02/S03 deltas into current contracts; preserved earlier history.
-
-
-<!-- durable-home-backup SESSION-06 r9 -->
-## M44 — F05 compaction (M37/M44 history)
-
-- **M37/M44 history.** `ChangeHistoryVm.scope` is `"retained-history"`, `emptiness` `"no-retained-changes"`, announcements "N retained change(s) shown." / "No retained changes yet."; the screen copy describes retained history (no checkpoint cutoff). The per-entry " · this device" origin line is unchanged.
-
-Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
+- 2026-09-25 — S06 compaction (CAP-44): `change-history-screen.tsx`'s
+  retained-history copy landed and the unauthorized removal of the
+  " · this device" line was corrected before receipt (`084ecf9` through
+  `250c9e0`/`fccc345` to `2d8ff2d`), independently verified. Folded into a
+  new "Retained history" section rather than left as a delta duplicated
+  verbatim into both this file and `M37-view-models.md` (Principle 2); the
+  VM-value half of that same delta is reconciled in `M37-view-models.md`
+  instead, with a cross-reference here.

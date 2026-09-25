@@ -1,6 +1,6 @@
 # Current module registry
 
-Reconciled 2026-09-25 at production `47a633b`, final continuation envelope base `7743353`. PROGRAM-CONFIG's historical/planned registry remains externally owned and unchanged. Presence is not readiness: S01/S02/S03 are accepted 3/6/4 checkpoints, while required nonempty graph, provider and local security extensions remain incomplete. M05 and M47 now have source; use their tracked `*-f05-delta.md` current contracts, not the preserved external planning seeds. M25/M26/M29/M30/M64 remain unimplemented. See [F05 boundaries](F05-boundaries.md).
+Reconciled 2026-09-25 at production `47a633b` plus S06 compaction through `2d8ff2d` (this continuation's final report `53f7c73`, STATE receive `9d72cf7`). PROGRAM-CONFIG's historical/planned registry remains externally owned and unchanged. Presence is not readiness: S01/S02/S03/S06 are accepted 3/6/4/4 checkpoints, while S04/S05/S07 (provider connection, egress, cloud composition) remain blocked on human provider registrations. M05 and M47 now have source; use their tracked `*-f05-delta.md` current contracts, not the preserved external planning seeds. M25/M26/M29/M30/M64 remain unimplemented. See [F05 boundaries](F05-boundaries.md).
 
 Runtime edges derive from TypeScript AST traversal of **every non-test JS/TS file in every registered module**, excluding test/spec/declaration files. `import type`, fully type-only named clauses and type-only exports are stripped. Value re-exports, side-effect imports and literal dynamic imports count. Relative `.js` resolves to `.ts`/`.tsx`; CSS imports count toward their owner. Same-module and package imports do not create module edges. Worker URL construction is listed separately. No symbol grep establishes a module edge. Test-module rows enumerate helper/fixture source, excluding cases themselves.
 
@@ -17,7 +17,7 @@ Runtime edges derive from TypeScript AST traversal of **every non-test JS/TS fil
 | M09 | Codecs | `src/persistence/codecs/` | 5 | yes | M01, M10 |
 | M10 | Migrations | `src/migrations/` | 6 | yes | — |
 | M11 | Envelope store | `src/persistence/envelope-store/` | 9 | yes | M01, M10 |
-| M12 | Projection | `src/persistence/projection/` | 16 | yes | M01, M02, M03, M09, M10 |
+| M12 | Projection | `src/persistence/projection/` | 19 | yes | M01, M02, M03, M09, M10 |
 | M13 | Import source | `src/import/source/` | 7 | yes | — |
 | M14 | Pre-flight | `src/import/preflight/` | 4 | yes | M13, M19, M65 |
 | M15 | OOXML adapter | `src/import/formats/ooxml/` | 10 | yes | M01, M13, M65 |
@@ -39,7 +39,7 @@ Runtime edges derive from TypeScript AST traversal of **every non-test JS/TS fil
 | M30 | Sync coordinator | `src/sync/coordinator/` | 0 | empty directory only — planned | — |
 | M31 | Export | `src/export/` | 0 | no — planned | — |
 | M32 | Worker protocol | `src/workers/protocol/` | 9 | yes | M01, M11 |
-| M33 | Worker entries | `src/workers/data.worker.ts`, `src/workers/data/`, `src/workers/import.worker.ts`, `src/workers/import/`, `src/workers/io.worker.ts`, `src/workers/io/`, `src/workers/export.worker.ts`, `src/workers/export/` | 22 | yes | M01, M02, M05, M08, M09, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M24, M27, M32, M34, M35 |
+| M33 | Worker entries | `src/workers/data.worker.ts`, `src/workers/data/`, `src/workers/import.worker.ts`, `src/workers/import/`, `src/workers/io.worker.ts`, `src/workers/io/`, `src/workers/export.worker.ts`, `src/workers/export/` | 23 | yes | M01, M02, M05, M08, M09, M10, M11, M12, M13, M14, M15, M16, M17, M18, M19, M20, M21, M22, M23, M24, M27, M32, M34, M35 |
 | M34 | Commands | `src/application/commands/` | 7 | yes | M01, M02, M03 |
 | M35 | Queries | `src/application/queries/` | 8 | yes | M01, M03 |
 | M36 | Workflows | `src/application/workflows/` | 15 | yes | M01, M32 |
@@ -384,5 +384,15 @@ One witness per mechanically discovered edge; the scan covered all files, not on
 ## Scope and continuation changes
 
 New runtime edges include M27→M24 (artifact authentication), M33→M05 (reminder policy), M37→M05 (freshness), M42→M37 (status selector), M47→M37/M38/M44 (durability surfaces), M54→M47 (mounted routes), and M60's production decoder/UI fixture dependencies. M05 itself has no runtime imports. Edges describe actual coupling, not architectural permission or live provider qualification.
+
+**S06 compaction (`084ecf9`→`2d8ff2d`, CAP-44):** three new M12 internal files
+(`checkpoint-export.ts`, `evidence-events.ts`, `checkpoint-history.ts`; count
+16 → 19) and one new M33 internal file (`data/compaction.ts`; count 22 → 23).
+Both AST-scanned: every value import in the four new files resolves to a
+module already in that module's existing edge set (M01/M08/M09/M10/M12/M23
+for M33's `compaction.ts`; M01/M02/M03/M09/M10 for M12's three files) — **no
+new module-level edge was created**, only new files inside already-declared
+edges. Re-scanned against the same methodology as the rest of this table, not
+inferred from the delta prose alone.
 
 Root manifests, `src/harness/**`, generated `dist/` and public assets remain owner-seam paths from PROGRAM-CONFIG, without new module IDs. An empty directory does not establish a producer.

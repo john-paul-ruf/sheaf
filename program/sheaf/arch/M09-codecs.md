@@ -44,7 +44,11 @@ specs/database.md §Canonical values. Reconciled against the tree at `5ab3b07`
   taken over**), `encodeEventCommit` / `decodeEventCommit`, `encodeEventSegment`
   / `decodeEventSegment`, `sealEventCommit`, `verifyCommitChain`, `sortFrontier`,
   `compareCommits`, `sortCommitsCanonically`, types `Sha256Fn`,
-  `EventCommitBodyV1`.
+  `EventCommitBodyV1`; and (F05, S06) `encodeEventProvenance` /
+  `decodeEventProvenance` — the compaction-candidate's typed per-event
+  provenance codec. It changes no existing event byte: it wraps the same
+  `EventCommitBodyV1` payload the F02 codec already produces, so pre-F05 commit
+  bytes decode unchanged and V1 callers never see it.
   - SHA-256 arrives as an injected `Sha256Fn`, so **M09 stays third-party-free
     (D2)** — new dependency edge M09 → M01 (`ids`, `errors`) and M10 only.
   - Decode is strict: exact key sets, closed kind/class/source lists, 16-byte
@@ -87,7 +91,18 @@ own authenticated reachability; neither framing nor a Blob proves an OS save.
 
 CanonicalArray and encodeCanonicalChunks emit definite-length canonical CBOR without accumulating the complete authored state; byte-equivalence and error/cancellation tests accompany the public API.
 
-Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d` (as applicable to this module); F05 STATE at `95a539d` and Final Report. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
+**S06 compaction (CA-35/41, CAP-44, current).** `vault.ts`'s manifest
+audit-page and conflict-page reference lists keep **caller (logical) order** —
+the compaction candidate/installed writers control ordering, not this codec —
+while the existing scope/shape/duplicate-storage-ID checks are unchanged and
+apply equally to those two new list kinds. Payload-authenticated **order and
+range** checks (whether a record page's declared range actually matches its
+authenticated content) live in M33's graph reader, not here: this codec
+verifies wire shape only. `encodeEventProvenance`/`decodeEventProvenance`
+(above) is the concrete producer of the typed per-event evidence those pages
+carry.
+
+Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d75830d`, S06 `084ecf9` (+ correction `7e785e4`) through `2d8ff2d` (as applicable to this module); F05 STATE at `9d72cf7` and Final Report `53f7c73`. Scope and remaining owners: [F05 boundaries](F05-boundaries.md).
 
 ## Change History
 
@@ -105,11 +120,11 @@ Source: S01 `694c741` / `13e83f1` / `8674766`, S02 `03ee571` / `c7e6507` / `d758
   accumulated-set rule and the opaque-payload rule recorded where they bind
   callers.
 - 2026-09-24 — F05 final reconciliation: folded received deltas into the current contract; S02 remains incomplete.
-
-
-<!-- durable-home-backup SESSION-06 r9 -->
-## M09 — F05 compaction (M09 codecs)
-
-- **M09 codecs.** `event-commit.ts` exports `encodeEventProvenance` / `decodeEventProvenance` (original event bytes unchanged). `vault.ts` manifest audit/conflict reference lists keep caller (logical) order; scope/shape/duplicate checks retained. Payload-authenticated order/range checks live in the graph reader.
-
-Independent receive at 2d8ff2d: typecheck/lint exit 0; full unit 229 files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass; browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/gate-f02/import-journey 18/18 on port 8081 fresh build. CP1 intermittent counterexample closed 7e785e4 (fixture picked random warned row; production refusal correct). Real-browser quota refusal unproven (component-level only).
+- 2026-09-25 — S06 compaction (CAP-44) landed `encodeEventProvenance`/
+  `decodeEventProvenance` and the manifest audit/conflict logical-order
+  contract (`084ecf9`, counterexample closed `7e785e4`, through `2d8ff2d`).
+  Independent receive at `2d8ff2d`: typecheck/lint exit 0; full unit 229
+  files/2520 pass/3 inherited skips; CP1+installed gate 39 files/473 pass;
+  browser J3 2/2, sync/compaction+bundle 3/3, J1/append/status/records/
+  gate-f02/import-journey 18/18 (port 8081, fresh build). Reconciled here
+  rather than left as a stapled delta (Principle 2).
