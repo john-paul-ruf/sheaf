@@ -234,3 +234,23 @@ Receive qualification: implementation committed through7ee5ce8. Independent unit
 `openBundle` verifies framing/directory/object hashes, authenticates the vault index and app manifest with the vault passphrase or recovery code, checks index/manifest frontier and size agreement, and owns decoder-key disposal. Its worker-only app object exposes an opaque app key and bounded frame reader, never a page RPC key. `recoverBackupGraph` reconstructs the complete current-producer graph from the authenticated retained app head, compares manifest roots/frontier and padded size, and verifies the independently reconstructed canonical authored-state digest. It reads no local root/catalog/storage. Nonempty future conflict/audit/unscoped-retained branches remain fail-closed pending S06's owner proofs; this is not F06 adoption UI.
 
 Receive qualification: implementation committed through7ee5ce8. Independent unit2433pass/3skip, typecheck/lint0; J1 download/native and CAP05 countdown passed. Separate sync/bundle browser gate failed during import with integrity refusal before artifact assertions; trace preserved, S02 recovery owns closure. Full session/capability acceptance remains blocked pending this counterexample; reported prior pass is historical.
+
+
+<!-- durable-home-backup SESSION-02 r10 -->
+## M33 — app hydration lifecycle correction (r10)
+
+`AppSessionRegistry.open(appId, hydrate)` shares one in-flight hydration among
+concurrent app readers. `close` and `disposeAll` invalidate pending hydration;
+a late completed session is disposed rather than installed, and a failed open
+is removed so a subsequent explicit request can start fresh. `withApp` owns
+app-key cleanup when hydration fails. `noteAppOpened` coalesces overlapping
+notifications for the same app into one operational catalog write.
+
+The r9 receive refusal reproduced as `openApp` querying a disposed projection:
+concurrent route readers each hydrated and `registry.set` disposed the first
+session while CP4's receipt read awaited storage. The same remount also issued
+overlapping visit writes and caused `revision-conflict`. Durable formats,
+receipt/count meaning, and cross-worker stale-write guards are unchanged.
+
+
+Independent receive at 823012b: typecheck/lint exit 0; 220 unit files, 2438 passed / 3 inherited skips; exact combined fresh-build browser gate 4 passed, exit 0. Prior r9 import counterexample closed by deterministic negative regressions and real import/artifact proof. Future S06 nonempty graphs and S07 provider/egress proofs remain separate.
