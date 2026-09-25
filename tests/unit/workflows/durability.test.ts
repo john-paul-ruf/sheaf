@@ -89,3 +89,33 @@ it("ignores obsolete reminder queries and deduplicates dismissal while its ackno
     expect(actor.getSnapshot().context.reminder?.eligible).toBe(false);
   } finally { actor.stop(); }
 });
+
+it("rejects a reminder response addressed to another app", async () => {
+  const actor = createActor(scratchReminderMachine, { input: { appId: "current", services: {
+    query: () => Promise.resolve({ kind: "getScratchReminder", reminder: { appId: "other", homeId: null, triggeringCommitId: "c",
+      eligible: true, dismissalCount: 0, nextEligibleAtEpochMs: null, deviceOnlyChangeCount: 1 } }),
+    dismiss: vi.fn(),
+  } } }).start();
+  try {
+    await waitFor(actor, (state) => !state.matches("checking"));
+    expect(actor.getSnapshot().matches("failed")).toBe(true);
+    expect(actor.getSnapshot().context.reminder).toBeNull();
+  } finally { actor.stop(); }
+});
+
+it.each(["app", "home", "trigger"])("rejects a dismissal acknowledgement from another %s", async (identity) => {
+  const reminder: ScratchReminderViewV1 = { appId: "a", homeId: null, triggeringCommitId: "c", eligible: true,
+    dismissalCount: 0, nextEligibleAtEpochMs: null, deviceOnlyChangeCount: 1 };
+  const actor = createActor(scratchReminderMachine, { input: { appId: "a", services: {
+    query: () => Promise.resolve({ kind: "getScratchReminder", reminder }),
+    dismiss: () => Promise.resolve({ kind: "dismissScratchReminder", outcome: "dismissed", reminder: { ...reminder,
+      eligible: false, dismissalCount: 1, ...(identity === "app" ? { appId: "other" } : identity === "home" ? { homeId: "other" } : { triggeringCommitId: "other" }) } }),
+  } } }).start();
+  try {
+    await waitFor(actor, (state) => state.matches("ready"));
+    actor.send({ type: "DISMISS" });
+    await waitFor(actor, (state) => !state.matches("dismissing"));
+    expect(actor.getSnapshot().matches("failed")).toBe(true);
+    expect(actor.getSnapshot().context.reminder).toEqual(reminder);
+  } finally { actor.stop(); }
+});

@@ -17,7 +17,7 @@ export function ScratchReminderDialog({ appName, count, dismissalCount, busy, on
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
   return <ModalOverlay isOpen isDismissable={false} onOpenChange={(open) => { if (!open && !busy) onDismiss(); }} className={cx(modal["overlay"])}>
-    <Modal className={cx(modal["modal"])}><Dialog className={cx(modal["dialog"])} data-scratch-reminder>
+    <Modal className={cx(modal["modal"])}><Dialog className={cx(modal["dialog"], styles["reminder"])} data-scratch-reminder>
       <p className={cx(styles["eyebrow"])}>{appName} · Scratch</p>
       <Heading ref={heading} tabIndex={-1} slot="title" className={cx(styles["title"])}>
         {dismissalCount === 0 ? "Your change is saved here. Only here." : `${count} ${count === 1 ? "change still needs" : "changes still need"} a backup.`}

@@ -10,12 +10,21 @@ export const scratchReminderMachine = setup({
   types: { input: {} as ReminderInput, context: {} as ReminderContext,
     events: {} as { readonly type: "REFRESH" | "DISMISS" } },
   actors: {
-    query: fromPromise(async ({ input }: { input: ReminderInput }) => (await input.services.query(input.appId)).reminder),
+    query: fromPromise(async ({ input }: { input: ReminderInput }) => {
+      const { reminder } = await input.services.query(input.appId);
+      if (reminder !== null && reminder.appId !== input.appId) throw new Error("reminder app changed");
+      return reminder;
+    }),
     dismiss: fromPromise(async ({ input }: { input: ReminderContext }) => {
       const reminder = input.reminder;
       if (reminder?.triggeringCommitId == null) throw new Error("missing reminder identity");
-      return input.services.dismiss({ appId: input.appId, homeId: reminder.homeId,
+      const result = await input.services.dismiss({ appId: input.appId, homeId: reminder.homeId,
         triggeringCommitId: reminder.triggeringCommitId, dismissalCount: reminder.dismissalCount });
+      if ((result.reminder !== null && result.reminder.appId !== input.appId) || (result.outcome === "dismissed" &&
+        (result.reminder === null || result.reminder.homeId !== reminder.homeId || result.reminder.triggeringCommitId !== reminder.triggeringCommitId))) {
+        throw new Error("reminder dismissal identity changed");
+      }
+      return result;
     }),
   },
 }).createMachine({

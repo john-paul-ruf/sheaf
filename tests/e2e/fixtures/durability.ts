@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat, mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, type BrowserContext } from "@playwright/test";
+import { expect, test, type Page, type BrowserContext } from "@playwright/test";
 
 export function buildBundleReader(): void {
   execFileSync("pnpm", ["exec", "vite", "build", "--config", "tests/browser/sync/fixtures/bundle-reader.config.ts"], { stdio: "pipe" });
@@ -82,52 +82,58 @@ export async function openReminderPage(context: BrowserContext) {
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const arrived = page.waitForEvent("worker", { predicate: (worker) => new URL(worker.url()).pathname === `/assets/${workerAsset}`, timeout: 10_000 });
-  await page.goto("/");
-  const worker = await arrived;
-  const matches = page.workers().filter((candidate) => candidate.url() === worker.url());
-  if (matches.length !== 1 || !/^https?:/.test(worker.url()) || new URL(worker.url()).origin !== new URL(page.url()).origin) {
-    throw new Error("unexpected or duplicate production data worker");
+  try {
+    const [, worker] = await Promise.all([page.goto("/"), arrived]);
+    const matches = page.workers().filter((candidate) => candidate.url() === worker.url());
+    if (matches.length !== 1 || !/^https?:/.test(worker.url()) || new URL(worker.url()).origin !== new URL(page.url()).origin) {
+      throw new Error("unexpected or duplicate production data worker");
+    }
+    const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+    const assets: Record<string, string> = {};
+    for (const path of ["index.html", `assets/${mainAsset}`, `assets/${bootstrapAsset}`, `assets/${workerAsset}`]) {
+      const local = await readFile(`dist/${path}`);
+      const response = await page.request.get(`/${path}`, { timeout: 10_000 });
+      if (!response.ok() || digest(await response.body()) !== digest(local)) throw new Error(`served build differs: ${path}`);
+      assets[path] = digest(local);
+    }
+    let closed = false;
+    const closedPromise = new Promise<void>((resolve) => worker.once("close", () => { closed = true; resolve(); }));
+    const ensureLive = () => { if (closed || page.isClosed()) throw new Error("reminder worker closed"); };
+    const clock = {
+      worker,
+      async readEpochMs() { ensureLive(); return boundedReminder(worker.evaluate(() => Date.now())); },
+      async setEpochMs(epochMs: number) {
+        ensureLive();
+        if (!Number.isSafeInteger(epochMs) || epochMs < 0) throw new Error("invalid reminder epoch");
+        await boundedReminder(worker.evaluate((epoch) => {
+          const realm = globalThis as unknown as { reminderOriginalNow?: PropertyDescriptor };
+          realm.reminderOriginalNow ??= Object.getOwnPropertyDescriptor(Date, "now")!;
+          Object.defineProperty(Date, "now", { configurable: true, writable: true, value: () => epoch });
+        }, epochMs));
+        expect(await clock.readEpochMs()).toBe(epochMs);
+      },
+      async restore() {
+        ensureLive();
+        await boundedReminder(worker.evaluate(() => {
+          const realm = globalThis as unknown as { reminderOriginalNow?: PropertyDescriptor };
+          if (realm.reminderOriginalNow !== undefined) {
+            Object.defineProperty(Date, "now", realm.reminderOriginalNow);
+            delete realm.reminderOriginalNow;
+          }
+        }));
+      },
+    };
+    return { page, clock, assets, async close() {
+      try { if (!closed && !page.isClosed()) await clock.restore(); }
+      finally {
+        if (!page.isClosed()) await boundedReminder(page.close());
+        await boundedReminder(closedPromise);
+      }
+    } };
+  } catch (error) {
+    await context.close();
+    throw error;
   }
-  const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-  const assets: Record<string, string> = {};
-  for (const path of ["index.html", `assets/${mainAsset}`, `assets/${bootstrapAsset}`, `assets/${workerAsset}`]) {
-    const local = await readFile(`dist/${path}`);
-    const response = await page.request.get(`/${path}`, { timeout: 10_000 });
-    if (!response.ok() || digest(await response.body()) !== digest(local)) throw new Error(`served build differs: ${path}`);
-    assets[path] = digest(local);
-  }
-  let closed = false;
-  const closedPromise = new Promise<void>((resolve) => worker.once("close", () => { closed = true; resolve(); }));
-  const ensureLive = () => { if (closed || page.isClosed()) throw new Error("reminder worker closed"); };
-  const clock = {
-    worker,
-    async readEpochMs() { ensureLive(); return boundedReminder(worker.evaluate(() => Date.now())); },
-    async setEpochMs(epochMs: number) {
-      ensureLive();
-      if (!Number.isSafeInteger(epochMs) || epochMs < 0) throw new Error("invalid reminder epoch");
-      await boundedReminder(worker.evaluate((epoch) => {
-        const realm = globalThis as unknown as { reminderOriginalNow?: PropertyDescriptor };
-        realm.reminderOriginalNow ??= Object.getOwnPropertyDescriptor(Date, "now")!;
-        Object.defineProperty(Date, "now", { configurable: true, writable: true, value: () => epoch });
-      }, epochMs));
-      expect(await clock.readEpochMs()).toBe(epochMs);
-    },
-    async restore() {
-      ensureLive();
-      await boundedReminder(worker.evaluate(() => {
-        const realm = globalThis as unknown as { reminderOriginalNow?: PropertyDescriptor };
-        if (realm.reminderOriginalNow !== undefined) {
-          Object.defineProperty(Date, "now", realm.reminderOriginalNow);
-          delete realm.reminderOriginalNow;
-        }
-      }));
-    },
-  };
-  return { page, clock, assets, async close() {
-    if (!closed && !page.isClosed()) await clock.restore();
-    if (!page.isClosed()) await boundedReminder(page.close());
-    await boundedReminder(closedPromise);
-  } };
 }
 
 /** Only call at a known successful authored-save boundary in an older journey. */
@@ -144,11 +150,25 @@ export async function dismissExpectedScratchReminder(page: Page): Promise<void> 
 export async function writeReminderEvidence(page: Page, name: string, facts: Record<string, unknown>): Promise<void> {
   const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
   const dirty = execFileSync("git", ["ls-files", "--modified", "--others", "--exclude-standard", "--", "src", "tests"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
-  const paths = [...dirty, "playwright.config.ts", "vite.config.ts", "package.json", "pnpm-lock.yaml"];
+  const paths = [...dirty, "playwright.config.ts", "vite.config.ts", "src/config/public-config.ts", "package.json", "pnpm-lock.yaml"];
   const digests = await Promise.all(paths.map(async (path) => [path, hash(await readFile(path))]));
   const buildId = await page.evaluate(() => (window as unknown as { __sheafBuildId: string }).__sheafBuildId);
   const revision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   expect(buildId).toBe(revision);
   await mkdir("test-results/f05/s03", { recursive: true });
-  await writeFile(`test-results/f05/s03/${name}.json`, JSON.stringify({ ...facts, revision, buildId, endpoint: page.url(), digests }, null, 2));
+  const evidence = JSON.stringify({ ...facts, revision, buildId, endpoint: page.url(), digests }, null, 2);
+  const attachment = test.info().outputPath(`${name}.json`);
+  await writeFile(attachment, evidence);
+  await test.info().attach(name, { path: attachment, contentType: "application/json" });
+  await writeFile(`test-results/f05/s03/${name}.json`, evidence);
+}
+
+export async function inspectReminderStatus(page: Page, label: string): Promise<void> {
+  for (const width of [320, 600, 900, 1200]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    expect(results.violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(({ html }) => html) }))).toEqual([]);
+    await page.screenshot({ path: `test-results/f05/s03/${label}-${width}.png`, fullPage: true });
+  }
 }

@@ -337,6 +337,11 @@
   line-height: var(--line-height-heading);
 }
 
+.recordList a {
+  scroll-margin-top: calc(68px + var(--record-tools-height, 0px) + var(--space-12));
+  scroll-margin-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
 .supporting {
   display: flex;
   flex-wrap: wrap;

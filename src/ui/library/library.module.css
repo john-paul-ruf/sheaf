@@ -163,6 +163,11 @@
   font-weight: var(--weight-status);
 }
 
+.tile[data-backup-tone="warning"] .status {
+  background: var(--color-warning-tint);
+  color: var(--color-warning-ink);
+}
+
 .tileName {
   font-family: var(--font-display);
   font-size: var(--text-section);

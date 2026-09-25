@@ -174,6 +174,7 @@ export function LibraryTileList({
           className={cx(styles["tile"])}
           data-accent={tile.accentId}
           data-tile={tile.appId}
+          data-backup-tone={tile.durability === undefined ? undefined : selectBackupStatus(tile.durability).tone}
           key={tile.appId}
         >
           <div className={cx(styles["identity"])}>

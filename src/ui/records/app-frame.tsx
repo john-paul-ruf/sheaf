@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { AppHomeVm } from "../../application/view-models/records.js";
 import { AppShell, type ShellDestination } from "../layout/app-shell.js";
 import { cx } from "../primitives/class-names.js";
@@ -109,6 +109,21 @@ export function AppFrame({
   topBarActions,
   children,
 }: AppFrameProps): ReactNode {
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (area !== "records") return;
+    const frame = root.current;
+    const tools = frame?.querySelector('[role="search"]');
+    if (frame === null || tools === undefined || tools === null) return;
+    const measure = () => frame.style.setProperty("--record-tools-height", `${tools.getBoundingClientRect().height}px`);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(tools);
+    return () => {
+      observer?.disconnect();
+      frame.style.removeProperty("--record-tools-height");
+    };
+  }, [area, children]);
   const mode = useAppRenderMode(app.theme);
   const table =
     nav.tables.find((candidate) => candidate.tableId === currentTableId) ?? nav.tables[0];
@@ -171,6 +186,7 @@ export function AppFrame({
 
   return (
     <div
+      ref={root}
       data-app-density={app.theme.density ?? "comfortable"}
       data-app-mode={mode}
       style={appThemeVariables(app.theme, mode)}

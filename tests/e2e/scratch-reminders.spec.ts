@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { attemptUnlock, followHash, protectDevice, screen, PASSPHRASE } from "./fixtures/app.js";
 import { importDemoWorkbook } from "./fixtures/workbook.js";
-import { openReminderPage, writeReminderEvidence } from "./fixtures/durability.js";
+import { inspectReminderStatus, openReminderPage, writeReminderEvidence } from "./fixtures/durability.js";
 
 const T0 = 1_800_000_000_000;
 const deadlines = [1_800_000_600_000, 1_800_004_200_000, 1_800_090_600_000, 1_800_177_000_000, 1_800_263_400_000];
@@ -66,7 +66,7 @@ test("J2 clock bridge controls only the built data worker", async ({ browser }) 
     expect(controlled.clock.worker).not.toBe(previous.clock.worker);
     expect(Math.abs(await controlled.clock.readEpochMs() - Date.now())).toBeLessThan(10_000);
     await writeReminderEvidence(controlled.page, "clock-selftest", { assets: controlled.assets, worker: controlled.clock.worker.url() });
-  } finally { await controlled.close(); await context.close(); }
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });
 
 test("J2 page-only clock cannot advance worker eligibility", async ({ browser }) => {
@@ -96,7 +96,7 @@ test("J2 page-only clock cannot advance worker eligibility", async ({ browser })
     await requery(page, appHash);
     await expect(reminder(page)).toBeVisible();
     await writeReminderEvidence(page, "page-clock-negative", { assets: controlled.assets, worker: clock.worker.url(), workerEpoch: await clock.readEpochMs() });
-  } finally { await controlled.close(); await context.close(); }
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });
 
 test("J2 exact dismissal deadlines survive page replacement and repeat daily", async ({ browser }) => {
@@ -110,6 +110,7 @@ test("J2 exact dismissal deadlines survive page replacement and repeat daily", a
     await expect(reminder(controlled.page)).toBeVisible();
     const trigger = await marker(controlled.page).getAttribute("data-reminder-trigger");
     const count = await marker(controlled.page).getAttribute("data-reminder-count");
+    const reopened = [];
     for (const [index, deadline] of deadlines.entries()) {
       await dismiss(controlled.page, index + 1);
       await expect(marker(controlled.page)).toHaveAttribute("data-reminder-deadline", String(deadline));
@@ -127,9 +128,14 @@ test("J2 exact dismissal deadlines survive page replacement and repeat daily", a
       await controlled.clock.setEpochMs(deadline);
       await requery(controlled.page, appHash);
       await expect(reminder(controlled.page)).toBeVisible();
+      reopened.push({ worker: controlled.clock.worker.url(), workerReplaced: controlled.clock.worker !== previousWorker,
+        dismissalCount: Number(await marker(controlled.page).getAttribute("data-reminder-dismissals")),
+        persistedDeadline: Number(await marker(controlled.page).getAttribute("data-reminder-deadline")),
+        workerEpoch: await controlled.clock.readEpochMs(), triggerPreserved: await marker(controlled.page).getAttribute("data-reminder-trigger") === trigger,
+        countUnchanged: await marker(controlled.page).getAttribute("data-reminder-count") === count });
     }
-    await writeReminderEvidence(controlled.page, "exact-deadlines", { assets: controlled.assets, worker: controlled.clock.worker.url(), deadlines });
-  } finally { await controlled.close(); await context.close(); }
+    await writeReminderEvidence(controlled.page, "exact-deadlines", { assets: controlled.assets, worker: controlled.clock.worker.url(), deadlines, reopened });
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });
 
 test("J2 real clock authored edit dismiss reopen", async ({ browser }) => {
@@ -153,7 +159,7 @@ test("J2 real clock authored edit dismiss reopen", async ({ browser }) => {
     await controlled.page.getByRole("link", { name: "J-1001", exact: true }).click();
     await expect(screen(controlled.page, "SCR-027")).toContainText("$501.00");
     await writeReminderEvidence(controlled.page, "real-clock", { assets: controlled.assets, worker: controlled.clock.worker.url() });
-  } finally { await controlled.close(); await context.close(); }
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });
 
 test("J2 authored schema chart and theme changes share the reminder and home assignment stops it", async ({ browser }) => {
@@ -209,5 +215,51 @@ test("J2 authored schema chart and theme changes share the reminder and home ass
     await expect(marker(page)).toHaveAttribute("data-reminder-trigger", "");
     await expect(marker(page)).toHaveAttribute("data-reminder-count", String(schemaCount + 3));
     await writeReminderEvidence(page, "authored-families", { assets: controlled.assets, worker: clock.worker.url(), schemaCount });
-  } finally { await controlled.close(); await context.close(); }
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
+});
+
+test("J2 reminder keyboard focus and responsive status remain usable", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "reduce" });
+  const controlled = await openReminderPage(context);
+  const { page, clock } = controlled;
+  try {
+    await protectDevice(page);
+    const appHash = await importDemoWorkbook(page);
+    await clock.setEpochMs(T0);
+    await edit(page, appHash, "500");
+    const dialog = reminder(page);
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByRole("heading")).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Choose a durable home", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Keep working", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Keep working", exact: true })).toBeFocused();
+    await inspectReminderStatus(page, "first-reminder");
+    for (const button of await dialog.getByRole("button").all()) {
+      const box = await button.boundingBox();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.mouse.click(2, 2);
+    await expect(dialog).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(marker(page)).toHaveAttribute("data-reminder-dismissals", "1");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator("main h1")).toBeFocused();
+    expect(await page.locator("main").evaluate((main) => main.closest('[inert], [aria-hidden="true"]') === null)).toBe(true);
+    await clock.setEpochMs(deadlines[0]!);
+    await requery(page, appHash);
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByRole("heading")).toContainText("changes still need a backup");
+    await inspectReminderStatus(page, "later-reminder");
+    await page.setViewportSize({ width: 320, height: 480 });
+    await dialog.getByRole("button", { name: "Keep working", exact: true }).scrollIntoViewIfNeeded();
+    await expect(dialog.getByRole("button", { name: "Keep working", exact: true })).toBeInViewport();
+    await page.screenshot({ path: "test-results/f05/s03/reminder-short-phone.png" });
+    await dismiss(page, 2);
+    await expect(page.getByText("On this device only · not backed up", { exact: true }).first()).toBeVisible();
+    await writeReminderEvidence(page, "responsive-keyboard", { assets: controlled.assets, worker: clock.worker.url(), widths: [320, 600, 900, 1200], reducedMotion: true });
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });

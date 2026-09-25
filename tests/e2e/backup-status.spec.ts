@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { attemptUnlock, followHash, protectDevice, screen, PASSPHRASE } from "./fixtures/app.js";
 import { importDemoWorkbook } from "./fixtures/workbook.js";
-import { openReminderPage, writeReminderEvidence } from "./fixtures/durability.js";
+import { inspectReminderStatus, openReminderPage, writeReminderEvidence } from "./fixtures/durability.js";
 
 async function appFacts(page: Page, count: number, time: string) {
   await expect(page.locator("[data-status-count]")).toHaveAttribute("data-status-count", String(count));
@@ -22,6 +22,7 @@ test("CA-36/40 backup facts and remedies agree across shell, app and restart", a
     const imported = Number(await page.locator("[data-status-count]").getAttribute("data-status-count"));
     expect(imported).toBeGreaterThan(0);
     await appFacts(page, imported, "never");
+    await inspectReminderStatus(page, "scratch-home");
     await page.getByRole("link", { name: "Back up now", exact: true }).click();
     await expect(screen(page, "SCR-038")).toBeVisible();
     await page.getByRole("button", { name: "Save a bundle", exact: true }).click();
@@ -54,6 +55,7 @@ test("CA-36/40 backup facts and remedies agree across shell, app and restart", a
     await appFacts(page, 0, confirmed);
     await page.getByRole("link", { name: "Jobs", exact: true }).first().click();
     await appFacts(page, 0, confirmed);
+    await inspectReminderStatus(page, "current-record-list");
     await page.getByLabel("Search Jobs", { exact: true }).fill("J-1001");
     await page.getByRole("link", { name: "J-1001", exact: true }).click();
     await page.getByRole("link", { name: "Edit this record" }).click();
@@ -62,6 +64,7 @@ test("CA-36/40 backup facts and remedies agree across shell, app and restart", a
     await expect(screen(page, "SCR-027")).toContainText("Saved on this device.");
     await appFacts(page, 1, confirmed);
     await expect(page.locator("[data-frame-backup]")).toContainText("Bundle out of date");
+    await inspectReminderStatus(page, "stale-record-frame");
     await controlled.close();
     controlled = await openReminderPage(context);
     page = controlled.page;
@@ -70,13 +73,17 @@ test("CA-36/40 backup facts and remedies agree across shell, app and restart", a
     await expect(page.locator("[data-library-pending]")).toHaveAttribute("data-library-pending", "1");
     await expect(page.locator("[data-library-backup-time]")).toHaveAttribute("data-library-backup-time", confirmed);
     await expect(page.locator("[data-tile]")).toContainText("Bundle out of date");
+    await inspectReminderStatus(page, "stale-library");
     await page.getByRole("link", { name: "Save a fresh bundle", exact: true }).click();
     await expect(screen(page, "SCR-039")).toBeVisible();
     await expect(page.locator("[data-backup-time]")).toHaveAttribute("data-backup-time", confirmed);
+    await inspectReminderStatus(page, "stale-backup-detail");
     await followHash(page, appHash);
     await appFacts(page, 1, confirmed);
+    await inspectReminderStatus(page, "stale-home");
     await followHash(page, `${appHash}/settings`);
     await appFacts(page, 1, confirmed);
+    await inspectReminderStatus(page, "stale-settings");
     await writeReminderEvidence(page, "backup-status", { assets: controlled.assets, worker: controlled.clock.worker.url(), imported, pending: 1, confirmed });
-  } finally { await controlled.close(); await context.close(); }
+  } finally { try { await controlled.close(); } finally { await context.close(); } }
 });
