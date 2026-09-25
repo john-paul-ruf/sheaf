@@ -174,7 +174,9 @@ it.each([false, true])("recovers every authored branch from vault-only bytes (co
   } finally { registered.mockRestore(); worker.dispose(); await resetLocalDatabase(); }
 }, 120_000);
 
-it("publishes a nonempty original conflict/merge candidate and recovers its SQL evidence from vault-only bytes", async () => {
+// The demo workbook deliberately carries type and broken-reference warnings on a few Jobs rows, and record IDs are random,
+// so both a clean and a warned subject are pinned: the original report comes from the producer's shared validator.
+it.each(["valid", "warned"] as const)("publishes a nonempty original conflict/merge candidate for a %s subject and recovers its SQL evidence from vault-only bytes", async (subject) => {
   const { asStorageId16, decodeStorageId16, constantTimeEquals } = await import("../../../src/domain/model/bytes.js");
   const { asDomainId, compareDomainIds } = await import("../../../src/domain/model/ids.js");
   const { sha256 } = await import("../../../src/crypto/hash.js");
@@ -186,7 +188,9 @@ it("publishes a nonempty original conflict/merge candidate and recovers its SQL 
   const { selectRows } = await import("../../../src/persistence/projection/engine.js");
   const { decodeBaselinePage, encodeAppHead, encodeAppHeadBody } = await import("../../../src/import/staging/roots.js");
   const { exportBackupGraph } = await import("../../../src/workers/data/backup-graph.js");
-  const { engineAdapter } = await import("../../../src/workers/data/app-session.js");
+  const { engineAdapter, toProjectionCommit } = await import("../../../src/workers/data/app-session.js");
+  const { projectionRevalidator } = await import("../../../src/application/commands/execute-command.js");
+  const { applyEvents } = await import("../../../src/persistence/projection/index.js");
   const { loadApp } = await import("../../../src/workers/data/event-store.js");
   await resetLocalDatabase();
   const worker = createTestHandler().handler;
@@ -209,11 +213,17 @@ it("publishes a nonempty original conflict/merge candidate and recovers its SQL 
     const metadata = session.checkpointExport.checkpoint();
     const table = metadata.tables.find((t) => t.displayName === "Jobs")!;
     const field = table.fields.find((f) => f.type.kind === "text" && !constantTimeEquals(f.fieldId, table.keyFieldId ?? new Uint8Array()))!;
-    const row = rows.find((r) => constantTimeEquals(r.record.tableId, table.tableId))!;
+    const resolve = (record: (typeof rows)[number]["record"]) => {
+      const key = [...record.values.keys()].find((f) => constantTimeEquals(f, field.fieldId))!;
+      return { ...record, values: new Map(record.values).set(key, { kind: "text" as const, text: "Original resolution" }),
+        provenance: new Map(record.provenance).set(key, { source: "conflict-resolution" as const }) };
+    };
+    const revalidate = projectionRevalidator(session.projection);
+    const row = rows.find((r) => constantTimeEquals(r.record.tableId, table.tableId) && (revalidate(resolve(r.record)).length > 0) === (subject === "warned"))!;
+    expect(row).toBeDefined();
     const fieldId = [...row.record.values.keys()].find((f) => constantTimeEquals(f, field.fieldId))!;
     const local = row.record;
-    const incoming = { ...local, values: new Map(local.values).set(fieldId, { kind: "text" as const, text: "Original resolution" }),
-      provenance: new Map(local.provenance).set(fieldId, { source: "conflict-resolution" as const }) };
+    const incoming = resolve(local);
     const state = (record: typeof local) => map([["state", "present"], ["value", decodeCanonical(evidenceRecordBytes(record))]]);
     const terminal = loaded.commits.at(-1)!;
     const frontier = (entries: typeof loaded.head.frontier) => entries.map((e) => map([["deviceId", e.deviceId], ["commitSequence", e.commitSequence]]));
@@ -231,7 +241,12 @@ it("publishes a nonempty original conflict/merge candidate and recovers its SQL 
         ["absentReason", null], ["frontier", frontier(loaded.checkpoint.frontier)]]);
     }
     expect(baseline).toBeDefined();
-    const report = map([["isValid", true], ["issues", []]]);
+    const reportOf = (issues: ReturnType<typeof revalidate>) => map([["isValid", !issues.some((issue) => issue.severity === "blocking")], ["issues", issues.map((issue) =>
+      map([["fieldId", issue.fieldId], ["ruleId", issue.ruleId], ["kind", issue.kind], ["severity", issue.severity], ["messageKey", issue.messageKey],
+        ["messageParameters", map(Object.entries(issue.messageParameters).map(([key, value]) => [key, typeof value === "number" ? BigInt(value) : value] as const))]]))]]);
+    const issues = revalidate(incoming);
+    expect(issues.length > 0).toBe(subject === "warned");
+    const report = reportOf(issues);
     const detection = map([["payloadVersion", 1n], ["conflictId", id(80)], ["tableId", table.tableId], ["targetKind", "record"], ["targetId", local.recordId],
       ["conflictKind", "field"], ["schemaRevision", loaded.head.schemaRevision], ["baseline", baseline!], ["local", source(local)], ["incoming", source(incoming)],
       ["conflictingFields", [fieldId]], ["validationReport", null]]);
@@ -241,17 +256,32 @@ it("publishes a nonempty original conflict/merge candidate and recovers its SQL 
     const patch = wire("record.patched", encodeRecordEventPayload({ kind: "record.patched", payload: { recordId: local.recordId, tableId: table.tableId,
       recordRevision: row.recordRevision + 1n, changes: [{ fieldId, before: local.values.get(fieldId)!, after: incoming.values.get(fieldId)!, provenance: { source: "conflict-resolution" } }],
       resultingRecordSha256: await sha256(encodeAuthoredRecordBytes(incoming)) } }), 82);
-    const resolution = map([["payloadVersion", 1n], ["conflictId", id(80)], ["detectedEventId", id(81)], ["decision", "use-incoming"],
-      ["result", state(incoming)], ["schemaRevision", loaded.head.schemaRevision], ["validationReport", report], ["effectEventIds", [id(82)]]]);
-    let last = terminal;
-    let next = 100;
-    const commits: typeof terminal[] = [];
-    for (const events of [[wire("conflict.detected", detection, 81, id(80))], [patch, wire("conflict.resolved", resolution, 83, id(80))]]) {
-      last = await sealEventCommit({ ...last, commitId: id(next++), deviceCommitSequence: last.deviceCommitSequence + 1n, previousDeviceCommitSha256: last.commitSha256,
-        basisFrontier: [{ deviceId: last.deviceId, commitSequence: last.deviceCommitSequence }], hybridTime: { wallTimeMs: last.hybridTime.wallTimeMs + 1n, logicalCounter: 0 },
-        eventClass: "reconciliation", events: events.map((e, eventIndex) => ({ ...e, eventIndex })) }, sha256);
-      commits.push(last);
+    const sealResolution = async (validationReport: CborValue) => {
+      const resolution = map([["payloadVersion", 1n], ["conflictId", id(80)], ["detectedEventId", id(81)], ["decision", "use-incoming"],
+        ["result", state(incoming)], ["schemaRevision", loaded.head.schemaRevision], ["validationReport", validationReport], ["effectEventIds", [id(82)]]]);
+      let chained = terminal;
+      const sealed: typeof terminal[] = [];
+      for (const events of [[wire("conflict.detected", detection, 81, id(80))], [patch, wire("conflict.resolved", resolution, 83, id(80))]]) {
+        chained = await sealEventCommit({ ...chained, commitId: id(100 + sealed.length), deviceCommitSequence: chained.deviceCommitSequence + 1n, previousDeviceCommitSha256: chained.commitSha256,
+          basisFrontier: [{ deviceId: chained.deviceId, commitSequence: chained.deviceCommitSequence }], hybridTime: { wallTimeMs: chained.hybridTime.wallTimeMs + 1n, logicalCounter: 0 },
+          eventClass: "reconciliation", events: events.map((e, eventIndex) => ({ ...e, eventIndex })) }, sha256);
+        sealed.push(chained);
+      }
+      return sealed;
+    };
+    if (subject === "warned") {
+      const pinned = await worker.backup.pin(appId);
+      const base = await openBackupGraphProjection(await exportBackupGraph({ crypto: envelopeCryptoAdapter, store: envelopeStoreAdapter }, session.appKey, pinned, signal), signal);
+      try {
+        const [detected, omitted] = await sealResolution(map([["isValid", true], ["issues", []]]));
+        const replay = (commit: typeof terminal) => applyEvents(base.handle, [toProjectionCommit(engineAdapter(base.handle), commit, () => checkpointMetadata(base.handle, metadata))]);
+        await replay(detected!);
+        await expect(replay(omitted!)).rejects.toThrow("original evidence report disagrees with shared validation");
+      } finally { base.dispose(); }
     }
+    const commits = await sealResolution(report);
+    let last = commits.at(-1)!;
+    const next = 100 + commits.length;
     const merge = map([["payloadVersion", 1n], ["mergeId", id(90)], ["tableId", table.tableId], ["recordId", local.recordId], ["schemaRevision", loaded.head.schemaRevision],
       ["baseline", baseline!], ["local", source(incoming)], ["incoming", source(incoming)], ["localChangedFields", [fieldId]], ["incomingChangedFields", [fieldId]],
       ["result", decodeCanonical(evidenceRecordBytes(incoming))], ["resultCommitId", id(next)], ["validationReport", report],
