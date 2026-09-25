@@ -219,6 +219,7 @@ export interface SchemaPreviewV1 {
 
 export type SchemaApplyResultV1 =
   | ({ readonly result: "applied"; readonly impact: SchemaImpactCountsV1; readonly schemaRevision: bigint } & CommittedV1)
+  | { readonly result: "unchanged"; readonly schemaRevision: bigint }
   | { readonly result: "stale-preview"; readonly schemaRevision: bigint }
   | { readonly result: "refused"; readonly refusal: SchemaRefusalV1 }
   | { readonly result: "too-large"; readonly eventCount: number; readonly byteLength: number; readonly limits: SchemaCommitLimitsV1 };
@@ -291,6 +292,7 @@ export async function executeSchemaChange(
   if (size.isTooLarge) {
     return { result: "too-large", eventCount: drafts.length, byteLength: size.byteLength, limits: size.limits };
   }
+  if (drafts.length === 0) return { result: "unchanged", schemaRevision };
   const committed = await commitEvents(deps, drafts, {
     rowCountAfter: liveRecordCount(deps.projection),
     isSchemaChange: true,
@@ -1067,6 +1069,8 @@ async function draftEvents(deps: SchemaCommandDependenciesV1, prepared: Prepared
     const was = fieldById(before, fieldId);
     const now = fieldById(after, fieldId);
     if (was === undefined || now === undefined) return;
+    if (change.kind === "rename-field" && was.displayName === now.displayName) return;
+    if (change.kind === "set-required" && was.isRequired === now.isRequired) return;
     drafts.push({
       subject: { tableId: now.tableId, fieldId: now.fieldId },
       event: { kind: "field.changed", payload: { before: was, after: now, impact } },
@@ -1075,6 +1079,7 @@ async function draftEvents(deps: SchemaCommandDependenciesV1, prepared: Prepared
 
   switch (change.kind) {
     case "rename-app":
+      if (deps.projection.execute({ kind: "app-state" }).displayName === change.name) break;
       drafts.push({
         subject: {},
         event: {
@@ -1091,6 +1096,7 @@ async function draftEvents(deps: SchemaCommandDependenciesV1, prepared: Prepared
     case "set-table-key": {
       const was = tableById(before, change.tableId) as TableDefV1;
       const now = tableById(after, change.tableId) as TableDefV1;
+      if (change.kind === "rename-table" && was.displayName === now.displayName) break;
       drafts.push({
         subject: { tableId: now.tableId },
         event: {
@@ -1355,4 +1361,3 @@ function emptyImpact(change: SchemaImpactCountsV1["change"]): SchemaImpactCounts
     formulaErrors: 0,
   };
 }
-

@@ -30,6 +30,7 @@ import {
   asStorageId16,
   decodeStorageId16,
   encodeStorageId16,
+  encodeBase64Url,
 } from "../../domain/model/bytes.js";
 import { CodecError, IntegrityError } from "../../domain/model/errors.js";
 import {
@@ -429,6 +430,7 @@ export function createEventStore(
       initial.appId,
       encodeStorageId16(nextHeadStorageId),
       request.rowCountAfter,
+      commit,
     );
     const nextCatalog = validateLocalCatalog(home === undefined ? advancedCatalog : home.update(advancedCatalog));
     const sealedCatalog = await context.sealCatalog(nextCatalog, revision);
@@ -551,6 +553,7 @@ function withAppEntry(
   appId: AppId,
   appHeadStorageId: string,
   rowCountCache: number,
+  commit: EventCommitV1,
 ): LocalCatalogV1 {
   const target = encodeDomainId(appId);
   let found = false;
@@ -559,7 +562,11 @@ function withAppEntry(
       return entry;
     }
     found = true;
-    return { ...entry, appHeadStorageId, rowCountCache };
+    const scratchReminder = entry.homeId === null && commit.eventClass === "authored"
+      ? { ...(entry.scratchReminder ?? { dismissalCount: 0, dismissedAtEpochMs: null, nextEligibleAtEpochMs: null }),
+          triggeringCommitId: encodeBase64Url(commit.commitId) }
+      : entry.scratchReminder;
+    return { ...entry, appHeadStorageId, rowCountCache, scratchReminder };
   });
   if (!found) {
     throw new CodecError("the catalog holds no entry for this app");

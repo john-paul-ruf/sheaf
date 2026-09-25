@@ -98,4 +98,17 @@ describe("SCR-037 — app settings", () => {
     expect(current.every((link) => link.getAttribute("href") === `#/app/${APP_ID}/settings`)).toBe(true);
     expect(button("Save name").disabled).toBe(true);
   });
+
+  it("closes an unchanged apply without claiming a commit or refreshing", async () => {
+    const schema = fakeSchema({ previews: [preview("rename-app", {}, { eventCount: 0 })], outcomes: [{ result: "unchanged", schemaRevision: 4 }] });
+    const area = await open(schema);
+    await typeInto(query<HTMLInputElement>('[data-section="identity"] input'), "Fieldbook");
+    await press("Save name");
+    await settle();
+    await press("Apply");
+    await settle();
+    expect(area.announce).toHaveBeenCalledWith("No changes to save.");
+    expect(area.refresh).not.toHaveBeenCalled();
+    expect(queryAll('[role="dialog"]')).toHaveLength(0);
+  });
 });

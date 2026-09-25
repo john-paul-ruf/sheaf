@@ -10,6 +10,13 @@
 
 import "fake-indexeddb/auto";
 import { ARGON2ID_FLOOR } from "../../../src/crypto/kdf.js";
+import { deriveWrappingKeyFromPassphrase } from "../../../src/crypto/kdf.js";
+import { destroySecretKey, unwrapRoot } from "../../../src/crypto/keys.js";
+import { decryptEnvelope } from "../../../src/crypto/envelope.js";
+import { readBootstrap } from "../../../src/persistence/envelope-store/bootstrap.js";
+import { getEnvelope } from "../../../src/persistence/envelope-store/read.js";
+import { decodeStorageId16 } from "../../../src/domain/model/bytes.js";
+import { decodeLocalCatalog } from "../../../src/workers/data/catalog.js";
 import type { ClockPort } from "../../../src/application/ports/clock.js";
 import type { EntropyPort } from "../../../src/application/ports/entropy.js";
 import {
@@ -196,4 +203,19 @@ export async function readClearBootstrapRow(): Promise<
 export async function countEnvelopeRows(): Promise<number> {
   const database = await openLocalDatabase();
   return database.table("envelopes").count();
+}
+
+/** Independent reopen of the committed catalog; no live handler state is read. */
+export async function readStoredCatalog(passphrase: string) {
+  const row = await readBootstrap();
+  if (row === undefined) throw new Error("missing bootstrap");
+  const wrappingKey = await deriveWrappingKeyFromPassphrase(passphrase, row.passphraseKdf);
+  try {
+    const root = await unwrapRoot(row.passphraseWrappedRoot, wrappingKey);
+    try {
+      const frame = await getEnvelope(decodeStorageId16(row.catalogStorageId));
+      if (frame === undefined) throw new Error("missing catalog");
+      return decodeLocalCatalog((await decryptEnvelope(frame, "local.catalog", root, "local.catalog")).payload);
+    } finally { destroySecretKey(root); }
+  } finally { destroySecretKey(wrappingKey); }
 }

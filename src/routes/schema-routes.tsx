@@ -151,6 +151,10 @@ export function useSchemaChange(area: AppAreaWiring): {
             area.refresh();
             return;
           }
+          case "unchanged":
+            setPending(null);
+            area.announce("No changes to save.");
+            return;
           case "stale-preview": {
             // Nothing was committed. Count again, and show the counts as they are now.
             const next = await readPreview(change);

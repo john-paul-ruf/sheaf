@@ -43,7 +43,7 @@ export interface ChartCommandDependenciesV1
 }
 
 export type ChartCommandResultV1 =
-  /** Durable. `commit` is null only for a pin that already stood (nothing moved). */
+  /** Durable. `commit` is null when the definition or pin already stood. */
   | {
       readonly outcome: "saved";
       readonly chart: ProjectionChartV1;
@@ -105,6 +105,13 @@ export async function saveChart(
   const definition = { ...request.body, chartId } as ChartDefinitionV1;
   const refusals = validateChartDefinition(definition, readChartSchema(deps.projection));
   if (refusals.length > 0) return { outcome: "refused", refusals };
+  if (existing !== null) {
+    const before = await deps.definitionDigest(existing.definition);
+    const after = await deps.definitionDigest(definition);
+    if (before.length === after.length && before.every((byte, index) => byte === after[index])) {
+      return { outcome: "saved", chart: existing, commit: null };
+    }
+  }
   return commitSave(deps, existing, definition);
 }
 

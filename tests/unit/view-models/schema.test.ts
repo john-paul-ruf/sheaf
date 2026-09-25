@@ -103,6 +103,12 @@ describe("selectStructureVm", () => {
 });
 
 describe("selectImpactVm (MOD-014, CA-28)", () => {
+  it("states an unchanged preview without claiming an effect", () => {
+    const vm = selectImpactVm({ change: { kind: "set-required", fieldId: IDS.paid, isRequired: false },
+      preview: preview("set-required", {}, { eventCount: 0 }), structure: structure(), wasStale: false });
+    expect(vm.counts).toEqual(["No changes to save."]);
+    expect(vm.blocker).toBeNull();
+  });
   it("says the counts that matter for the change, in exact numbers", () => {
     const vm = selectImpactVm({
       change: { kind: "change-field-type", fieldId: IDS.paid, type: { kind: "text" } },

@@ -2490,6 +2490,7 @@ export type SchemaApplyOutcomeV1 =
       readonly impact: ImpactReportWireV1;
       readonly recalculated: RecalculatedNoticeV1;
     }
+  | { readonly result: "unchanged"; readonly schemaRevision: number }
   | { readonly result: "stale-preview"; readonly schemaRevision: number }
   | { readonly result: "refused"; readonly refusal: SchemaRefusalWireV1 }
   | {

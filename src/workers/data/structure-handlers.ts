@@ -186,6 +186,8 @@ export function createStructureHandlers(deps: StructureHandlerDependenciesV1): S
               recalculated: { fieldIds: result.recalculatedFieldIds.map((fieldId) => encodeDomainId(fieldId)) },
             },
           };
+        case "unchanged":
+          return { kind: "applySchemaChange", outcome: { result: "unchanged", schemaRevision: Number(result.schemaRevision) } };
         case "stale-preview":
           return { kind: "applySchemaChange", outcome: { result: "stale-preview", schemaRevision: Number(result.schemaRevision) } };
         case "refused":

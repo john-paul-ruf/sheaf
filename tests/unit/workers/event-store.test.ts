@@ -55,7 +55,7 @@ import type {
   CheckpointManifestV1,
 } from "../../../src/import/staging/roots.js";
 import { DEFAULT_APP_THEME } from "../../../src/import/staging/theme.js";
-import { buildLocalCatalog, type LocalCatalogV1 } from "../../../src/workers/data/catalog.js";
+import { buildLocalCatalog, decodeLocalCatalog, encodeLocalCatalog, type LocalCatalogV1 } from "../../../src/workers/data/catalog.js";
 import { FakeClock } from "../commands/fakes.js";
 
 const entropy = {
@@ -308,7 +308,7 @@ function harness() {
           storageId,
           logicalRevision: BigInt(logicalRevision),
           payloadKind: "local.catalog",
-          payload: new Uint8Array([next.catalogRevision]),
+          payload: encodeLocalCatalog(next),
           compression: "none",
           key,
         })
@@ -354,6 +354,22 @@ const planOf = (repository: ReturnType<typeof harness>["repository"]) =>
   );
 
 describe("appending a commit", () => {
+  it("persists the authored trigger alongside the head before acknowledgement (CA-37)", async () => {
+    const { store, repository, current } = harness();
+    const plan = planOf(repository);
+    const appended = repository.append({ plan, rowCountAfter: 41 });
+    await expect.poll(() => store.commits.length).toBe(1);
+    expect(current().catalog.apps[0]?.scratchReminder).toBeNull();
+    const request = store.commits[0]!.request;
+    const frame = request.addFrames.find((frame) => encodeStorageId16(asStorageId16(frame.storageId)) === request.bootstrapPatch?.catalogStorageId)!;
+    const persisted = decodeLocalCatalog(frame.ciphertext);
+    expect(persisted.apps[0]?.scratchReminder).toEqual({ triggeringCommitId: encodeDomainId(plan.commitId),
+      dismissalCount: 0, dismissedAtEpochMs: null, nextEligibleAtEpochMs: null });
+    store.release();
+    await appended;
+    expect(current().catalog).toEqual(persisted);
+  });
+
   it("does not resolve until the store's transaction has completed", async () => {
     const { store, repository } = harness();
 

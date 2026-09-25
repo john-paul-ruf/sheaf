@@ -26,6 +26,7 @@ import {
   createTestHandler,
   importDemoApp,
   resetLocalDatabase,
+  readStoredCatalog,
 } from "./data-worker.js";
 
 const PASSPHRASE = "correct horse battery staple";
@@ -83,6 +84,7 @@ async function charts(target = handler): Promise<readonly ChartViewV1[]> {
 }
 
 async function save(definition: ChartDefinitionWireV1, existing: ChartViewV1 | null = null): Promise<ChartViewV1> {
+  const countBefore = (await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
   const { outcome } = await ask(handler, {
     kind: "saveChart",
     appId,
@@ -91,6 +93,8 @@ async function save(definition: ChartDefinitionWireV1, existing: ChartViewV1 | n
     definition,
   });
   if (outcome.result !== "saved") throw new Error(`not saved: ${JSON.stringify(outcome)}`);
+  expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(countBefore + 1);
+  expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder?.triggeringCommitId).toBe(outcome.commitId);
   return outcome.chart;
 }
 
@@ -105,6 +109,35 @@ describe("chart commands (CA-30)", () => {
       expect(second).toMatchObject({ ordinal: 1, chartRevision: 0, provenance: "user" });
       expect(first.definition).toEqual(byStatus("Quoted by status", true));
       expect((await charts()).map((chart) => chart.definition.name)).toEqual(["Quoted by status", "Jobs by status"]);
+    },
+    SLOW,
+  );
+
+  it(
+    "keeps an identical chart save out of history and counts across reopen (CA-37)",
+    async () => {
+      const [chart] = await charts();
+      if (chart === undefined) throw new Error("no chart");
+      const before = await ask(handler, { kind: "openApp", appId });
+      const reminder = (await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder;
+      const history = await ask(handler, { kind: "getChangeHistory", appId, limit: 100 });
+      const rows = await countEnvelopeRows();
+      const { outcome } = await ask(handler, {
+        kind: "saveChart", appId, chartId: chart.chartId,
+        expectedRevision: chart.chartRevision, definition: chart.definition,
+      });
+      expect(outcome).toEqual({ result: "saved", chart, commitId: null });
+      expect(await countEnvelopeRows()).toBe(rows);
+      expect(await ask(handler, { kind: "getChangeHistory", appId, limit: 100 })).toEqual(history);
+      handler.dispose();
+      expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder).toEqual(reminder);
+      handler = createTestHandler().handler;
+      await ask(handler, { kind: "unlock", passphrase: PASSPHRASE });
+      expect((await ask(handler, { kind: "openApp", appId })).session?.deviceOnlyChangeCount)
+        .toBe(before.session?.deviceOnlyChangeCount);
+      expect((await charts())[0]).toEqual(chart);
+      expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder).toEqual(reminder);
+      expect(await ask(handler, { kind: "getChangeHistory", appId, limit: 100 })).toEqual(history);
     },
     SLOW,
   );
@@ -154,16 +187,19 @@ describe("chart commands (CA-30)", () => {
   it(
     "pins and unpins as a user change; a pin that already stands writes nothing",
     async () => {
+      const before = (await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
       const second = (await charts())[1];
       if (second === undefined) throw new Error("no chart");
       const pinned = await ask(handler, { kind: "setChartPin", appId, chartId: second.chartId, expectedRevision: 0, pinned: true });
       expect(pinned.outcome).toMatchObject({ result: "saved", chart: { chartRevision: 1, definition: { pinned: true } } });
       if (pinned.outcome.result === "saved") expect(pinned.outcome.commitId).not.toBeNull();
+      expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(before + 1);
 
       const rows = await countEnvelopeRows();
       const again = await ask(handler, { kind: "setChartPin", appId, chartId: second.chartId, expectedRevision: 1, pinned: true });
       expect(again.outcome).toMatchObject({ result: "saved", commitId: null });
       expect(await countEnvelopeRows()).toBe(rows);
+      expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(before + 1);
     },
     SLOW,
   );

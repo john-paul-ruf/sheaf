@@ -24,6 +24,7 @@ import {
   createTestHandler,
   importDemoApp,
   resetLocalDatabase,
+  readStoredCatalog,
 } from "./data-worker.js";
 
 const PASSPHRASE = "correct horse battery staple";
@@ -145,6 +146,7 @@ describe("the theme RPCs (CA-32)", () => {
   it(
     "commit a palette, mode, density and logo as one authored theme.changed, and give the tile its identity",
     async () => {
+      const before = (await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
       const { outcome } = await ask(handler, request());
       expect(outcome).toEqual({
         result: "changed",
@@ -159,6 +161,8 @@ describe("the theme RPCs (CA-32)", () => {
       });
       const history = (await ask(handler, { kind: "getChangeHistory", appId, limit: 5 })).page?.entries ?? [];
       expect(history[0]).toMatchObject({ eventKind: "theme.changed", subjectKind: "app" });
+      expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(before + 1);
+      expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder?.triggeringCommitId).toBe(history[0]?.commitId);
       expect((await libraryTile())?.themeTile).toEqual({
         primary: indigo.light["app-primary"],
         label: indigo.light["app-surface"],
@@ -171,10 +175,12 @@ describe("the theme RPCs (CA-32)", () => {
   it(
     "write nothing for the theme already stored",
     async () => {
+      const reminder = (await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder;
       const rows = await countEnvelopeRows();
       const { outcome } = await ask(handler, request({ logo: { kind: "keep" } }));
       expect(outcome.result).toBe("unchanged");
       expect(await countEnvelopeRows()).toBe(rows);
+      expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder).toEqual(reminder);
     },
     SLOW,
   );

@@ -781,7 +781,8 @@ export function selectImpactVm(input: {
   return {
     title: describeChange(change, structure),
     // A refused change was not counted: its report is empty, and saying "0" would be a guess.
-    counts: preview.refusal === null ? countsFor(change, impact, structure).filter((line) => line !== "") : [],
+    counts: preview.refusal !== null ? [] : preview.eventCount === 0
+      ? ["No changes to save."] : countsFor(change, impact, structure).filter((line) => line !== ""),
     preservation: "Sheaf keeps every existing value. Nothing is discarded.",
     applyLabel: flags > 0 && change.kind !== "set-table-key" ? "Apply and flag" : "Apply",
     blocker:
@@ -795,7 +796,7 @@ export function selectImpactVm(input: {
 }
 
 /** What an apply that did not land says (CA-28's outcomes other than `applied`). */
-export function describeApplyFailure(outcome: Exclude<SchemaApplyOutcomeV1, { result: "applied" | "stale-preview" }>): string {
+export function describeApplyFailure(outcome: Exclude<SchemaApplyOutcomeV1, { result: "applied" | "unchanged" | "stale-preview" }>): string {
   switch (outcome.result) {
     case "refused":
       return describeSchemaRefusal(outcome.refusal);

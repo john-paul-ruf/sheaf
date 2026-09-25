@@ -30,6 +30,7 @@ import {
   createTestHandler,
   importDemoApp,
   resetLocalDatabase,
+  readStoredCatalog,
 } from "./data-worker.js";
 
 const PASSPHRASE = "correct horse battery staple";
@@ -77,6 +78,7 @@ const fieldNamed = (table: StructureTableViewV1, name: string): StructureFieldVi
 async function change(
   wire: SchemaChangeWireV1,
 ): Promise<{ readonly impact: ImpactReportWireV1; readonly eventCount: number; readonly recalculated: readonly string[] }> {
+  const countBefore = (await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
   const preview = (await ask(handler, { kind: "previewSchemaChange", appId, change: wire })).preview;
   if (preview === null) throw new Error("no preview");
   expect(preview.refusal).toBeNull();
@@ -87,6 +89,8 @@ async function change(
   expect(outcome.impact).toEqual(preview.impact);
   expect(outcome.impact.change).toBe(wire.kind);
   expect(outcome.schemaRevision).toBe(preview.schemaRevision + 1);
+  expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(countBefore + 1);
+  expect((await readStoredCatalog(PASSPHRASE)).apps.find((entry) => entry.appId === appId)?.scratchReminder?.triggeringCommitId).toBe(outcome.commitId);
   return { impact: preview.impact, eventCount: preview.eventCount, recalculated: outcome.recalculated.fieldIds };
 }
 
@@ -107,6 +111,43 @@ const amountOf = (record: RecordRow, fieldId: string): number | null => {
 const warnings = (rows: readonly RecordRow[]): number => rows.reduce((sum, record) => sum + record.warningIssueCount, 0);
 
 describe("every D59 change, previewed and applied at one revision (CA-28)", () => {
+  it("does not author unchanged names, required flags or field order, including after reopen (CA-37)", async () => {
+    const view = await structure();
+    const jobs = tableNamed(view, "Jobs");
+    const field = fieldNamed(jobs, "Paid");
+    const changes: readonly SchemaChangeWireV1[] = [
+      { kind: "rename-app", name: view.displayName },
+      { kind: "rename-table", tableId: jobs.tableId, name: jobs.displayName },
+      { kind: "rename-field", fieldId: field.fieldId, name: field.displayName },
+      { kind: "set-required", fieldId: field.fieldId, isRequired: field.isRequired },
+      { kind: "reorder-fields", tableId: jobs.tableId, fieldIds: jobs.fields.map((entry) => entry.fieldId) },
+    ];
+    const before = await ask(handler, { kind: "openApp", appId });
+    const reminder = (await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder;
+    expect(reminder).toBeNull();
+    const history = await ask(handler, { kind: "getChangeHistory", appId, limit: 100 });
+    const rows = await countEnvelopeRows();
+    for (const wire of changes) {
+      const preview = (await ask(handler, { kind: "previewSchemaChange", appId, change: wire })).preview!;
+      expect(preview.refusal).toBeNull();
+      expect(preview.eventCount).toBe(0);
+      const { outcome } = await ask(handler, {
+        kind: "applySchemaChange", appId, change: wire, previewedSchemaRevision: preview.schemaRevision,
+      });
+      expect(outcome).toEqual({ result: "unchanged", schemaRevision: view.schemaRevision });
+      expect(await countEnvelopeRows()).toBe(rows);
+    }
+    expect(await ask(handler, { kind: "getChangeHistory", appId, limit: 100 })).toEqual(history);
+    handler.dispose();
+    handler = createTestHandler().handler;
+    await open(handler);
+    expect(await structure()).toEqual(view);
+    expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder).toEqual(reminder);
+    expect((await ask(handler, { kind: "openApp", appId })).session?.deviceOnlyChangeCount)
+      .toBe(before.session?.deviceOnlyChangeCount);
+    expect(await ask(handler, { kind: "getChangeHistory", appId, limit: 100 })).toEqual(history);
+  }, SLOW);
+
   it(
     "renames the app, a table, and sets a table's label and key",
     async () => {
@@ -513,6 +554,38 @@ describe("the apply names the revision its preview saw", () => {
 });
 
 describe("records beside computed columns (D51, CA-26, invariant 5)", () => {
+  it("counts create, edit, delete and restore once each and persists each trigger before shutdown (CA-37)", async () => {
+    const jobs = tableNamed(await structure(), "Jobs");
+    const fieldId = fieldNamed(jobs, "Job ID").fieldId;
+    let count = (await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount;
+    const created = await ask(handler, { kind: "createRecord", appId, tableId: jobs.tableId,
+      values: [{ fieldId, value: { kind: "text", text: "J-998" } }] });
+    if (created.outcome !== "accepted") throw new Error("create refused");
+    const recordId = created.receipt.recordId;
+    const accepted = async () => {
+      count += 1;
+      const history = (await ask(handler, { kind: "getChangeHistory", appId, limit: 1 })).page!.entries;
+      handler.dispose();
+      expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder?.triggeringCommitId).toBe(history[0]?.commitId);
+      handler = createTestHandler().handler;
+      await open(handler);
+      expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(count);
+    };
+    await accepted();
+    expect((await ask(handler, { kind: "patchRecord", appId, recordId,
+      changes: [{ fieldId, value: { kind: "text", text: "J-997" } }] })).outcome).toBe("accepted");
+    await accepted();
+    const reminder = (await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder;
+    await ask(handler, { kind: "patchRecord", appId, recordId, changes: [{ fieldId, value: { kind: "text", text: "J-997" } }] });
+    expect((await readStoredCatalog(PASSPHRASE)).apps[0]?.scratchReminder).toEqual(reminder);
+    expect((await ask(handler, { kind: "openApp", appId })).session!.deviceOnlyChangeCount).toBe(count);
+    expect((await ask(handler, { kind: "deleteRecord", appId, recordId })).outcome).toBe("accepted");
+    await accepted();
+    expect((await ask(handler, { kind: "restoreRecord", appId, recordId })).outcome).toBe("accepted");
+    await accepted();
+    await ask(handler, { kind: "deleteRecord", appId, recordId });
+  }, SLOW);
+
   const commandOf = (response: DataWorkerResponseV1) => {
     if (response.kind !== "patchRecord" && response.kind !== "createRecord") throw new Error(response.kind);
     return response;
