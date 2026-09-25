@@ -197,9 +197,92 @@ export interface ProjectionCheckpointV1 {
  * `issuesByEventIndex` is how the one shared validator's verdict reaches the
  * projection: the projection never re-decides one (invariant 5).
  */
+export interface ProjectionEvidenceStateV1 {
+  readonly identity?: { readonly matchFieldId: Uint8Array | null; readonly candidates: readonly AuthoredRecordV1[] };
+  readonly state: "present" | "deleted" | "absent";
+  readonly record: AuthoredRecordV1 | null;
+  readonly canonical: Uint8Array;
+}
+
+export interface ProjectionEvidenceSourceV1 {
+  readonly source: "this-device" | "another-device" | "uploaded-file";
+  readonly timestampMs: number;
+  readonly commitId: Uint8Array;
+  readonly frontier: readonly FrontierEntryV1[];
+  readonly state: ProjectionEvidenceStateV1;
+  readonly canonical: Uint8Array;
+}
+
+export interface ProjectionEvidenceBaselineV1 {
+  readonly scopeId: Uint8Array;
+  readonly state: "present" | "deleted" | "absent";
+  readonly values: Uint8Array | null;
+  readonly absentReason: string | null;
+  readonly frontier: readonly FrontierEntryV1[];
+  readonly canonical: Uint8Array;
+}
+
+export interface ProjectionEvidenceReportV1 {
+  readonly isValid: boolean;
+  readonly issues: readonly ProjectionIssueInputV1[];
+  readonly canonical: Uint8Array;
+}
+
+export type ProjectionEvidenceEventV1 = {
+  readonly kind: "conflict.detected";
+  readonly payload: {
+    readonly schemaRevision: bigint;
+    readonly conflictId: Uint8Array;
+    readonly tableId: Uint8Array;
+    readonly targetKind: "record" | "schema" | "identity";
+    readonly targetId: Uint8Array;
+    readonly conflictKind: "field" | "key" | "delete-edit" | "baseline-absent" | "record-validation" | "schema" | "identity";
+    readonly baseline: ProjectionEvidenceBaselineV1 | null;
+    readonly local: ProjectionEvidenceSourceV1;
+    readonly incoming: ProjectionEvidenceSourceV1;
+    readonly conflictingFields: readonly Uint8Array[];
+    readonly validationReport: ProjectionEvidenceReportV1 | null;
+  };
+  readonly canonical: Uint8Array;
+} | {
+  readonly kind: "conflict.resolved";
+  readonly payload: {
+    readonly schemaRevision: bigint;
+    readonly conflictId: Uint8Array;
+    readonly detectedEventId: Uint8Array;
+    readonly decision: "keep-local" | "use-incoming" | "edited";
+    readonly result: ProjectionEvidenceStateV1;
+    readonly validationReport: ProjectionEvidenceReportV1;
+    readonly effectEventIds: readonly Uint8Array[];
+  };
+  readonly canonical: Uint8Array;
+} | {
+  readonly kind: "merge.applied";
+  readonly payload: {
+    readonly schemaRevision: bigint;
+    readonly mergeId: Uint8Array;
+    readonly tableId: Uint8Array;
+    readonly recordId: Uint8Array;
+    readonly baseline: ProjectionEvidenceBaselineV1;
+    readonly local: ProjectionEvidenceSourceV1;
+    readonly incoming: ProjectionEvidenceSourceV1;
+    readonly localChangedFields: readonly Uint8Array[];
+    readonly incomingChangedFields: readonly Uint8Array[];
+    readonly result: AuthoredRecordV1;
+    readonly resultCommitId: Uint8Array;
+    readonly validationReport: ProjectionEvidenceReportV1;
+    readonly explanation: Uint8Array;
+    readonly effectEventIds: readonly Uint8Array[];
+  };
+  readonly canonical: Uint8Array;
+};
+
+export type ProjectionReplayEventV1 = DomainEventV1 | ProjectionEvidenceEventV1;
+
 export interface ProjectionCommitV1 {
+  readonly schemaEvidence?: () => Uint8Array;
   readonly commit: EventCommitV1;
-  readonly events: readonly DomainEventV1[];
+  readonly events: readonly ProjectionReplayEventV1[];
   readonly issuesByEventIndex?: ReadonlyMap<
     number,
     readonly ProjectionIssueInputV1[]
@@ -291,6 +374,7 @@ export interface ProjectionRecordPageResultV1 {
 }
 
 export interface ProjectionChangeSummaryV1 {
+  readonly evidence?: Uint8Array;
   readonly fieldChanges: readonly FieldChangeV1[];
   readonly recordRevision: bigint | null;
   readonly createdCommitId: CommitId | null;
@@ -685,4 +769,10 @@ export interface ProjectionEnginePort {
 /** Read-only cursor bound to an isolated, hydrated snapshot in the data worker. */
 export interface ProjectionAuthoredStatePort {
   authoredState(signal: AbortSignal): AsyncIterable<Uint8Array>;
+}
+
+/** Worker-owned authored snapshot; callers must retain its frontier while reading. */
+export interface ProjectionCheckpointExportPort {
+  checkpoint(): ProjectionCheckpointV1;
+  records(signal: AbortSignal): Iterable<ProjectionRecordV1>;
 }

@@ -53,6 +53,7 @@ export type EventCommitBodyV1 = Omit<EventCommitV1, "commitSha256">;
 
 const ID_BYTES = 16;
 const SHA256_BYTES = 32;
+const MAX_SEGMENT_EVENTS = 10_000;
 
 const EVENT_CLASSES: readonly EventClassV1[] = Object.freeze([
   "authored",
@@ -140,7 +141,7 @@ const encodeSubject = (subject: EventSubjectV1): CborValue => {
   return map;
 };
 
-const encodeProvenance = (provenance: EventProvenanceV1): CborValue => {
+export const encodeEventProvenance = (provenance: EventProvenanceV1): CborValue => {
   if (!PROVENANCE_SOURCES.includes(provenance.source)) {
     throw new CodecError("provenance source is not in the closed v1 list");
   }
@@ -178,7 +179,7 @@ const encodeEvent = (event: DomainEventV1, appId: Uint8Array): CborValue => {
     ["eventIndex", event.eventIndex],
     ["kind", event.kind],
     ["payload", event.payload as CborValue],
-    ["provenance", encodeProvenance(event.provenance)],
+    ["provenance", encodeEventProvenance(event.provenance)],
     ["subject", encodeSubject(event.subject)],
   ]);
 };
@@ -211,6 +212,7 @@ const commitBodyMap = (commit: EventCommitBodyV1): Map<string, CborValue> => {
   if (commit.events.length === 0) {
     throw new CodecError("a commit carries at least one event");
   }
+  if (commit.events.length > MAX_SEGMENT_EVENTS) throw new CodecError("a commit exceeds the segment event limit");
   commit.events.forEach((event, index) => {
     if (event.eventIndex !== index) {
       throw new CodecError("event indexes are contiguous from zero");
@@ -280,6 +282,7 @@ export function encodeEventSegment(segment: EventSegmentV1): Uint8Array {
   if (segment.commits.length === 0) {
     throw new CodecError("a segment carries at least one commit");
   }
+  if (segment.commits.reduce((count, commit) => count + commit.events.length, 0) > MAX_SEGMENT_EVENTS) throw new CodecError("segment exceeds the event limit");
   for (const commit of segment.commits) {
     if (!equalBytes(commit.appId, segment.appId)) {
       throw new CodecError("segment commit belongs to another app");
@@ -434,7 +437,7 @@ const decodeSubject = (value: DecodedValue): EventSubjectV1 => {
   return subject;
 };
 
-const decodeProvenance = (value: DecodedValue): EventProvenanceV1 => {
+export const decodeEventProvenance = (value: DecodedValue): EventProvenanceV1 => {
   const map = asMap(value, "provenance");
   takeKeys(
     map,
@@ -509,7 +512,7 @@ const decodeEvent = (
     kind,
     subject,
     payload: map.get("payload"),
-    provenance: decodeProvenance(map.get("provenance") as DecodedValue),
+    provenance: decodeEventProvenance(map.get("provenance") as DecodedValue),
   };
 };
 
@@ -566,6 +569,8 @@ const decodeCommitValue = (value: DecodedValue): EventCommitV1 => {
   if (events.length === 0) {
     throw new CodecError("a commit carries at least one event");
   }
+
+  if (events.length > MAX_SEGMENT_EVENTS) throw new CodecError("a commit exceeds the segment event limit");
 
   const hybridTimeMap = asMap(map.get("hybridTime") as DecodedValue, "hybridTime");
   takeKeys(hybridTimeMap, ["logicalCounter", "wallTimeMs"], [], "hybridTime");
@@ -626,6 +631,7 @@ export function decodeEventSegment(bytes: Uint8Array): EventSegmentV1 {
   if (commits.length === 0) {
     throw new CodecError("a segment carries at least one commit");
   }
+  if (commits.reduce((count, commit) => count + commit.events.length, 0) > MAX_SEGMENT_EVENTS) throw new CodecError("segment exceeds the event limit");
   for (const commit of commits) {
     if (!equalBytes(commit.appId, appId)) {
       throw new CodecError("segment commit belongs to another app");
@@ -687,8 +693,8 @@ export function sortFrontier(
  * device sequence, commit ID)`. Not a causality claim — see the module note.
  */
 export function compareCommits(
-  left: EventCommitV1,
-  right: EventCommitV1,
+  left: Pick<EventCommitV1, "hybridTime" | "deviceId" | "deviceCommitSequence" | "commitId">,
+  right: Pick<EventCommitV1, "hybridTime" | "deviceId" | "deviceCommitSequence" | "commitId">,
 ): number {
   if (left.hybridTime.wallTimeMs !== right.hybridTime.wallTimeMs) {
     return left.hybridTime.wallTimeMs < right.hybridTime.wallTimeMs ? -1 : 1;

@@ -70,7 +70,7 @@ import {
   writeSnapshots,
   type PromotionRejectedV1,
 } from "./promotion.js";
-import { encodeAppHead, encodeAppHeadBody, type AppHeadV1, type StorageRefV1 } from "./roots.js";
+import { encodeAppHead, encodeAppHeadBody, type AppHead, type AppHeadBody, type StorageRefV1 } from "./roots.js";
 
 /** database.md § event segments: at most this many events in one segment. */
 export const APPEND_MAX_EVENTS = 10_000;
@@ -85,7 +85,7 @@ export interface AppendTargetV1 {
   readonly appId: AppId;
   /** Live for this call; the caller owns and destroys it. */
   readonly appKey: EnvelopeKeyRefV1;
-  readonly head: AppHeadV1;
+  readonly head: AppHead;
   readonly headStorageId: string;
   /** This device's chain in the app (the event store's), and every commit it holds. */
   readonly chain: ImportChainV1;
@@ -322,7 +322,7 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
 
   const { semanticSha256: _previousDigest, ...previous } = target.head;
   void _previousDigest;
-  const headBody: Omit<AppHeadV1, "semanticSha256"> = {
+  const headBody: AppHeadBody = {
     ...previous,
     headRevision: target.head.headRevision + 1n,
     schemaRevision: schemaRevisionAfter,
@@ -387,4 +387,3 @@ export async function appendTable(deps: AppendDependenciesV1, input: AppendInput
     },
   };
 }
-

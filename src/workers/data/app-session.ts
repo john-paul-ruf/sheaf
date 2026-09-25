@@ -1,3 +1,4 @@
+import { encodeCanonical, type CborValue } from "../../persistence/codecs/canonical-cbor.js";
 /**
  * One open app inside the data worker: hydrate, answer, and disappear (M33;
  * CA-13 consumer and prover, CAP-15, CAP-13's restart leg).
@@ -82,20 +83,25 @@ import type { ClockPort } from "../../application/ports/clock.js";
 import type { EnvelopeKeyRefV1 } from "../../application/ports/envelope-crypto.js";
 import type {
   ProjectionEnginePort,
+  ProjectionCheckpointExportPort,
   ProjectionQueryKindV1,
   ProjectionQueryResultsV1,
   ProjectionQueryV1 as PortQueryV1,
 } from "../../application/ports/projection.js";
 import { sha256 } from "../../crypto/hash.js";
 import {
+  encodeTableDef, encodeEnumOption, encodeRelationship, encodeValidationRule, encodeFormulaDefinition, encodeFormulaMetadata, encodeCheckpointChart,
   resolveCheckpointManifest,
   type ResolvedCheckpointManifestV1,
   type StoredRecordV1,
+  type StoredRecordV2,
 } from "../../import/staging/roots.js";
 import type { EventCommitV1 } from "../../migrations/004_event_format_v1.js";
 import type { SnapshotChunkLoader } from "../../import/snapshots/sheet-snapshot.js";
 import {
   applyEvents,
+  authoredRecords,
+  checkpointMetadata,
   disposeProjection,
   executeQuery,
   hydrateApp,
@@ -118,7 +124,7 @@ import {
 } from "./event-store.js";
 import { readAppDurability } from "./home-state.js";
 import type { AppDurabilityViewV1 } from "../protocol/messages.js";
-import { decodeTailEventPayload, isTailEventKind } from "./record-event-payloads.js";
+import { decodeTailEventPayload, isTailEventKind, isEvidenceEventKind, toProjectionEvidence } from "./record-event-payloads.js";
 
 /** Everything `validateRecord` needs for one table, on one set of instances. */
 interface TableContextV1 {
@@ -136,6 +142,7 @@ export interface AppSessionV1 {
   readonly appId: AppId;
   readonly appKey: EnvelopeKeyRefV1;
   readonly projection: ProjectionEnginePort;
+  readonly checkpointExport: ProjectionCheckpointExportPort;
   readonly repository: AppEventStoreV1;
   readonly deviceOnlyChangeCount: () => number;
   readonly durability: () => Promise<AppDurabilityViewV1>;
@@ -193,6 +200,10 @@ export async function openAppSession(
     appId: loaded.appId,
     appKey: input.appKey,
     projection: engineAdapter(handle),
+    checkpointExport: {
+      checkpoint: () => checkpointMetadata(handle, toProjectionCheckpoint({ ...loaded, recordPages: [] }, checkpoint, contexts, input.hydratedAtMs)),
+      records: (signal) => authoredRecords(handle, signal),
+    },
     repository,
     async durability() {
       const context = input.session();
@@ -308,7 +319,7 @@ async function openSnapshot(
 // ------------------------------------------------------- checkpoint mapping --
 
 export function tableContexts(
-  checkpoint: Omit<ResolvedCheckpointManifestV1, "semanticSha256">,
+  checkpoint: Pick<ResolvedCheckpointManifestV1, "tables" | "enumOptions" | "validationRules" | "relationships">,
   referenceExists: ReferenceResolver,
 ): ReadonlyMap<string, TableContextV1> {
   const contexts = new Map<string, TableContextV1>();
@@ -462,7 +473,7 @@ function checkpointCommitId(loaded: LoadedAppV1): CommitId {
 }
 
 export function toProjectionRecord(
-  stored: StoredRecordV1,
+  stored: StoredRecordV1 | StoredRecordV2,
   contexts: ReadonlyMap<string, TableContextV1>,
   commitId: CommitId,
 ): ProjectionRecordV1 {
@@ -481,8 +492,11 @@ export function toProjectionRecord(
     recordId: stored.recordId,
     tableId: entry.table.tableId,
     values,
-    // The record page stores no per-field provenance. Empty says exactly that.
-    provenance: new Map(),
+    provenance: new Map("provenance" in stored ? stored.provenance.map(({ fieldId, value }) => {
+      const { sourceId, ...source } = value;
+      return [canonicalField(entry.table, fieldId), { ...source,
+        ...(sourceId === undefined ? {} : { sourceId: asDomainId("app", sourceId) }) }] as const;
+    }) : []),
   };
 
   const report = validateRecord(entry.context, {
@@ -494,10 +508,9 @@ export function toProjectionRecord(
 
   return {
     record,
-    // Imported rows enter at revision zero; every later change is an event.
-    recordRevision: 0n,
-    createdCommitId: commitId,
-    updatedCommitId: commitId,
+    recordRevision: "recordRevision" in stored ? stored.recordRevision : 0n,
+    createdCommitId: "createdCommitId" in stored ? stored.createdCommitId : commitId,
+    updatedCommitId: "updatedCommitId" in stored ? stored.updatedCommitId : commitId,
     issues: report.issues.map(toIssueInput),
   };
 }
@@ -586,11 +599,16 @@ async function replayTail(
 export function toProjectionCommit(
   projection: ProjectionEnginePort,
   commit: EventCommitV1,
+  readCheckpoint?: () => ProjectionCheckpointV1,
 ): ProjectionCommitV1 {
-  const events: DomainEventV1[] = [];
+  const events: ProjectionCommitV1["events"][number][] = [];
   const issuesByEventIndex = new Map<number, readonly ValidationIssueV1Input[]>();
 
   commit.events.forEach((wire, index) => {
+    if (isEvidenceEventKind(wire.kind)) {
+      events.push(toProjectionEvidence(wire.kind, wire.payload as never));
+      return;
+    }
     if (!isTailEventKind(wire.kind)) {
       // A tail is CRUD, or an appended table's one import commit (D38). Any
       // other kind is a commit this build cannot replay, and guessing would
@@ -610,6 +628,17 @@ export function toProjectionCommit(
     events,
     ...(issuesByEventIndex.size === 0 ? {} : { issuesByEventIndex }),
     revalidate: projectionRevalidator(projection),
+    ...(readCheckpoint === undefined ? {} : { schemaEvidence: () => {
+      const metadata = readCheckpoint();
+      const value = new Map<string, CborValue>([
+        ["tables", metadata.tables.map(encodeTableDef)], ["enumOptions", metadata.enumOptions.map(encodeEnumOption)],
+        ["relationships", metadata.relationships.map(encodeRelationship)], ["validationRules", metadata.validationRules.map(encodeValidationRule)],
+        ["formulas", metadata.formulas.map((entry) => new Map<string, CborValue>([["formula", encodeFormulaDefinition(entry.formula)],
+          ["metadata", encodeFormulaMetadata(entry.metadata)], ["isActive", entry.isActive], ["schemaRevision", entry.schemaRevision]]))],
+        ["charts", (metadata.charts ?? []).map(encodeCheckpointChart)],
+      ]);
+      return encodeCanonical(new Map<string, CborValue>([["state", "present"], ["value", value]]));
+    } }),
   };
 }
 

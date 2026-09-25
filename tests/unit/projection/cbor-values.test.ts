@@ -117,6 +117,16 @@ describe("authored record payload", () => {
     );
   });
 
+  it("preserves provenance independently of present values without changing legacy payload keys", () => {
+    const record = { ...authoredRecord(), values: new Map([[fieldA, textValue("Ada")]]),
+      provenance: new Map([[fieldA, importProvenance], [fieldB, { source: "user" as const, evidence: new Uint8Array([1, 2]) }]]) };
+    const decoded = decodeAuthoredRecord(encodeAuthoredRecord(record));
+    expect(byIdText(decoded.values)).toEqual(byIdText(record.values));
+    expect(byIdText(decoded.provenance)).toEqual(byIdText(record.provenance));
+    expect([...(decodeCanonical(encodeAuthoredRecord(authoredRecord())) as Map<string, unknown>).keys()].sort())
+      .toEqual(["recordId", "tableId", "values"]);
+  });
+
   it("refuses a decimal that is not canonical", () => {
     const record: AuthoredRecordV1 = {
       recordId,

@@ -16,6 +16,7 @@ export async function verifyBackupFrontier(appId: Uint8Array, checkpoint: readon
     chains.set(id, chain);
   }
   const commitIds = new Set<string>();
+  const dependencies = new Map<string, bigint>();
   for await (const segment of segments) {
     signal?.throwIfAborted();
     if (!constantTimeEquals(appId, segment.appId)) throw new IntegrityError("segment belongs to another app");
@@ -24,6 +25,10 @@ export async function verifyBackupFrontier(appId: Uint8Array, checkpoint: readon
       const commitId = encodeBase64Url(commit.commitId);
       if (commitIds.has(commitId)) throw new IntegrityError("duplicate commit identity");
       commitIds.add(commitId);
+      for (const basis of commit.basisFrontier) {
+        const device = encodeBase64Url(basis.deviceId);
+        if (basis.commitSequence > (dependencies.get(device) ?? 0n)) dependencies.set(device, basis.commitSequence);
+      }
       const id = encodeBase64Url(commit.deviceId);
       const previous = chains.get(id);
       if (commit.deviceCommitSequence !== (previous?.commitSequence ?? 0n) + 1n) throw new IntegrityError("noncontiguous or overlapping device range");
@@ -32,6 +37,9 @@ export async function verifyBackupFrontier(appId: Uint8Array, checkpoint: readon
     }
   }
   signal?.throwIfAborted();
+  for (const [device, sequence] of dependencies) {
+    if ((chains.get(device)?.commitSequence ?? 0n) < sequence) throw new IntegrityError("basis frontier is not covered by authenticated chains");
+  }
   const actual = [...chains.values()].sort((a, b) => compareBytes(a.deviceId, b.deviceId));
   if (actual.length !== expected.length || actual.some((chain, i) => !constantTimeEquals(chain.deviceId, expected[i]!.deviceId) || chain.commitSequence !== expected[i]!.commitSequence)) throw new IntegrityError("replayed frontier does not match manifest");
   return actual;

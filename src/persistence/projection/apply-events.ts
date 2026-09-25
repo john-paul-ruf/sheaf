@@ -40,6 +40,7 @@
  * caller hands over its validator — its records re-judged (invariant 5).
  */
 
+import { applyEvidenceEvent, currentEvidenceState, isProjectionEvidence } from "./evidence-events.js";
 import { IntegrityError } from "../../domain/model/errors.js";
 import { asDomainId, compareDomainIds, type TableId } from "../../domain/model/ids.js";
 import { F04_SCHEMA_EVENT_KINDS } from "../../domain/model/events.js";
@@ -137,6 +138,7 @@ import {
 import type {
   ChangeSubjectKindV1,
   DomainEventV1,
+  ProjectionReplayEventV1,
   ProjectionApplyReceiptV1,
   ProjectionChangeSummaryV1,
   ProjectionCommitV1,
@@ -234,9 +236,26 @@ export async function applyEvents(
         recordKeys: new Set(),
         insertedTables: new Map(),
       };
+      const hasEvidence = entry.events.some(isProjectionEvidence);
+      const evidenceBefore = new Map<string, Uint8Array>();
+      const claimedEffects = new Set<string>();
+      if (hasEvidence && entry.schemaEvidence !== undefined) evidenceBefore.set("schema", entry.schemaEvidence());
+      for (const [index, event] of entry.events.entries()) {
+        const recordId = entry.commit.events[index]!.subject.recordId;
+        if (hasEvidence && recordId !== undefined) evidenceBefore.set(idKey(recordId), currentEvidenceState(handle, recordId));
+        if (isProjectionEvidence(event)) {
+          const identity = event.kind === "conflict.resolved" ? event.payload.result.identity
+            : event.kind === "conflict.detected" ? event.payload.local.state.identity : undefined;
+          for (const record of identity?.candidates ?? []) evidenceBefore.set(idKey(record.recordId), currentEvidenceState(handle, record.recordId));
+        }
+      }
       parkReorderedFields(handle, entry.events);
       for (const [index, event] of entry.events.entries()) {
-        applyEvent(handle, entry, index, event, shape);
+        if (isProjectionEvidence(event)) {
+          const tableId = applyEvidenceEvent(handle, entry, index, event, evidenceBefore, claimedEffects);
+          writeHistory(handle, commit, commit.events[index]!, event, { ...EMPTY_SUMMARY,
+            tableId: asDomainId("table", tableId), evidence: event.canonical }, null);
+        } else applyEvent(handle, entry, index, event, shape);
       }
       // A table this commit created is built whole by its own events (D38);
       // only a table that predates the commit can have been re-shaped.
@@ -348,7 +367,7 @@ async function verifyReplay(
  */
 function assertEventsMatchCommit(
   commit: EventCommitV1,
-  events: readonly DomainEventV1[],
+  events: readonly ProjectionReplayEventV1[],
 ): void {
   if (commit.events.length !== events.length) {
     throw new IntegrityError("typed events do not cover the commit's events");
@@ -684,7 +703,10 @@ function applyEnumChange(
  * relationship is filed under its reference field; a rule or a formula under
  * its own ID, which its event carries as the subject's `objectId`.
  */
-const SUBJECT_KINDS: Readonly<Record<DomainEventV1["kind"], ChangeSubjectKindV1>> = {
+const SUBJECT_KINDS: Readonly<Record<ProjectionReplayEventV1["kind"], ChangeSubjectKindV1>> = {
+  "conflict.detected": "conflict",
+  "conflict.resolved": "conflict",
+  "merge.applied": "record",
   "app.created": "app",
   "durable-home.assigned": "app",
   "app.renamed": "app",
@@ -714,7 +736,7 @@ function writeHistory(
   handle: ProjectionHandleV1,
   commit: EventCommitV1,
   wire: WireEventV1,
-  event: DomainEventV1,
+  event: ProjectionReplayEventV1,
   summary: ProjectionChangeSummaryV1,
   restoration: Uint8Array | null,
 ): void {
@@ -749,6 +771,7 @@ function subjectIdOf(
     case "rule":
     case "formula":
     case "chart":
+    case "conflict":
       return wire.subject.objectId;
     default:
       return wire.subject.appId;
@@ -892,7 +915,7 @@ const PARKED_ORDINAL_BASE = 2 ** 30;
  */
 function parkReorderedFields(
   handle: ProjectionHandleV1,
-  events: readonly DomainEventV1[],
+  events: readonly ProjectionReplayEventV1[],
 ): void {
   let parked = 0;
   for (const event of events) {

@@ -1,7 +1,9 @@
-import { compareDomainIds } from "../../domain/model/ids.js";
+import { asDomainId, compareDomainIds } from "../../domain/model/ids.js";
 import { IntegrityError } from "../../domain/model/errors.js";
 import { CanonicalArray, encodeCanonicalChunks, type CanonicalStreamValue, type CborValue } from "../codecs/canonical-cbor.js";
 import { assertUsable, selectRow, type ProjectionHandleV1 } from "./engine.js";
+import { executeQuery } from "./query-exec.js";
+import type { ProjectionRecordV1 } from "./types.js";
 
 // Only authored facts: no row keys, typed lanes, formula results or local status.
 const SECTIONS = [
@@ -20,6 +22,37 @@ const SECTIONS = [
   ["records", "SELECT record_id, table_id, record_revision, created_commit_id, updated_commit_id, authored_cbor FROM records ORDER BY table_id, record_id", "records"],
   ["restoration", "SELECT event_id, subject_id, summary_cbor, restoration_cbor FROM change_history WHERE restoration_cbor IS NOT NULL ORDER BY event_id", "change_history WHERE restoration_cbor IS NOT NULL"],
 ] as const;
+
+/** Streams actual SQL row metadata and authored values, excluding computed lanes. */
+export function* authoredRecords(handle: ProjectionHandleV1, signal: AbortSignal): Iterable<ProjectionRecordV1> {
+  assertUsable(handle);
+  if (!handle.hydrated) throw new IntegrityError("projection holds no authored state");
+  const frontier = [...handle.frontier].map(([id, entry]) => `${id}:${entry.commitSequence}`).join("|");
+  signal.throwIfAborted();
+  const statement = handle.database.prepare("SELECT record_id FROM records ORDER BY table_id, record_id");
+  let closed = false;
+  const close = () => {
+    if (!closed && !handle.disposed) statement.finalize();
+    closed = true;
+  };
+  signal.addEventListener("abort", close, { once: true });
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      assertUsable(handle);
+      if (frontier !== [...handle.frontier].map(([id, entry]) => `${id}:${entry.commitSequence}`).join("|")) throw new IntegrityError("record export changed during reading");
+      if (!statement.step()) break;
+      const recordId = asDomainId("record", statement.get([])[0] as Uint8Array);
+      const detail = executeQuery(handle, { kind: "record-by-id", recordId });
+      if (detail === null) throw new IntegrityError("record disappeared during export");
+      yield { record: { recordId, tableId: detail.tableId, values: detail.authoredValues, provenance: detail.provenance },
+        recordRevision: detail.recordRevision, createdCommitId: detail.createdCommitId, updatedCommitId: detail.updatedCommitId,
+        issues: detail.issues.filter((issue) => issue.issueKind !== "formula" && issue.messageKey !== "validation.decimal-out-of-domain")
+          .map((issue) => ({ fieldId: issue.fieldId, ruleId: issue.ruleId, kind: issue.issueKind, severity: issue.severity,
+            messageKey: issue.messageKey, messageParameters: issue.messageParameters })) };
+    }
+  } finally { signal.removeEventListener("abort", close); close(); }
+}
 
 /** Caller holds an isolated, hydrated snapshot until the cursor closes. */
 export async function* authoredState(handle: ProjectionHandleV1, signal: AbortSignal, extra: ReadonlyMap<string, CanonicalStreamValue> = new Map()): AsyncIterable<Uint8Array> {

@@ -77,4 +77,6 @@ export type {
   ValidationIssueV1Input,
 } from "./types.js";
 
-export { authoredState } from "./authored-state.js";
+export { authoredState, authoredRecords } from "./authored-state.js";
+export { copyCheckpointHistory } from "./checkpoint-history.js";
+export { checkpointMetadata } from "./checkpoint-export.js";

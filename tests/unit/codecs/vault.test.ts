@@ -6,6 +6,19 @@ import { encodeVaultHeader, decodeVaultHeader, encodeVaultIndex, decodeVaultInde
 import { header, index, manifest, id, hash, ref, wrapped } from "../../fixtures/vaults/f05/helpers.js";
 
 describe("migration 006 canonical contracts", () => {
+  it("preserves evidence page order independently of physical revision and ID", () => {
+    for (const [field, scope] of [["auditPages", "app.audit"], ["conflictPages", "app.conflicts"], ["baselinePages", "app.baselines"]] as const) {
+      const pages = [{ ...ref(scope), storageId: id(9), logicalRevision: 3n },
+        { ...ref(scope), storageId: id(2), logicalRevision: 1n }];
+      const value = { ...manifest(), [field]: pages };
+      const bytes = encodeAppManifest(value);
+      expect(decodeAppManifest(bytes)[field]).toEqual(pages);
+      expect(encodeAppManifest(decodeAppManifest(bytes))).toEqual(bytes);
+      for (const invalid of [[pages[0], pages[0]], [{ ...pages[0], scope: "app.events" }]]) {
+        expect(() => decodeAppManifest(encodeCanonical(vaultValue({ ...value, [field]: invalid })))).toThrow();
+      }
+    }
+  });
   it("round trips exact canonical bytes without losing unknown count vs zero", () => {
     const app = { appId: id(2), displayName: "Private", wrappedAppKey: wrapped, manifest: ref("vault.app-manifest"), lastSuccessfulBackupMs: 10n, totalPaddedBytes: 4096n, appSchemaRevision: 1n, confirmedFrontier: [] };
     for (const entry of [app, { ...app, recordCount: 0n }]) {

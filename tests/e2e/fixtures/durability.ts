@@ -19,10 +19,11 @@ export async function readBundle(context: BrowserContext, bytes: Uint8Array, val
   } finally { await page.close(); }
 }
 
-export async function inspectDurability(page: Page, label: string): Promise<void> {
+export async function inspectDurability(page: Page, label: string, destination: "s02" | "s06" = "s02"): Promise<void> {
+  await mkdir(`test-results/f05/${destination}`, { recursive: true });
   for (const width of [320, 600, 900, 1200]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `test-results/f05/s02/${label}-${width}.png`, fullPage: true });
+    await page.screenshot({ path: `test-results/f05/${destination}/${label}-${width}.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
     expect(results.violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(({ html }) => html) }))).toEqual([]);
@@ -36,7 +37,7 @@ export async function inspectDurability(page: Page, label: string): Promise<void
 }
 
 
-export async function writeDurabilityEvidence(name: string, facts: Record<string, unknown>): Promise<void> {
+export async function writeDurabilityEvidence(name: string, facts: Record<string, unknown>, destination: "s02" | "s06" = "s02"): Promise<void> {
   const digest = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
   async function files(path: string): Promise<string[]> {
     if (!(await stat(path)).isDirectory()) return [path];
@@ -47,11 +48,11 @@ export async function writeDurabilityEvidence(name: string, facts: Record<string
     const hashes = await Promise.all(entries.map(async (path) => [path, digest(await readFile(path))]));
     return { sha256: digest(JSON.stringify(hashes)), files: hashes };
   }
-  await mkdir("test-results/f05/s02", { recursive: true });
-  await writeFile(`test-results/f05/s02/${name}.json`, JSON.stringify({ ...facts,
+  await mkdir(`test-results/f05/${destination}`, { recursive: true });
+  await writeFile(`test-results/f05/${destination}/${name}.json`, JSON.stringify({ ...facts,
     revision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     source: await identity(["src"]),
-    configuration: await identity(["vite.config.ts", "playwright.config.ts", "src/config/public-config.ts", "tests/browser/sync/fixtures/bundle-reader.config.ts"]),
+    configuration: await identity(["package.json", "pnpm-lock.yaml", "vite.config.ts", "playwright.config.ts", "src/config/public-config.ts", "tests/browser/sync/fixtures/bundle-reader.config.ts"]),
     fixtures: await identity(["tests/browser/sync/fixtures", "tests/e2e/fixtures/durability.ts", "tests/e2e/bundle-backup.spec.ts", "tests/e2e/recovery-countdown.spec.ts", "tests/browser/sync/bundle.spec.ts"]),
     output: await identity(["dist"]),
   }, null, 2));

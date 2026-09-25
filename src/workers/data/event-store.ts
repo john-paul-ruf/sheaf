@@ -74,11 +74,13 @@ import {
   decodeRecordPage,
   encodeAppHead,
   encodeAppHeadBody,
-  type AppHeadV1,
+  type AppHead,
+  type AppHeadBody,
   type CheckpointManifestV1,
-  type RecordPageV1,
+  type RecordPage,
   type StorageRefV1,
 } from "../../import/staging/roots.js";
+import { exportBackupGraph, originalGraphCommits } from "./backup-graph.js";
 import { isBackupHeadPinned } from "./home-state.js";
 import type { EnvelopeFrameV1 } from "../../migrations/003_envelope_format_v1.js";
 import { validateLocalCatalog } from "./catalog.js";
@@ -119,10 +121,10 @@ export interface WorkerSessionContextV1 {
 /** The app's durable roots, decoded and verified. */
 export interface LoadedAppV1 {
   readonly appId: AppId;
-  readonly head: AppHeadV1;
+  readonly head: AppHead;
   readonly headStorageId: string;
   readonly checkpoint: CheckpointManifestV1;
-  readonly recordPages: readonly RecordPageV1[];
+  readonly recordPages: readonly RecordPage[];
   /** Every commit the head names, in canonical order. */
   readonly commits: readonly EventCommitV1[];
 }
@@ -187,7 +189,7 @@ export async function readAppHead(
   ports: AppStoragePortsV1,
   appKey: EnvelopeKeyRefV1,
   appHeadStorageId: string,
-): Promise<AppHeadV1> {
+): Promise<AppHead> {
   const headPayload = await openRoot(
     ports,
     appKey,
@@ -236,7 +238,7 @@ export async function loadApp(
     throw new IntegrityError("the checkpoint belongs to another app");
   }
 
-  const recordPages: RecordPageV1[] = [];
+  const recordPages: RecordPage[] = [];
   for (const ref of checkpoint.recordPages) {
     const payload = await openRoot(
       ports,
@@ -256,7 +258,11 @@ export async function loadApp(
   }
 
   const commits: EventCommitV1[] = [];
-  for (const ref of head.eventSegments) {
+  if (head.headVersion === 2) {
+    const signal = new AbortController().signal;
+    const graph = await exportBackupGraph(ports, appKey, { appId: encodeDomainId(head.appId), headStorageId: appHeadStorageId }, signal);
+    for await (const commit of originalGraphCommits(graph, signal)) commits.push(commit);
+  } else for (const ref of head.eventSegments) {
     const payload = await openRoot(
       ports,
       appKey,
@@ -282,21 +288,11 @@ export async function loadApp(
   };
 }
 
-const bodyOf = (head: AppHeadV1): Omit<AppHeadV1, "semanticSha256"> => ({
-  headVersion: head.headVersion,
-  appId: head.appId,
-  headRevision: head.headRevision,
-  schemaRevision: head.schemaRevision,
-  checkpoint: head.checkpoint,
-  eventSegments: head.eventSegments,
-  frontier: head.frontier,
-  baselinePages: head.baselinePages,
-  conflictPages: head.conflictPages,
-  auditPages: head.auditPages,
-  sourceManifests: head.sourceManifests,
-  snapshotManifests: head.snapshotManifests,
-  retainedRoots: head.retainedRoots,
-});
+const bodyOf = (head: AppHead): AppHeadBody => {
+  const { semanticSha256, ...body } = head;
+  void semanticSha256;
+  return body;
+};
 
 // ------------------------------------------------------------- the writer --
 
@@ -399,7 +395,7 @@ export function createEventStore(
       segmentPayload,
     );
 
-    const nextHeadBody: Omit<AppHeadV1, "semanticSha256"> = {
+    const nextHeadBody: AppHeadBody = {
       ...bodyOf(head),
       headRevision: head.headRevision + 1n,
       // A schema commit moves the revision every later command is judged
@@ -408,7 +404,7 @@ export function createEventStore(
       eventSegments: [...head.eventSegments, segmentRef.ref],
       frontier: advanceFrontier(head.frontier, commit),
     };
-    const nextHead: AppHeadV1 = {
+    const nextHead: AppHead = {
       ...nextHeadBody,
       semanticSha256: await ports.crypto.sha256(encodeAppHeadBody(nextHeadBody)),
     };

@@ -39,6 +39,10 @@
  * `formulaId` only when it is computed (D51).
  */
 
+import { decodeStorageId16 } from "../../domain/model/bytes.js";
+import { readFrontier } from "../../persistence/codecs/vault.js";
+import { encodeEventProvenance, decodeEventProvenance } from "../../persistence/codecs/event-commit.js";
+import type { EventProvenanceV1 } from "../../migrations/004_event_format_v1.js";
 import { CodecError } from "../../domain/model/errors.js";
 import { compareDomainIds } from "../../domain/model/ids.js";
 import type {
@@ -624,6 +628,18 @@ export interface RecordPageV1 {
   readonly records: readonly StoredRecordV1[];
 }
 
+export interface StoredRecordV2 extends StoredRecordV1 {
+  readonly recordRevision: bigint;
+  readonly createdCommitId: CommitId;
+  readonly updatedCommitId: CommitId;
+  readonly provenance: readonly { readonly fieldId: FieldId; readonly value: EventProvenanceV1 }[];
+}
+export interface RecordPageV2 {
+  readonly pageVersion: 2;
+  readonly records: readonly StoredRecordV2[];
+}
+export type RecordPage = RecordPageV1 | RecordPageV2;
+
 /** `(TableId, RecordId)` bytewise — the sort every record page is stored in. */
 export function compareRecordKeys(left: StoredRecordV1, right: StoredRecordV1): number {
   const byTable = compareDomainIds(left.tableId, right.tableId);
@@ -704,7 +720,8 @@ const decodeRecord = (value: DecodedValue): StoredRecordV1 => {
 export const recordPageEntryByteLength = (record: StoredRecordV1): number =>
   encodeCanonical(encodeRecord(record)).byteLength;
 
-export function encodeRecordPage(page: RecordPageV1): Uint8Array {
+export function encodeRecordPage(page: RecordPage): Uint8Array {
+  if (page.pageVersion !== 1 && page.pageVersion !== 2) throw new CodecError("record page declares an unsupported version");
   if (page.records.length > RECORD_PAGE_MAX_RECORDS) {
     throw new CodecError("a record page exceeds 1,024 records");
   }
@@ -722,7 +739,7 @@ export function encodeRecordPage(page: RecordPageV1): Uint8Array {
   const bytes = encodeCanonical(
     cborMap([
       ["pageVersion", page.pageVersion],
-      ["records", page.records.map(encodeRecord)],
+      ["records", page.pageVersion === 1 ? page.records.map(encodeRecord) : page.records.map(encodeRecordV2)],
     ]),
   );
   if (bytes.byteLength > PAGE_MAX_DECODED_BYTES) {
@@ -731,19 +748,47 @@ export function encodeRecordPage(page: RecordPageV1): Uint8Array {
   return bytes;
 }
 
-export function decodeRecordPage(payload: Uint8Array): RecordPageV1 {
-  const map = exactKeys(
-    asMap(decodeCanonical(payload), "a record page"),
-    ["pageVersion", "records"],
-    "a record page",
-  );
-  if (count(field(map, "pageVersion"), "a page version") !== VERSION) {
-    throw new CodecError("record page declares an unsupported version");
+const RECORD_V2_KEYS = ["recordRevision", "createdCommitId", "updatedCommitId", "provenance"] as const;
+const uint64 = (value: DecodedValue, what: string): bigint => {
+  if (typeof value !== "bigint" || value < 0n || value > 0xffff_ffff_ffff_ffffn) throw new CodecError(`${what} must be uint64`);
+  return value;
+};
+const encodeRecordV2 = (record: StoredRecordV2): CborValue => {
+  const map = new Map(encodeRecord(record) as ReadonlyMap<string, CborValue>);
+  map.set("recordRevision", record.recordRevision);
+  map.set("createdCommitId", record.createdCommitId);
+  map.set("updatedCommitId", record.updatedCommitId);
+  map.set("provenance", record.provenance.map((entry) => cborMap([["fieldId", entry.fieldId], ["value", encodeEventProvenance(entry.value)]])));
+  decodeRecordV2(decodeCanonical(encodeCanonical(map)));
+  return map;
+};
+const decodeRecordV2 = (value: DecodedValue): StoredRecordV2 => {
+  const map = exactKeys(asMap(value, "a V2 record"), ["recordId", "tableId", "values", "issues", ...RECORD_V2_KEYS], "a V2 record");
+  const base = new Map(map);
+  for (const key of RECORD_V2_KEYS) base.delete(key);
+  const provenance = list(field(map, "provenance"), "field provenance").map((entry) => {
+    const item = exactKeys(asMap(entry, "field provenance"), ["fieldId", "value"], "field provenance");
+    return { fieldId: id16<FieldId>(field(item, "fieldId"), "a field id"), value: decodeEventProvenance(field(item, "value")) };
+  });
+  for (let i = 1; i < provenance.length; i++) {
+    if (compareDomainIds(provenance[i - 1]!.fieldId, provenance[i]!.fieldId) >= 0) throw new CodecError("field provenance must be sorted and unique");
   }
-  return {
-    pageVersion: VERSION,
-    records: list(field(map, "records"), "page records").map(decodeRecord),
-  };
+  return { ...decodeRecord(base), recordRevision: BigInt(count(field(map, "recordRevision"), "record revision")),
+    createdCommitId: id16<CommitId>(field(map, "createdCommitId"), "creation commit"),
+    updatedCommitId: id16<CommitId>(field(map, "updatedCommitId"), "update commit"), provenance };
+};
+export function decodeRecordPage(payload: Uint8Array): RecordPage {
+  if (payload.length > PAGE_MAX_DECODED_BYTES) throw new CodecError("a record page exceeds the 512 KiB decoded cap");
+  const map = exactKeys(asMap(decodeCanonical(payload), "a record page"), ["pageVersion", "records"], "a record page");
+  const version = count(field(map, "pageVersion"), "a page version");
+  const entries = list(field(map, "records"), "page records");
+  if (entries.length > RECORD_PAGE_MAX_RECORDS) throw new CodecError("a record page exceeds 1,024 records");
+  const page: RecordPage = version === 1 ? { pageVersion: 1, records: entries.map(decodeRecord) } :
+    version === 2 ? { pageVersion: 2, records: entries.map(decodeRecordV2) } : (() => { throw new CodecError("record page declares an unsupported version"); })();
+  for (let i = 1; i < page.records.length; i++) {
+    if (compareRecordKeys(page.records[i - 1]!, page.records[i]!) >= 0) throw new CodecError("record page is not sorted by (tableId, recordId)");
+  }
+  return page;
 }
 
 // ------------------------------------------------------------ baseline page --
@@ -767,6 +812,101 @@ export interface BaselinePageV1 {
   readonly entries: readonly BaselineEntryV1[];
 }
 
+export interface BaselineScopeV2 {
+  readonly scopeId: Uint8Array;
+  readonly scopeKind: "import" | "durable-home";
+  readonly importLineageId: Uint8Array | null;
+  readonly durableHomeId: Uint8Array | null;
+  readonly counterpartId: Uint8Array | null;
+  readonly establishedGeneration: bigint | null;
+  readonly establishedFrontier: readonly FrontierEntryV1[];
+  readonly establishedAtMs: number;
+}
+
+export interface BaselineEntryV2 extends Omit<BaselineEntryV1, "values"> {
+  readonly values: BaselineEntryV1["values"] | null;
+  readonly absentReason: string | null;
+  readonly sourceFrontier: readonly FrontierEntryV1[];
+}
+
+export interface BaselinePageV2 {
+  readonly pageVersion: 2;
+  readonly appId: AppId;
+  readonly scope: BaselineScopeV2;
+  readonly entries: readonly BaselineEntryV2[];
+}
+
+export type BaselinePage = BaselinePageV1 | BaselinePageV2;
+
+const baselineValues = (values: BaselineEntryV1["values"]): CborValue =>
+  values.map(({ fieldId, value }) => cborMap([["fieldId", fieldId], ["value", encodeCellValue(value)]]));
+
+const decodeBaselineValues = (value: DecodedValue): BaselineEntryV1["values"] => {
+  const values = list(value, "baseline values").map((item) => {
+    const cell = exactKeys(asMap(item, "a baseline value"), ["fieldId", "value"], "a baseline value");
+    return { fieldId: id16<FieldId>(field(cell, "fieldId"), "a field id"), value: decodeCellValue(field(cell, "value")) };
+  });
+  for (let i = 1; i < values.length; i++) {
+    if (compareDomainIds(values[i - 1]!.fieldId, values[i]!.fieldId) >= 0) throw new CodecError("baseline values must be sorted and unique");
+  }
+  return values;
+};
+
+export const encodeBaselineScope = (scope: BaselineScopeV2): CborValue => cborMap([
+  ["scopeId", scope.scopeId], ["scopeKind", scope.scopeKind], ["importLineageId", scope.importLineageId],
+  ["durableHomeId", scope.durableHomeId], ["counterpartId", scope.counterpartId],
+  ["establishedGeneration", scope.establishedGeneration], ["establishedFrontier", encodeFrontier(scope.establishedFrontier)],
+  ["establishedAtMs", scope.establishedAtMs],
+]);
+
+function decodeBaselineV2(map: ReadonlyMap<DecodedKey, DecodedValue>): BaselinePageV2 {
+  exactKeys(map, ["pageVersion", "appId", "scope", "entries"], "a V2 baseline page");
+  const descriptor = exactKeys(asMap(field(map, "scope"), "a baseline scope"),
+    ["scopeId", "scopeKind", "importLineageId", "durableHomeId", "counterpartId", "establishedGeneration", "establishedFrontier", "establishedAtMs"], "a baseline scope");
+  const generation = field(descriptor, "establishedGeneration");
+  const scope: BaselineScopeV2 = {
+    scopeId: id16(field(descriptor, "scopeId"), "a scope id"),
+    scopeKind: oneOf(field(descriptor, "scopeKind"), ["import", "durable-home"], "a scope kind"),
+    importLineageId: optionalId(field(descriptor, "importLineageId"), "a lineage id"),
+    durableHomeId: optionalId(field(descriptor, "durableHomeId"), "a home id"),
+    counterpartId: optionalId(field(descriptor, "counterpartId"), "a counterpart id"),
+    establishedGeneration: generation === null ? null : BigInt(count(generation, "a supported baseline generation")),
+    establishedFrontier: readFrontier(field(descriptor, "establishedFrontier")),
+    establishedAtMs: count(field(descriptor, "establishedAtMs"), "an establishment time"),
+  };
+  if (scope.scopeKind === "import"
+    ? scope.importLineageId === null || scope.durableHomeId !== null || scope.counterpartId !== null || scope.establishedGeneration !== null
+    : scope.importLineageId !== null || scope.durableHomeId === null || scope.counterpartId === null || scope.establishedGeneration === null || scope.establishedGeneration < 1n) {
+    throw new CodecError("baseline scope metadata does not match its kind");
+  }
+  const entries = list(field(map, "entries"), "baseline entries").map((value): BaselineEntryV2 => {
+    const entry = exactKeys(asMap(value, "a V2 baseline entry"),
+      ["tableId", "recordId", "state", "values", "absentReason", "sourceFrontier"], "a V2 baseline entry");
+    const state = oneOf(field(entry, "state"), ["present", "deleted", "absent"], "a baseline state");
+    const rawValues = field(entry, "values");
+    const reason = field(entry, "absentReason");
+    const absentReason = reason === null ? null : text(reason, "an absence reason");
+    if (state === "present" ? rawValues === null || reason !== null :
+      rawValues !== null || (state === "deleted" ? reason !== null : absentReason === null || absentReason.length === 0)) {
+      throw new CodecError("baseline state, values and absence reason disagree");
+    }
+    const sourceFrontier = readFrontier(field(entry, "sourceFrontier"));
+    for (const source of sourceFrontier) {
+      if (!scope.establishedFrontier.some((known) => compareDomainIds(source.deviceId, known.deviceId) === 0 && known.commitSequence >= source.commitSequence)) {
+        throw new CodecError("baseline row frontier exceeds its scope");
+      }
+    }
+    return { tableId: id16(field(entry, "tableId"), "a table id"), recordId: id16(field(entry, "recordId"), "a record id"),
+      state, values: rawValues === null ? null : decodeBaselineValues(rawValues), absentReason, sourceFrontier };
+  });
+  if (entries.length === 0 || entries.length > RECORD_PAGE_MAX_RECORDS) throw new CodecError("baseline page requires 1..1,024 entries");
+  for (let i = 1; i < entries.length; i++) {
+    const a = entries[i - 1]!; const b = entries[i]!;
+    if ((compareDomainIds(a.tableId, b.tableId) || compareDomainIds(a.recordId, b.recordId)) >= 0) throw new CodecError("baseline rows must be sorted and unique");
+  }
+  return { pageVersion: 2, appId: id16(field(map, "appId"), "an app id"), scope, entries };
+}
+
 const encodeBaselineEntry = (entry: BaselineEntryV1): CborValue =>
   cborMap([
     ["tableId", entry.tableId],
@@ -787,7 +927,15 @@ const encodeBaselineEntry = (entry: BaselineEntryV1): CborValue =>
 export const baselinePageEntryByteLength = (entry: BaselineEntryV1): number =>
   encodeCanonical(encodeBaselineEntry(entry)).byteLength;
 
-export function encodeBaselinePage(page: BaselinePageV1): Uint8Array {
+export function encodeBaselinePage(page: BaselinePage): Uint8Array {
+  if (page.pageVersion === 2) {
+    const bytes = encodeCanonical(cborMap([["pageVersion", 2], ["appId", page.appId], ["scope", encodeBaselineScope(page.scope)],
+      ["entries", page.entries.map((entry) => cborMap([["tableId", entry.tableId], ["recordId", entry.recordId], ["state", entry.state],
+        ["values", entry.values === null ? null : baselineValues(entry.values)], ["absentReason", entry.absentReason],
+        ["sourceFrontier", encodeFrontier(entry.sourceFrontier)]]))]]));
+    decodeBaselinePage(bytes);
+    return bytes;
+  }
   const bytes = encodeCanonical(
     cborMap([
       ["pageVersion", page.pageVersion],
@@ -801,9 +949,12 @@ export function encodeBaselinePage(page: BaselinePageV1): Uint8Array {
   return bytes;
 }
 
-export function decodeBaselinePage(payload: Uint8Array): BaselinePageV1 {
+export function decodeBaselinePage(payload: Uint8Array): BaselinePage {
+  if (payload.length > PAGE_MAX_DECODED_BYTES) throw new CodecError("a baseline page exceeds the 512 KiB decoded cap");
+  const raw = asMap(decodeCanonical(payload), "a baseline page");
+  if (field(raw, "pageVersion") === 2n) return decodeBaselineV2(raw);
   const map = exactKeys(
-    asMap(decodeCanonical(payload), "a baseline page"),
+    raw,
     ["pageVersion", "scopeId", "entries"],
     "a baseline page",
   );
@@ -2336,6 +2487,13 @@ export interface AppHeadV1 {
   readonly semanticSha256: Uint8Array;
 }
 
+export interface AppHeadV2 extends Omit<AppHeadV1, "headVersion" | "retainedRoots"> {
+  readonly headVersion: 2;
+  readonly retainedRoots: readonly TypedStorageRefV1[];
+}
+export type AppHead = AppHeadV1 | AppHeadV2;
+export type AppHeadBody = Omit<AppHeadV1, "semanticSha256"> | Omit<AppHeadV2, "semanticSha256">;
+
 const encodeRef = (ref: StorageRefV1): CborValue =>
   cborMap([
     ["storageId", ref.storageId],
@@ -2369,8 +2527,12 @@ const HEAD_REF_LISTS = Object.freeze([
 ] as const);
 
 export function encodeAppHeadBody(
-  head: Omit<AppHeadV1, "semanticSha256">,
+  head: AppHeadBody,
 ): Uint8Array {
+  if (head.headVersion !== 1 && head.headVersion !== 2) throw new CodecError("app head declares an unsupported version");
+  count(head.schemaRevision, "a schema revision");
+  uint64(head.headRevision, "a head revision");
+  if (head.headVersion === 2) decodeTypedRoots(decodeCanonical(encodeCanonical(head.retainedRoots.map(encodeTypedStorageRef))));
   return encodeCanonical(
     cborMap([
       ["headVersion", head.headVersion],
@@ -2380,13 +2542,13 @@ export function encodeAppHeadBody(
       ["checkpoint", encodeRef(head.checkpoint)],
       ["frontier", encodeFrontier(head.frontier)],
       ...HEAD_REF_LISTS.map(
-        (name) => [name, head[name].map(encodeRef)] as const,
+        (name) => [name, name === "retainedRoots" && head.headVersion === 2 ? head.retainedRoots.map(encodeTypedStorageRef) : head[name].map(encodeRef)] as const,
       ),
     ]),
   );
 }
 
-export function encodeAppHead(head: AppHeadV1): Uint8Array {
+export function encodeAppHead(head: AppHead): Uint8Array {
   const map = asMap(
     decodeCanonical(encodeAppHeadBody(head)),
     "an app head",
@@ -2395,7 +2557,7 @@ export function encodeAppHead(head: AppHeadV1): Uint8Array {
   return encodeCanonical(map);
 }
 
-export function decodeAppHead(payload: Uint8Array): AppHeadV1 {
+export function decodeAppHead(payload: Uint8Array): AppHead {
   const map = exactKeys(
     asMap(decodeCanonical(payload), "an app head"),
     [
@@ -2410,7 +2572,8 @@ export function decodeAppHead(payload: Uint8Array): AppHeadV1 {
     ],
     "an app head",
   );
-  if (count(field(map, "headVersion"), "a head version") !== VERSION) {
+  const headVersion = count(field(map, "headVersion"), "a head version");
+  if (headVersion !== 1 && headVersion !== 2) {
     throw new CodecError("app head declares an unsupported version");
   }
 
@@ -2418,9 +2581,10 @@ export function decodeAppHead(payload: Uint8Array): AppHeadV1 {
     list(field(map, name), name).map(decodeRef);
 
   return {
-    headVersion: VERSION,
+    ...(headVersion === 1 ? { headVersion: 1 as const, retainedRoots: refsIn("retainedRoots") } :
+      { headVersion: 2 as const, retainedRoots: decodeTypedRoots(field(map, "retainedRoots")) }),
     appId: bytesOfLength(field(map, "appId"), ID_BYTES, "an app id") as AppId,
-    headRevision: BigInt(count(field(map, "headRevision"), "a head revision")),
+    headRevision: uint64(field(map, "headRevision"), "a head revision"),
     schemaRevision: BigInt(count(field(map, "schemaRevision"), "a schema revision")),
     checkpoint: decodeRef(field(map, "checkpoint")),
     frontier: decodeFrontier(field(map, "frontier")),
@@ -2430,13 +2594,120 @@ export function decodeAppHead(payload: Uint8Array): AppHeadV1 {
     auditPages: refsIn("auditPages"),
     sourceManifests: refsIn("sourceManifests"),
     snapshotManifests: refsIn("snapshotManifests"),
-    retainedRoots: refsIn("retainedRoots"),
     semanticSha256: bytesOfLength(
       field(map, "semanticSha256"),
       SHA256_BYTES,
       "a semantic digest",
     ),
   };
+}
+
+const RETAINED_KINDS = {
+  "app.head": "app.head", "app.checkpoint": "app.checkpoint-manifest", "app.records": "app.record-page",
+  "app.events": "app.event-segment", "app.baselines": "app.baseline-page", "app.conflicts": "app.conflict-page",
+  "app.audit": "app.audit-page", "app.source-manifest": "app.source-manifest", "app.source-chunk": "app.source-chunk",
+  "app.snapshot-manifest": "app.snapshot-manifest", "app.snapshot-chunk": "app.snapshot-chunk",
+} as const;
+export type TypedStorageRefV1 = {
+  [S in keyof typeof RETAINED_KINDS]: StorageRefV1 & { readonly scope: S; readonly payloadKind: (typeof RETAINED_KINDS)[S] }
+}[keyof typeof RETAINED_KINDS];
+export interface CommitEvidenceRefV1 {
+  readonly segment: Extract<TypedStorageRefV1, { readonly scope: "app.events" }>;
+  readonly commitId: Uint8Array;
+  readonly commitSha256: Uint8Array;
+}
+export interface EventEvidenceRefV1 {
+  readonly commit: CommitEvidenceRefV1;
+  readonly eventId: Uint8Array;
+}
+export interface AuditPageV1 {
+  readonly pageVersion: 1;
+  readonly appId: AppId;
+  readonly entries: readonly CommitEvidenceRefV1[];
+}
+export interface ConflictPageV1 {
+  readonly pageVersion: 1;
+  readonly appId: AppId;
+  readonly entries: readonly { readonly conflictId: Uint8Array; readonly detected: EventEvidenceRefV1; readonly resolved: EventEvidenceRefV1 | null }[];
+}
+const decodeTypedStorageRef = (value: DecodedValue): TypedStorageRefV1 => {
+  const map = exactKeys(asMap(value, "a typed storage ref"), ["storageId", "semanticSha256", "scope", "payloadKind"], "a typed storage ref");
+  const scope = text(field(map, "scope"), "a retained scope");
+  if (!Object.hasOwn(RETAINED_KINDS, scope) || RETAINED_KINDS[scope as keyof typeof RETAINED_KINDS] !== field(map, "payloadKind")) {
+    throw new CodecError("invalid retained scope/kind pair");
+  }
+  const storageId = text(field(map, "storageId"), "a storage id");
+  decodeStorageId16(storageId);
+  return { storageId, semanticSha256: bytesOfLength(field(map, "semanticSha256"), SHA256_BYTES, "a payload digest"),
+    scope, payloadKind: field(map, "payloadKind") } as TypedStorageRefV1;
+};
+const encodeTypedStorageRef = (ref: TypedStorageRefV1): CborValue => {
+  const value = cborMap([["storageId", ref.storageId], ["semanticSha256", ref.semanticSha256], ["scope", ref.scope], ["payloadKind", ref.payloadKind]]);
+  decodeTypedStorageRef(decodeCanonical(encodeCanonical(value)));
+  return value;
+};
+const decodeTypedRoots = (value: DecodedValue): readonly TypedStorageRefV1[] => {
+  const roots = list(value, "retained roots").map(decodeTypedStorageRef);
+  for (let i = 1; i < roots.length; i++) {
+    if (compareDomainIds(decodeStorageId16(roots[i - 1]!.storageId), decodeStorageId16(roots[i]!.storageId)) >= 0) {
+      throw new CodecError("retained roots must be sorted and unique");
+    }
+  }
+  return roots;
+};
+const encodeCommitEvidence = (entry: CommitEvidenceRefV1): CborValue => cborMap([
+  ["segment", encodeTypedStorageRef(entry.segment)], ["commitId", entry.commitId], ["commitSha256", entry.commitSha256],
+]);
+const decodeCommitEvidence = (value: DecodedValue): CommitEvidenceRefV1 => {
+  const map = exactKeys(asMap(value, "commit evidence"), ["segment", "commitId", "commitSha256"], "commit evidence");
+  const segment = decodeTypedStorageRef(field(map, "segment"));
+  if (segment.scope !== "app.events") throw new CodecError("commit evidence must name an event segment");
+  return { segment, commitId: bytesOfLength(field(map, "commitId"), ID_BYTES, "a commit id"),
+    commitSha256: bytesOfLength(field(map, "commitSha256"), SHA256_BYTES, "a commit digest") };
+};
+const encodeEventEvidence = (entry: EventEvidenceRefV1): CborValue => cborMap([
+  ["commit", encodeCommitEvidence(entry.commit)], ["eventId", entry.eventId],
+]);
+const decodeEventEvidence = (value: DecodedValue): EventEvidenceRefV1 => {
+  const map = exactKeys(asMap(value, "event evidence"), ["commit", "eventId"], "event evidence");
+  return { commit: decodeCommitEvidence(field(map, "commit")), eventId: bytesOfLength(field(map, "eventId"), ID_BYTES, "an event id") };
+};
+function evidencePage<T>(payload: Uint8Array, read: (value: DecodedValue) => T) {
+  if (payload.length > PAGE_MAX_DECODED_BYTES) throw new CodecError("evidence page exceeds the 512 KiB decoded cap");
+  const map = exactKeys(asMap(decodeCanonical(payload), "an evidence page"), ["pageVersion", "appId", "entries"], "an evidence page");
+  if (field(map, "pageVersion") !== 1n) throw new CodecError("unsupported evidence page version");
+  const entries = list(field(map, "entries"), "evidence entries");
+  if (entries.length === 0 || entries.length > 1_024) throw new CodecError("evidence page requires 1..1,024 entries");
+  return { pageVersion: 1 as const, appId: id16<AppId>(field(map, "appId"), "an app id"), entries: entries.map(read) };
+}
+export function decodeAuditPage(payload: Uint8Array): AuditPageV1 {
+  const page = evidencePage(payload, decodeCommitEvidence);
+  const ids = new Set(page.entries.map((entry) => [...entry.commitId].join(",")));
+  if (ids.size !== page.entries.length) throw new CodecError("duplicate audit commit");
+  return page;
+}
+export function encodeAuditPage(page: AuditPageV1): Uint8Array {
+  const payload = encodeCanonical(cborMap([["pageVersion", page.pageVersion], ["appId", page.appId], ["entries", page.entries.map(encodeCommitEvidence)]]));
+  decodeAuditPage(payload);
+  return payload;
+}
+export function decodeConflictPage(payload: Uint8Array): ConflictPageV1 {
+  const page = evidencePage(payload, (value) => {
+    const map = exactKeys(asMap(value, "conflict evidence"), ["conflictId", "detected", "resolved"], "conflict evidence");
+    const resolved = field(map, "resolved");
+    return { conflictId: bytesOfLength(field(map, "conflictId"), ID_BYTES, "a conflict id"),
+      detected: decodeEventEvidence(field(map, "detected")), resolved: resolved === null ? null : decodeEventEvidence(resolved) };
+  });
+  for (let i = 1; i < page.entries.length; i++) {
+    if (compareDomainIds(page.entries[i - 1]!.conflictId, page.entries[i]!.conflictId) >= 0) throw new CodecError("conflict entries must be sorted and unique");
+  }
+  return page;
+}
+export function encodeConflictPage(page: ConflictPageV1): Uint8Array {
+  const payload = encodeCanonical(cborMap([["pageVersion", page.pageVersion], ["appId", page.appId], ["entries", page.entries.map((entry) =>
+    cborMap([["conflictId", entry.conflictId], ["detected", encodeEventEvidence(entry.detected)], ["resolved", entry.resolved === null ? null : encodeEventEvidence(entry.resolved)]]))]]));
+  decodeConflictPage(payload);
+  return payload;
 }
 
 /** Re-exported for promotion's manifest assembly. */

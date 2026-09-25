@@ -35,6 +35,9 @@
  * function is the only way to guarantee that.
  */
 
+import type { ProjectionEvidenceEventV1, ProjectionEvidenceStateV1, ProjectionEvidenceSourceV1, ProjectionEvidenceBaselineV1, ProjectionEvidenceReportV1 } from "../../application/ports/projection.js";
+import { decodeEventProvenance } from "../../persistence/codecs/event-commit.js";
+import { VALIDATION_ISSUE_KINDS, VALIDATION_SEVERITIES } from "../../domain/validation/rules.js";
 import { CodecError } from "../../domain/model/errors.js";
 import type { DomainEventV1 } from "../../application/ports/event-repository.js";
 import {
@@ -63,6 +66,7 @@ import {
 } from "../../domain/model/provenance.js";
 import type { CellValueV1 } from "../../domain/model/values.js";
 import {
+  decodeRelationship, decodeRuleIR, decodeFormulaDefinition, decodeFormulaMetadata, decodeCheckpointChart,
   decodeAppTheme,
   decodeCellValue,
   decodeEnumOption,
@@ -629,4 +633,247 @@ function bytes32(value: Uint8Array, what: string): Uint8Array {
     throw new CodecError(`${what} must be 32 bytes`);
   }
   return value;
+}
+
+/** Original evidence payloads have their own lossless provenance representation. */
+export type EvidenceEventKindV1 = "conflict.detected" | "conflict.resolved" | "merge.applied";
+export function isEvidenceEventKind(kind: string): kind is EvidenceEventKindV1 {
+  return kind === "conflict.detected" || kind === "conflict.resolved" || kind === "merge.applied";
+}
+
+export function decodeEvidenceRecord(value: DecodedValue): AuthoredRecordV1 {
+  const map = evidenceMap(value, ["recordId", "tableId", "values", "provenance"]);
+  const values = evidenceFields(field(map, "values"), decodeCellValue);
+  const provenance = evidenceFields(field(map, "provenance"), (value): ValueProvenanceV1 => {
+    const { sourceId, ...decoded } = decodeEventProvenance(value);
+    return { ...decoded, ...(sourceId === undefined ? {} : { sourceId: asDomainId("lineage", sourceId) }) };
+  });
+  return { recordId: asDomainId("record", evidenceId(field(map, "recordId"))),
+    tableId: asDomainId("table", evidenceId(field(map, "tableId"))),
+    values: new Map(values), provenance: new Map(provenance) };
+}
+
+const evidenceMap = (value: DecodedValue, keys: readonly string[]) =>
+  exactKeys(asMap(value, "original evidence"), keys, "original evidence");
+const evidenceId = (value: DecodedValue) => bytesOfLength(value, 16, "evidence identity");
+const evidenceText = (value: DecodedValue) => {
+  const result = nfcText(value, "evidence text");
+  if (result.length === 0) throw new CodecError("empty evidence text");
+  return result;
+};
+function evidenceRevision(value: DecodedValue): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > 0xffff_ffff_ffff_ffffn) throw new CodecError("invalid evidence revision");
+  return value;
+}
+function evidenceFields<T>(value: DecodedValue, decode: (value: DecodedValue) => T): readonly (readonly [FieldId, T])[] {
+  const entries = list(value, "evidence fields").map((entry) => {
+    const map = evidenceMap(entry, ["fieldId", "value"]);
+    return [fieldIdOf(field(map, "fieldId")), decode(field(map, "value"))] as const;
+  });
+  for (let i = 1; i < entries.length; i++) if (compareDomainIds(entries[i - 1]![0], entries[i]![0]) >= 0) {
+    throw new CodecError("evidence fields must be sorted and unique");
+  }
+  return entries;
+}
+function evidenceIds(value: DecodedValue, ordered: boolean): readonly Uint8Array[] {
+  const ids = list(value, "evidence identities").map(evidenceId);
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    const key = [...id].join(",");
+    if (seen.has(key) || (ordered && index > 0 && compareDomainIds(ids[index - 1]!, id) >= 0)) throw new CodecError("duplicate or unordered evidence identities");
+    seen.add(key);
+  });
+  return ids;
+}
+function evidenceFrontier(value: DecodedValue) {
+  const entries = list(value, "evidence frontier").map((entry) => {
+    const map = evidenceMap(entry, ["deviceId", "commitSequence"]);
+    const commitSequence = evidenceRevision(field(map, "commitSequence"));
+    if (commitSequence === 0n) throw new CodecError("zero evidence frontier sequence");
+    return { deviceId: evidenceId(field(map, "deviceId")), commitSequence };
+  });
+  for (let i = 1; i < entries.length; i++) if (compareDomainIds(entries[i - 1]!.deviceId, entries[i]!.deviceId) >= 0) {
+    throw new CodecError("evidence frontier must be sorted and unique");
+  }
+  return entries;
+}
+function evidenceParameters(value: DecodedValue) {
+  const map = asMap(value, "evidence parameters");
+  for (const [key, item] of map) {
+    if (typeof key !== "string" || !["string", "bigint", "boolean"].includes(typeof item)) throw new CodecError("invalid evidence parameter");
+  }
+  return map;
+}
+export function decodeEvidenceValidationReport(value: DecodedValue) {
+  const map = evidenceMap(value, ["isValid", "issues"]);
+  const isValid = field(map, "isValid");
+  if (typeof isValid !== "boolean") throw new CodecError("invalid evidence verdict");
+  const issues = list(field(map, "issues"), "evidence issues").map((value) => {
+    const issue = evidenceMap(value, ["fieldId", "ruleId", "kind", "severity", "messageKey", "messageParameters"]);
+    const fieldId = field(issue, "fieldId");
+    const ruleId = field(issue, "ruleId");
+    return { fieldId: fieldId === null ? null : evidenceId(fieldId), ruleId: ruleId === null ? null : evidenceId(ruleId),
+      kind: oneOf(field(issue, "kind"), VALIDATION_ISSUE_KINDS, "issue kind"),
+      severity: oneOf(field(issue, "severity"), VALIDATION_SEVERITIES, "issue severity"),
+      messageKey: evidenceText(field(issue, "messageKey")), messageParameters: evidenceParameters(field(issue, "messageParameters")) };
+  });
+  if (isValid !== !issues.some((issue) => issue.severity === "blocking")) throw new CodecError("evidence report contradicts its issues");
+  return { isValid, issues };
+}
+function evidenceSchema(value: DecodedValue) {
+  const map = evidenceMap(value, ["tables", "enumOptions", "relationships", "validationRules", "formulas", "charts"]);
+  const tables = list(field(map, "tables"), "evidence tables").map(decodeTableDef);
+  const enumOptions = list(field(map, "enumOptions"), "evidence enum options").map(decodeEnumOption);
+  const relationships = list(field(map, "relationships"), "evidence relationships").map(decodeRelationship);
+  const validationRules = list(field(map, "validationRules"), "evidence rules").map((value) => {
+    const rule = evidenceMap(value, ["tableId", "displayName", "rule", "isActive", "schemaRevision"]);
+    if (typeof field(rule, "isActive") !== "boolean") throw new CodecError("invalid rule activity");
+    return { tableId: evidenceId(field(rule, "tableId")), displayName: nfcText(field(rule, "displayName"), "rule name"),
+      rule: decodeRuleIR(field(rule, "rule")), isActive: field(rule, "isActive"), schemaRevision: evidenceRevision(field(rule, "schemaRevision")) };
+  });
+  const formulas = list(field(map, "formulas"), "evidence formulas").map((value) => {
+    const formula = evidenceMap(value, ["formula", "metadata", "isActive", "schemaRevision"]);
+    if (typeof field(formula, "isActive") !== "boolean") throw new CodecError("invalid formula activity");
+    return { formula: decodeFormulaDefinition(field(formula, "formula")), metadata: decodeFormulaMetadata(field(formula, "metadata")),
+      isActive: field(formula, "isActive"), schemaRevision: evidenceRevision(field(formula, "schemaRevision")) };
+  });
+  const charts = list(field(map, "charts"), "evidence charts").map(decodeCheckpointChart);
+  return { tables, enumOptions, relationships, validationRules, formulas, charts };
+}
+export function decodeEvidenceState(value: DecodedValue, targetKind: "record" | "schema" | "identity") {
+  const map = evidenceMap(value, ["state", "value"]);
+  const state = oneOf(field(map, "state"), ["present", "deleted", "absent"], "evidence state");
+  const content = field(map, "value");
+  if (state !== "present") {
+    if (content !== null) throw new CodecError("non-present evidence carries a value");
+    return { state, value: null };
+  }
+  if (targetKind === "record") return { state, value: decodeEvidenceRecord(content) };
+  if (targetKind === "schema") return { state, value: evidenceSchema(content) };
+  const identity = evidenceMap(content, ["matchFieldId", "candidates"]);
+  const matchFieldId = field(identity, "matchFieldId");
+  const candidates = list(field(identity, "candidates"), "identity candidates").map(decodeEvidenceRecord);
+  for (let i = 1; i < candidates.length; i++) if (compareDomainIds(candidates[i - 1]!.recordId, candidates[i]!.recordId) >= 0) {
+    throw new CodecError("identity candidates must be sorted and unique");
+  }
+  return { state, value: { matchFieldId: matchFieldId === null ? null : evidenceId(matchFieldId), candidates } };
+}
+function evidenceSource(value: DecodedValue, targetKind: "record" | "schema" | "identity") {
+  const map = evidenceMap(value, ["source", "timestampMs", "commitId", "frontier", "state"]);
+  return { source: oneOf(field(map, "source"), ["this-device", "another-device", "uploaded-file"], "evidence source"),
+    timestampMs: count(field(map, "timestampMs"), "source timestamp"), commitId: evidenceId(field(map, "commitId")),
+    frontier: evidenceFrontier(field(map, "frontier")), state: decodeEvidenceState(field(map, "state"), targetKind) };
+}
+function evidenceBaseline(value: DecodedValue) {
+  const map = evidenceMap(value, ["scopeId", "state", "values", "absentReason", "frontier"]);
+  const state = oneOf(field(map, "state"), ["present", "deleted", "absent"], "baseline state");
+  const values = field(map, "values");
+  const reason = field(map, "absentReason");
+  if ((state === "present" ? values === null : values !== null) || (state === "absent" ? reason === null : reason !== null)) {
+    throw new CodecError("contradictory baseline state");
+  }
+  return { scopeId: evidenceId(field(map, "scopeId")), state, values: values === null ? null : evidenceFields(values, decodeCellValue),
+    absentReason: reason === null ? null : evidenceText(reason), frontier: evidenceFrontier(field(map, "frontier")) };
+}
+
+/** Shape validation only; replay verifies identities, source authority and effects. */
+export function decodeEvidenceEventPayload(kind: EvidenceEventKindV1, value: DecodedValue) {
+  const keys = kind === "conflict.detected"
+    ? ["payloadVersion", "conflictId", "tableId", "targetKind", "targetId", "conflictKind", "schemaRevision", "baseline", "local", "incoming", "conflictingFields", "validationReport"]
+    : kind === "conflict.resolved"
+      ? ["payloadVersion", "conflictId", "detectedEventId", "decision", "result", "schemaRevision", "validationReport", "effectEventIds"]
+      : ["payloadVersion", "mergeId", "tableId", "recordId", "schemaRevision", "baseline", "local", "incoming", "localChangedFields", "incomingChangedFields", "result", "resultCommitId", "validationReport", "explanation", "effectEventIds"];
+  const map = evidenceMap(value, keys);
+  if (field(map, "payloadVersion") !== 1n) throw new CodecError("unsupported evidence payload version");
+  const schemaRevision = evidenceRevision(field(map, "schemaRevision"));
+  if (kind === "conflict.detected") {
+    const targetKind = oneOf(field(map, "targetKind"), ["record", "schema", "identity"], "conflict target");
+    const conflictKind = oneOf(field(map, "conflictKind"), targetKind === "record"
+      ? ["field", "key", "delete-edit", "baseline-absent", "record-validation"] : [targetKind], "conflict kind");
+    const baselineValue = field(map, "baseline");
+    const baseline = baselineValue === null ? null : evidenceBaseline(baselineValue);
+    const reportValue = field(map, "validationReport");
+    const validationReport = reportValue === null ? null : decodeEvidenceValidationReport(reportValue);
+    if ((targetKind === "record" && baseline === null) || (conflictKind === "baseline-absent" && baseline?.state !== "absent") ||
+        (["record-validation", "schema"].includes(conflictKind) && (validationReport === null || validationReport.isValid))) {
+      throw new CodecError("conflict lacks its baseline or rejection report");
+    }
+    return { kind, payload: { schemaRevision, conflictId: evidenceId(field(map, "conflictId")), tableId: evidenceId(field(map, "tableId")),
+      targetKind, targetId: evidenceId(field(map, "targetId")), conflictKind, baseline,
+      local: evidenceSource(field(map, "local"), targetKind), incoming: evidenceSource(field(map, "incoming"), targetKind),
+      conflictingFields: evidenceIds(field(map, "conflictingFields"), true), validationReport }, canonical: map };
+  }
+  const validationReport = decodeEvidenceValidationReport(field(map, "validationReport"));
+  if (!validationReport.isValid) throw new CodecError("successful evidence requires a valid report");
+  const effectEventIds = evidenceIds(field(map, "effectEventIds"), false);
+  if (kind === "conflict.resolved") {
+    // The authenticated detection supplies the target kind before result decoding.
+    const result = evidenceMap(field(map, "result"), ["state", "value"]);
+    const state = oneOf(field(result, "state"), ["present", "deleted", "absent"], "resolution state");
+    if (state !== "present" && field(result, "value") !== null) throw new CodecError("non-present result carries a value");
+    return { kind, payload: { schemaRevision, conflictId: evidenceId(field(map, "conflictId")), detectedEventId: evidenceId(field(map, "detectedEventId")),
+      decision: oneOf(field(map, "decision"), ["keep-local", "use-incoming", "edited"], "resolution decision"),
+      result, validationReport, effectEventIds }, canonical: map };
+  }
+  const baseline = evidenceBaseline(field(map, "baseline"));
+  const local = evidenceSource(field(map, "local"), "record");
+  const incoming = evidenceSource(field(map, "incoming"), "record");
+  if (baseline.state !== "present" || local.state.state !== "present" || incoming.state.state !== "present") throw new CodecError("merge requires present alternatives and baseline");
+  const explanation = evidenceMap(field(map, "explanation"), ["messageKey", "messageParameters"]);
+  return { kind, payload: { schemaRevision, mergeId: evidenceId(field(map, "mergeId")), tableId: evidenceId(field(map, "tableId")),
+    recordId: evidenceId(field(map, "recordId")), baseline, local, incoming,
+    localChangedFields: evidenceIds(field(map, "localChangedFields"), true), incomingChangedFields: evidenceIds(field(map, "incomingChangedFields"), true),
+    result: decodeEvidenceRecord(field(map, "result")), resultCommitId: evidenceId(field(map, "resultCommitId")), validationReport, effectEventIds,
+    explanation: { messageKey: evidenceText(field(explanation, "messageKey")), messageParameters: evidenceParameters(field(explanation, "messageParameters")) } }, canonical: map };
+}
+
+
+/** Converts checked wire evidence to the projection's storage-independent replay vocabulary. */
+export function toProjectionEvidence(kind: EvidenceEventKindV1, value: DecodedValue): ProjectionEvidenceEventV1 {
+  const decoded = decodeEvidenceEventPayload(kind, value);
+  const raw = decoded.canonical;
+  const canonical = encodeCanonical(raw);
+  const state = (value: DecodedValue, target: "record" | "schema" | "identity"): ProjectionEvidenceStateV1 => {
+    const decoded = decodeEvidenceState(value, target);
+    return { state: decoded.state,
+      ...(target === "identity" && decoded.value !== null && "candidates" in decoded.value ? { identity: decoded.value } : {}),
+      record: target === "record" && decoded.state === "present"
+      ? decodeEvidenceRecord(field(asMap(value, "evidence state"), "value")) : null,
+      canonical: encodeCanonical(value) };
+  };
+  const source = (value: DecodedValue, target: "record" | "schema" | "identity"): ProjectionEvidenceSourceV1 => {
+    const decoded = evidenceSource(value, target);
+    return { ...decoded, state: state(field(asMap(value, "evidence source"), "state"), target), canonical: encodeCanonical(value) };
+  };
+  const baseline = (value: DecodedValue): ProjectionEvidenceBaselineV1 => {
+    const decoded = evidenceBaseline(value);
+    return { ...decoded, values: decoded.values === null ? null : encodeCanonical(field(asMap(value, "baseline"), "values")),
+      canonical: encodeCanonical(value) };
+  };
+  const report = (value: DecodedValue): ProjectionEvidenceReportV1 => {
+    const decoded = decodeEvidenceValidationReport(value);
+    return { isValid: decoded.isValid, canonical: encodeCanonical(value), issues: decoded.issues.map((issue) => ({
+      ...issue, fieldId: issue.fieldId === null ? null : asDomainId("field", issue.fieldId),
+      ruleId: issue.ruleId === null ? null : asDomainId("rule", issue.ruleId),
+      messageParameters: Object.fromEntries(issue.messageParameters) as Record<string, string | bigint | boolean>,
+    })) };
+  };
+  if (decoded.kind === "conflict.detected") {
+    const target = decoded.payload.targetKind;
+    return { kind: decoded.kind, canonical, payload: { ...decoded.payload,
+      baseline: decoded.payload.baseline === null ? null : baseline(field(raw, "baseline")),
+      local: source(field(raw, "local"), target), incoming: source(field(raw, "incoming"), target),
+      validationReport: decoded.payload.validationReport === null ? null : report(field(raw, "validationReport")) } };
+  }
+  if (decoded.kind === "conflict.resolved") {
+    const result = field(raw, "result");
+    const content = field(asMap(result, "resolution"), "value");
+    const target = content instanceof Map && content.has("tables") ? "schema"
+      : content instanceof Map && content.has("candidates") ? "identity" : "record";
+    return { kind: decoded.kind, canonical, payload: { ...decoded.payload, result: state(result, target),
+      validationReport: report(field(raw, "validationReport")) } };
+  }
+  return { kind: decoded.kind, canonical, payload: { ...decoded.payload,
+    baseline: baseline(field(raw, "baseline")), local: source(field(raw, "local"), "record"), incoming: source(field(raw, "incoming"), "record"),
+    validationReport: report(field(raw, "validationReport")), explanation: encodeCanonical(field(raw, "explanation")) } };
 }

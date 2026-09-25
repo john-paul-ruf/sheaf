@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeEvidenceEventPayload, decodeEvidenceRecord,
   RECORD_EVENT_KINDS,
   TAIL_EVENT_KINDS,
   decodeRecordEventPayload,
@@ -748,5 +749,74 @@ describe("durable home assignment (CA-34)", () => {
       changed.set(key, bad);
       expect(() => decodeTailEventPayload("durable-home.assigned", decodeCanonical(encodeCanonical(changed)))).toThrow(CodecError);
     }
+  });
+});
+
+describe("original conflict and merge evidence payloads (CA-35/41)", () => {
+  const id = (byte: number) => new Uint8Array(16).fill(byte);
+  const map = (entries: readonly (readonly [string, CborValue])[]) => new Map<string, CborValue>(entries);
+  const frontier = [map([["deviceId", id(1)], ["commitSequence", 1n]])];
+  const values = [map([["fieldId", id(2)], ["value", map([["kind", "text"], ["text", "original"]])]])];
+  const record = map([["recordId", id(3)], ["tableId", id(4)], ["values", values],
+    ["provenance", [map([["fieldId", id(2)], ["value", map([["source", "user"], ["evidence", [id(8), null]]])]])]]]);
+  const state = map([["state", "present"], ["value", record]]);
+  const source = map([["source", "this-device"], ["timestampMs", 100n], ["commitId", id(5)], ["frontier", frontier], ["state", state]]);
+  const baseline = map([["scopeId", id(6)], ["state", "present"], ["values", values], ["absentReason", null], ["frontier", frontier]]);
+  const report = map([["isValid", true], ["issues", []]]);
+  const detected = map([["payloadVersion", 1n], ["conflictId", id(7)], ["tableId", id(4)], ["targetKind", "record"], ["targetId", id(3)],
+    ["conflictKind", "field"], ["schemaRevision", 1n], ["baseline", baseline], ["local", source], ["incoming", source],
+    ["conflictingFields", [id(2)]], ["validationReport", null]]);
+  const resolved = map([["payloadVersion", 1n], ["conflictId", id(7)], ["detectedEventId", id(9)], ["decision", "keep-local"],
+    ["result", state], ["schemaRevision", 1n], ["validationReport", report], ["effectEventIds", []]]);
+  const merged = map([["payloadVersion", 1n], ["mergeId", id(10)], ["tableId", id(4)], ["recordId", id(3)], ["schemaRevision", 1n],
+    ["baseline", baseline], ["local", source], ["incoming", source], ["localChangedFields", []], ["incomingChangedFields", []],
+    ["result", record], ["resultCommitId", id(11)], ["validationReport", report],
+    ["explanation", map([["messageKey", "merge.unchanged"], ["messageParameters", map([])]])], ["effectEventIds", []]]);
+  const decoded = (value: CborValue) => decodeCanonical(encodeCanonical(value));
+
+  it("preserves full canonical alternatives and all original payload bytes", () => {
+    for (const [kind, payload] of [["conflict.detected", detected], ["conflict.resolved", resolved], ["merge.applied", merged]] as const) {
+      const read = decodeEvidenceEventPayload(kind, decoded(payload));
+      expect(encodeCanonical(read.canonical)).toEqual(encodeCanonical(payload));
+      expect(read.kind).toBe(kind);
+    }
+    const row = decodeEvidenceRecord(decoded(record));
+    expect([...row.provenance.values()]).toEqual([{ source: "user", evidence: [id(8), null] }]);
+    expect([...row.values.values()]).toEqual([{ kind: "text", text: "original" }]);
+  });
+
+  it("keeps absent and deleted baselines distinct and rejects contradictory values", () => {
+    for (const state of ["absent", "deleted"] as const) {
+      const changed = new Map(baseline).set("state", state).set("values", null).set("absentReason", state === "absent" ? "unobserved" : null);
+      const read = decodeEvidenceEventPayload("conflict.detected", decoded(new Map(detected).set("baseline", changed)));
+      expect(read.kind === "conflict.detected" && read.payload.baseline?.state).toBe(state);
+      expect(() => decodeEvidenceEventPayload("conflict.detected", decoded(new Map(detected).set("baseline", new Map(changed).set("values", values))))).toThrow();
+    }
+  });
+
+  it("rejects empty maps, wrong versions, unknown keys and impossible target kinds", () => {
+    for (const [kind, payload] of [["conflict.detected", detected], ["conflict.resolved", resolved], ["merge.applied", merged]] as const) {
+      for (const invalid of [map([]), new Map(payload).set("payloadVersion", 2n), new Map(payload).set("unknown", true)]) {
+        expect(() => decodeEvidenceEventPayload(kind, decoded(invalid))).toThrow(CodecError);
+      }
+    }
+    expect(() => decodeEvidenceEventPayload("conflict.detected", decoded(new Map(detected).set("targetKind", "schema")))).toThrow();
+  });
+
+  it("rejects false success, missing required rejection reports and duplicate effects", () => {
+    const issue = map([["fieldId", id(2)], ["ruleId", null], ["kind", "required"], ["severity", "blocking"],
+      ["messageKey", "required"], ["messageParameters", map([])]]);
+    const invalid = new Map(report).set("issues", [issue]);
+    expect(() => decodeEvidenceEventPayload("merge.applied", decoded(new Map(merged).set("validationReport", invalid)))).toThrow("contradicts");
+    expect(() => decodeEvidenceEventPayload("conflict.detected", decoded(new Map(detected).set("conflictKind", "record-validation")))).toThrow();
+    expect(() => decodeEvidenceEventPayload("conflict.resolved", decoded(new Map(resolved).set("effectEventIds", [id(2), id(2)])))).toThrow();
+    expect(() => decodeEvidenceEventPayload("merge.applied", decoded(new Map(merged).set("baseline", new Map(baseline).set("state", "deleted").set("values", null))))).toThrow();
+  });
+
+  it("rejects duplicate fields, invalid provenance and unordered frontiers", () => {
+    expect(() => decodeEvidenceRecord(decoded(new Map(record).set("values", [...values, ...values])))).toThrow();
+    expect(() => decodeEvidenceRecord(decoded(new Map(record).set("provenance", [map([["fieldId", id(2)], ["value", map([["source", "invented"]])]])])))).toThrow();
+    const wrongSource = new Map(source).set("frontier", [...frontier, ...frontier]);
+    expect(() => decodeEvidenceEventPayload("conflict.detected", decoded(new Map(detected).set("incoming", wrongSource)))).toThrow();
   });
 });

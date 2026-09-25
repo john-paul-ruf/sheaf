@@ -457,3 +457,21 @@ describe("wire validation", () => {
     ).toThrow(CodecError);
   });
 });
+
+
+it("bounds complete original commits and combined segments without splitting their events", async () => {
+  const { decodeCanonical, encodeCanonical } = await import("../../../src/persistence/codecs/canonical-cbor.js");
+  const base = decodeEventSegment(bytes(katFixture.chain.segmentHex));
+  const original = base.commits[0]!;
+  const events = Array.from({ length: 10_000 }, (_, eventIndex) => ({ ...original.events[0]!, eventIndex,
+    eventId: Uint8Array.from([...new Uint8Array(12), eventIndex >>> 24, eventIndex >>> 16 & 255, eventIndex >>> 8 & 255, eventIndex & 255]) }));
+  const complete = { ...original, events };
+  const encoded = encodeEventCommit(complete);
+  expect(decodeEventCommit(encoded).events).toHaveLength(10_000);
+  expect(() => encodeCommitBody({ ...complete, events: [...events, { ...events[0]!, eventIndex: 10_000 }] })).toThrow("event limit");
+  expect(() => encodeEventSegment({ ...base, commits: [complete, base.commits[1]!] })).toThrow("event limit");
+  const raw = decodeCanonical(encoded) as Map<string, import("../../../src/persistence/codecs/canonical-cbor.js").CborValue>;
+  const rawEvents = raw.get("events") as Map<string, import("../../../src/persistence/codecs/canonical-cbor.js").CborValue>[];
+  rawEvents.push(new Map(rawEvents[0]).set("eventIndex", 10_000n));
+  expect(() => decodeEventCommit(encodeCanonical(raw))).toThrow("event limit");
+});

@@ -503,21 +503,7 @@ export async function readAppRoots(
     // did not describe it would fail.
     const recomputedCheckpoint = await hash.sha256(roots.checkpointSemanticBody(checkpointBytes));
     const recomputedHead = await hash.sha256(
-      roots.encodeAppHeadBody({
-        headVersion: decodedHead.headVersion,
-        appId: decodedHead.appId,
-        headRevision: decodedHead.headRevision,
-        schemaRevision: decodedHead.schemaRevision,
-        checkpoint: decodedHead.checkpoint,
-        eventSegments: decodedHead.eventSegments,
-        frontier: decodedHead.frontier,
-        baselinePages: decodedHead.baselinePages,
-        conflictPages: decodedHead.conflictPages,
-        auditPages: decodedHead.auditPages,
-        sourceManifests: decodedHead.sourceManifests,
-        snapshotManifests: decodedHead.snapshotManifests,
-        retainedRoots: decodedHead.retainedRoots,
-      }),
+      roots.encodeAppHeadBody(decodedHead),
     );
 
     const hex = (value: Uint8Array): string =>

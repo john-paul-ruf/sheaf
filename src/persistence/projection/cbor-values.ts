@@ -174,7 +174,7 @@ const encodeProvenance = (provenance: ValueProvenanceV1): CborValue => {
  * decoded passes through as it was.
  */
 const evidenceValue = (evidence: unknown): CborValue =>
-  evidence instanceof Map || typeof evidence !== "object" || evidence === null
+  evidence instanceof Map || evidence instanceof Uint8Array || Array.isArray(evidence) || typeof evidence !== "object" || evidence === null
     ? (evidence as CborValue)
     : new Map<string, CborValue>(Object.entries(evidence as Record<string, CborValue>));
 
@@ -239,13 +239,17 @@ export function encodeAuthoredRecord(record: AuthoredRecordV1): Uint8Array {
     return entry;
   });
 
-  return encodeCanonical(
-    new Map<string, CborValue>([
-      ["recordId", record.recordId],
-      ["tableId", record.tableId],
-      ["values", entries],
-    ]),
-  );
+  const map: CborMap = new Map<string, CborValue>([
+    ["recordId", record.recordId],
+    ["tableId", record.tableId],
+    ["values", entries],
+  ]);
+  const present = new Set(fieldIds.map(encodeDomainId));
+  const provenanceOnly = [...record.provenance].filter(([id]) => !present.has(encodeDomainId(id)))
+    .sort(([a], [b]) => compareDomainIds(a, b))
+    .map(([fieldId, source]) => new Map<string, CborValue>([["fieldId", fieldId], ["provenance", encodeProvenance(source)]]));
+  if (provenanceOnly.length !== 0) map.set("provenanceOnly", provenanceOnly);
+  return encodeCanonical(map);
 }
 
 export function decodeAuthoredRecord(bytes: Uint8Array): AuthoredRecordV1 {
@@ -261,6 +265,11 @@ export function decodeAuthoredRecord(bytes: Uint8Array): AuthoredRecordV1 {
     if (source !== undefined) {
       provenance.set(fieldId, decodeProvenance(source));
     }
+  }
+
+  for (const entry of asArray(map.get("provenanceOnly") ?? [], "provenance without values")) {
+    const fields = asMap(entry, "authored provenance");
+    provenance.set(asDomainId("field", readBytes(fields, "fieldId")), decodeProvenance(required(fields, "provenance")));
   }
 
   return {
@@ -713,6 +722,7 @@ export function encodeChangeSummary(
   if (summary.tableId !== null) {
     map.set("tableId", summary.tableId);
   }
+  if (summary.evidence !== undefined) map.set("evidence", summary.evidence);
   return encodeCanonical(map);
 }
 
@@ -724,6 +734,7 @@ export function decodeChangeSummary(
   const createdCommitId = map.get("createdCommitId");
   const tableId = map.get("tableId");
   return {
+    ...(map.has("evidence") ? { evidence: asBytes(map.get("evidence")!, "evidence") } : {}),
     fieldChanges: asArray(map.get("fieldChanges"), "field changes").map(
       decodeFieldChange,
     ),

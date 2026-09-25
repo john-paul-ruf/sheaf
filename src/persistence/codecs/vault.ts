@@ -88,10 +88,12 @@ function scoped(value: unknown, scope: EnvelopeScopeV1): EnvelopeReferenceV1 {
   if (ref.scope !== scope) fail("reference scope does not match graph role");
   return ref;
 }
-function refs(value: unknown, scope?: EnvelopeScopeV1): EnvelopeReferenceV1[] {
+function refs(value: unknown, scope?: EnvelopeScopeV1, logicalOrder = false): EnvelopeReferenceV1[] {
   const result = list(value, (item) => scope === undefined ? readEnvelopeReference(item) : scoped(item, scope));
   const ids = new Set(result.map((ref) => [...ref.storageId].join(",")));
   if (ids.size !== result.length) fail("duplicate reference");
+  // Evidence order is authenticated by the payload reader, not physical storage metadata.
+  if (logicalOrder) return result;
   return sorted(result, (a, b) => a.logicalRevision < b.logicalRevision ? -1 : a.logicalRevision > b.logicalRevision ? 1 : compareBytes(a.storageId, b.storageId));
 }
 function wrapped(value: unknown): WrappedKeyV1 {
@@ -184,8 +186,8 @@ function readManifest(value: unknown): AppManifestV1 {
   return { vaultFormatVersion: literal(m.get("vaultFormatVersion"), versions.vault), appId: bytes(m.get("appId"), 16),
     generation: uint(m.get("generation"), 1n), previousManifestSha256: nullableHash(m.get("previousManifestSha256")),
     checkpoint: scoped(m.get("checkpoint"), "app.checkpoint"), eventSegments: refs(m.get("eventSegments"), "app.events"),
-    baselinePages: refs(m.get("baselinePages"), "app.baselines"), conflictPages: refs(m.get("conflictPages"), "app.conflicts"),
-    auditPages: refs(m.get("auditPages"), "app.audit"), sourceManifests: refs(m.get("sourceManifests"), "app.source-manifest"),
+    baselinePages: refs(m.get("baselinePages"), "app.baselines", true), conflictPages: refs(m.get("conflictPages"), "app.conflicts", true),
+    auditPages: refs(m.get("auditPages"), "app.audit", true), sourceManifests: refs(m.get("sourceManifests"), "app.source-manifest"),
     snapshotManifests: refs(m.get("snapshotManifests"), "app.snapshot-manifest"), retainedRoots: refs(m.get("retainedRoots")),
     confirmedFrontier: readFrontier(m.get("confirmedFrontier")), semanticSha256: bytes(m.get("semanticSha256"), 32), totalPaddedBytes: uint(m.get("totalPaddedBytes")) };
 }
