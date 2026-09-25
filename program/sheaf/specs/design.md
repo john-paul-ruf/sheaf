@@ -410,6 +410,8 @@ under the Genesis re-entry rules.
 | F05-CTL-02 | Scoped vault recovery issue and acknowledgment (MOD-021 detail) | single vault code, paired local/vault codes on reuse, print, explicit acknowledgment, dismiss | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-021` |
 | F05-CTL-03 | Named-vault unlock fields (MOD-023 detail) | empty, show/hide, checking, wrong vault secret, operation error, retry, cancel, focus | Security | `./program/sheaf/mocks/f05-vault-security.html#mod-023` |
 | F05-CTL-04 | Named-vault recovery re-view | unlocked scope, vault passphrase verification, wrong secret, unavailable code, revealed code, print, close; distinct from local MOD-022 | Security | `./program/sheaf/mocks/f05-vault-security.html#vault-review` |
+| F05-CTL-05 | Fresh-bundle save and confirmation (MOD-025 / STA-009 detail) | ready, preparing, delivering, native saved, explicit post-delivery confirmation, unconfirmed, cancelled, destination-full, interrupted, stale result; prior/null receipt and concurrent changes | Durability | `./program/sheaf/mocks/f05-bundle-save.html` |
+| F05-CTL-06 | Scratch reminder and persistent backup facts (MOD-001/002 / STA-008 detail) | first authored change; successive dismissal intervals 10m / 1h / 24h / daily; dismissed badge, exact count, home assigned without receipt, focus return | Durability | `./program/sheaf/mocks/f05-scratch-reminders.html` |
 
 > **Inventory note (DF-1):** the palette values that CTL-049, CTL-115 and
 > CTL-116 select, in light and dark mode, are listed in § Per-app theming
@@ -482,6 +484,8 @@ without pretending Sheaf controls those pixels.
 | SCR-052 | Deletion marker on reconnect | `./program/sheaf/mocks/deletion-marker.html` | Zero-change notice and device-only rescue path; no resurrection | FR-18, FR-33 |
 | SCR-053 | Charts index | `./program/sheaf/mocks/charts.html` | The app's **Charts** destination (`#/app/{id}/charts`, D63): every imported and user-made chart with its name, type, source table and an origin marker (from workbook / made here); pinned state with a pin-to-app-home toggle; **New chart** → SCR-034; open a chart → SCR-033; "No charts yet" empty state with **New chart** | FR-5, FR-16 |
 | F05-SECURITY | Named-vault security detail atlas | `./program/sheaf/mocks/f05-vault-security.html` | Supplemental detail for MOD-020/021/023 and scoped vault-code re-view; interactive shell dialogs at 320/430/768/1024/1440px, keyboard/error/cancel states; no new product route | FR-23–24 |
+| F05-BUNDLE-SAVE | Bundle-save outcome detail atlas | `./program/sheaf/mocks/f05-bundle-save.html` | Supplemental MOD-025 / STA-009 detail; DEC-72 explicit confirmation only after unobservable delivery; native observed save independent; truthful prior time/current count and keyboard/error/cancel states at 320/430/768/1024/1440px; no new route | FR-25–27 |
+| F05-SCRATCH-REMINDERS | Scratch-reminder detail atlas | `./program/sheaf/mocks/f05-scratch-reminders.html` | Supplemental MOD-001/002 / STA-008 detail; DEC-71 approved escalation, dismissal with persistent shell/app badges, home assignment without invented receipt; accessible sheets/dialogs at 320/430/768/1024/1440px; no new route | FR-25–26 |
 
 ### Modal and alert-dialog inventory
 
