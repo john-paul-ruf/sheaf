@@ -891,8 +891,11 @@ Reconstruct scope_kind import, import_lineage_id from that identity, null
 home/counterpart/generation, established_at_ms from the authenticated lineage
 acceptance time, and established_frontier from the complete original import
 commit's basis frontier with that device advanced to its original sequence.
-Use the same frontier for the V1 rows. An appended import uses its own accepted
-commit/lineage, never the latest app checkpoint or the first import's frontier.
+Use the same frontier for the V1 rows. If a producer establishes a separate
+import baseline, use its own actual accepted commit/lineage, never the latest
+app checkpoint or another import's frontier. Current CSV append emits record
+events and preserves prior baseline roots; it does not establish a new
+`import.accepted` baseline. Do not synthesize one for appended rows.
 Verify commit, app, table and lineage agreement. Missing or ambiguous origins
 are unsupported evidence, not permission to create a synthetic import scope.
 
@@ -923,9 +926,26 @@ readable and conservatively absent.
 | `importLineageId` | 16 bytes for import, null for durable-home |
 | `durableHomeId` | null for import, 16 bytes for durable-home |
 | `counterpartId` | null for import, 16 bytes for durable-home |
-| `establishedGeneration` | null for import, positive uint64 for durable-home |
+| `establishedGeneration` | null for import; integer 1 through 9,007,199,254,740,991 for supported durable-home projection |
 | `establishedFrontier` | existing canonical frontier → established_frontier_cbor |
 | `establishedAtMs` | nonnegative safe millisecond integer → established_at_ms |
+
+**Projection numeric range:** The encrypted CBOR uint64 representation is not
+permission to narrow a value into the current JavaScript/SQLite adapter. This
+build supports establishedGeneration through `Number.MAX_SAFE_INTEGER`
+(9,007,199,254,740,991), inclusive. V2 baseline decode/semantic admission must
+reject a larger generation as unsupported before projection binding, including
+2^53 and values beyond SQLite's signed range. Keep original encrypted bytes;
+no rounding, saturation, fabricated generation, SQL type/constraint change,
+head/receipt installation or cleanup follows that refusal. A future exact
+larger-range reader needs an explicit contract/adapter revision. The same
+safe-integer admission rule applies to any F05 uint64 fact mapped **directly**
+to a numeric projection column (record/schema revisions and counts included);
+CBOR bytes retained in a BLOB are not narrowed and retain their original full
+integer range. This documents the existing adapter's supported domain rather
+than changing the outer uint64 event/vault wire format. Boundary tests must
+include the supported maximum, max+1 and 2^63, with exact round-trip/copy for
+the maximum and preservation/no-write refusal beyond it.
 
 Those null combinations exactly match 005's existing CHECK. The explicit appId
 and app-key authenticated parent bind the scope to this app. Import scopes
