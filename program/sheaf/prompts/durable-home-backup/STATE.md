@@ -104,7 +104,7 @@ Graph sequencing decision (REPLAN-F05-GRAPH): S02 proves the complete graph curr
 
 Scoped Archivist AO6jT reviewed 9749c76 and implementation d75830d; returned two findings, no additional S02 ownership gap. Read-only raw final is preserved below and in .program/results/ARCHIVIST-F05-APPROVAL.result.md.
 
-- F05-APPROVAL-01: S03 CP2/J2 browser-worker clock mechanism unspecified; CAP-42/CA-37 proof prerequisite unready. Owner REPLAN-F05-REMINDER-CLOCK must specify exact real-worker clock control plus negative control and required paths before S03 dispatch; S03 implements and proves. This does not block S02.
+- F05-APPROVAL-01: S03 CP2/J2 browser-worker clock mechanism now specified; CAP-42/CA-37 proof still planned. Plan-only correction37303ce names actual Playwright worker.evaluate Date.now control, exact deadlines/restarts and page-only negative control in existing S03 fixture/spec lease. Orchestrator verified dynamic production worker Date.now lookup and unchanged ownership; planning gap closed, mechanism implementation/self-test/J2 still owned S03 CP2/4. Recheck landed S02 inputs before S03 dispatch. This does not block S02.
 - F05-APPROVAL-02: stale pending-policy architecture text superseded by narrow append 70f640c in M51-platform.md and F05-boundaries.md. Policy/design input ready, implementation/proofs still assigned. Closed as documentation input correction.
 - S02 may resume full CP3 under unchanged file lease with fresh r7 instruction envelope; CP1/CP2 and partial CP3 preserved. SAVE-S02 and J1 real-transport/build/restart/receipt assertions are assigned before their gates; provider and S06 future producer not prerequisites.
 - Independently rerun current typecheck and lint: exit 0, unchanged implementation through d75830d. No new J1/capability proof.
@@ -134,6 +134,8 @@ No known current hang was found in inspected F04 summaries; this statement is li
 `SHEAF_PW_PORT=<envelope port> pnpm test:browser <filter>` and `... pnpm test:e2e <filter>` (no bare `--`). playwright.config.ts webServer runs `pnpm build && pnpm preview --port <port> --strictPort`, reuseExistingServer=false, startup cap 180s. S07's new provider project must preserve this behavior. Build emits dist/index.html and dist/harness.html; real-entry tests use `/`, never harness.html. `window.__sheafBuildId` is defined by vite.config.ts from HEAD (or explicit SHEAF_BUILD_ID); compare it to the intended revision and record effective public config digest. For a precommit tree record source diff digest and rerun against the committed artifact before capability readiness is declared.
 
 BrowserContext creates isolated origin storage (actual sheaf-local IndexedDB). New page within the same context after page close demonstrates destroyed/restarted workers with persistent storage; do not close the context then claim preserved storage unless using a separately specified persistent profile. Cleanup must close pages/workers/database before deleting the test context/profile. Existing deleteLocalStore helper resolves on blocked deletion, so S02 owns its correction or uses guaranteed context disposal; blocked deletion is never evidence of erasure.
+
+S03 CP2 owns REMINDER-CLOCK-S03 in SESSION-03 at37303ce: worker.evaluate controls the actual built data-worker Date.now, exact dismissal boundaries and page-replacement/daily proofs, independent readback and page-only-clock negative control; separate real-clock journey retained. Fixture/spec are already leased, no production test API. Recheck after S02 lands; no proof passed yet.
 
 S02 owns the IO/file harness before J1; S06 owns compaction threshold control before J3; S07 owns worker-aware context HTTP routing, OAuth popup/callback and CSP checks before J4. There is no existing native application: the actual transport is browser MessagePort/RPC. External save/provider endpoints may be fixtures; encryption, mapping, commands, enforced identity, local storage and internal workers remain real.
 
@@ -264,7 +266,7 @@ Owner S02 CP3 harness, CP4 minimum persisted receipt/count readers plus first su
 
 ### J2 — reminder and status action coverage, CAP-41/42, CA-36/37/40
 
-Owner S03 CP1 producer, CP2 harness, CP4 integration. Planned `tests/e2e/scratch-reminders.spec.ts` and `tests/e2e/backup-status.spec.ts`, commands as exact filename stems under test:e2e. Real setup/import and UI mutations for record create/edit/delete, schema change, chart save/pin, theme. Each accepted authored command triggers once, not each internal event. Dismiss is nonblocking, persisted and respects DEC-71 after reopen; permanent scratch badge remains. No prompt on rejected command/draft/filter/TODAY refresh. Status+action assertions at shell tile/app frame/app home/settings/detail/readable reset; nullable time and literal zero covered. Save through J1 path updates all readers and stale reset confirmation is refused. Clock-controlled boundary tests in production worker harness supplement a real-entry UI clock test; no hours-long waits.
+Owner S03 CP1 producer, CP2 harness, CP4 integration. Planned `tests/e2e/scratch-reminders.spec.ts` and `tests/e2e/backup-status.spec.ts`, commands as exact filename stems under test:e2e. Real setup/import and UI mutations for record create/edit/delete, schema change, chart save/pin, theme. Each accepted authored command triggers once, not each internal event. Dismiss is nonblocking, persisted and respects DEC-71 after reopen; permanent scratch badge remains. No prompt on rejected command/draft/filter/TODAY refresh. Status+action assertions at shell tile/app frame/app home/settings/detail/readable reset; nullable time and literal zero covered. Save through J1 path updates all readers and stale reset confirmation is refused. REMINDER-CLOCK-S03 at37303ce specifies actual worker-realm control through Playwright Worker.evaluate in tests/e2e/fixtures/durability.ts, with browser self-tests and page-only negative control in scratch-reminders.spec.ts before CP2 proof. Exact 10m/1h/24h/daily pairs survive page replacement; separate unmodified real-clock journey retained. No hours-long waits. Mechanism/proof remains S03-owned future work.
 
 ### J3 — compaction→restart→restore→backup, CAP-44, CA-35/36/41
 
@@ -1245,3 +1247,33 @@ CP3’s focused gate passes: 10 files, 70 tests, with typecheck, lint, and build
   - `tests/unit/workers/backup-handlers.test.ts`
   - `tests/unit/workflows/durability.test.ts`
   - `tests/unit/workflows/module-boundaries.test.ts`
+
+
+### REPLAN-F05-REMINDER-CLOCK receive — 2026-09-24
+
+Accepted37303ce: two authorized plan files, all lease/dependency/resource/checkpoint invariants independently checked, diff check0. Specified future bridge uses current dynamic worker Date.now through Playwright actual-worker evaluation; no code, new lease or passing proof. F05-APPROVAL-01 planning closure; S03 CP2/4 still implements and proves after S02/J1. No arch delta. Raw final follows verbatim.
+
+I’ll read the replan envelope and repository instructions, then update only the authorized planning files while preserving S02’s active lease.
+
+
+The gap is in J2’s test harness: the production worker reads `Date.now()`, and the planned fixture does not yet exist. I’ll specify control through Playwright’s actual worker handle, with browser self-tests in S03’s existing lease. S02’s lease and instructions will stay unchanged.
+
+
+The revised prompt now specifies worker-realm `Date.now` control, exact deadline pairs, restart checks after every dismissal, and a page-only clock negative control. It also retains a separate real-clock journey. Both the mechanism and its browser self-tests fit S03’s existing lease; I’m checking plan consistency before committing.
+
+
+## Handoff
+
+- **Worker:** REPLAN-F05-REMINDER-CLOCK
+- **Status:** completed bounded replan
+- **Commit:** `37303ce3f45c8e84ca707c273b157caf979d784f`
+- **filesTouched:**
+  - `program/sheaf/prompts/durable-home-backup/SESSION-03.md`
+  - `program/sheaf/prompts/durable-home-backup/PLAN-CHECK.md`
+- **verification:** Mechanical checks passed: seven unchanged session front matters; Owns/Files/LEASES agreement; checkpoint counts and commit conditions; exact deadline arithmetic; `git diff --check`. Commit contains exactly the two authorized paths. No application tests, builds, or browser proofs executed.
+- **notes:** F05-APPROVAL-01 now has concrete actual-worker clock control, browser self-tests, exact deadlines, restart persistence, repeated daily dismissal, page-only negative control, and a separate real-clock journey. S03 retains four checkpoints and S02/J1 dependencies. Seven sessions remain.
+- **surprises:** Durability fixture is a future S02 output. Existing S03 ownership covers its extension and browser tests; `LEASES.json` remains unchanged.
+- **followUp:** Orchestrator reconciles STATE’s VB-02/J2, CAP-42, CA-37, and finding disposition. After fully receiving S02 r7, recheck landed worker/bootstrap/protocol/fixture contracts before S03 dispatch. S03 CP2 implements and proves the mechanism; CP4 reruns J2.
+- **needsOwnerCorrection:** none
+- **needsDesignSource:** none new
+- **blockedReason:** none for this replan; S03 still awaits S02/J1. Production reminder evidence remains planned.
