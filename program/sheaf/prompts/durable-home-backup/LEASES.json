@@ -18,12 +18,12 @@
       "tests/unit/crypto/**",
       "tests/unit/sync/protocol/**"
     ],
-    "concurrent": "—"
+    "concurrent": "\u2014"
   },
   {
     "n": 2,
     "title": "Create a vault and save the first encrypted bundle through the real app",
-    "mods": "M01 M07 M12 M23 M27 M30 M32 M33 M36 M37 M41 M42 M44 M46 M47 M51 M53 M54 M56 M60 M61",
+    "mods": "M01 M07 M08 M09 M12 M23 M24 M27 M30 M32 M33 M36 M37 M41 M42 M44 M46 M47 M51 M53 M54 M56 M60 M61",
     "deps": [
       1
     ],
@@ -161,7 +161,7 @@
       "tests/unit/workflows/recovery.machine.test.ts",
       "tests/unit/workflows/reset.machine.test.ts"
     ],
-    "concurrent": "—"
+    "concurrent": "\u2014"
   },
   {
     "n": 3,
@@ -267,7 +267,7 @@
       "tests/unit/workflows/schema-services.test.ts",
       "tests/unit/workflows/theme-services.test.ts"
     ],
-    "concurrent": "—"
+    "concurrent": "\u2014"
   },
   {
     "n": 4,
@@ -302,31 +302,39 @@
   {
     "n": 6,
     "title": "Compact encrypted history without losing restart or restoration",
-    "mods": "M07 M12 M23 M33 M35 M37 M44 M56 M57 M60 M61",
+    "mods": "M07 M09 M12 M23 M24 M33 M35 M37 M44 M56 M57 M60 M61",
     "deps": [
       2,
       3
     ],
     "owns": [
+      "src/application/ports/backup.ts",
       "src/application/ports/projection.ts",
       "src/application/queries/history.ts",
       "src/application/view-models/records.ts",
       "src/import/staging/roots.ts",
       "src/persistence/codecs/event-commit.ts",
       "src/persistence/projection/**",
+      "src/sync/protocol/frontier.ts",
+      "src/sync/protocol/publication.ts",
       "src/ui/records/change-history-screen.tsx",
       "src/workers/data/app-session.ts",
       "src/workers/data/backup-graph.ts",
+      "src/workers/data/backup-handlers.ts",
       "src/workers/data/compaction.ts",
       "src/workers/data/event-store.ts",
       "src/workers/data/handlers.ts",
       "src/workers/data/home-state.ts",
       "tests/browser/projection/fixtures/projection.entry.ts",
       "tests/browser/projection/fixtures/projection.worker.ts",
+      "tests/browser/sync/bundle.spec.ts",
       "tests/browser/sync/compaction.spec.ts",
       "tests/browser/sync/fixtures/**",
+      "tests/e2e/bundle-backup.spec.ts",
       "tests/e2e/compaction-backup.spec.ts",
       "tests/fixtures/vaults/f05/compaction/**",
+      "tests/fixtures/vaults/f05/generate.ts",
+      "tests/fixtures/vaults/f05/publication.ts",
       "tests/property/codecs/event-commit.test.ts",
       "tests/property/compaction/**",
       "tests/unit/codecs/event-commit.test.ts",
@@ -334,9 +342,13 @@
       "tests/unit/projection/**",
       "tests/unit/queries/history.test.ts",
       "tests/unit/staging/roots.test.ts",
+      "tests/unit/sync/protocol/fixtures.test.ts",
+      "tests/unit/sync/protocol/frontier.test.ts",
+      "tests/unit/sync/protocol/publication.test.ts",
       "tests/unit/ui/records/change-history-screen.test.tsx",
       "tests/unit/view-models/records.test.ts",
       "tests/unit/workers/backup-graph.test.ts",
+      "tests/unit/workers/backup-handlers.test.ts",
       "tests/unit/workers/compaction.test.ts",
       "tests/unit/workers/data-worker.ts",
       "tests/unit/workers/event-store.test.ts",
@@ -477,6 +489,6 @@
       "vite.config.ts",
       "vitest.config.ts"
     ],
-    "concurrent": "—"
+    "concurrent": "\u2014"
   }
 ]

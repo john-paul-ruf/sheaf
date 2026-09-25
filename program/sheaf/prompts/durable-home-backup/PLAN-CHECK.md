@@ -130,3 +130,59 @@ The original table above is retained as historical evidence. This table records 
 | `tests/unit/workflows/module-boundaries.test.ts` | `c1ff49b96725a8ab6b39235eb5291241919e0e648555a98a722b1d0bc9bfa6fe` |
 | `tests/unit/ui/architecture.test.ts` | `7509852a3edfa2355cbbccfb24ce9ec9f765db15fe48184790ab75419e5c7f28` |
 | `program/sheaf/specs/requirements.md` | `1829d63dfcc4f7147ef70aca58034da4e88f4a6ec51d814cd11809a33ebc2c69` |
+
+## REPLAN-F05-GRAPH — bounded correction, 2026-09-24
+
+Base HEAD `309313170b997d2546794c6173ebcabfbd44ac5f`; accepted S02 CP1 `03ee57104dbe10e99351e2e1808a2be5aacf21bd`. This is a six-file plan-only correction. No worker, source/test/package installation, protected Author edit, application test/build or external call. Preserved r4 implementation and its recovery patch/arch remain unaccepted. Source-backed map and protected decision recommendation are in STATE CA-35/41; source hashes below separate committed facts from proposed working APIs.
+
+**Disposition:** current named roots have fixed authenticated scope/kind; unique arbitrary two-field local retained refs do not. Remote migration006 refs already carry scope, and missing same-named local fields alone do not justify a migration. Database retention/branch contents are approved, while concrete nonempty local reference/page/descendant mapping is unresolved. GRAPH-CONTRACT requests scoped human/DB Author completion with exact compatibility consequences, not a Coder guess. S02 CP2 owns complete current-producer graph, covered-chain provenance, cursor coverage and production lifecycle with rejecting compatibility guard. S06 CP1 co-owns first nonempty candidate writers, codecs, graph reader, publication/frontier/backup-port consumers and fixtures; CP2 installs and proves chain/history/restore; CP4 J3 plus J1 regression. S06 remains blocked on accepted Author mapping and predecessor proofs. S02 may resume after Orchestrator recheck without requiring S06's future implementation. No assertion is dropped; unsupported content cannot publish or be cleaned up. CA-35 is unresolved for the nonempty extension; its current mapping is agreed in the expanded map, bounded readiness remains stale, and r4 evidence is inherited only.
+
+**Actual mechanical validation:** inline Python parsed all seven sessions and LEASES.json, compared front matter Modules/Owns/Depends/Concurrent against JSON and STATE, compared every Files row against its exact lease, checked 2–6 numbered checkpoints with commit conditions (28 total), ordered checkpoint 0 plus 1..n, acyclic dependency graph, mutual concurrency and literal/glob-prefix disjointness including hypothetical descendants. Every overlapping source lease is transitively serialized; S04/S05/S06 remain source-disjoint. Protected specs/mocks/migrations and shared planning/arch are absent from Coder leases. Raw STATE Handoff Notes equal the HEAD bytes. PASS. `git diff --check` on plan paths passed. Full-session shared dist/output reservations still serialize wave 4. No application readiness is inferred from these checks.
+
+**Consumer inventory and limits:** symbol search for BackupAppGraphV1/PublicationPortsV1/checkpointChains/readPublicationObject/buildPublicationCandidate/ProjectionAuthoredStatePort found backup/projection ports, worker exporter, publication and publication/graph tests plus f05 generate/publication fixtures. S06 additions cover shared implementation and paired regression paths serially after S02/S03; J1 bundle assertion files are leased to S06 for its reader changes. This is a symbol-consumer inventory, not a module runtime-edge derivation. S02's later IO/bundle consumers do not yet exist at base; Coder/Orchestrator must recheck their landed uses before S06, with Controlled Lease Revision for new mechanical consumers. Known present consumers are already assigned; this does not defer an inspected connection.
+
+**Verification limits:** attempt4's 22 files/178 tests, typecheck/lint and source-inventory digest are historical component evidence only. No rerun here. Current unsupported branches are negative guard evidence, not positive recovery. GRAPH-S02/GRAPH-S06 specify planned exact gates under inspected Vitest/Playwright configuration; fresh browser artifact identity and actual IndexedDB/MessagePort journey remain J1/J3. Ledger's older active-worker/clean-source claim is stale versus ended CaVon and preserved uncommitted files; Orchestrator refreshes it from STATE. No unavailable external review is claimed reconciled; unrelated historical review findings were not re-audited by this graph-only correction.
+
+**Granularity and dispatch:** seven sessions and 28 checkpoints retained. The correction closes a repeated decomposition seam by moving the first nonempty writer, reader and its gate into the same S06 CP1, while keeping S02's coherent current graph/cursor/lifecycle proof. Coder checks its committed CP1 mapping before CP2; Orchestrator is awaiting the session and rechecks canonical agreement on receive, not via a mid-session handshake. No new bookkeeping/verification-only session. DEC-71/72, design/provider inputs and release/demo choices remain open.
+
+### GRAPH checked-source identities
+
+| Source | Identity class at base | SHA-256 |
+|---|---|---|
+| `.program/prompts/REPLAN-F05-GRAPH.prompt.md` | untracked/ignored evidence or proposed source | `7246a17bc608d26c2638cab39cc5ec7a49924a900a43487e29ccb5d8096a3ce5` |
+| `.program/results/F05-SESSION-02.attempt4.result.md` | untracked/ignored evidence or proposed source | `f9f46e9f1f53c6c207a30d1d592f8107982400cc8be46e36932f5ab73dbe15e3` |
+| `.program/results/F05-SESSION-02.cp2-unaccepted.arch.md` | untracked/ignored evidence or proposed source | `27f93b0c43a90eaf5a2f1713cbb501974b19cb6ffbc80e14f8a7486f4dbcf5a2` |
+| `.program/recovery/F05-S02-r4.patch` | untracked/ignored evidence or proposed source | `e724c8b8bea807f352e6a2985aefcfd81d9fb8fa6e1a98dc0285c0e6b916b5e2` |
+| `.program/ledger.md` | untracked/ignored evidence or proposed source | `7f379454c1b0d626ba40d5e0852f271fa74a89ee1593112ef0abe278d56218b2` |
+| `.program/blockers.md` | untracked/ignored evidence or proposed source | `ffca546d4f2ae0c92f0f009059e16554e6d3886c8c4e69a8ed05d680ca4f5f31` |
+| `program-agents/PLANNER.md` | untracked/ignored evidence or proposed source | `c6d339fafa260894bec9c0a58454d3048918285475b24240bfb2bb5cc4ac174a` |
+| `program/sheaf/PROGRAM-CONFIG.md` | working/unaccepted or pre-existing modified metadata | `0e5c9f5debc0c0d3a521a353ae77880ee58d1786677be4e0214fa9facc205cf6` |
+| `program/sheaf/specs/database.md` | committed HEAD | `3fe78703aa080f53e6cf96e894339e11975ca41ce597018399dbd786d7e0acf8` |
+| `program/sheaf/specs/architecture.md` | committed HEAD | `d11d6e447a6d1d80e9179e7db3646387e5b5f7b413a2f02cfafab9dfb074f8d8` |
+| `src/migrations/003_envelope_format_v1.ts` | committed HEAD | `c86e4fac3483eac5c15baf496773c0504a7e934ac2e0a6ce7594dc58167dc4d7` |
+| `src/migrations/004_event_format_v1.ts` | committed HEAD | `1cc01930698182e37bca7eef7e9e89d306ccbd5dfae220a21b995a912f670b26` |
+| `src/migrations/006_vault_format_v1.ts` | committed HEAD | `6c0da244ee57860a73e168de55582a2f360148e3a62937881b761a8f95253b6e` |
+| `src/import/staging/roots.ts` | committed HEAD | `0a91fa5b6cf9197338ee12f9fcdb0566738771e959af2adbea30d0ee700a2577` |
+| `src/import/staging/promotion.ts` | committed HEAD | `6fdda1cf9dd056ab52090319d339e0256abbba46d218b724c01a665d62d480cf` |
+| `src/import/staging/append.ts` | committed HEAD | `295be8aabc1c76a61ede97298239cb96952d88691aaf2f9a816543f8c54a45a9` |
+| `src/workers/data/home-state.ts` | committed HEAD | `201d18cff63581669083af6327d4ef6ff237d506a33b97e6ce461d4e1ab79e64` |
+| `src/workers/data/event-store.ts` | committed HEAD | `04c2e962961a4903fa02f4f4d0dd0d51081ed63b1b892a03b9a9c002ca939150` |
+| `src/workers/data/backup-handlers.ts` | working/unaccepted or pre-existing modified metadata | `d634cc940d001855a1319e66ac2539900391b292c0ac6f99b01b8364538bc144` |
+| `src/workers/data/backup-graph.ts` | untracked/ignored evidence or proposed source | `7fe8b97a9d2ed0820b6fdae58e6f90fd4d7242cacc26107189d6329f57f41fd2` |
+| `src/workers/data/handlers.ts` | committed HEAD | `f6f6715921d9835d054ff5451dffa264f9b6f49c5ebd1278786c00af44c9346f` |
+| `src/workers/data/app-session.ts` | working/unaccepted or pre-existing modified metadata | `71a13c17b94708b3cf844e4dcf952dd716455d33a844567251885a3d5b8cecb5` |
+| `src/application/ports/backup.ts` | working/unaccepted or pre-existing modified metadata | `99b8f4257f1937adbc6c0b80163721507b262412cfa6ced4ee09f0dc03868c84` |
+| `src/application/ports/projection.ts` | working/unaccepted or pre-existing modified metadata | `61b1e7cc6a2d653480b95fce5207c98754f1494452e0bee63e313c32d6876dd2` |
+| `src/persistence/projection/authored-state.ts` | untracked/ignored evidence or proposed source | `ad1c66d6664e9913a59fa0e7299b46416e782162df56b253e304acc2fad74e14` |
+| `src/persistence/projection/hydrate.ts` | working/unaccepted or pre-existing modified metadata | `fbc584fc72d40b0f0e359e94e5a6fa5364610ae502e60afed6ea9737c4c3680e` |
+| `src/sync/protocol/references.ts` | committed HEAD | `275dcfadc294084db95319d6e251c11e51471015ea56ecc65c0f38e6358d2e61` |
+| `src/sync/protocol/frontier.ts` | working/unaccepted or pre-existing modified metadata | `bdf096c7e17f0ae2cfdde28eefc987cee4ccb8b5120daf03f3a1d8045be54f21` |
+| `src/sync/protocol/publication.ts` | working/unaccepted or pre-existing modified metadata | `bc8609c7cbcb83f020146db46c78fe303dacd70d576e19a1de0927f85dd52911` |
+| `tests/unit/workers/backup-graph.test.ts` | untracked/ignored evidence or proposed source | `660e4191dd4773e95ab9a4a2f06924b68a26cf3c483bff984c386175756312b0` |
+| `tests/unit/workers/backup-handlers.test.ts` | committed HEAD | `0c12988cfa1e5d56992d29cbc865c8b70277fc1e7d49f97936446f38598e2441` |
+| `tests/unit/workers/projection-port.test.ts` | committed HEAD | `781df05a8d62c4d5133ae969a6404545c6a801f558d6eab6f6859093b082b5e8` |
+| `package.json` | committed HEAD | `56c4827fe19db45651c92f0a9f3091aa19463ed40155807db5d32155d7abb11d` |
+| `vitest.config.ts` | committed HEAD | `27f7e0cb566a99b4680cab6355088d3989934ff7ce0e25fb99f8cdaae2512407` |
+| `playwright.config.ts` | committed HEAD | `53d0c3be34ac3df5c92f96972269a2eb8f654aece07e92dbb654b8829b80cb9c` |
+
+Final precommit verification: all 31 pre-existing modified/untracked files retained identical SHA-256, including all uncommitted implementation, PROGRAM-CONFIG/ROADMAP edits and arch seeds. Final lease/DAG/checkpoint checks repeated after edits; canonical table shapes and GRAPH blocker placement checked. PASS. Only the six envelope paths are staged/committed; historical Handoff Notes remain identical.
