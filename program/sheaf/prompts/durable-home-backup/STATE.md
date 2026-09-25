@@ -431,6 +431,10 @@ S06 r5 declared-blocked with23uncommitted files; exact full-file recovery snapsh
 
 r6 ended context-exhausted, first nondeclarative exhaustion on this CP1 shape. No checkpoint commit;25file partial inventory3bf69d9f465e8ecfbbee9c0af807f38dde603eb537acb55b2517b64f8d727a44 independently matched and preserved in .program/recovery/F05-S06-r6.tar.gz, including additions and unaccepted arch. Prior r5 recovery directory was archived and byte-verified then removed from scratch to avoid root lint scanning copied TS; original source untouched. Fresh recovery1 under unchanged71path lease r4/instructionr7 owns remaining CP1 evidence replay/effects/proof and CP2–4. No new Author/lease input missing. All nonempty capability proof remains pending.
 
+## Baseline Author clarification receive — 2026-09-25
+
+Recovery1 r7 returned a declared Author seam before writing; all25files still match3bf69d9f465e. This is not a second context exhaustion. Root DB under standing explicit approval committed17a73ae: V1 reason-not-recorded compatibility, actual original import-scope authority, V2 complete encrypted baseline scope/entry, consumer assertion cannot supply missing facts, ambiguous legacy non-import reconstruction rejects/preserves. CA35/41 accepted source now afe37f3+91ad694+17a73ae. S06CP1 codec/real projection/vault-only proof, CP2continuity remain planned; F06 owns real durable-home baseline establishment. Delta review pending before resumed dispatch; no new product or destructive choice.
+
 ## Handoff Notes
 
 ### Orchestrator preflight receive — 2026-09-24
@@ -2184,4 +2188,41 @@ The worker import journey passed all 7 tests on the fresh build, and the served 
   - `tests/unit/projection/compaction.test.ts`
   - `tests/unit/workers/backup-graph.test.ts`
   - `tests/unit/workers/record-event-payloads.test.ts`
+
+
+
+### SESSION-06 r7 receive — baseline Author seam
+
+Native ended with no code changes or commits;25preserved hashes independently match. Exact probe demonstrates missing baseline metadata, not SQL lifecycle defect. Author supplied17a73ae under existing approval; unchanged lease, scoped review then same recovery context resumes.
+
+I acknowledge lease r4 and instruction revision r7. I’ll read the recovery evidence and current sources, preserve the partial CP1 work, and resume from the open checkpoint without resetting or reapplying it.
+
+
+The recovery inventory matches the open checkpoint. The payload decoder and conflict-page writer are present, but production replay still rejects those evidence events. I’m tracing replay and SQL reconstruction so the candidate proof uses validated original events rather than copied fixture rows.
+
+
+I found a possible contract gap in baseline reconstruction: `BaselinePageV1` stores scope ID, row state and values, but SQL reconstruction also requires scope authority, frontier and an absence reason. I’m checking the original import and evidence payloads for those facts before deciding whether this is implementation work or needs an Author clarification.
+
+
+The import commit supplies authority for original present baselines. The remaining gap is narrower: an accepted legacy `absent` row has no reason in its page and need not have a conflict event supplying one. The existing graph regression accepts that case, while SQL requires a nonempty reason. I’ll return this contract discrepancy for a bounded clarification; the replay adapter remains S06’s assigned work.
+
+
+## Handoff
+
+- **session:** SESSION-06
+- **status:** blocked
+- **checkpoint:** 0/4 accepted; CP1 remains open. No checkpoint commits.
+- **notes:** Lease r4/instruction r7 acknowledged at `6fc40b311521bbfe6d7de27f592c4af2fcf4c36c`. All six instruction hashes match. All 25 preserved implementation files remain byte-identical to the recovery inventory. CAP-44 and CA-35/36/40/41 acceptance remains pending.
+- **delivered:** Read-only recovery inspection and a reproducible baseline-contract discrepancy. Evidence: [recovery1-baseline-contract.json](/Users/the.phoenix/WebstormProjects/sheaf/test-results/f05/s06/recovery1-baseline-contract.json).
+- **verification:** `pnpm exec vitest run tests/unit/workers/backup-graph.test.ts -t 'reconstructs authored schema, provenance and restoration'` → exit 0; **1 file, 1 passed, 5 filtered**. Read-only codec probe confirmed an `absent` baseline round-trips without a reason; adding `absentReason` rejects as an unexpected field. No candidate, installed, build or browser acceptance claimed.
+- **surprises:** `BaselinePageV1` stores only scope ID and row identity/state/values. An accepted legacy absent row need not have any conflict event supplying its reason. Yet migration005 requires nonempty `baseline_records.absent_reason`. The existing graph regression accepts precisely that reasonless absent-row case. Original import authority is recoverable; this discrepancy concerns missing metadata beyond that mapping.
+- **followUp:** Preserve the 25-file partial implementation and unaccepted architecture fragment. Typed evidence replay, effect validation and CP1–4 remain S06 work. Resume after the baseline compatibility disposition is explicit.
+- **needsOwnerCorrection:** DB/Author and Planner must specify authoritative origins or a compatibility disposition for:
+  - Legacy absent-row reasons missing from `src/import/staging/roots.ts`’s exact baseline wire format.
+  - Durable-home baseline scope metadata—home, counterpart and established generation—required by migration005 but absent from both `BaselinePageV1` and `BaselineEvidenceV1`.
+  
+  Reconcile `program/sheaf/specs/database.md` and SESSION-06’s baseline reconstruction proofs. No SQL relaxation, fabricated defaults or lease expansion is proposed.
+- **needsDesignSource:** —
+- **blockedReason:** Required CA-35/41 baseline reconstruction cannot preserve facts absent from the authenticated source. Copying fixture SQL rows or treating a conflict’s asserted metadata as independent baseline authority would not establish the required vault-only proof.
+- **filesTouched:** No implementation files changed or committed. Created only the allowed administrative evidence file `test-results/f05/s06/recovery1-baseline-contract.json`.
 
